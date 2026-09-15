@@ -7,6 +7,7 @@ struct EntryEditorView: View {
     @Environment(SettingsStore.self) private var settings
     @Environment(TranscriptionCoordinator.self) private var transcription
     @Environment(EditorPresence.self) private var presence
+    @Environment(AIPassTrigger.self) private var aiPass
     @State private var entry: Entry?
     @State private var editingDate = false
     @FocusState private var editorFocused: Bool
@@ -16,7 +17,46 @@ struct EntryEditorView: View {
     }
 
     var body: some View {
-        VStack(spacing: 0) {
+        TextEditor(text: textBinding)
+            .focused($editorFocused)
+            .padding(.horizontal)
+            .accessibilityIdentifier("entryEditor")
+            // Everything above the text sits in a top inset rather than a stack, so the text view keeps
+            // its full height and a tap in the empty space below short text puts the cursor at the end.
+            .safeAreaInset(edge: .top, spacing: 0) {
+                header
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(.background)
+            }
+        .navigationTitle(title)
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            if entry != nil {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Entry date", systemImage: "calendar") { editingDate = true }
+                        .accessibilityIdentifier("entryDateButton")
+                }
+            }
+        }
+        .sheet(isPresented: $editingDate) {
+            if let entry {
+                EntryDateSheet(entry: entry) { saver.noteChange() }
+                    .presentationDetents([.medium, .large])
+            }
+        }
+        .onAppear {
+            if let entry {
+                presence.open(entry.id)
+            } else {
+                editorFocused = true
+            }
+        }
+        .onDisappear(perform: close)
+    }
+
+    @ViewBuilder
+    private var header: some View {
+        VStack(alignment: .leading, spacing: 0) {
             if saver.lastError != nil {
                 Label("Couldn't save. Your text is still here and will be saved on your next change.", systemImage: "exclamationmark.triangle")
                     .font(.footnote)
@@ -46,44 +86,22 @@ struct EntryEditorView: View {
                     .padding(.horizontal)
                     .padding(.top, 8)
             }
-            TextEditor(text: textBinding)
-                .focused($editorFocused)
-                .padding(.horizontal)
-                .accessibilityIdentifier("entryEditor")
-                .overlay(alignment: .topLeading) {
-                    if let entry, entry.awaitingText, entry.text.isEmpty {
-                        Text("Text from your recording will appear here. You can also start typing.")
-                            .foregroundStyle(.secondary)
-                            .padding(.horizontal, 21)
-                            .padding(.top, 8)
-                            .allowsHitTesting(false)
-                    }
-                }
-        }
-        .navigationTitle(title)
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            if entry != nil {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button("Entry date", systemImage: "calendar") { editingDate = true }
-                        .accessibilityIdentifier("entryDateButton")
-                }
+            TextField(entry.map(\.displayTitle) ?? "Title", text: titleBinding)
+                .font(.title3.weight(.semibold))
+                .padding(.horizontal, 21)
+                .padding(.top, 8)
+                .submitLabel(.next)
+                .onSubmit { editorFocused = true }
+                .accessibilityIdentifier("entryTitleField")
+            if let entry, entry.awaitingText, entry.text.isEmpty {
+                Text("Text from your recording will appear here. You can also start typing.")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 21)
+                    .padding(.top, 4)
             }
+            Spacer().frame(height: 4)
         }
-        .sheet(isPresented: $editingDate) {
-            if let entry {
-                EntryDateSheet(entry: entry) { saver.noteChange() }
-                    .presentationDetents([.medium, .large])
-            }
-        }
-        .onAppear {
-            if let entry {
-                presence.open(entry.id)
-            } else {
-                editorFocused = true
-            }
-        }
-        .onDisappear(perform: close)
     }
 
     // The entry is created on the first non-empty change, so opening and leaving a new entry leaves nothing behind.
@@ -98,6 +116,28 @@ struct EntryEditorView: View {
                 } else {
                     guard !newValue.isEmpty else { return }
                     let created = Entry(text: newValue)
+                    modelContext.insert(created)
+                    entry = created
+                    presence.open(created.id)
+                    DiagnosticsLog.shared.record("entry.created", ["id": .id(created.id), "source": .string(created.source.rawValue)])
+                }
+                saver.noteChange()
+            }
+        )
+    }
+
+    // Like the text, typing a title into a new entry creates it.
+    private var titleBinding: Binding<String> {
+        Binding(
+            get: { entry?.title ?? "" },
+            set: { newValue in
+                if let entry {
+                    guard entry.title != newValue else { return }
+                    entry.userDidEditTitle(newValue)
+                } else {
+                    guard !newValue.isEmpty else { return }
+                    let created = Entry()
+                    created.userDidEditTitle(newValue)
                     modelContext.insert(created)
                     entry = created
                     presence.open(created.id)
@@ -202,8 +242,11 @@ struct EntryEditorView: View {
             ])
             if deleted {
                 self.entry = nil
+            } else {
+                aiPass.fire(for: entry, at: .editorClosed)
             }
         }
         saver.flush()
+        aiPass.onFlagged?()
     }
 }

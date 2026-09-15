@@ -51,6 +51,43 @@ extension Entry {
     }
 }
 
+// MARK: - Title
+
+extension Entry {
+    static let derivedTitleLength = 60
+
+    // What lists and the editor show: the title, or the first line of text cut at a word.
+    var displayTitle: String {
+        if !title.isEmpty { return title }
+        let firstLine = text.split(whereSeparator: \.isNewline)
+            .lazy
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .first { !$0.isEmpty } ?? ""
+        guard !firstLine.isEmpty else { return "Untitled" }
+        guard firstLine.count > Self.derivedTitleLength else { return firstLine }
+        let cut = firstLine.prefix(Self.derivedTitleLength)
+        if let space = cut.lastIndex(of: " ") {
+            return cut[..<space].trimmingCharacters(in: .whitespaces) + "…"
+        }
+        return cut + "…"
+    }
+
+    // A generated title only fills an empty title or replaces another generated one.
+    @discardableResult
+    func applyGeneratedTitle(_ generated: String) -> Bool {
+        guard !generated.isEmpty, title.isEmpty || titleWasGenerated else { return false }
+        title = generated
+        titleWasGenerated = true
+        return true
+    }
+
+    // Clearing the field hands the title back to generation, since an empty title can be filled.
+    func userDidEditTitle(_ newTitle: String) {
+        title = newTitle
+        titleWasGenerated = false
+    }
+}
+
 // MARK: - Entry date
 
 extension Entry {

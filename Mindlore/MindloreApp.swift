@@ -27,7 +27,9 @@ struct MindloreApp: App {
         }
         diagnostics.record("app.launch", launch)
 
-        let settingsStore = SettingsStore(onDeviceTitlesAvailable: { FoundationModelsAvailability.isAvailable })
+        // UI tests run against whatever model the simulator's host offers; keep them deterministic.
+        let uiTesting = arguments.contains(StoreLocation.uiTestingArgument)
+        let settingsStore = SettingsStore(onDeviceTitlesAvailable: { !uiTesting && FoundationModelsAvailability.isAvailable })
         settingsStore.recordAutomationStartIfNeeded()
         _settings = State(initialValue: settingsStore)
         _accounts = State(initialValue: ProviderAccountStore(settings: settingsStore))

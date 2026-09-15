@@ -107,16 +107,29 @@ private struct EntryRow: View {
             EntryAddedText(entry: entry)
                 .font(.caption)
                 .foregroundStyle(.secondary)
-            Text(preview)
-                .lineLimit(2)
-                .foregroundStyle(entry.text.isEmpty ? .secondary : .primary)
+            Text(entry.text.isEmpty && entry.title.isEmpty ? "No text yet" : entry.displayTitle)
+                .font(.headline)
+                .lineLimit(1)
+                .foregroundStyle(entry.text.isEmpty && entry.title.isEmpty ? .secondary : .primary)
+            // The preview is skipped when it would just repeat the headline.
+            if let preview, preview != entry.displayTitle {
+                Text(preview)
+                    .lineLimit(2)
+                    .foregroundStyle(.secondary)
+            }
         }
         .padding(.vertical, 2)
+        .accessibilityIdentifier("entryRow")
     }
 
-    private var preview: String {
-        let firstLine = entry.text.split(whereSeparator: \.isNewline).first.map(String.init) ?? ""
-        return firstLine.isEmpty ? "No text yet" : firstLine
+    private var preview: String? {
+        let lines = entry.text.split(whereSeparator: \.isNewline).map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+        guard let first = lines.first else { return nil }
+        // Without a title the first line is already the headline, so preview what follows it.
+        if entry.title.isEmpty {
+            return lines.count > 1 && first.count <= Entry.derivedTitleLength ? lines[1] : (first.count > Entry.derivedTitleLength ? first : nil)
+        }
+        return first
     }
 }
 
@@ -130,5 +143,6 @@ private struct EntryRow: View {
         .environment(RecordingIngestor())
         .environment(TranscriptionCoordinator())
         .environment(EditorPresence())
+        .environment(AIPassTrigger(settings: SettingsStore(store: UserDefaults(suiteName: "preview")!), presence: EditorPresence(), titleUsable: { false }))
         .environment(SettingsStore(store: UserDefaults(suiteName: "preview")!))
 }

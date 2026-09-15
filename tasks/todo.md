@@ -372,15 +372,21 @@ Each phase is a commit or small series, unit tests pass before commit (`-only-te
 - [x] Implementation notes: `EditorPresence` is keyed by `Entry.id`, because a new entry's `persistentModelID` is temporary until its first save. Silent chunks of a long recording are skipped rather than failing the entry. Stored failures use `ai.<AIError case>` or `speech.<TranscriptionError case>`.
 
 ### Phase 6: Titles and the automatic pass
-- [ ] `Entry.displayTitle`; `Entry+Editing`: `applyGeneratedTitle(_:) -> Bool`, `userDidEditTitle(_:)`.
-- [ ] `AIPassTrigger`: the full eligibility rule including the photo condition (`pagesConfirmed`, not awaiting review), the four moments, one save setting `automaticAIPassUsed` and the pending flags. This phase sets `titlePending`; Phase 9 adds `insightsPending`; Phase 8 calls the approval moment.
-- [ ] `FoundationModelsTextGenerator` (`@Generable` title, truncation to the context window, availability reasons mapped; `modelNotReady` retryable).
-- [ ] `TitleCoordinator` over `AIJobPolicy`; skips open entries; captures `contentRevision` with the request and drops the result if it moved; `runAI(for:)` entry point (the button comes in Phase 11).
-- [ ] `EntryEditorView`: title `TextField` above the text, `displayTitle` placeholder, title binding that creates the entry when needed; editor close calls `AIPassTrigger`.
-- [ ] `EntryRow`: `displayTitle` headline, preview hidden when it repeats the headline, accessibility identifiers. `ContinuousSaveUITests` (`:24`, `:37`, `:47`, `:87`) updated to the identifiers.
-- [ ] `RootView`: title lane at launch (sweep, then queue), environment wiring; `#Preview` environments updated.
-- [ ] Diagnostics: `ai.pass` (entry id, jobs flagged, moment), `title.started/completed/discarded/failed/unavailable`.
-- [ ] Tests: `displayTitle` cases; title rules; new entry created from the title field; pass fires once across close, reopen, close; pass fires for a voice entry the user typed into; launch sweep catches a killed typed entry; no pass before `automationStartedAt`; pass consumed with the generator off; a backdated entry created today still gets its pass; coordinator waits while the entry is open; a title result is dropped when `contentRevision` moved during the request; an unconfirmed or unapproved photo entry is never eligible (built with fixture pages, no UI); `off` never calls a generator; unavailable model records the reason; `modelNotReady` retries up to the cap.
+- [x] `Entry.displayTitle`; `Entry+Editing`: `applyGeneratedTitle(_:) -> Bool`, `userDidEditTitle(_:)`.
+- [x] `AIPassTrigger`: the full eligibility rule including the photo condition (`pagesConfirmed`, not awaiting review), the four moments, one save setting `automaticAIPassUsed` and the pending flags. This phase sets `titlePending`; Phase 9 adds `insightsPending`; Phase 8 calls the approval moment.
+- [x] `FoundationModelsTextGenerator` (`@Generable` title, truncation to the context window, availability reasons mapped; `modelNotReady` retryable).
+- [x] `TitleCoordinator` over `AIJobPolicy`; skips open entries; captures `contentRevision` with the request and drops the result if it moved; `runAI(for:)` entry point (the button comes in Phase 11).
+- [x] `EntryEditorView`: title `TextField` above the text, `displayTitle` placeholder, title binding that creates the entry when needed; editor close calls `AIPassTrigger`.
+- [x] `EntryRow`: `displayTitle` headline, preview hidden when it repeats the headline, accessibility identifiers. `ContinuousSaveUITests` (`:24`, `:37`, `:47`, `:87`) updated to the identifiers.
+- [x] `RootView`: title lane at launch (sweep, then queue), environment wiring; `#Preview` environments updated.
+- [x] Diagnostics: `ai.pass` (entry id, jobs flagged, moment), `title.started/completed/discarded/failed/unavailable`.
+- [x] Tests: `displayTitle` cases; title rules; new entry created from the title field; pass fires once across close, reopen, close; pass fires for a voice entry the user typed into; launch sweep catches a killed typed entry; no pass before `automationStartedAt`; pass consumed with the generator off; a backdated entry created today still gets its pass; coordinator waits while the entry is open; a title result is dropped when `contentRevision` moved during the request; an unconfirmed or unapproved photo entry is never eligible (built with fixture pages, no UI); `off` never calls a generator; unavailable model records the reason; `modelNotReady` retries up to the cap.
+- [x] Implementation notes:
+  - Title requests are plain text with no schema, for both engines (the on-device generator ignores schemas); `TitleCoordinator.clean` strips quotes, labels, and trailing punctuation. This replaces the planned `@Generable` title type.
+  - A title that finishes while its entry is open is held in memory and applied when the entry closes, so the editor never changes under the cursor.
+  - On-device titles are off under `-uiTesting`, because the simulator can run the host Mac's model and UI tests must be deterministic.
+  - The editor's header (banners, audio player, title field) is a top `safeAreaInset` on the text view instead of a stack above it. Stacked above, a tap in the empty space below short text put the cursor at the start; the probe confirmed the Phase 5 layout didn't have this, and the inset restores it for every entry type.
+  - UI test `TitleUITests`: a title-only entry survives closing and relaunch.
 
 ### Phase 7: Photo capture and page order
 - [ ] `NSCameraUsageDescription` (both configurations): "Mindlore uses the camera to photograph journal pages."

@@ -108,7 +108,7 @@ enum AIJobPolicy {
 }
 
 // A stored failure: "ai.<AIError case>" or "speech.<TranscriptionError case>". Never includes text.
-nonisolated struct AIJobFailure: Equatable, Sendable {
+nonisolated struct AIJobFailure: Error, Equatable, Sendable {
     let raw: String
 
     init(raw: String) {
@@ -127,11 +127,19 @@ nonisolated struct AIJobFailure: Equatable, Sendable {
         }
     }
 
+    init(_ error: OnDeviceModelError) {
+        switch error {
+        case .unavailable(let reason): self.init(raw: "device.\(reason.rawValue)")
+        case .generationFailed: self.init(raw: "device.generationFailed")
+        }
+    }
+
     // Anything thrown on an AI path, reduced to a stored failure.
     init(any error: any Error) {
         switch error {
         case let error as AIError: self.init(error)
         case let error as TranscriptionError: self.init(error)
+        case let error as OnDeviceModelError: self.init(error)
         default: self.init(raw: "speech.analysisFailed")
         }
     }
@@ -146,6 +154,9 @@ nonisolated struct AIJobFailure: Equatable, Sendable {
     }
 
     var isRetryable: Bool {
+        // The on-device model may still be downloading; everything else about it won't change by retrying.
+        if raw == "device.modelNotReady" { return true }
+        if raw.hasPrefix("device.") { return false }
         if let aiError { return aiError.isRetryable }
         return transcriptionError.map { !$0.isPermanent } ?? false
     }
@@ -155,6 +166,12 @@ nonisolated struct AIJobFailure: Equatable, Sendable {
     }
 
     var userMessage: String {
-        transcriptionError?.userMessage ?? "Something went wrong."
+        switch raw {
+        case "device.deviceNotEligible": return "This iPhone can't run Apple's on-device model. Choose OpenAI for titles in Settings, or type a title."
+        case "device.appleIntelligenceNotEnabled": return "Turn on Apple Intelligence in Settings to generate titles on this iPhone."
+        case "device.modelNotReady": return "Apple's on-device model is still downloading. Mindlore will try again later."
+        case "device.generationFailed", "device.unknown": return "The on-device model couldn't write a title for this entry."
+        default: return transcriptionError?.userMessage ?? "Something went wrong."
+        }
     }
 }
