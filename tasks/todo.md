@@ -337,18 +337,19 @@ Each phase is a commit or small series, unit tests pass before commit (`-only-te
 - [x] UI test `EntryDateUITests`: backdate a new entry through the picker, relaunch, the list shows it with "Added ...".
 
 ### Phase 3: HTTP layer and OpenAI-compatible clients
-- [ ] `HTTPClient` protocol (`nonisolated`), `URLSessionHTTPClient` with the timeouts above and a per-task delegate that captures the task so `countOfBytesSent` is available on failure, `FakeHTTPClient` in tests (can report bytes sent).
-- [ ] `AIError` with `offline` (matching code and zero bytes sent) and `network` split, `OpenAIErrorMapper` (status, `error.code`, `error.param`), `DecodingError` and `URLError` mapping.
-- [ ] `TextGenerator`, `TextRequest` (with optional images), `TextResult` (token counts, finish reason).
-- [ ] `JSONSchema` value type: portable subset, strict-mode encoding, nullable enums including `null`, field descriptions.
-- [ ] `OpenAICompatibleTextGenerator`: Chat Completions strict schema, image content parts; JSON-mode retry only for a `response_format` rejection; `outputTruncated` on `finish_reason: "length"`.
-- [ ] `StructuredOutputParser`.
-- [ ] `OpenAICompatibleModelList`: `GET /models`.
-- [ ] `OpenAICompatibleTranscriber: Transcriber`: m4a conversion for non-m4a input, multipart upload; declares limits.
-- [ ] `PageTranscriber`, `PageRequest` (image, previous page tail, page number), `PageResult` (`text`, `writtenDate`), `OpenAICompatiblePageTranscriber` over the text generator with the verbatim prompt and `{text, writtenDate}` schema.
-- [ ] `PageImageProcessor` (`nonisolated`, one image at a time): ImageIO downsampling with orientation applied, storage JPEG (long edge 2400), thumbnail JPEG (~400), upload JPEG (long edge 2048), pixel dimensions. Never decodes a full-resolution bitmap it doesn't need.
-- [ ] Tests: exact request shape per endpoint against fixtures (URL, method, headers, multipart parts, JSON body, image content parts with data URLs); nullable enum encoding; response decoding; every `AIError` mapping including offline versus network (same URL error code with and without bytes sent); JSON-mode retry only for `response_format` 400s; `length` finish reason; parser cases; CAF converted before upload; empty transcription becomes `noSpeechDetected`; page prompt includes the previous tail; partial or invalid `writtenDate` becomes nil; image processor output sizes and orientation on fixture images (EXIF-rotated JPEG and HEIC).
-- [ ] `OpenAILiveTests`, skipped unless `MINDLORE_OPENAI_KEY` is set: model list, one tiny structured call, one short audio transcription, one page image transcription. Confirms model IDs, image input, and the input token count for a 2048 px page at high detail (to confirm the upload size isn't wasted).
+- [x] `HTTPClient` protocol (`nonisolated`), `URLSessionHTTPClient` with the timeouts above and a per-task delegate that captures the task so `countOfBytesSent` is available on failure, `FakeHTTPClient` in tests (can report bytes sent).
+- [x] `AIError` with `offline` (matching code and zero bytes sent) and `network` split, `OpenAIErrorMapper` (status, `error.code`, `error.param`), `DecodingError` and `URLError` mapping.
+- [x] `TextGenerator`, `TextRequest` (with optional images), `TextResult` (token counts, finish reason).
+- [x] `JSONSchema` value type: portable subset, strict-mode encoding, nullable enums including `null`, field descriptions.
+- [x] `OpenAICompatibleTextGenerator`: Chat Completions strict schema, image content parts; JSON-mode retry only for a `response_format` rejection; `outputTruncated` on `finish_reason: "length"`.
+- [x] `StructuredOutputParser`.
+- [x] `OpenAICompatibleModelList`: `GET /models`.
+- [x] `OpenAICompatibleTranscriber: Transcriber`: m4a conversion for non-m4a input, multipart upload; declares limits.
+- [x] `PageTranscriber`, `PageRequest` (image, previous page tail, page number), `PageResult` (`text`, `writtenDate`), `OpenAICompatiblePageTranscriber` over the text generator with the verbatim prompt and `{text, writtenDate}` schema.
+- [x] `PageImageProcessor` (`nonisolated`, one image at a time): ImageIO downsampling with orientation applied, storage JPEG (long edge 2400), thumbnail JPEG (~400), upload JPEG (long edge 2048), pixel dimensions. Never decodes a full-resolution bitmap it doesn't need.
+- [x] Tests: exact request shape per endpoint against fixtures (URL, method, headers, multipart parts, JSON body, image content parts with data URLs); nullable enum encoding; response decoding; every `AIError` mapping including offline versus network (same URL error code with and without bytes sent); JSON-mode retry only for `response_format` 400s; `length` finish reason; parser cases; CAF converted before upload; empty transcription becomes `noSpeechDetected`; page prompt includes the previous tail; partial or invalid `writtenDate` becomes nil; image processor output sizes and orientation on fixture images (EXIF-rotated JPEG and HEIC).
+- [x] `OpenAILiveTests`, skipped unless `MINDLORE_OPENAI_KEY` is set: model list, one tiny structured call, one short audio transcription, one page image transcription. Confirms model IDs, image input, and the input token count for a 2048 px page at high detail (to confirm the upload size isn't wasted).
+- [x] Live results (2026-09-15, owner's test key): `/models` lists `gpt-transcribe`, `gpt-5.6-luna`, and `gpt-5.6-terra`; a strict schema with a nullable enum returns valid JSON on `gpt-5.6-luna`; a 2048 px page on `gpt-5.6-terra` used 1,917 input tokens and returned the text and a parsed written date; an audio upload is accepted (a tone correctly returns no speech).
 
 ### Phase 4: Accounts, Keychain, settings, minimal AI screen
 - [ ] `SecretStore` protocol and `KeychainSecretStore` (injected service name).
