@@ -17,6 +17,11 @@ struct SettingsView: View {
                 }
 
                 Section {
+                    NavigationLink("AI") { AISettingsView() }
+                        .accessibilityIdentifier("aiSettingsLink")
+                }
+
+                Section {
                     Toggle("Keep recordings", isOn: $settings.keepAudioAfterTranscription)
                 } footer: {
                     Text("When this is off, a recording is deleted once its text has been generated and you've closed the entry.")
@@ -33,6 +38,8 @@ struct SettingsView: View {
 }
 
 #Preview {
-    SettingsView()
-        .environment(SettingsStore(store: UserDefaults(suiteName: "preview")!))
+    let settings = SettingsStore(store: UserDefaults(suiteName: "preview")!)
+    return SettingsView()
+        .environment(settings)
+        .environment(ProviderAccountStore(settings: settings))
 }

@@ -352,11 +352,11 @@ Each phase is a commit or small series, unit tests pass before commit (`-only-te
 - [x] Live results (2026-09-15, owner's test key): `/models` lists `gpt-transcribe`, `gpt-5.6-luna`, and `gpt-5.6-terra`; a strict schema with a nullable enum returns valid JSON on `gpt-5.6-luna`; a 2048 px page on `gpt-5.6-terra` used 1,917 input tokens and returned the text and a parsed written date; an audio upload is accepted (a tone correctly returns no speech).
 
 ### Phase 4: Accounts, Keychain, settings, minimal AI screen
-- [ ] `SecretStore` protocol and `KeychainSecretStore` (injected service name).
-- [ ] `ProviderKind`, `ProviderAccount`, `ProviderPreset.openAI`, `ProviderAccountStore` (add, update, remove with Keychain delete, `hasKey`, capability resolution for speech, pages, and text).
-- [ ] `SettingsStore`: every setting in the table; `aiEnabledAt` stamped on enable; `automationStartedAt` written once; JSON values fall back on bad data; `titleGenerator` default from an injected availability check; `settings.changed` logs key names only.
-- [ ] Minimal `AISettingsView` reachable from Settings: AI toggle, OpenAI key field, Test connection, remove key.
-- [ ] Tests: Keychain round trip, overwrite, delete, missing reads `nil`, test service name isolated; settings defaults, round trips, bad JSON; `aiEnabledAt` set on each enable; `automationStartedAt` written once; `titleGenerator` default both ways and never written back; removing an account deletes its key and clears selections pointing at it.
+- [x] `SecretStore` protocol and `KeychainSecretStore` (injected service name).
+- [x] `ProviderKind`, `ProviderAccount`, `ProviderPreset.openAI`, `ProviderAccountStore` (add, update, remove with Keychain delete, `hasKey`, capability resolution for speech, pages, and text).
+- [x] `SettingsStore`: every setting in the table; `aiEnabledAt` stamped on enable; `automationStartedAt` written once (by an explicit `recordAutomationStartIfNeeded()` at launch, so `init` still never writes); JSON values fall back on bad data; `titleGenerator` default from an injected availability check; `settings.changed` logs key names only.
+- [x] Minimal `AISettingsView` reachable from Settings: AI toggle, OpenAI key field, Test connection, remove key.
+- [x] Tests: Keychain round trip, overwrite, delete, missing reads `nil`, test service name isolated; settings defaults, round trips, bad JSON; `aiEnabledAt` set on each enable; `automationStartedAt` written once; `titleGenerator` default both ways and never written back; removing an account deletes its key and clears selections pointing at it.
 
 ### Phase 5: AI job state and voice routing
 - [ ] `AIJobPolicy`: eligibility, attempt caps, record attempt, offline rollback, success, retryable and non-retryable failure, manual reset, as pure functions over the per-job fields.

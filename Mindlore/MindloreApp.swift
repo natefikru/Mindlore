@@ -11,7 +11,8 @@ import SwiftData
 @main
 struct MindloreApp: App {
     private let container: Result<ModelContainer, any Error>
-    @State private var settings = SettingsStore()
+    @State private var settings: SettingsStore
+    @State private var accounts: ProviderAccountStore
 
     init() {
         let diagnostics = DiagnosticsLog.shared
@@ -25,6 +26,11 @@ struct MindloreApp: App {
             launch["run"] = .string(arguments[index + 1])
         }
         diagnostics.record("app.launch", launch)
+
+        let settingsStore = SettingsStore(onDeviceTitlesAvailable: { FoundationModelsAvailability.isAvailable })
+        settingsStore.recordAutomationStartIfNeeded()
+        _settings = State(initialValue: settingsStore)
+        _accounts = State(initialValue: ProviderAccountStore(settings: settingsStore))
 
         // Runs before any UI exists, so no recording can be in progress yet.
         let recovered = (try? RecordingsDirectory.standard.recoverInterruptedRecordings()) ?? []
@@ -58,6 +64,7 @@ struct MindloreApp: App {
                 RootView(container: container)
                     .modelContainer(container)
                     .environment(settings)
+                    .environment(accounts)
             case .failure(let error):
                 StoreErrorView(error: error)
             }
