@@ -29,9 +29,22 @@
 		1D7CCC6A30599E06005B6BD3 /* MindloreUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = MindloreUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		1D7CCCB43059A76C005B6BD3 /* Exceptions for "Mindlore" folder in "Mindlore" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = 1D7CCC5030599E04005B6BD3 /* Mindlore */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
+
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		1D7CCC5330599E04005B6BD3 /* Mindlore */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				1D7CCCB43059A76C005B6BD3 /* Exceptions for "Mindlore" folder in "Mindlore" target */,
+			);
 			path = Mindlore;
 			sourceTree = "<group>";
 		};
@@ -400,6 +413,9 @@
 				DEVELOPMENT_TEAM = 7DZBU56KUA;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = Mindlore/Info.plist;
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Mindlore records your voice so you can journal by speaking. Recordings stay on your device.";
+				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "Mindlore turns your recordings into text on your device.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -410,7 +426,7 @@
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.Mindlore;
+				PRODUCT_BUNDLE_IDENTIFIER = com.natefikru.mindlore;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
@@ -432,6 +448,9 @@
 				DEVELOPMENT_TEAM = 7DZBU56KUA;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = Mindlore/Info.plist;
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Mindlore records your voice so you can journal by speaking. Recordings stay on your device.";
+				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "Mindlore turns your recordings into text on your device.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -442,7 +461,7 @@
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.Mindlore;
+				PRODUCT_BUNDLE_IDENTIFIER = com.natefikru.mindlore;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
@@ -464,7 +483,7 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 26.5;
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.MindloreTests;
+				PRODUCT_BUNDLE_IDENTIFIER = com.natefikru.mindlore.tests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = NO;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
@@ -486,7 +505,7 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 26.5;
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.MindloreTests;
+				PRODUCT_BUNDLE_IDENTIFIER = com.natefikru.mindlore.tests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = NO;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
@@ -506,7 +525,7 @@
 				DEVELOPMENT_TEAM = 7DZBU56KUA;
 				GENERATE_INFOPLIST_FILE = YES;
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.MindloreUITests;
+				PRODUCT_BUNDLE_IDENTIFIER = com.natefikru.mindlore.uitests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = NO;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
@@ -526,7 +545,7 @@
 				DEVELOPMENT_TEAM = 7DZBU56KUA;
 				GENERATE_INFOPLIST_FILE = YES;
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.MindloreUITests;
+				PRODUCT_BUNDLE_IDENTIFIER = com.natefikru.mindlore.uitests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = NO;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;

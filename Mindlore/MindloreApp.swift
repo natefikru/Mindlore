@@ -10,23 +10,25 @@ import SwiftData
 
 @main
 struct MindloreApp: App {
-    var sharedModelContainer: ModelContainer = {
-        let schema = Schema([
-            Item.self,
-        ])
-        let modelConfiguration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: false)
+    private let container: Result<ModelContainer, any Error>
 
-        do {
-            return try ModelContainer(for: schema, configurations: [modelConfiguration])
-        } catch {
-            fatalError("Could not create ModelContainer: \(error)")
-        }
-    }()
+    init() {
+        let location = StoreLocation.resolve(
+            arguments: ProcessInfo.processInfo.arguments,
+            environment: ProcessInfo.processInfo.environment
+        )
+        container = Result { try ModelContainerFactory.make(location) }
+    }
 
     var body: some Scene {
         WindowGroup {
-            ContentView()
+            switch container {
+            case .success(let container):
+                ContentView()
+                    .modelContainer(container)
+            case .failure(let error):
+                StoreErrorView(error: error)
+            }
         }
-        .modelContainer(sharedModelContainer)
     }
 }
