@@ -136,11 +136,31 @@ Each phase is one commit or a small series. Tests pass locally before commit; pu
 - [ ] Deferred to smoke test: remove `INFOPLIST_KEY_NSSpeechRecognitionUsageDescription` only if device testing proves authorization is never requested. The app currently requests it before the first transcription.
 - [x] Tests, `TranscriptionCoordinatorTests` with `FakeTranscriber`: success sets `text` and clears the flag; failure keeps the flag and records the error; user types during transcription, their text is kept and the result dropped; entry deleted during transcription does not crash; entries without the flag are never touched; two queued entries both process oldest first; an entry recorded while busy is picked up in the same run; the temp audio file is written with the right extension and removed; entries without the flag or without audio are skipped; retry reruns a failed entry; permanent errors show as unsupported. `EntryEditingTests` covers when audio is discarded on close.
 
+### Phase 5b: Device smoke-test feedback loop
+
+Manual smoke testing needs a human for the physical parts (speaking, locking, killing the app, taking a call), but analysis shouldn't. The app records what happened to a log Claude can read, and scripts handle build, install, launch, and log collection.
+
+- [x] `Mindlore/Diagnostics/DiagnosticsLog.swift`: `Sendable` logger that appends one JSON object per line (`t`, `session`, `event`, typed fields) to `Library/Logs/Mindlore/diagnostics.jsonl`, written synchronously under a `Mutex` so events survive a force-quit, rotated to `diagnostics.1.jsonl` past 5 MB. Each line is mirrored to stderr (unbuffered) for the live console. Enabled only in DEBUG builds and disabled under XCTest; release builds log nothing.
+- [x] Privacy rule: events carry IDs, sources, counts, byte sizes, durations, module and locale names, and error descriptions from audio and speech frameworks. Never entry text. Save errors log only domain and code, since SwiftData validation errors can embed model values.
+- [x] Instrument: app launch (version, build, deploy run id), scene phase, launch recovery, saver saves and failures, entry created and deleted, editor close outcome, recorder lifecycle and interruptions, ingest outcomes, transcription start, module, asset install, completion, discard reason, and failure. Components take a `DiagnosticsLog` parameter defaulting to `.shared` so tests inject their own.
+- [x] `scripts/device/deploy.sh`: finds the first connected iPhone, builds Debug with `-allowProvisioningUpdates` into `~/Library/Developer/Xcode/DerivedData/Mindlore-device` (a build folder under `~/Documents` picked up iCloud Drive attributes and failed code signing), installs with `devicectl`. `scripts/device/launch.sh`: launches with `--terminate-existing --console` and a run id passed after `--` (otherwise `devicectl` parses it as its own flags), filters routine throttle saves out of the live stream, tees to `.smoke/<run>/console.log`. `scripts/device/pull-logs.sh`: copies the app's log directory and any Mindlore crash reports into `.smoke/<run>/`. `scripts/device/timeline.py`: prints a compact per-session timeline from the JSONL.
+- [x] `tasks/smoke-test.md`: each smoke step with what the tester does and the events that must appear, so a pulled log can be checked step by step.
+- [x] `.smoke/` is git-ignored.
+- [x] Tests, `DiagnosticsLogTests`: lines are valid JSON with the expected keys and typed values; a second instance appends to the same file; rotation past the size cap; the disabled log writes nothing; concurrent writes from many tasks produce only complete lines. `DiagnosticsPrivacyTests`: run the saver, ingestor, and coordinator (fake transcriber) against a sentinel string used as entry text and generated text, and assert the sentinel never appears in the log file.
+
 ### Wrap-up for this PR
 
-- [ ] Sub-agent code review over the full PR diff; fixes in separate commits.
-- [ ] Device smoke test, local steps 1 to 5 (below), on a physical iPhone signed with the Personal Team.
-- [ ] Update `CLAUDE.md` Architecture for the new folders, `AppConfig`, and the CloudKit schema rules.
+- [x] Sub-agent code review over the full PR diff; fixes in separate commits. Nine findings; the data-loss ones (blank voice entry deleted with its audio on close, unreadable recordings deleted, save paths skipping `updatedAt`) and the races were fixed in `3a4bdc0`. Not addressed: the save-failure ingest tests still throw before a real SwiftData save runs, since a real save failure can't be induced in an in-memory store.
+- [x] Device smoke test on an iPhone 17 Pro, 2026-09-15, runs smoke-01 to smoke-03 in `.smoke/`:
+  - Step 1 voice entry online: passed. SpeechTranscriber, en_US, assets already installed, 21.6 s recording transcribed in 0.4 s.
+  - Step 2 offline (airplane mode): passed. Typed entry saved about once per second while typing; 5.6 s recording transcribed in 0.14 s.
+  - Step 3 kill while typing: passed. Entry intact after relaunch.
+  - Step 4 lock mid-recording: passed. Recorder time 56.7 s matched wall time 56.8 s across a 35 s lock; no interruption event.
+  - Step 5 kill mid-recording: passed. Relaunch recovered the orphaned file in 6 ms, 15.21 s of audio against about 15.2 s of wall time, transcribed.
+  - Step 6 interruption: not run (no second phone available). Still unverified on a device.
+  - Step 7 keep recordings off: passed for "audio removed on close after text". The "left before text arrived" case can't be exercised by hand because transcription finishes in under 0.1 s; covered by `EntryEditingTests`.
+  - Speech authorization was already granted from an earlier run, so whether SpeechTranscriber requires it is still unknown; the usage string stays.
+- [x] Update `CLAUDE.md`: architecture, CloudKit schema rules, test commands (the original single-test command ran 0 tests without the trailing `()`), and the device smoke-testing loop.
 - [ ] `gh pr ready`.
 
 ### Phase 6: iCloud sync (separate PR, blocked on Apple Developer Program enrollment)
