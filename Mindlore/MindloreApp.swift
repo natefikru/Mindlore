@@ -61,7 +61,7 @@ struct MindloreApp: App {
         WindowGroup {
             switch container {
             case .success(let container):
-                RootView(container: container)
+                RootView(container: container, settings: settings, accounts: accounts)
                     .modelContainer(container)
                     .environment(settings)
                     .environment(accounts)

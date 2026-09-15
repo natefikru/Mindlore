@@ -10,12 +10,38 @@ nonisolated enum TranscriptionError: Error, Equatable {
     case noSpeechDetected
     case assetsUnavailable(String)
     case analysisFailed(String)
+    case provider(AIError)
 
-    // Retrying won't help; the user needs to type or change a system setting.
+    // Retrying won't help; the user needs to type, change a setting, or fix their account.
     var isPermanent: Bool {
         switch self {
         case .authorizationDenied, .unsupportedLocale, .noSpeechDetected: true
         case .assetsUnavailable, .analysisFailed: false
+        case .provider(let error): !error.isRetryable
+        }
+    }
+
+    var caseName: String {
+        switch self {
+        case .authorizationDenied: "authorizationDenied"
+        case .unsupportedLocale: "unsupportedLocale"
+        case .noSpeechDetected: "noSpeechDetected"
+        case .assetsUnavailable: "assetsUnavailable"
+        case .analysisFailed: "analysisFailed"
+        case .provider(let error): "provider.\(error.caseName)"
+        }
+    }
+
+    init?(caseName: String) {
+        switch caseName {
+        case "authorizationDenied": self = .authorizationDenied
+        case "unsupportedLocale": self = .unsupportedLocale
+        case "noSpeechDetected": self = .noSpeechDetected
+        case "assetsUnavailable": self = .assetsUnavailable("")
+        case "analysisFailed": self = .analysisFailed("")
+        default:
+            guard caseName.hasPrefix("provider."), let error = AIError(caseName: String(caseName.dropFirst(9))) else { return nil }
+            self = .provider(error)
         }
     }
 
@@ -31,6 +57,8 @@ nonisolated enum TranscriptionError: Error, Equatable {
             "The speech model couldn't be downloaded. Check your connection and try again."
         case .analysisFailed:
             "Mindlore couldn't get text from this recording."
+        case .provider(let error):
+            error.userMessage
         }
     }
 }

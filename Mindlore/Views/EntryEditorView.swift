@@ -6,6 +6,7 @@ struct EntryEditorView: View {
     @Environment(EntrySaver.self) private var saver
     @Environment(SettingsStore.self) private var settings
     @Environment(TranscriptionCoordinator.self) private var transcription
+    @Environment(EditorPresence.self) private var presence
     @State private var entry: Entry?
     @State private var editingDate = false
     @FocusState private var editorFocused: Bool
@@ -30,6 +31,11 @@ struct EntryEditorView: View {
             }
             if let audioData = entry?.audioData {
                 AudioPlayerView(data: audioData, duration: entry?.audioDuration)
+                    .padding(.horizontal)
+                    .padding(.top, 8)
+            }
+            if let entry, let reason = entry.textFallbackReasonRaw {
+                fallbackNotice(for: entry, reason: AIJobFailure(raw: reason))
                     .padding(.horizontal)
                     .padding(.top, 8)
             }
@@ -71,7 +77,9 @@ struct EntryEditorView: View {
             }
         }
         .onAppear {
-            if entry == nil {
+            if let entry {
+                presence.open(entry.id)
+            } else {
                 editorFocused = true
             }
         }
@@ -92,6 +100,7 @@ struct EntryEditorView: View {
                     let created = Entry(text: newValue)
                     modelContext.insert(created)
                     entry = created
+                    presence.open(created.id)
                     DiagnosticsLog.shared.record("entry.created", ["id": .id(created.id), "source": .string(created.source.rawValue)])
                 }
                 saver.noteChange()
@@ -123,7 +132,31 @@ struct EntryEditorView: View {
             Label(message, systemImage: "text.bubble")
                 .foregroundStyle(.secondary)
         case nil:
-            EmptyView()
+            // After a relaunch the failure is only on the entry, not in the coordinator's memory.
+            if let failure = AIJobPolicy.failure(.text, entry) {
+                HStack {
+                    Label(failure.userMessage, systemImage: "exclamationmark.triangle")
+                        .foregroundStyle(.orange)
+                    Spacer()
+                    Button("Retry") {
+                        Task { await transcription.retry(entry.persistentModelID, context: modelContext) }
+                    }
+                }
+            }
+        }
+    }
+
+    private func fallbackNotice(for entry: Entry, reason: AIJobFailure) -> some View {
+        HStack(alignment: .firstTextBaseline) {
+            Label("Transcribed on this iPhone. \(reason.userMessage)", systemImage: "iphone")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+            Spacer()
+            Button("Dismiss") {
+                entry.textFallbackReasonRaw = nil
+                saver.noteChange()
+            }
+            .font(.footnote)
         }
     }
 
@@ -157,6 +190,7 @@ struct EntryEditorView: View {
         // If the view is still on screen (a cancelled back swipe), dropping the reference means
         // the next keystroke creates a fresh entry instead of writing to a deleted one.
         if let entry {
+            presence.close(entry.id)
             let id = entry.id
             let hadAudio = entry.audioData != nil
             let deleted = Entry.editorDidClose(entry, keepAudio: settings.keepAudioAfterTranscription, in: modelContext)

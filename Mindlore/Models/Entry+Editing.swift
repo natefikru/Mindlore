@@ -8,6 +8,7 @@ extension Entry {
 
     func userDidEditText() {
         awaitingText = false
+        textFallbackReasonRaw = nil
         if textWasGenerated {
             textEditedByUser = true
         }
@@ -15,10 +16,11 @@ extension Entry {
 
     // Refuses once the user has typed into the entry, so generated text never overwrites theirs.
     @discardableResult
-    func applyGeneratedText(_ generated: String) -> Bool {
+    func applyGeneratedText(_ generated: String, generatedBy: String? = nil) -> Bool {
         guard awaitingText else { return false }
         text = generated
         textWasGenerated = true
+        textGeneratedBy = generatedBy
         awaitingText = false
         return true
     }

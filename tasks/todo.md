@@ -359,16 +359,17 @@ Each phase is a commit or small series, unit tests pass before commit (`-only-te
 - [x] Tests: Keychain round trip, overwrite, delete, missing reads `nil`, test service name isolated; settings defaults, round trips, bad JSON; `aiEnabledAt` set on each enable; `automationStartedAt` written once; `titleGenerator` default both ways and never written back; removing an account deletes its key and clears selections pointing at it.
 
 ### Phase 5: AI job state and voice routing
-- [ ] `AIJobPolicy`: eligibility, attempt caps, record attempt, offline rollback, success, retryable and non-retryable failure, manual reset, as pure functions over the per-job fields.
-- [ ] `NetworkMonitor` (`NWPathMonitor` wrapper, injectable): coordinators pause after an offline failure and re-run their queues once when the path is satisfied again.
-- [ ] `EditorPresence` in the environment; `EntryEditorView` registers in `onAppear`, unregisters in `onDisappear`.
-- [ ] `TranscriptionCoordinator` (voice): fetch filtered to `sourceRaw == "voice"`; persisted attempts and failures through `AIJobPolicy`; `TranscriberRouter` with the `aiEnabledAt` rule; manual Retry marks cloud eligible; fallback to Apple with `textFallbackReasonRaw`; `applyGeneratedText(_:generatedBy:)`; `onTextReady` hook; queue re-runs when the scene becomes active.
-- [ ] `TranscriptionError` gains `provider(AIError)`; messages no longer assume on-device speech.
-- [ ] `AudioChunker` (`nonisolated`) with injected chunk target and search window.
-- [ ] `beginBackgroundTask` around cloud requests.
-- [ ] Editor: fallback notice; status reflects the persisted failure after relaunch.
-- [ ] Diagnostics: `transcription.engine`, `transcription.fallback`, `transcription.chunks`, `transcription.attempt`, `ai.request`, `ai.error`, `ai.offline` (once per offline period).
-- [ ] Tests: the voice queue ignores entries of other sources that are awaiting text; permanent failure not retried at relaunch (new coordinator, same store); retryable failure retries at relaunch until the cap; offline failure doesn't count an attempt, doesn't retry while still offline (no loop on repeated queue triggers), and runs once when the fake monitor reports the network back; attempt counted before the await; cloud `noSpeechDetected` doesn't re-upload; an old awaiting entry goes to Apple automatically and to the cloud on Retry; router cases; settings change applies to the next entry; fallback success records the reason without counting an attempt; fallback off records the cloud error; chunk boundaries in silence on a generated fixture, durations sum, short files not split, prompts carry the tail; one chunk failure counts one attempt.
+- [x] `AIJobPolicy`: eligibility, attempt caps, record attempt, offline rollback, success, retryable and non-retryable failure, manual reset, as pure functions over the per-job fields.
+- [x] `NetworkMonitor` (`NWPathMonitor` wrapper, injectable): coordinators pause after an offline failure and re-run their queues once when the path is satisfied again.
+- [x] `EditorPresence` in the environment; `EntryEditorView` registers in `onAppear`, unregisters in `onDisappear`.
+- [x] `TranscriptionCoordinator` (voice): fetch filtered to `sourceRaw == "voice"`; persisted attempts and failures through `AIJobPolicy`; `TranscriberRouter` with the `aiEnabledAt` rule; manual Retry marks cloud eligible; fallback to Apple with `textFallbackReasonRaw`; `applyGeneratedText(_:generatedBy:)`; `onTextReady` hook; queue re-runs when the scene becomes active.
+- [x] `TranscriptionError` gains `provider(AIError)`; messages no longer assume on-device speech.
+- [x] `AudioChunker` (`nonisolated`) with injected chunk target and search window.
+- [x] `beginBackgroundTask` around cloud requests.
+- [x] Editor: fallback notice; status reflects the persisted failure after relaunch.
+- [x] Diagnostics: `transcription.engine`, `transcription.fallback`, `transcription.chunks`, `transcription.attempt`, `ai.request`, `ai.error`, `ai.offline` (once per offline period).
+- [x] Tests: the voice queue ignores entries of other sources that are awaiting text; permanent failure not retried at relaunch (new coordinator, same store); retryable failure retries at relaunch until the cap; offline failure doesn't count an attempt, doesn't retry while still offline (no loop on repeated queue triggers), and runs once when the fake monitor reports the network back; attempt counted before the await; cloud `noSpeechDetected` doesn't re-upload; an old awaiting entry goes to Apple automatically and to the cloud on Retry; router cases; settings change applies to the next entry; fallback success records the reason without counting an attempt; fallback off records the cloud error; chunk boundaries in silence on a generated fixture, durations sum, short files not split, prompts carry the tail; one chunk failure counts one attempt.
+- [x] Implementation notes: `EditorPresence` is keyed by `Entry.id`, because a new entry's `persistentModelID` is temporary until its first save. Silent chunks of a long recording are skipped rather than failing the entry. Stored failures use `ai.<AIError case>` or `speech.<TranscriptionError case>`.
 
 ### Phase 6: Titles and the automatic pass
 - [ ] `Entry.displayTitle`; `Entry+Editing`: `applyGeneratedTitle(_:) -> Bool`, `userDidEditTitle(_:)`.
