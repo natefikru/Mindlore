@@ -14,12 +14,15 @@ final class ProviderAccountStore {
     @ObservationIgnored private let settings: SettingsStore
     @ObservationIgnored private let secrets: any SecretStore
     @ObservationIgnored private let diagnostics: DiagnosticsLog
+    // Shared by the settings screen and every AI client, so tests and UI tests can swap it.
+    @ObservationIgnored let http: any HTTPClient
     // Bumped whenever a key is saved or removed, so views that show key state refresh.
     private(set) var keyRevision = 0
 
-    init(settings: SettingsStore, secrets: any SecretStore = KeychainSecretStore(), diagnostics: DiagnosticsLog = .shared) {
+    init(settings: SettingsStore, secrets: any SecretStore = KeychainSecretStore(), http: any HTTPClient = URLSessionHTTPClient(), diagnostics: DiagnosticsLog = .shared) {
         self.settings = settings
         self.secrets = secrets
+        self.http = http
         self.diagnostics = diagnostics
     }
 
@@ -67,7 +70,7 @@ final class ProviderAccountStore {
         return ResolvedProvider(account: account, apiKey: key, model: settings.model(for: capability))
     }
 
-    func testConnection(http: any HTTPClient) async -> Result<[String], AIError> {
+    func testConnection() async -> Result<[String], AIError> {
         guard let account = openAIAccount, let key = (try? secrets.read(account: account.id.uuidString)) ?? nil else {
             return .failure(.missingKey)
         }

@@ -19,7 +19,12 @@ nonisolated protocol HTTPClient: Sendable {
 nonisolated final class URLSessionHTTPClient: HTTPClient {
     private let session: URLSession
 
-    init() {
+    // Called with each request's tracker once the request finishes or fails; tests use it to
+    // confirm the delegate callback fired.
+    private let onTracked: (@Sendable (TaskTracker) -> Void)?
+
+    init(onTracked: (@Sendable (TaskTracker) -> Void)? = nil) {
+        self.onTracked = onTracked
         let configuration = URLSessionConfiguration.ephemeral
         configuration.urlCache = nil
         configuration.requestCachePolicy = .reloadIgnoringLocalAndRemoteCacheData
@@ -30,6 +35,7 @@ nonisolated final class URLSessionHTTPClient: HTTPClient {
 
     func send(_ request: URLRequest, body: Data?) async throws -> HTTPResponse {
         let tracker = TaskTracker()
+        defer { onTracked?(tracker) }
         do {
             let (data, response) = if let body {
                 try await session.upload(for: request, from: body, delegate: tracker)
@@ -51,7 +57,7 @@ nonisolated final class URLSessionHTTPClient: HTTPClient {
 }
 
 // Captures the task so a failure can tell whether any bytes reached the network.
-private nonisolated final class TaskTracker: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
+nonisolated final class TaskTracker: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
     private let lock = NSLock()
     private var task: URLSessionTask?
 
@@ -61,5 +67,9 @@ private nonisolated final class TaskTracker: NSObject, URLSessionTaskDelegate, @
 
     var bytesSent: Int64 {
         lock.withLock { task?.countOfBytesSent ?? 0 }
+    }
+
+    var sawTask: Bool {
+        lock.withLock { task != nil }
     }
 }

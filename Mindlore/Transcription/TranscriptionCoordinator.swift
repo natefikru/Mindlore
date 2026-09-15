@@ -109,8 +109,8 @@ final class TranscriptionCoordinator {
         guard let entry = Self.fetch(id, in: context), entry.awaitingText, let audio = entry.audioData else { return }
         let manual = manualRetries.remove(id) != nil
         let route = route(entry, manual)
-        // While offline, cloud-only work waits for the network instead of failing again.
-        if route.cloud != nil, !route.fallBackToOnDevice, pausedForOffline { return }
+        // While offline, automatic cloud-only work waits for the network. A tap on Retry always sends.
+        if route.cloud != nil, !route.fallBackToOnDevice, pausedForOffline, !manual { return }
 
         let entryID: DiagnosticValue = .id(entry.id)
         AIJobPolicy.recordAttempt(.text, entry)
@@ -132,20 +132,23 @@ final class TranscriptionCoordinator {
 
         let text: String
         let generatedBy: String
-        var fallbackReason: AIError?
+        var fallbackReason: AIJobFailure?
         do {
             try audio.write(to: url)
             if let cloud = route.cloud {
                 do {
                     text = try await transcribeInCloud(cloud, url: url, entryID: entryID)
                     generatedBy = cloud.label
+                    // A successful upload proves the connection is back.
+                    pausedForOffline = false
                 } catch {
                     let failure = AIJobFailure(any: error)
-                    guard route.fallBackToOnDevice, let aiError = failure.aiError else { throw error }
-                    diagnostics.record("transcription.fallback", ["id": entryID, "reason": .string(aiError.caseName)])
+                    // Any cloud failure can fall back, except finding no speech, which the phone would repeat.
+                    guard route.fallBackToOnDevice, failure.raw != "speech.noSpeechDetected" else { throw error }
+                    diagnostics.record("transcription.fallback", ["id": entryID, "reason": .string(failure.raw)])
                     text = try await transcribeOnDevice(route.onDevice, url: url)
                     generatedBy = route.onDeviceLabel
-                    fallbackReason = aiError
+                    fallbackReason = failure
                 }
             } else {
                 text = try await transcribeOnDevice(route.onDevice, url: url)
@@ -168,7 +171,7 @@ final class TranscriptionCoordinator {
             diagnostics.record("transcription.discarded", ["id": entryID, "reason": "userTyped"])
             return
         }
-        current.textFallbackReasonRaw = fallbackReason.map { AIJobFailure($0).raw }
+        current.textFallbackReasonRaw = fallbackReason?.raw
         AIJobPolicy.recordSuccess(.text, current)
         let elapsed = started.duration(to: .now)
         do {

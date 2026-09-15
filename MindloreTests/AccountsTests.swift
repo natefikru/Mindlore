@@ -98,13 +98,16 @@ struct ProviderAccountStoreTests {
     }
 
     @Test func testConnectionReportsModelsOrTheMappedError() async throws {
-        let (_, accounts, _) = makeStores()
-        #expect(await accounts.testConnection(http: FakeHTTPClient()) == .failure(.missingKey))
+        let settings = SettingsStore(store: FakeKeyValueStore(), diagnostics: .disabled)
+        let http = FakeHTTPClient(FakeHTTPClient.json(200, ["data": [["id": "gpt-5.6-luna"]]]), FakeHTTPClient.error(401))
+        let accounts = ProviderAccountStore(settings: settings, secrets: FakeSecretStore(), http: http, diagnostics: .disabled)
+        #expect(await accounts.testConnection() == .failure(.missingKey))
+        #expect(http.sent.isEmpty)
 
         try accounts.saveOpenAIKey("sk-1")
-        let http = FakeHTTPClient(FakeHTTPClient.json(200, ["data": [["id": "gpt-5.6-luna"]]]), FakeHTTPClient.error(401))
-        #expect(await accounts.testConnection(http: http) == .success(["gpt-5.6-luna"]))
+        #expect(await accounts.testConnection() == .success(["gpt-5.6-luna"]))
         #expect(http.sent.first?.request.value(forHTTPHeaderField: "Authorization") == "Bearer sk-1")
-        #expect(await accounts.testConnection(http: http) == .failure(.invalidKey))
+        #expect(http.sent.first?.request.url?.absoluteString == "https://api.openai.com/v1/models")
+        #expect(await accounts.testConnection() == .failure(.invalidKey))
     }
 }

@@ -27,12 +27,17 @@ struct MindloreApp: App {
         }
         diagnostics.record("app.launch", launch)
 
-        // UI tests run against whatever model the simulator's host offers; keep them deterministic.
+        // UI tests get their own settings and Keychain per named store, and run against whatever model
+        // the simulator's host offers, so on-device titles stay off to keep them deterministic.
         let uiTesting = arguments.contains(StoreLocation.uiTestingArgument)
-        let settingsStore = SettingsStore(onDeviceTitlesAvailable: { !uiTesting && FoundationModelsAvailability.isAvailable })
+        let testStoreName = uiTesting ? ProcessInfo.processInfo.environment[StoreLocation.uiTestStoreNameKey] : nil
+        let defaults = testStoreName.flatMap { UserDefaults(suiteName: "uitest-\($0)") } ?? .standard
+        let secrets = KeychainSecretStore(service: testStoreName.map { "\(KeychainSecretStore.productionService).uitest.\($0)" } ?? KeychainSecretStore.productionService)
+        let http: any HTTPClient = uiTesting && arguments.contains(UITestingHTTPClient.launchArgument) ? UITestingHTTPClient() : URLSessionHTTPClient()
+        let settingsStore = SettingsStore(store: defaults, onDeviceTitlesAvailable: { !uiTesting && FoundationModelsAvailability.isAvailable })
         settingsStore.recordAutomationStartIfNeeded()
         _settings = State(initialValue: settingsStore)
-        _accounts = State(initialValue: ProviderAccountStore(settings: settingsStore))
+        _accounts = State(initialValue: ProviderAccountStore(settings: settingsStore, secrets: secrets, http: http))
 
         // Runs before any UI exists, so no recording can be in progress yet.
         let recovered = (try? RecordingsDirectory.standard.recoverInterruptedRecordings()) ?? []

@@ -514,6 +514,36 @@ struct TranscriptionRoutingTests {
         #expect(entry.awaitingText)
     }
 
+    @Test func retryWhileOfflineStillSends() async throws {
+        let harness = try TranscriptionHarness()
+        let entry = try harness.voiceEntry()
+        let cloud = FakeTranscriber()
+        cloud.automaticResult = .failure(AIError.offline(.notConnectedToInternet))
+        let running = coordinator(harness, cloud: cloud, fallback: false)
+        await running.processQueue(context: harness.context)
+        #expect(running.pausedForOffline)
+
+        cloud.automaticResult = .success("sent on retry")
+        await running.retry(entry.persistentModelID, context: harness.context)
+
+        #expect(cloud.calls.count == 2)
+        #expect(entry.text == "sent on retry")
+        #expect(!running.pausedForOffline)
+    }
+
+    @Test func nonProviderCloudFailuresFallBackToo() async throws {
+        let harness = try TranscriptionHarness()
+        let entry = try harness.voiceEntry()
+        let cloud = FakeTranscriber()
+        cloud.automaticResult = .failure(TranscriptionError.analysisFailed("conversion"))
+        harness.transcriber.automaticResult = .success("the phone read it")
+
+        await coordinator(harness, cloud: cloud, fallback: true).processQueue(context: harness.context)
+
+        #expect(entry.text == "the phone read it")
+        #expect(entry.textFallbackReasonRaw == "speech.analysisFailed")
+    }
+
     @Test func manualRetryResetsAPermanentFailure() async throws {
         let harness = try TranscriptionHarness()
         let entry = try harness.voiceEntry()

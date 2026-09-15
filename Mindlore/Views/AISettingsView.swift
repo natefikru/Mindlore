@@ -91,7 +91,7 @@ struct AISettingsView: View {
 
     private func test() async {
         status = .testing
-        switch await accounts.testConnection(http: URLSessionHTTPClient()) {
+        switch await accounts.testConnection() {
         case .success(let models): status = .connected(models.count)
         case .failure(let error): status = .failed(error.userMessage)
         }

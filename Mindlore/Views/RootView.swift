@@ -16,7 +16,7 @@ struct RootView: View {
         let context = container.mainContext
         self.context = context
         _saver = State(initialValue: EntrySaver(context: context))
-        let http = URLSessionHTTPClient()
+        let http = accounts.http
         let presence = EditorPresence()
         let router = TranscriberRouter(settings: settings, accounts: accounts, http: http, onDevice: SpeechAnalyzerTranscriber())
         let transcription = TranscriptionCoordinator(route: router.route(for:manualRetry:))
