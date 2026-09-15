@@ -327,13 +327,14 @@ Each phase is a commit or small series, unit tests pass before commit (`-only-te
 - [ ] Device check: deploy over the current build with real entries; entries intact and in their original order. (Waiting for the owner and the phone; batched with the Phase 12 smoke test.)
 
 ### Phase 2: Entry dates
-- [ ] `EntryDates` helpers: noon of a day in a given calendar and time zone, parsing `"yyyy-MM-dd"` from model output, same-day comparison, display formatting (date and time, or date only).
-- [ ] `Entry+Editing`: `setEntryDay(_:)` (noon, flag on, clears a suggestion for the same day), `useOriginalEntryDate()` (back to `createdAt`, flag off), `acceptSuggestedEntryDate()`, `dismissSuggestedEntryDate()`, `storeSuggestedEntryDate(_:)` (ignored when it's the same day as `entryDate`), `shouldShowDateSuggestion`.
-- [ ] `EntryListView` query sorts by `entryDate` descending then `createdAt` descending; rows show date and time, or the date only with "Added ..." when the flag is on.
-- [ ] `EntryEditorView`: date button with a date-only picker; suggestion banner with Use and Dismiss.
-- [ ] `RecordingIngestor` sets `entryDate` to the recording's creation date, same as `createdAt`.
-- [ ] Diagnostics: `entryDate.changed` (manual, suggestion, or reset; days moved), `entryDate.suggested`, `entryDate.dismissed`.
-- [ ] Tests: noon-of-day construction and parsing, including a DST transition day; same-day comparison near midnight and across time zones; sort order across days, and stable order for two backdated entries on the same day (tie broken by `createdAt`); backdating moves the entry in the list query; suggestion equal to the current day isn't stored; picking the suggested day by hand clears the suggestion; accept and dismiss clear it; use original date restores `createdAt`; `createdAt` never changes.
+- [x] `EntryDates` helpers: noon of a day in a given calendar and time zone, parsing `"yyyy-MM-dd"` from model output, same-day comparison, display formatting (date and time, or date only).
+- [x] `Entry+Editing`: `setEntryDay(_:)` (noon, flag on, clears a suggestion for the same day), `useOriginalEntryDate()` (back to `createdAt`, flag off), `acceptSuggestedEntryDate()`, `dismissSuggestedEntryDate()`, `storeSuggestedEntryDate(_:)` (ignored when it's the same day as `entryDate`), `shouldShowDateSuggestion`.
+- [x] `EntryListView` query sorts by `entryDate` descending then `createdAt` descending; rows show date and time, or the date only with "Added ..." when the flag is on.
+- [x] `EntryEditorView`: date button with a date-only picker; suggestion banner with Use and Dismiss.
+- [x] `RecordingIngestor` sets `entryDate` to the recording's creation date, same as `createdAt` (no change needed: `Entry.init` sets `entryDate = createdAt`, covered by `EntryTests`).
+- [x] Diagnostics: `entryDate.changed` (manual, suggestion, or reset; days moved), `entryDate.suggested`, `entryDate.dismissed`.
+- [x] Tests: noon-of-day construction and parsing, including a DST transition day; same-day comparison near midnight and across time zones; sort order across days, and stable order for two backdated entries on the same day (tie broken by `createdAt`); backdating moves the entry in the list query; suggestion equal to the current day isn't stored; picking the suggested day by hand clears the suggestion; accept and dismiss clear it; use original date restores `createdAt`; `createdAt` never changes.
+- [x] UI test `EntryDateUITests`: backdate a new entry through the picker, relaunch, the list shows it with "Added ...".
 
 ### Phase 3: HTTP layer and OpenAI-compatible clients
 - [ ] `HTTPClient` protocol (`nonisolated`), `URLSessionHTTPClient` with the timeouts above and a per-task delegate that captures the task so `countOfBytesSent` is available on failure, `FakeHTTPClient` in tests (can report bytes sent).

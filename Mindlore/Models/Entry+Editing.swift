@@ -48,3 +48,49 @@ extension Entry {
         context.delete(entry)
     }
 }
+
+// MARK: - Entry date
+
+extension Entry {
+    // The user picked a day. Time isn't meaningful for a backdated entry, so it's noon and hidden.
+    func setEntryDay(_ day: Date, calendar: Calendar = .current) {
+        entryDate = EntryDates.noon(of: day, calendar: calendar)
+        entryDateIsDayOnly = true
+        if let suggestedEntryDate, EntryDates.isSameDay(suggestedEntryDate, entryDate, calendar: calendar) {
+            self.suggestedEntryDate = nil
+        }
+    }
+
+    func useOriginalEntryDate() {
+        entryDate = createdAt
+        entryDateIsDayOnly = false
+    }
+
+    // Returns false when the suggestion is the entry's current day, which isn't worth asking about.
+    @discardableResult
+    func storeSuggestedEntryDate(_ date: Date, calendar: Calendar = .current) -> Bool {
+        guard !EntryDates.isSameDay(date, entryDate, calendar: calendar) else { return false }
+        suggestedEntryDate = EntryDates.noon(of: date, calendar: calendar)
+        return true
+    }
+
+    func acceptSuggestedEntryDate(calendar: Calendar = .current) {
+        guard let suggestedEntryDate else { return }
+        setEntryDay(suggestedEntryDate, calendar: calendar)
+        self.suggestedEntryDate = nil
+    }
+
+    func dismissSuggestedEntryDate() {
+        suggestedEntryDate = nil
+    }
+
+    func shouldShowDateSuggestion(calendar: Calendar = .current) -> Bool {
+        guard let suggestedEntryDate else { return false }
+        return !EntryDates.isSameDay(suggestedEntryDate, entryDate, calendar: calendar)
+    }
+
+    // True when the entry's day was changed away from the day it was added.
+    func entryDateDiffersFromCreation(calendar: Calendar = .current) -> Bool {
+        entryDateIsDayOnly && !EntryDates.isSameDay(entryDate, createdAt, calendar: calendar)
+    }
+}

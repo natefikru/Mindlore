@@ -5,7 +5,9 @@ struct EntryListView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(EntrySaver.self) private var saver
     @Environment(SettingsStore.self) private var settings
-    @Query(sort: \Entry.createdAt, order: .reverse) private var entries: [Entry]
+    // Backdated entries share noon of their day, so createdAt keeps their order stable.
+    @Query(sort: [SortDescriptor(\Entry.entryDate, order: .reverse), SortDescriptor(\Entry.createdAt, order: .reverse)])
+    private var entries: [Entry]
     @State private var path: [Entry] = []
     @State private var showingSettings = false
     @State private var writingNewEntry = false
@@ -91,7 +93,7 @@ private struct EntryRow: View {
                         .foregroundStyle(.secondary)
                         .accessibilityLabel("Voice entry")
                 }
-                Text(entry.createdAt, format: .dateTime.weekday(.abbreviated).month().day().hour().minute())
+                EntryDateText(entry: entry)
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
                 if entry.awaitingText {
@@ -102,6 +104,9 @@ private struct EntryRow: View {
                         .background(.quaternary, in: Capsule())
                 }
             }
+            EntryAddedText(entry: entry)
+                .font(.caption)
+                .foregroundStyle(.secondary)
             Text(preview)
                 .lineLimit(2)
                 .foregroundStyle(entry.text.isEmpty ? .secondary : .primary)

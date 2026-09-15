@@ -7,6 +7,7 @@ struct EntryEditorView: View {
     @Environment(SettingsStore.self) private var settings
     @Environment(TranscriptionCoordinator.self) private var transcription
     @State private var entry: Entry?
+    @State private var editingDate = false
     @FocusState private var editorFocused: Bool
 
     init(entry: Entry?) {
@@ -21,6 +22,11 @@ struct EntryEditorView: View {
                     .foregroundStyle(.orange)
                     .padding(.horizontal)
                     .padding(.vertical, 8)
+            }
+            if let entry, entry.shouldShowDateSuggestion(), let suggested = entry.suggestedEntryDate {
+                dateSuggestion(for: entry, suggested: suggested)
+                    .padding(.horizontal)
+                    .padding(.top, 8)
             }
             if let audioData = entry?.audioData {
                 AudioPlayerView(data: audioData, duration: entry?.audioDuration)
@@ -50,6 +56,20 @@ struct EntryEditorView: View {
         }
         .navigationTitle(title)
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            if entry != nil {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Entry date", systemImage: "calendar") { editingDate = true }
+                        .accessibilityIdentifier("entryDateButton")
+                }
+            }
+        }
+        .sheet(isPresented: $editingDate) {
+            if let entry {
+                EntryDateSheet(entry: entry) { saver.noteChange() }
+                    .presentationDetents([.medium, .large])
+            }
+        }
         .onAppear {
             if entry == nil {
                 editorFocused = true
@@ -109,7 +129,28 @@ struct EntryEditorView: View {
 
     private var title: String {
         guard let entry else { return "New Entry" }
-        return entry.createdAt.formatted(.dateTime.month(.abbreviated).day().year())
+        return entry.entryDate.formatted(.dateTime.month(.abbreviated).day().year())
+    }
+
+    private func dateSuggestion(for entry: Entry, suggested: Date) -> some View {
+        HStack {
+            Label("Written on \(suggested.formatted(.dateTime.month(.wide).day().year()))?", systemImage: "calendar.badge.clock")
+                .font(.footnote)
+            Spacer()
+            Button("Use") {
+                let previous = entry.entryDate
+                entry.acceptSuggestedEntryDate()
+                saver.noteChange()
+                EntryDateSheet.recordChange(entry: entry, from: previous, reason: "suggestion")
+            }
+            .accessibilityIdentifier("useSuggestedDateButton")
+            Button("Dismiss", role: .cancel) {
+                entry.dismissSuggestedEntryDate()
+                saver.noteChange()
+                DiagnosticsLog.shared.record("entryDate.dismissed", ["id": .id(entry.id)])
+            }
+        }
+        .buttonStyle(.borderless)
     }
 
     private func close() {
