@@ -96,11 +96,12 @@ Each phase is one commit or a small series. Tests pass locally before commit; pu
 
 ### Phase 2: Settings and privacy manifest
 
-- [ ] `Mindlore/Settings/KeyValueStore.swift`: protocol with `object(forKey:)`, `set(_:forKey:)`, `synchronize()`, conformed to by `UserDefaults`.
-- [ ] `Mindlore/Settings/SettingsStore.swift`: `@Observable`, `keepAudioAfterTranscription` and `defaultEntryMode`. Init takes a `KeyValueStore` (UserDefaults in production, a fake in tests). Typed reads treat `nil` from `object(forKey:)` as "use default."
-- [ ] `Mindlore/Views/SettingsView.swift`: the two settings, plus a storage section: "Your entries are stored on this device only. Mindlore has no servers."
-- [ ] `Mindlore/PrivacyInfo.xcprivacy`: declare `NSPrivacyAccessedAPICategoryUserDefaults` with reason `CA92.1`, no tracking, no collected data.
-- [ ] Tests, `SettingsStoreTests`: defaults when keys are missing, stored `false` stays `false`, writes persist, `defaultEntryMode` rejects unknown raw values.
+- [x] `Mindlore/Settings/KeyValueStore.swift`: protocol with `object(forKey:)` and `set(_:forKey:)`, conformed to by `UserDefaults`. `synchronize()` is added in Phase 6 when `NSUbiquitousKeyValueStore` needs it. `defaultEntryMode` reuses `EntrySource` rather than a second enum with the same cases.
+- [x] `Mindlore/Settings/SettingsStore.swift`: `@Observable`, `keepAudioAfterTranscription` and `defaultEntryMode`. Init takes a `KeyValueStore` (UserDefaults in production, a fake in tests). Typed reads treat `nil` from `object(forKey:)` as "use default."
+- [x] `Mindlore/Views/SettingsView.swift`: the two settings, plus a storage section: "Your entries are stored on this device only. Mindlore has no servers."
+- [x] `Mindlore/PrivacyInfo.xcprivacy`: declare `NSPrivacyAccessedAPICategoryUserDefaults` with reason `CA92.1`, no tracking, no collected data.
+- [x] Tests, `SettingsStoreTests`: defaults when keys are missing, stored `false` stays `false`, writes persist, init writes nothing back, `defaultEntryMode` rejects unknown raw values, wrong value types fall back, round trip through real `UserDefaults`. `PrivacyManifestTests`: the manifest is in the app bundle and declares `CA92.1`.
+- [x] Settings button in the list toolbar opens `SettingsView` as a sheet; `SettingsStore` is created in `MindloreApp` and passed through the environment.
 
 ### Phase 3: Typed entries, list, editor, continuous save
 

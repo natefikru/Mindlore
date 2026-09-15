@@ -11,6 +11,7 @@ import SwiftData
 @main
 struct MindloreApp: App {
     private let container: Result<ModelContainer, any Error>
+    @State private var settings = SettingsStore()
 
     init() {
         let location = StoreLocation.resolve(
@@ -26,6 +27,7 @@ struct MindloreApp: App {
             case .success(let container):
                 ContentView()
                     .modelContainer(container)
+                    .environment(settings)
             case .failure(let error):
                 StoreErrorView(error: error)
             }

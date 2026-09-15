@@ -10,6 +10,7 @@ import SwiftData
 
 struct ContentView: View {
     @Query(sort: \Entry.createdAt, order: .reverse) private var entries: [Entry]
+    @State private var showingSettings = false
 
     var body: some View {
         NavigationStack {
@@ -18,6 +19,14 @@ struct ContentView: View {
                     .lineLimit(1)
             }
             .navigationTitle("Mindlore")
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button("Settings", systemImage: "gearshape") { showingSettings = true }
+                }
+            }
+            .sheet(isPresented: $showingSettings) {
+                SettingsView()
+            }
         }
     }
 }
@@ -25,4 +34,5 @@ struct ContentView: View {
 #Preview {
     ContentView()
         .modelContainer(for: Entry.self, inMemory: true)
+        .environment(SettingsStore(store: UserDefaults(suiteName: "preview")!))
 }
