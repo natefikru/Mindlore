@@ -5,22 +5,36 @@ import Speech
 // On-device transcription. SpeechTranscriber is unavailable on the simulator and older
 // devices, so DictationTranscriber is the fallback.
 struct SpeechAnalyzerTranscriber: Transcriber {
+    nonisolated let diagnostics: DiagnosticsLog
+
+    init(diagnostics: DiagnosticsLog = .shared) {
+        self.diagnostics = diagnostics
+    }
+
     @concurrent
     nonisolated func transcribe(audioFileURL: URL, locale: Locale) async throws -> String {
-        try await Self.ensureAuthorized()
+        try await ensureAuthorized()
 
-        if SpeechTranscriber.isAvailable, let supported = await SpeechTranscriber.supportedLocale(equivalentTo: locale) {
+        let speechTranscriberAvailable = SpeechTranscriber.isAvailable
+        if speechTranscriberAvailable, let supported = await SpeechTranscriber.supportedLocale(equivalentTo: locale) {
+            diagnostics.record("transcription.module", ["module": "SpeechTranscriber", "locale": .string(supported.identifier)])
             let module = SpeechTranscriber(locale: supported, preset: .transcription)
-            return try await Self.run(module: module, results: module.results, text: \.text, isFinal: \.isFinal, audioFileURL: audioFileURL)
+            return try await run(module: module, results: module.results, text: \.text, isFinal: \.isFinal, audioFileURL: audioFileURL)
         }
         if let supported = await DictationTranscriber.supportedLocale(equivalentTo: locale) {
+            diagnostics.record("transcription.module", [
+                "module": "DictationTranscriber",
+                "locale": .string(supported.identifier),
+                "speechTranscriberAvailable": .bool(speechTranscriberAvailable),
+            ])
             let module = DictationTranscriber(locale: supported, preset: .longDictation)
-            return try await Self.run(module: module, results: module.results, text: \.text, isFinal: \.isFinal, audioFileURL: audioFileURL)
+            return try await run(module: module, results: module.results, text: \.text, isFinal: \.isFinal, audioFileURL: audioFileURL)
         }
+        diagnostics.record("transcription.module", ["module": "none", "requestedLocale": .string(locale.identifier), "speechTranscriberAvailable": .bool(speechTranscriberAvailable)])
         throw TranscriptionError.unsupportedLocale
     }
 
-    nonisolated private static func run<Results: AsyncSequence & Sendable>(
+    nonisolated private func run<Results: AsyncSequence & Sendable>(
         module: any SpeechModule,
         results: Results,
         text: @escaping @Sendable (Results.Element) -> AttributedString,
@@ -29,7 +43,11 @@ struct SpeechAnalyzerTranscriber: Transcriber {
     ) async throws -> String {
         do {
             if let request = try await AssetInventory.assetInstallationRequest(supporting: [module]) {
+                diagnostics.record("transcription.assets", ["status": "downloading"])
                 try await request.downloadAndInstall()
+                diagnostics.record("transcription.assets", ["status": "installed"])
+            } else {
+                diagnostics.record("transcription.assets", ["status": "alreadyInstalled"])
             }
         } catch {
             throw TranscriptionError.assetsUnavailable(String(describing: error))
@@ -61,8 +79,10 @@ struct SpeechAnalyzerTranscriber: Transcriber {
         }
     }
 
-    nonisolated private static func ensureAuthorized() async throws {
+    nonisolated private func ensureAuthorized() async throws {
         var status = SFSpeechRecognizer.authorizationStatus()
+        let initialStatus = status
+        defer { diagnostics.record("transcription.authorization", ["initial": .int(initialStatus.rawValue), "final": .int(status.rawValue)]) }
         if status == .notDetermined {
             status = await withCheckedContinuation { continuation in
                 SFSpeechRecognizer.requestAuthorization { continuation.resume(returning: $0) }

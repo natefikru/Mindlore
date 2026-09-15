@@ -72,6 +72,7 @@ struct EntryEditorView: View {
                     let created = Entry(text: newValue)
                     modelContext.insert(created)
                     entry = created
+                    DiagnosticsLog.shared.record("entry.created", ["id": .id(created.id), "source": .string(created.source.rawValue)])
                 }
                 saver.noteChange()
             }
@@ -114,8 +115,19 @@ struct EntryEditorView: View {
     private func close() {
         // If the view is still on screen (a cancelled back swipe), dropping the reference means
         // the next keystroke creates a fresh entry instead of writing to a deleted one.
-        if let entry, Entry.editorDidClose(entry, keepAudio: settings.keepAudioAfterTranscription, in: modelContext) {
-            self.entry = nil
+        if let entry {
+            let id = entry.id
+            let hadAudio = entry.audioData != nil
+            let deleted = Entry.editorDidClose(entry, keepAudio: settings.keepAudioAfterTranscription, in: modelContext)
+            DiagnosticsLog.shared.record("editor.closed", [
+                "id": .id(id),
+                "deleted": .bool(deleted),
+                "audioDiscarded": .bool(hadAudio && (deleted || entry.audioData == nil)),
+                "characters": .int(deleted ? 0 : entry.text.count),
+            ])
+            if deleted {
+                self.entry = nil
+            }
         }
         saver.flush()
     }

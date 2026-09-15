@@ -1,6 +1,5 @@
 import Foundation
 import Observation
-import OSLog
 import SwiftData
 
 // Works through entries that are waiting for text, one at a time. Results are written only
@@ -15,11 +14,11 @@ final class TranscriptionCoordinator {
 
     private(set) var activity: [PersistentIdentifier: Activity] = [:]
 
-    @ObservationIgnored private let logger = Logger(subsystem: "com.natefikru.mindlore", category: "transcription")
     @ObservationIgnored private let transcriber: any Transcriber
     @ObservationIgnored private let locale: Locale
     @ObservationIgnored private let temporaryDirectory: URL
     @ObservationIgnored private let save: (ModelContext) throws -> Void
+    @ObservationIgnored private let diagnostics: DiagnosticsLog
     @ObservationIgnored private var isProcessing = false
     @ObservationIgnored private var needsAnotherPass = false
 
@@ -27,12 +26,14 @@ final class TranscriptionCoordinator {
         transcriber: any Transcriber = SpeechAnalyzerTranscriber(),
         locale: Locale = .current,
         temporaryDirectory: URL = FileManager.default.temporaryDirectory,
-        save: @escaping (ModelContext) throws -> Void = { try $0.saveStampingEntries() }
+        save: @escaping (ModelContext) throws -> Void = { try $0.saveStampingEntries() },
+        diagnostics: DiagnosticsLog = .shared
     ) {
         self.transcriber = transcriber
         self.locale = locale
         self.temporaryDirectory = temporaryDirectory
         self.save = save
+        self.diagnostics = diagnostics
     }
 
     func processQueue(context: ModelContext) async {
@@ -61,30 +62,51 @@ final class TranscriptionCoordinator {
 
     private func transcribe(_ id: PersistentIdentifier, context: ModelContext) async {
         guard let entry = Self.fetch(id, in: context), entry.awaitingText, let audio = entry.audioData else { return }
+        let entryID: DiagnosticValue = .id(entry.id)
         activity[id] = .transcribing
+        diagnostics.record("transcription.started", ["id": entryID, "audioBytes": .int(audio.count), "locale": .string(locale.identifier)])
+        let started = ContinuousClock.now
 
         let url = temporaryDirectory
             .appendingPathComponent("transcribe-\(UUID().uuidString)")
             .appendingPathExtension(Self.fileExtension(for: audio))
         defer { try? FileManager.default.removeItem(at: url) }
 
+        let text: String
         do {
             try audio.write(to: url)
-            let text = try await transcriber.transcribe(audioFileURL: url, locale: locale)
+            text = try await transcriber.transcribe(audioFileURL: url, locale: locale)
             // Empty text would mark the entry done with nothing in it; keep it waiting so the user can type.
             guard !text.isEmpty else { throw TranscriptionError.noSpeechDetected }
-            activity[id] = nil
-            // The await gave the user time to type into or delete the entry; re-fetch before touching it.
-            guard let current = Self.fetch(id, in: context), current.applyGeneratedText(text) else { return }
-            try save(context)
         } catch {
-            // Error descriptions come from the frameworks and never include entry text.
-            logger.error("Transcription failed: \(String(describing: error), privacy: .public)")
-            if let error = error as? TranscriptionError {
-                activity[id] = error.isPermanent ? .unsupported(error.userMessage) : .failed(error.userMessage)
-            } else {
-                activity[id] = .failed(TranscriptionError.analysisFailed(String(describing: error)).userMessage)
-            }
+            let transcriptionError = error as? TranscriptionError ?? .analysisFailed(String(describing: error))
+            activity[id] = transcriptionError.isPermanent ? .unsupported(transcriptionError.userMessage) : .failed(transcriptionError.userMessage)
+            // Transcription and file errors come from the frameworks and don't contain entry text.
+            diagnostics.record("transcription.failed", ["id": entryID, "error": .error(error), "permanent": .bool(transcriptionError.isPermanent)])
+            return
+        }
+        activity[id] = nil
+
+        // The await gave the user time to type into or delete the entry; re-fetch before touching it.
+        guard let current = Self.fetch(id, in: context) else {
+            diagnostics.record("transcription.discarded", ["id": entryID, "reason": "deleted"])
+            return
+        }
+        guard current.applyGeneratedText(text) else {
+            diagnostics.record("transcription.discarded", ["id": entryID, "reason": "userTyped"])
+            return
+        }
+        let elapsed = started.duration(to: .now)
+        do {
+            try save(context)
+            diagnostics.record("transcription.completed", [
+                "id": entryID,
+                "characters": .int(text.count),
+                "seconds": .double(Double(elapsed.components.seconds) + Double(elapsed.components.attoseconds) / 1e18),
+            ])
+        } catch {
+            // The text stays applied in memory and is written by the next save.
+            diagnostics.record("transcription.saveFailed", ["id": entryID, "error": .errorCode(error)])
         }
     }
 

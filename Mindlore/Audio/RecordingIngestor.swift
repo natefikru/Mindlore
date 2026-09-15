@@ -7,6 +7,7 @@ nonisolated struct PreparedRecording: Sendable {
     let createdAt: Date
     let audioData: Data
     let duration: Double?
+    let sourceBytes: Int
 }
 
 // Turns finished recording files into voice entries. The file's UUID becomes the entry's id,
@@ -15,10 +16,12 @@ nonisolated struct PreparedRecording: Sendable {
 @Observable
 final class RecordingIngestor {
     @ObservationIgnored private let save: (ModelContext) throws -> Void
+    @ObservationIgnored private let diagnostics: DiagnosticsLog
     @ObservationIgnored private var inFlight: Set<URL> = []
 
-    init(save: @escaping (ModelContext) throws -> Void = { try $0.saveStampingEntries() }) {
+    init(save: @escaping (ModelContext) throws -> Void = { try $0.saveStampingEntries() }, diagnostics: DiagnosticsLog = .shared) {
         self.save = save
+        self.diagnostics = diagnostics
     }
 
     @discardableResult
@@ -34,7 +37,11 @@ final class RecordingIngestor {
     }
 
     func ingest(_ fileURL: URL, context: ModelContext) async -> Entry? {
-        guard !inFlight.contains(fileURL) else { return nil }
+        let file: DiagnosticValue = .string(fileURL.lastPathComponent)
+        guard !inFlight.contains(fileURL) else {
+            diagnostics.record("ingest.skipped", ["file": file, "reason": "inFlight"])
+            return nil
+        }
         inFlight.insert(fileURL)
         defer { inFlight.remove(fileURL) }
 
@@ -42,9 +49,11 @@ final class RecordingIngestor {
         switch await Self.prepare(fileURL: fileURL) {
         case .empty:
             try? FileManager.default.removeItem(at: fileURL)
+            diagnostics.record("ingest.skipped", ["file": file, "reason": "empty"])
             return nil
         case .unreadable:
             // Could be temporary (file protection before first unlock, an I/O error); try again next launch.
+            diagnostics.record("ingest.skipped", ["file": file, "reason": "unreadable"])
             return nil
         case .ready(let recording):
             prepared = recording
@@ -53,6 +62,7 @@ final class RecordingIngestor {
         let id = prepared.id
         if let existing = try? context.fetch(FetchDescriptor<Entry>(predicate: #Predicate { $0.id == id })).first {
             try? FileManager.default.removeItem(at: fileURL)
+            diagnostics.record("ingest.skipped", ["file": file, "reason": "duplicate", "id": .id(id)])
             return existing
         }
 
@@ -70,9 +80,18 @@ final class RecordingIngestor {
         } catch {
             // Remove only this insert; rolling back the context would also drop unsaved typing elsewhere.
             context.delete(entry)
+            diagnostics.record("ingest.saveFailed", ["file": file, "id": .id(id), "error": .errorCode(error)])
             return nil
         }
         try? FileManager.default.removeItem(at: fileURL)
+        var fields: [String: DiagnosticValue] = [
+            "id": .id(id),
+            "sourceBytes": .int(prepared.sourceBytes),
+            "audioBytes": .int(prepared.audioData.count),
+            "converted": .bool(prepared.duration != nil),
+        ]
+        if let duration = prepared.duration { fields["seconds"] = .double(duration) }
+        diagnostics.record("ingest.completed", fields)
         return entry
     }
 
@@ -92,10 +111,10 @@ final class RecordingIngestor {
         let createdAt = (try? fileURL.resourceValues(forKeys: [.creationDateKey]).creationDate) ?? Date()
 
         if let converted = try? AudioConverter.convertToAAC(fileURL) {
-            return .ready(PreparedRecording(id: id, createdAt: createdAt, audioData: converted.data, duration: converted.duration))
+            return .ready(PreparedRecording(id: id, createdAt: createdAt, audioData: converted.data, duration: converted.duration, sourceBytes: raw.count))
         }
         // Keep audio we can't decode rather than delete something the user recorded.
-        return .ready(PreparedRecording(id: id, createdAt: createdAt, audioData: raw, duration: nil))
+        return .ready(PreparedRecording(id: id, createdAt: createdAt, audioData: raw, duration: nil, sourceBytes: raw.count))
     }
 }
 

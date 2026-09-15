@@ -36,6 +36,20 @@ struct SettingsStoreTests {
         #expect(store.values[SettingsStore.Key.defaultEntryMode] as? String == "typed")
     }
 
+    @Test func changesAreLoggedWithoutAffectingStoredValues() throws {
+        let file = DiagnosticsFile()
+        let settings = SettingsStore(store: FakeKeyValueStore(), diagnostics: DiagnosticsLog(fileURL: file.url))
+
+        settings.keepAudioAfterTranscription = false
+        settings.defaultEntryMode = .typed
+
+        let events = try file.events()
+        #expect(events.map { $0["event"] as? String } == ["settings.changed", "settings.changed"])
+        #expect(events[0]["key"] as? String == "keepAudioAfterTranscription")
+        #expect(events[0]["value"] as? Bool == false)
+        #expect(events[1]["value"] as? String == "typed")
+    }
+
     @Test func initDoesNotWriteDefaultsBack() {
         let store = FakeKeyValueStore()
         _ = SettingsStore(store: store)

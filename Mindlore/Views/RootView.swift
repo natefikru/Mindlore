@@ -23,6 +23,7 @@ struct RootView: View {
                 await transcription.processQueue(context: context)
             }
             .onChange(of: scenePhase) { _, phase in
+                DiagnosticsLog.shared.record("app.scenePhase", ["phase": .string(String(describing: phase))])
                 if phase != .active {
                     saver.flush()
                 }

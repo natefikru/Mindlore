@@ -31,12 +31,14 @@ final class AudioRecorder {
     private(set) var elapsed: TimeInterval = 0
 
     @ObservationIgnored private let directory: RecordingsDirectory
+    @ObservationIgnored private let diagnostics: DiagnosticsLog
     @ObservationIgnored private var recorder: AVAudioRecorder?
     @ObservationIgnored private var meteringTask: Task<Void, Never>?
     @ObservationIgnored private var interruptionTask: Task<Void, Never>?
 
-    init(directory: RecordingsDirectory = .standard) {
+    init(directory: RecordingsDirectory = .standard, diagnostics: DiagnosticsLog = .shared) {
         self.directory = directory
+        self.diagnostics = diagnostics
     }
 
     var permissionDenied: Bool {
@@ -46,6 +48,7 @@ final class AudioRecorder {
     func start() async throws {
         guard state == .idle else { return }
         guard await AVAudioApplication.requestRecordPermission() else {
+            diagnostics.record("recorder.permissionDenied")
             throw RecorderError.permissionDenied
         }
         // The permission prompt can outlive the screen that asked; don't start recording for a view that's gone.
@@ -60,11 +63,13 @@ final class AudioRecorder {
         recorder.isMeteringEnabled = true
         guard recorder.record() else {
             try? FileManager.default.removeItem(at: url)
+            diagnostics.record("recorder.startFailed")
             throw RecorderError.couldNotStart
         }
 
         self.recorder = recorder
         state = .recording
+        diagnostics.record("recorder.started", ["file": .string(url.lastPathComponent), "route": .string(session.currentRoute.inputs.first?.portType.rawValue ?? "none")])
         startMetering()
         observeInterruptions()
     }
@@ -73,13 +78,17 @@ final class AudioRecorder {
         guard state == .recording else { return }
         recorder?.pause()
         state = .paused
+        diagnostics.record("recorder.paused", ["seconds": .double(elapsed)])
     }
 
     func resume() {
         guard state == .paused || state == .interrupted, let recorder else { return }
         try? AVAudioSession.sharedInstance().setActive(true)
         if recorder.record() {
+            diagnostics.record("recorder.resumed", ["from": .string(state == .interrupted ? "interrupted" : "paused")])
             state = .recording
+        } else {
+            diagnostics.record("recorder.resumeFailed")
         }
     }
 
@@ -87,8 +96,11 @@ final class AudioRecorder {
     func stop() throws -> URL? {
         guard let recorder else { return nil }
         let url = recorder.url
+        let seconds = recorder.currentTime
         recorder.stop()
         tearDown()
+        let size = (try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? -1
+        diagnostics.record("recorder.stopped", ["file": .string(url.lastPathComponent), "seconds": .double(seconds), "bytes": .int(size)])
         return try directory.moveToFinished(url)
     }
 
@@ -98,6 +110,7 @@ final class AudioRecorder {
         let url = recorder.url
         tearDown()
         try? FileManager.default.removeItem(at: url)
+        diagnostics.record("recorder.discarded", ["file": .string(url.lastPathComponent)])
     }
 
     static func normalizedLevel(decibels: Float) -> Float {
@@ -137,6 +150,7 @@ final class AudioRecorder {
                 guard let self, rawType == AVAudioSession.InterruptionType.began.rawValue else { continue }
                 if self.state == .recording {
                     self.state = .interrupted
+                    self.diagnostics.record("recorder.interrupted", ["seconds": .double(self.elapsed)])
                 }
             }
         }

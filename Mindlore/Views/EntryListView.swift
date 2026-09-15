@@ -73,6 +73,7 @@ struct EntryListView: View {
 
     private func delete(at offsets: IndexSet) {
         for index in offsets {
+            DiagnosticsLog.shared.record("entry.deleted", ["id": .id(entries[index].id), "reason": "swipe"])
             Entry.delete(entries[index], in: modelContext)
         }
         saver.flush()
