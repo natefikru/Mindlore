@@ -277,14 +277,6 @@ struct InsightsCoordinatorTests {
         #expect(entry.insights == nil)
     }
 
-    @Test func waitsWhileOpen() async throws {
-        let harness = try InsightsHarness()
-        let entry = try harness.entry("text")
-        harness.presence.open(entry.id)
-        await harness.coordinator.processQueue(context: harness.context)
-        #expect(harness.generator.requests.isEmpty)
-    }
-
     @Test func retryableFailuresRetryOncePerLaunchUpToTwo() async throws {
         let harness = try InsightsHarness()
         let entry = try harness.entry("text")

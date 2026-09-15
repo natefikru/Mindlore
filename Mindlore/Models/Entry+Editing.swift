@@ -7,6 +7,11 @@ extension Entry {
     }
 
     func userDidEditText() {
+        // Typing over text that was still coming (or never came) makes the entry the user's own
+        // writing, which waits for Done like any typed entry.
+        if !automaticAIPassUsed && (awaitingText || (source == .photo && !textWasGenerated)) {
+            isDraft = true
+        }
         awaitingText = false
         textFallbackReasonRaw = nil
         if textWasGenerated {
@@ -48,6 +53,18 @@ extension Entry {
 
     static func delete(_ entry: Entry, in context: ModelContext) {
         context.delete(entry)
+    }
+}
+
+// MARK: - Drafts
+
+extension Entry {
+    // Returns false if the entry wasn't a draft. The caller fires the automatic AI pass.
+    @discardableResult
+    func finishDraft() -> Bool {
+        guard isDraft else { return false }
+        isDraft = false
+        return true
     }
 }
 

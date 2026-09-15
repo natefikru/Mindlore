@@ -7,6 +7,7 @@ import SwiftData
 @Observable
 final class AIPassTrigger {
     enum Moment: String {
+        case finished
         case editorClosed
         case textReady
         case approved
@@ -38,7 +39,7 @@ final class AIPassTrigger {
     static func isEligible(_ entry: Entry, automationStartedAt: Date?) -> Bool {
         guard !entry.automaticAIPassUsed, let automationStartedAt, entry.createdAt >= automationStartedAt else { return false }
         guard !entry.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return false }
-        guard !entry.awaitingText, !entry.textReviewPending else { return false }
+        guard !entry.awaitingText, !entry.textReviewPending, !entry.isDraft else { return false }
         // An unapproved photo entry never qualifies, so nothing can skip review.
         return entry.source != .photo || entry.pagesConfirmed
     }

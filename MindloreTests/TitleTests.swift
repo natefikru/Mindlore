@@ -157,7 +157,7 @@ struct AIPassTriggerTests {
         #expect(!harness.trigger.fire(for: entry, at: .editorClosed))
     }
 
-    @Test func voiceEntryTheUserTypedIntoFires() throws {
+    @Test func voiceEntryTheUserTypedIntoWaitsForDone() throws {
         let harness = try TitleHarness()
         let entry = Entry(createdAt: Date(timeIntervalSince1970: 5_000), source: .voice, awaitingText: true, audioData: Data([1]))
         harness.context.insert(entry)
@@ -165,7 +165,11 @@ struct AIPassTriggerTests {
 
         entry.text = "typed instead"
         entry.userDidEditText()
-        #expect(harness.trigger.fire(for: entry, at: .editorClosed))
+        #expect(entry.isDraft)
+        #expect(!harness.trigger.fire(for: entry, at: .editorClosed))
+
+        entry.finishDraft()
+        #expect(harness.trigger.fire(for: entry, at: .finished))
     }
 
     @Test func unconfirmedOrUnapprovedPhotoEntriesNeverFire() throws {

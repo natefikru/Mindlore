@@ -38,6 +38,11 @@ struct EntryEditorView: View {
         .toolbar {
             if let entry {
                 ToolbarItemGroup(placement: .topBarTrailing) {
+                    if entry.isDraft {
+                        Button("Done") { finish(entry) }
+                            .fontWeight(.semibold)
+                            .accessibilityIdentifier("finishEntryButton")
+                    }
                     if entry.source == .photo && entry.pagesConfirmed {
                         Button("Edit pages", systemImage: "doc.on.doc") { editingPages = true }
                             .disabled(pageTranscription.isRunning(entry))
@@ -201,6 +206,18 @@ struct EntryEditorView: View {
         }
     }
 
+    // Done: the entry is finished, so its automatic pass runs now. Leaving without Done keeps a draft.
+    private func finish(_ entry: Entry) {
+        guard entry.finishDraft() else { return }
+        editorFocused = false
+        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+        aiPass.fire(for: entry, at: .finished)
+        saver.noteChange()
+        saver.flush()
+        DiagnosticsLog.shared.record("entry.finished", ["id": .id(entry.id)])
+        aiPass.onFlagged?()
+    }
+
     private func approve(_ entry: Entry) {
         guard entry.approveText() else { return }
         aiPass.fire(for: entry, at: .approved)
@@ -222,6 +239,7 @@ struct EntryEditorView: View {
                 } else {
                     guard !newValue.isEmpty else { return }
                     let created = Entry(text: newValue)
+                    created.isDraft = true
                     modelContext.insert(created)
                     entry = created
                     presence.open(created.id)
@@ -243,6 +261,7 @@ struct EntryEditorView: View {
                 } else {
                     guard !newValue.isEmpty else { return }
                     let created = Entry()
+                    created.isDraft = true
                     created.userDidEditTitle(newValue)
                     modelContext.insert(created)
                     entry = created

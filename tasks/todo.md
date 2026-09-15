@@ -438,15 +438,16 @@ Everything about key setup, the OpenAI client, and cloud transcription that the 
 - [x] Diagnostics: `insights.started/completed/stale/failed` (trigger, source, sections requested and returned, tag and mention counts, token counts), `cleanup.applied/reverted/refused`.
 - [x] Tests: schema contents per toggle combination and per source (no `cleanedText` for typed or photo, no `writtenDate` for voice or photo); custom keys stable across reorder and delete; tags capped at 50; long voice text omits `cleanedText` with the reason; results per field, nulls leave fields empty, unknown values dropped, tags normalized; stale result stored without cleanup or date; deleted entry mid-request; manual mode never flags; AI on doesn't flag existing entries; no second automatic request after edit, close, reopen, apply cleanup, relaunch; retryable failure retries up to 2; non-retryable isn't retried; Run AI on an entry with no insights, a failed entry, and one with insights; Run AI disabled while running; `applyCleanedText` refused on typed and photo entries and on changed text; auto-apply skipped while open; `originalText` set once across two cleanups; revert restores the first original.
 - [x] Implementation notes: storing a suggested date doesn't stamp `updatedAt` (only applied cleanup does). Live test `fullInsightsSchemaIsAcceptedAndParses` sends the largest schema (every section, 43-mood enum, mentions, cleanup, a custom prompt) to `gpt-5.6-luna`: accepted, 1,194 input and 271 output tokens, mood, reused tags, typed mentions, and the custom card all came back.
-- [ ] Pending owner confirmation: drafts and a Done button (see "Phase 9b" below).
+- [x] Drafts and a Done button: confirmed by the owner and built in Phase 9b.
 
-### Phase 9b: Drafts and Done (proposed 2026-09-15, awaiting owner confirmation)
+### Phase 9b: Drafts and Done (confirmed by the owner 2026-09-15; voice and photo keep their own done moments)
 The automatic pass currently fires the first time a typed entry's editor closes, so backing out of a half-written entry runs AI on the draft. Proposal:
-- [ ] `Entry.isDraft: Bool = false` (existing entries stay finished). New typed entries start as drafts; a voice entry the user types into before its transcription lands becomes a draft.
-- [ ] Editor **Done** button finishes a draft: clears `isDraft`, dismisses the keyboard, and fires the automatic pass (moment `finished`) without leaving the entry. Titles still wait for the entry to close; insights may run while it's open since they never change the text (voice cleanup still waits).
-- [ ] Closing the editor and the launch sweep no longer fire the pass for drafts. Voice entries still fire on transcription; photo entries on Approve.
-- [ ] List shows "Draft" on unfinished entries.
-- [ ] Tests: draft closes without a pass; Done fires once; editing after Done doesn't; existing entries aren't drafts; voice typed-over becomes a draft; UI test for write, back out, return, Done.
+- [x] `Entry.isDraft: Bool = false` (existing entries stay finished). New typed entries start as drafts; a voice entry the user types into before its transcription lands becomes a draft.
+- [x] Editor **Done** button finishes a draft: clears `isDraft`, dismisses the keyboard, and fires the automatic pass (moment `finished`) without leaving the entry. Titles still wait for the entry to close; insights may run while it's open since they never change the text (voice cleanup still waits).
+- [x] Closing the editor and the launch sweep no longer fire the pass for drafts. Voice entries still fire on transcription; photo entries on Approve.
+- [x] List shows "Draft" on unfinished entries.
+- [x] Tests: draft closes without a pass; Done fires once; editing after Done doesn't; existing entries aren't drafts; voice typed-over becomes a draft; UI test for write, back out, return, Done.
+- [x] Also: a photo entry the user types into without a page transcription becomes a draft too; editing text after a transcription or approval stays finished. The old test that a typed-over voice entry fires on close now expects it to wait for Done.
 
 ### Phase 10: Full AI settings
 - [ ] `AISettingsView` sections: **AI** (on/off). **OpenAI account**. **Speech to text** (engine, model picker from `/models` plus free text, fallback toggle). **Journal pages** (model picker plus free text). **Titles** (Off / On device / OpenAI; On device disabled with the unavailability reason). **Insights** (automatic or manual, text model picker, section toggles, "Clean up voice transcriptions", "Replace voice entry text with the cleaned-up version automatically", "Suggest entry dates"). **Custom insights** (list, add, edit name and instructions, enable, delete, reorder).

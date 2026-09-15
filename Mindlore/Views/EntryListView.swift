@@ -163,6 +163,7 @@ private struct EntryRow: View {
 
     private var statusBadge: String? {
         if entry.isAwaitingPageConfirmation { return "Pages not confirmed" }
+        if entry.isDraft { return "Draft" }
         guard entry.awaitingText else { return nil }
         return entry.source == .photo ? "Transcribing pages" : "Getting text"
     }

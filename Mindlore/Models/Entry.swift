@@ -38,6 +38,8 @@ final class Entry {
     var textAttempts: Int = 0
     var textFailureRaw: String?
     var automaticAIPassUsed: Bool = false
+    // A typed entry the user hasn't finished with Done. Drafts never get the automatic AI pass.
+    var isDraft: Bool = false
     var titlePending: Bool = false
     var titleAttempts: Int = 0
     var titleFailureRaw: String?

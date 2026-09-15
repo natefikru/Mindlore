@@ -56,6 +56,7 @@ struct SchemaMigrationTests {
             #expect(!entry.entryDateIsDayOnly)
             #expect(entry.suggestedEntryDate == nil)
             #expect(!entry.automaticAIPassUsed)
+            #expect(!entry.isDraft)
             #expect(!entry.titlePending && !entry.insightsPending)
             #expect(entry.textAttempts == 0 && entry.textFailureRaw == nil)
             #expect(entry.pages?.isEmpty ?? true)

@@ -66,7 +66,9 @@ final class InsightsCoordinator {
             let descriptor = FetchDescriptor<Entry>(predicate: #Predicate { $0.insightsPending }, sortBy: [SortDescriptor(\.createdAt)])
             for entry in (try? context.fetch(descriptor)) ?? [] {
                 let manual = manualRuns.contains(entry.id)
-                guard !presence.isOpen(entry.id), manual || !failedThisSession.contains(entry.id) else { continue }
+                // Insights may run while the entry is open: they never change its text, and a finished
+                // entry's text is final by the user's choice. Cleanup still waits for the entry to close.
+                guard manual || !failedThisSession.contains(entry.id) else { continue }
                 guard manual || AIJobPolicy.canRunAutomatically(.insights, entry) else { continue }
                 await generate(entry.persistentModelID, context: context)
             }
