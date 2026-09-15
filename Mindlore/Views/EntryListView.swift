@@ -12,13 +12,36 @@ struct EntryListView: View {
     @State private var showingSettings = false
     @State private var writingNewEntry = false
     @State private var recording = false
+    @State private var pageOrder: PageOrderTarget?
+
+    enum PageOrderTarget: Identifiable {
+        case new
+        case existing(Entry)
+
+        var id: String {
+            switch self {
+            case .new: "new"
+            case .existing(let entry): entry.id.uuidString
+            }
+        }
+    }
 
     var body: some View {
         NavigationStack(path: $path) {
             List {
                 ForEach(entries) { entry in
-                    NavigationLink(value: entry) {
-                        EntryRow(entry: entry)
+                    // Pages still being gathered reopen the page screen, not the editor.
+                    if entry.isAwaitingPageConfirmation {
+                        Button {
+                            pageOrder = .existing(entry)
+                        } label: {
+                            EntryRow(entry: entry)
+                        }
+                        .foregroundStyle(.primary)
+                    } else {
+                        NavigationLink(value: entry) {
+                            EntryRow(entry: entry)
+                        }
                     }
                 }
                 .onDelete(perform: delete)
@@ -45,6 +68,10 @@ struct EntryListView: View {
                 }
                 // The default entry mode sits in the outermost, easiest-to-reach position.
                 ToolbarItemGroup(placement: .topBarTrailing) {
+                    if DocumentCameraView.isSupported || FakePages.isEnabled {
+                        Button("Photograph Pages", systemImage: "doc.viewfinder") { pageOrder = .new }
+                            .accessibilityIdentifier("newPhotoEntryButton")
+                    }
                     if settings.defaultEntryMode == .voice {
                         newTypedEntryButton
                         newVoiceEntryButton
@@ -59,6 +86,14 @@ struct EntryListView: View {
             }
             .fullScreenCover(isPresented: $recording) {
                 RecordingView { entry in path.append(entry) }
+            }
+            .fullScreenCover(item: $pageOrder) { target in
+                switch target {
+                case .new:
+                    PageOrderView(entry: nil, startWithCamera: true) { entry in path.append(entry) }
+                case .existing(let entry):
+                    PageOrderView(entry: entry, startWithCamera: false) { entry in path.append(entry) }
+                }
             }
         }
     }
@@ -92,12 +127,16 @@ private struct EntryRow: View {
                     Image(systemName: "mic.fill")
                         .foregroundStyle(.secondary)
                         .accessibilityLabel("Voice entry")
+                } else if entry.source == .photo {
+                    Image(systemName: "doc.text.image")
+                        .foregroundStyle(.secondary)
+                        .accessibilityLabel("Journal pages")
                 }
                 EntryDateText(entry: entry)
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
-                if entry.awaitingText {
-                    Text("Getting text")
+                if let status = statusBadge {
+                    Text(status)
                         .font(.caption)
                         .padding(.horizontal, 6)
                         .padding(.vertical, 2)
@@ -122,6 +161,12 @@ private struct EntryRow: View {
         .accessibilityIdentifier("entryRow")
     }
 
+    private var statusBadge: String? {
+        if entry.isAwaitingPageConfirmation { return "Pages not confirmed" }
+        guard entry.awaitingText else { return nil }
+        return entry.source == .photo ? "Transcribing pages" : "Getting text"
+    }
+
     private var preview: String? {
         let lines = entry.text.split(whereSeparator: \.isNewline).map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
         guard let first = lines.first else { return nil }
@@ -143,6 +188,7 @@ private struct EntryRow: View {
         .environment(RecordingIngestor())
         .environment(TranscriptionCoordinator())
         .environment(EditorPresence())
+        .environment(ProviderAccountStore(settings: SettingsStore(store: UserDefaults(suiteName: "preview")!)))
         .environment(AIPassTrigger(settings: SettingsStore(store: UserDefaults(suiteName: "preview")!), presence: EditorPresence(), titleUsable: { false }))
         .environment(SettingsStore(store: UserDefaults(suiteName: "preview")!))
 }

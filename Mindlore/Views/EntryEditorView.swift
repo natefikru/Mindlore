@@ -94,7 +94,7 @@ struct EntryEditorView: View {
                 .onSubmit { editorFocused = true }
                 .accessibilityIdentifier("entryTitleField")
             if let entry, entry.awaitingText, entry.text.isEmpty {
-                Text("Text from your recording will appear here. You can also start typing.")
+                Text(entry.source == .photo ? "Text from your pages will appear here. You can also start typing." : "Text from your recording will appear here. You can also start typing.")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
                     .padding(.horizontal, 21)

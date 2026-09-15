@@ -414,6 +414,7 @@
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = Mindlore/Info.plist;
+				INFOPLIST_KEY_NSCameraUsageDescription = "Mindlore uses the camera to photograph journal pages.";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Mindlore records your voice so you can journal by speaking.";
 				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "Mindlore turns your recordings into text.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
@@ -449,6 +450,7 @@
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = Mindlore/Info.plist;
+				INFOPLIST_KEY_NSCameraUsageDescription = "Mindlore uses the camera to photograph journal pages.";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Mindlore records your voice so you can journal by speaking.";
 				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "Mindlore turns your recordings into text.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;

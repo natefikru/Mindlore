@@ -402,15 +402,20 @@ Everything about key setup, the OpenAI client, and cloud transcription that the 
   - UI test `TitleUITests`: a title-only entry survives closing and relaunch.
 
 ### Phase 7: Photo capture and page order
-- [ ] `NSCameraUsageDescription` (both configurations): "Mindlore uses the camera to photograph journal pages."
-- [ ] `DocumentCameraView` (`UIViewControllerRepresentable` over `VNDocumentCameraViewController`); pages processed one at a time as the scan returns.
-- [ ] `PageOrderView` as a `fullScreenCover`: thumbnails from `thumbnailData`, drag to reorder, delete, "Scan more pages", "Add from Photos" (`PhotosPicker`, `.ordered`, `maxSelectionCount` = remaining room, loaded as `Data`, failed items skipped and counted), confirm button ("Transcribe N pages" or "Save pages" by AI availability), Cancel. Registers with `EditorPresence`. For unconfirmed entries, page changes save immediately; nothing happens on `onDisappear`.
-- [ ] Entry created on the first delivered pages (`source = .photo`); Cancel or Done with no pages deletes it. List row shows "Pages not confirmed" and tapping it presents `PageOrderView` instead of pushing the editor.
-- [ ] `Entry+Editing`: `addPages(_:)` (enforces the 20-page cap, returns how many were left out), `movePage(from:to:)`, `removePage(at:)` (deletes the model; all three refuse when `pagesConfirmed`), `confirmPages(aiUsable:)`.
-- [ ] List toolbar: third button `newPhotoEntryButton`, hidden when `VNDocumentCameraViewController.isSupported` is false; existing buttons and identifiers unchanged.
-- [ ] `-uiTestingFakePages` launch argument shows the photo button in the simulator and injects fixture page images in place of the camera and picker.
-- [ ] Diagnostics: `pages.added` (count, origin, bytes, dimensions, left out, failed to load), `pages.reordered`, `pages.removed`, `pages.confirmed` (count, transcribe or save).
-- [ ] Tests: indexes stay contiguous after moves and removals; removed pages are deleted from the store (no orphaned `EntryPage` rows); page edits refused once confirmed; confirm sets `awaitingText` only when AI is usable; pages-only entry isn't deleted on editor close; adding past 20 keeps the first pages that fit; thumbnail and storage sizes. UI test: fake pages, reorder, delete, confirm, relaunch, order kept; presenting the fake picker from an entry with zero pages doesn't delete it.
+- [x] `NSCameraUsageDescription` (both configurations): "Mindlore uses the camera to photograph journal pages."
+- [x] `DocumentCameraView` (`UIViewControllerRepresentable` over `VNDocumentCameraViewController`); pages processed one at a time as the scan returns.
+- [x] `PageOrderView` as a `fullScreenCover`: thumbnails from `thumbnailData`, drag to reorder, delete, "Scan more pages", "Add from Photos" (`PhotosPicker`, `.ordered`, `maxSelectionCount` = remaining room, loaded as `Data`, failed items skipped and counted), confirm button ("Transcribe N pages" or "Save pages" by AI availability), Cancel. Registers with `EditorPresence`. For unconfirmed entries, page changes save immediately; nothing happens on `onDisappear`.
+- [x] Entry created on the first delivered pages (`source = .photo`); Cancel or Done with no pages deletes it. List row shows "Pages not confirmed" and tapping it presents `PageOrderView` instead of pushing the editor.
+- [x] `Entry+Editing`: `addPages(_:)` (enforces the 20-page cap, returns how many were left out), `movePage(from:to:)`, `removePage(at:)` (deletes the model; all three refuse when `pagesConfirmed`), `confirmPages(aiUsable:)`.
+- [x] List toolbar: third button `newPhotoEntryButton`, hidden when `VNDocumentCameraViewController.isSupported` is false; existing buttons and identifiers unchanged.
+- [x] `-uiTestingFakePages` launch argument shows the photo button in the simulator and injects fixture page images in place of the camera and picker.
+- [x] Diagnostics: `pages.added` (count, origin, bytes, dimensions, left out, failed to load), `pages.reordered`, `pages.removed`, `pages.confirmed` (count, transcribe or save).
+- [x] Tests: indexes stay contiguous after moves and removals; removed pages are deleted from the store (no orphaned `EntryPage` rows); page edits refused once confirmed; confirm sets `awaitingText` only when AI is usable; pages-only entry isn't deleted on editor close; adding past 20 keeps the first pages that fit; thumbnail and storage sizes. UI test: fake pages, reorder, delete, confirm, relaunch, order kept; presenting the fake picker from an entry with zero pages doesn't delete it.
+- [x] Implementation notes:
+  - Pages are removed with a visible trash button per row that asks first, instead of swipe or edit-mode delete: the edit-mode delete controls weren't exposed to accessibility, and a mistaken tap shouldn't lose a scanned page.
+  - The list's confirm button reads "Transcribe N pages" only when AI is on with a key for pages; otherwise "Save pages".
+  - Photo entries get their own list badge ("Pages not confirmed", "Transcribing pages") and editor placeholder.
+  - Real camera capture and Photos import (including iCloud-only photos) are left for the device smoke test; UI tests use `-uiTestingFakePages`.
 
 ### Phase 8: Page transcription and review
 - [ ] `PageTranscriptionCoordinator` over `AIJobPolicy`: photo entries with `awaitingText` and `pagesConfirmed`; pages in index order, skipping pages whose `transcribedText` is non-nil; previous tail passed; `contentRevision` captured per request and each result dropped if the revision moved or the page no longer exists at that index; each page result saved as it arrives; progress-based attempt counting and the `pageRequestCount` cap; on the last page, `applyGeneratedText` with the joined text, and only when it applies, `textGeneratedBy`, `textReviewPending = true`, and `storeSuggestedEntryDate` from the first page with a `writtenDate` (when `suggestEntryDates` is on).
