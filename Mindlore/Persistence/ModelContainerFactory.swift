@@ -7,12 +7,12 @@ enum StoreLocation: Equatable {
     case file(URL)
 
     static let uiTestingArgument = "-uiTesting"
-    static let uiTestStorePathKey = "UITEST_STORE_PATH"
+    static let uiTestStoreNameKey = "UITEST_STORE_NAME"
     static let xcTestConfigurationKey = "XCTestConfigurationFilePath"
 
-    static func resolve(arguments: [String], environment: [String: String]) -> StoreLocation {
-        if arguments.contains(uiTestingArgument), let path = environment[uiTestStorePathKey] {
-            return .file(URL(fileURLWithPath: path))
+    static func resolve(arguments: [String], environment: [String: String], directory: URL = .applicationSupportDirectory) -> StoreLocation {
+        if arguments.contains(uiTestingArgument), let name = environment[uiTestStoreNameKey] {
+            return .file(directory.appendingPathComponent("uitest-\(name).store"))
         }
         if environment[xcTestConfigurationKey] != nil {
             return .inMemory
@@ -33,6 +33,7 @@ enum ModelContainerFactory {
         case .inMemory:
             configuration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: true, cloudKitDatabase: .none)
         case .file(let url):
+            try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
             configuration = ModelConfiguration(schema: schema, url: url, cloudKitDatabase: .none)
         }
         return try ModelContainer(for: schema, configurations: [configuration])

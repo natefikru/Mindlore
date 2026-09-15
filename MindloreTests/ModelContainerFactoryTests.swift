@@ -14,19 +14,20 @@ struct ModelContainerFactoryTests {
         #expect(StoreLocation.resolve(arguments: ["Mindlore"], environment: environment) == .inMemory)
     }
 
-    @Test func resolvesFileForUITestsWithStorePath() {
-        let environment = [StoreLocation.uiTestStorePathKey: "/tmp/uitest.store"]
-        let location = StoreLocation.resolve(arguments: ["Mindlore", StoreLocation.uiTestingArgument], environment: environment)
-        #expect(location == .file(URL(fileURLWithPath: "/tmp/uitest.store")))
+    @Test func resolvesNamedFileForUITests() {
+        let directory = URL(fileURLWithPath: "/tmp/support", isDirectory: true)
+        let environment = [StoreLocation.uiTestStoreNameKey: "abc"]
+        let location = StoreLocation.resolve(arguments: ["Mindlore", StoreLocation.uiTestingArgument], environment: environment, directory: directory)
+        #expect(location == .file(directory.appendingPathComponent("uitest-abc.store")))
     }
 
-    @Test func uiTestingArgumentWithoutStorePathDoesNotUseAFile() {
+    @Test func uiTestingArgumentWithoutStoreNameDoesNotUseAFile() {
         let location = StoreLocation.resolve(arguments: ["Mindlore", StoreLocation.uiTestingArgument], environment: [:])
         #expect(location == .default)
     }
 
-    @Test func storePathWithoutUITestingArgumentIsIgnored() {
-        let environment = [StoreLocation.uiTestStorePathKey: "/tmp/uitest.store"]
+    @Test func storeNameWithoutUITestingArgumentIsIgnored() {
+        let environment = [StoreLocation.uiTestStoreNameKey: "abc"]
         #expect(StoreLocation.resolve(arguments: ["Mindlore"], environment: environment) == .default)
     }
 
@@ -41,9 +42,8 @@ struct ModelContainerFactoryTests {
 
     @Test func fileStorePersistsAcrossContainers() throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: directory) }
-        let url = directory.appendingPathComponent("entries.store")
+        let url = directory.appendingPathComponent("nested/entries.store")
         let id = UUID()
 
         do {

@@ -10,6 +10,7 @@ final class Entry {
     var updatedAt: Date = Date.now
     var sourceRaw: String = EntrySource.typed.rawValue
     var text: String = ""
+    var textWasGenerated: Bool = false
     var textEditedByUser: Bool = false
     var awaitingText: Bool = false
     @Attribute(.externalStorage) var audioData: Data?

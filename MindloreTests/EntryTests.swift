@@ -10,6 +10,7 @@ struct EntryTests {
 
         #expect(entry.source == .typed)
         #expect(entry.text.isEmpty)
+        #expect(entry.textWasGenerated == false)
         #expect(entry.textEditedByUser == false)
         #expect(entry.awaitingText == false)
         #expect(entry.audioData == nil)

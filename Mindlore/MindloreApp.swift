@@ -25,7 +25,7 @@ struct MindloreApp: App {
         WindowGroup {
             switch container {
             case .success(let container):
-                ContentView()
+                RootView(container: container)
                     .modelContainer(container)
                     .environment(settings)
             case .failure(let error):
