@@ -20,10 +20,24 @@ struct EntryEditorView: View {
                     .padding(.horizontal)
                     .padding(.vertical, 8)
             }
+            if let audioData = entry?.audioData {
+                AudioPlayerView(data: audioData, duration: entry?.audioDuration)
+                    .padding(.horizontal)
+                    .padding(.top, 8)
+            }
             TextEditor(text: textBinding)
                 .focused($editorFocused)
                 .padding(.horizontal)
                 .accessibilityIdentifier("entryEditor")
+                .overlay(alignment: .topLeading) {
+                    if let entry, entry.awaitingText, entry.text.isEmpty {
+                        Text("Text from your recording will appear here. You can also start typing.")
+                            .foregroundStyle(.secondary)
+                            .padding(.horizontal, 21)
+                            .padding(.top, 8)
+                            .allowsHitTesting(false)
+                    }
+                }
         }
         .navigationTitle(title)
         .navigationBarTitleDisplayMode(.inline)

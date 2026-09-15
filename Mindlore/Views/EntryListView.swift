@@ -4,12 +4,15 @@ import SwiftData
 struct EntryListView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(EntrySaver.self) private var saver
+    @Environment(SettingsStore.self) private var settings
     @Query(sort: \Entry.createdAt, order: .reverse) private var entries: [Entry]
+    @State private var path: [Entry] = []
     @State private var showingSettings = false
     @State private var writingNewEntry = false
+    @State private var recording = false
 
     var body: some View {
-        NavigationStack {
+        NavigationStack(path: $path) {
             List {
                 ForEach(entries) { entry in
                     NavigationLink(value: entry) {
@@ -23,7 +26,7 @@ struct EntryListView: View {
                     ContentUnavailableView(
                         "No entries yet",
                         systemImage: "book.closed",
-                        description: Text("Tap the pencil to write your first entry.")
+                        description: Text("Tap the microphone to speak an entry, or the pencil to write one.")
                     )
                 }
             }
@@ -38,15 +41,34 @@ struct EntryListView: View {
                 ToolbarItem(placement: .topBarLeading) {
                     Button("Settings", systemImage: "gearshape") { showingSettings = true }
                 }
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button("New Entry", systemImage: "square.and.pencil") { writingNewEntry = true }
-                        .accessibilityIdentifier("newEntryButton")
+                // The default entry mode sits in the outermost, easiest-to-reach position.
+                ToolbarItemGroup(placement: .topBarTrailing) {
+                    if settings.defaultEntryMode == .voice {
+                        newTypedEntryButton
+                        newVoiceEntryButton
+                    } else {
+                        newVoiceEntryButton
+                        newTypedEntryButton
+                    }
                 }
             }
             .sheet(isPresented: $showingSettings) {
                 SettingsView()
             }
+            .fullScreenCover(isPresented: $recording) {
+                RecordingView { entry in path.append(entry) }
+            }
         }
+    }
+
+    private var newTypedEntryButton: some View {
+        Button("New Written Entry", systemImage: "square.and.pencil") { writingNewEntry = true }
+            .accessibilityIdentifier("newEntryButton")
+    }
+
+    private var newVoiceEntryButton: some View {
+        Button("New Voice Entry", systemImage: "mic") { recording = true }
+            .accessibilityIdentifier("newVoiceEntryButton")
     }
 
     private func delete(at offsets: IndexSet) {
@@ -99,5 +121,6 @@ private struct EntryRow: View {
     return EntryListView()
         .modelContainer(container)
         .environment(EntrySaver(context: container.mainContext))
+        .environment(RecordingIngestor())
         .environment(SettingsStore(store: UserDefaults(suiteName: "preview")!))
 }

@@ -14,6 +14,8 @@ struct MindloreApp: App {
     @State private var settings = SettingsStore()
 
     init() {
+        // Runs before any UI exists, so no recording can be in progress yet.
+        try? RecordingsDirectory.standard.recoverInterruptedRecordings()
         let location = StoreLocation.resolve(
             arguments: ProcessInfo.processInfo.arguments,
             environment: ProcessInfo.processInfo.environment
