@@ -10,23 +10,47 @@ import SwiftData
 
 @main
 struct MindloreApp: App {
-    var sharedModelContainer: ModelContainer = {
-        let schema = Schema([
-            Item.self,
-        ])
-        let modelConfiguration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: false)
+    private let container: Result<ModelContainer, any Error>
+    @State private var settings = SettingsStore()
 
-        do {
-            return try ModelContainer(for: schema, configurations: [modelConfiguration])
-        } catch {
-            fatalError("Could not create ModelContainer: \(error)")
+    init() {
+        let diagnostics = DiagnosticsLog.shared
+        let arguments = ProcessInfo.processInfo.arguments
+        let info = Bundle.main.infoDictionary
+        var launch: [String: DiagnosticValue] = [
+            "version": .string(info?["CFBundleShortVersionString"] as? String ?? "?"),
+            "build": .string(info?["CFBundleVersion"] as? String ?? "?"),
+        ]
+        if let index = arguments.firstIndex(of: "-diagnosticsRun"), arguments.indices.contains(index + 1) {
+            launch["run"] = .string(arguments[index + 1])
         }
-    }()
+        diagnostics.record("app.launch", launch)
+
+        // Runs before any UI exists, so no recording can be in progress yet.
+        let recovered = (try? RecordingsDirectory.standard.recoverInterruptedRecordings()) ?? []
+        if !recovered.isEmpty {
+            diagnostics.record("recovery.moved", ["count": .int(recovered.count), "files": .string(recovered.map(\.lastPathComponent).joined(separator: ","))])
+        }
+        let location = StoreLocation.resolve(
+            arguments: ProcessInfo.processInfo.arguments,
+            environment: ProcessInfo.processInfo.environment
+        )
+        container = Result { try ModelContainerFactory.make(location) }
+        if case .failure(let error) = container {
+            diagnostics.record("store.openFailed", ["error": .errorCode(error)])
+        }
+    }
 
     var body: some Scene {
         WindowGroup {
-            ContentView()
+            switch container {
+            case .success(let container):
+                RootView(container: container)
+                    .modelContainer(container)
+                    .environment(settings)
+            case .failure(let error):
+                StoreErrorView(error: error)
+            }
         }
-        .modelContainer(sharedModelContainer)
     }
 }
