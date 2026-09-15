@@ -62,4 +62,22 @@ struct OpenAILiveTests {
             print("LIVE audio: no speech, as expected for a tone")
         }
     }
+    // The largest strict schema the app sends: every section, the mood enum, mentions, cleanup, and a custom prompt.
+    @Test func fullInsightsSchemaIsAcceptedAndParses() async throws {
+        var sections = InsightSections()
+        sections.customPrompts = [CustomInsightPrompt(id: UUID(), name: "Gratitude", instructions: "What is the writer grateful for?", enabled: true)]
+        let text = "so today i met sarah at the coffee place on main street and we talked about the move to denver which im kind of anxious about but also grateful she offered to help i still need to call the landlord"
+        let plan = InsightsPromptBuilder.plan(text: text, source: .voice, sections: sections, existingTags: ["friends", "moving"], model: ProviderDefaults.textModel)
+        let generator = OpenAICompatibleTextGenerator(baseURL: baseURL, apiKey: key, http: http, jsonModeMemory: JSONModeMemory())
+
+        let response = try await generator.generate(plan.request)
+        let result = try InsightsPromptBuilder.parse(response.text, plan: plan)
+
+        print("LIVE insights tokens in \(response.inputTokens ?? -1) out \(response.outputTokens ?? -1) mood \(String(describing: result.primaryMood)) tags \(result.tags) mentions \(result.mentions.map(\.kindRaw)) custom \(result.custom.count)")
+        #expect(result.summary != nil)
+        #expect(result.primaryMood != nil)
+        #expect(result.mentions.contains { $0.name.lowercased().contains("sarah") && $0.kind == .person })
+        #expect(result.cleanedText?.isEmpty == false)
+        #expect(!result.openThreads.isEmpty)
+    }
 }

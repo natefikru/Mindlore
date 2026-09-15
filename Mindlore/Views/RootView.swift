@@ -10,6 +10,7 @@ struct RootView: View {
     @State private var aiPass: AIPassTrigger
     @State private var titles: TitleCoordinator
     @State private var pageTranscription: PageTranscriptionCoordinator
+    @State private var insights: InsightsCoordinator
     @State private var network = NetworkMonitor()
     private let context: ModelContext
 
@@ -21,14 +22,27 @@ struct RootView: View {
         let presence = EditorPresence()
         let router = TranscriberRouter(settings: settings, accounts: accounts, http: http, onDevice: SpeechAnalyzerTranscriber())
         let transcription = TranscriptionCoordinator(route: router.route(for:manualRetry:))
-        let aiPass = AIPassTrigger(settings: settings, presence: presence, titleUsable: { AIServices.titleGenerator(settings: settings, accounts: accounts, http: http).isSuccess })
+        let aiPass = AIPassTrigger(
+            settings: settings,
+            presence: presence,
+            titleUsable: { AIServices.titleGenerator(settings: settings, accounts: accounts, http: http).isSuccess },
+            insightsUsable: { AIServices.automaticInsightsUsable(settings: settings, accounts: accounts) }
+        )
         let titles = TitleCoordinator(resolve: { AIServices.titleGenerator(settings: settings, accounts: accounts, http: http) }, presence: presence)
+
+        let insights = InsightsCoordinator(
+            resolve: { AIServices.insightsGenerator(settings: settings, accounts: accounts) },
+            sections: { AIServices.insightSections(settings) },
+            autoApplyCleanedText: { settings.autoApplyCleanedText },
+            presence: presence
+        )
 
         // A short delay lets a cancelled back swipe re-open the entry before any job looks at it.
         aiPass.onFlagged = {
             Task {
                 try? await Task.sleep(for: .seconds(1))
                 await titles.processQueue(context: context)
+                await insights.processQueue(context: context)
             }
         }
         transcription.onTextReady = { id in
@@ -49,6 +63,7 @@ struct RootView: View {
         _transcription = State(initialValue: transcription)
         _aiPass = State(initialValue: aiPass)
         _titles = State(initialValue: titles)
+        _insights = State(initialValue: insights)
     }
 
     var body: some View {
@@ -60,6 +75,7 @@ struct RootView: View {
             .environment(aiPass)
             .environment(titles)
             .environment(pageTranscription)
+            .environment(insights)
             .task {
                 await ingestor.ingestAll(in: .standard, context: context)
                 await transcription.processQueue(context: context)
@@ -73,6 +89,7 @@ struct RootView: View {
                     try? context.saveStampingEntries()
                 }
                 await titles.processQueue(context: context)
+                await insights.processQueue(context: context)
             }
             .onChange(of: scenePhase) { _, phase in
                 DiagnosticsLog.shared.record("app.scenePhase", ["phase": .string(String(describing: phase))])
@@ -80,7 +97,10 @@ struct RootView: View {
                     saver.flush()
                 } else {
                     Task { await transcription.processQueue(context: context) }
-                    Task { await titles.processQueue(context: context) }
+                    Task {
+                        await titles.processQueue(context: context)
+                        await insights.processQueue(context: context)
+                    }
                     Task { await pageTranscription.processQueue(context: context) }
                 }
             }

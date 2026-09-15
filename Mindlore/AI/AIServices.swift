@@ -34,6 +34,34 @@ extension AIServices {
     }
 }
 
+extension AIServices {
+    static func insightsGenerator(settings: SettingsStore, accounts: ProviderAccountStore) -> Result<InsightsCoordinator.Generator, AIJobFailure> {
+        guard settings.aiEnabled else { return .failure(AIJobFailure(raw: "settings.aiOff")) }
+        guard let provider = accounts.resolve(.text) else { return .failure(AIJobFailure(.missingKey)) }
+        let generator = OpenAICompatibleTextGenerator(baseURL: provider.account.baseURL, apiKey: provider.apiKey, http: accounts.http)
+        return .success(.init(generator: generator, model: provider.model, label: "openai:\(provider.model)"))
+    }
+
+    static func insightSections(_ settings: SettingsStore) -> InsightSections {
+        InsightSections(
+            summary: settings.insightSummary,
+            moods: settings.insightMoods,
+            themes: settings.insightThemes,
+            tags: settings.insightTags,
+            mentions: settings.insightMentions,
+            openThreads: settings.insightOpenThreads,
+            cleanedText: settings.insightCleanedText,
+            suggestEntryDates: settings.suggestEntryDates,
+            customPrompts: settings.customInsightPrompts
+        )
+    }
+
+    // Whether the automatic pass should flag insights for an entry right now.
+    static func automaticInsightsUsable(settings: SettingsStore, accounts: ProviderAccountStore) -> Bool {
+        settings.aiEnabled && settings.insightsTrigger == .automatic && accounts.resolve(.text) != nil && !insightSections(settings).isEmpty
+    }
+}
+
 extension Result {
     var isSuccess: Bool {
         if case .success = self { true } else { false }

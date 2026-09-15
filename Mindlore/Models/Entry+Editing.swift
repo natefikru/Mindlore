@@ -133,3 +133,36 @@ extension Entry {
         entryDateIsDayOnly && !EntryDates.isSameDay(entryDate, createdAt, calendar: calendar)
     }
 }
+
+// MARK: - Cleaned-up text (voice entries)
+
+extension Entry {
+    // Cleanup only replaces the exact text it was made from, so it can never overwrite newer edits.
+    // The first pre-cleanup text is kept for "Revert to original", however many cleanups follow.
+    @discardableResult
+    func applyCleanedText(_ cleaned: String) -> Bool {
+        guard source == .voice, let insights, !cleaned.isEmpty, cleaned != text,
+              TextHash.of(text) == insights.sourceTextHash else { return false }
+        if originalText == nil {
+            originalText = text
+        }
+        text = cleaned
+        insights.appliedTextHash = TextHash.of(cleaned)
+        return true
+    }
+
+    // True when the user has typed since the cleanup was applied, so reverting would discard those edits.
+    var textChangedSinceCleanup: Bool {
+        guard originalText != nil, let applied = insights?.appliedTextHash else { return false }
+        return TextHash.of(text) != applied
+    }
+
+    @discardableResult
+    func revertToOriginalText() -> Bool {
+        guard let originalText else { return false }
+        text = originalText
+        self.originalText = nil
+        insights?.appliedTextHash = nil
+        return true
+    }
+}

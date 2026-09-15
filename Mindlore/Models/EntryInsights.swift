@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 import SwiftData
 
@@ -24,5 +25,35 @@ final class EntryInsights {
         self.generatedAt = generatedAt
         self.modelUsed = modelUsed
         self.sourceTextHash = sourceTextHash
+    }
+
+    var primaryMood: Mood? {
+        primaryMoodRaw.flatMap(Mood.init(rawValue:))
+    }
+
+    var secondaryMoods: [Mood] {
+        secondaryMoodsRaw.compactMap(Mood.init(rawValue:))
+    }
+
+    var mentions: [Mention] {
+        get { mentionsData.flatMap { try? JSONDecoder().decode([Mention].self, from: $0) } ?? [] }
+        set { mentionsData = newValue.isEmpty ? nil : try? JSONEncoder().encode(newValue) }
+    }
+
+    var customResults: [CustomInsightResult] {
+        get { customCardsData.flatMap { try? JSONDecoder().decode([CustomInsightResult].self, from: $0) } ?? [] }
+        set { customCardsData = newValue.isEmpty ? nil : try? JSONEncoder().encode(newValue) }
+    }
+
+    // Insights describe the text they were made from; an applied cleanup counts as the same text.
+    func isCurrent(for entry: Entry) -> Bool {
+        let hash = TextHash.of(entry.text)
+        return hash == sourceTextHash || hash == appliedTextHash
+    }
+}
+
+nonisolated enum TextHash {
+    static func of(_ text: String) -> String {
+        SHA256.hash(data: Data(text.utf8)).map { String(format: "%02x", $0) }.joined()
     }
 }
