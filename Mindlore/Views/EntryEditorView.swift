@@ -4,6 +4,8 @@ import SwiftData
 struct EntryEditorView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(EntrySaver.self) private var saver
+    @Environment(SettingsStore.self) private var settings
+    @Environment(TranscriptionCoordinator.self) private var transcription
     @State private var entry: Entry?
     @FocusState private var editorFocused: Bool
 
@@ -22,6 +24,13 @@ struct EntryEditorView: View {
             }
             if let audioData = entry?.audioData {
                 AudioPlayerView(data: audioData, duration: entry?.audioDuration)
+                    .padding(.horizontal)
+                    .padding(.top, 8)
+            }
+            if let entry, entry.awaitingText {
+                transcriptionStatus(for: entry)
+                    .font(.footnote)
+                    .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.horizontal)
                     .padding(.top, 8)
             }
@@ -69,14 +78,45 @@ struct EntryEditorView: View {
         )
     }
 
+    // Typing is always possible; any typing clears awaitingText, which hides this.
+    @ViewBuilder
+    private func transcriptionStatus(for entry: Entry) -> some View {
+        switch transcription.activity[entry.persistentModelID] {
+        case .transcribing:
+            Label {
+                Text("Getting text from your recording…")
+            } icon: {
+                ProgressView().controlSize(.small)
+            }
+            .foregroundStyle(.secondary)
+        case .failed(let message):
+            HStack {
+                Label(message, systemImage: "exclamationmark.triangle")
+                    .foregroundStyle(.orange)
+                Spacer()
+                Button("Retry") {
+                    Task { await transcription.retry(entry.persistentModelID, context: modelContext) }
+                }
+            }
+        case .unsupported(let message):
+            Label(message, systemImage: "text.bubble")
+                .foregroundStyle(.secondary)
+        case nil:
+            EmptyView()
+        }
+    }
+
     private var title: String {
         guard let entry else { return "New Entry" }
         return entry.createdAt.formatted(.dateTime.month(.abbreviated).day().year())
     }
 
     private func close() {
-        if let entry, entry.isBlank {
-            Entry.delete(entry, in: modelContext)
+        if let entry {
+            entry.discardAudioIfNotKept(keepAudio: settings.keepAudioAfterTranscription)
+            if entry.isBlank {
+                Entry.delete(entry, in: modelContext)
+            }
         }
         saver.flush()
     }

@@ -6,6 +6,7 @@ struct RecordingView: View {
 
     @Environment(\.modelContext) private var modelContext
     @Environment(RecordingIngestor.self) private var ingestor
+    @Environment(TranscriptionCoordinator.self) private var transcription
     @Environment(\.dismiss) private var dismiss
     @Environment(\.openURL) private var openURL
     @State private var recorder = AudioRecorder()
@@ -118,6 +119,7 @@ struct RecordingView: View {
             let entry: Entry? = if let url { await ingestor.ingest(url, context: modelContext) } else { nil }
             dismiss()
             if let entry { onFinish(entry) }
+            await transcription.processQueue(context: modelContext)
         }
     }
 }

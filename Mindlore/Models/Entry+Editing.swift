@@ -28,6 +28,12 @@ extension Entry {
         audioDuration = nil
     }
 
+    // Called when the user leaves an entry, the first point they've seen its generated text.
+    func discardAudioIfNotKept(keepAudio: Bool) {
+        guard !keepAudio, textWasGenerated, audioData != nil else { return }
+        removeAudio()
+    }
+
     static func delete(_ entry: Entry, in context: ModelContext) {
         context.delete(entry)
     }

@@ -71,6 +71,30 @@ struct EntryEditingTests {
         #expect(entry.audioDuration == nil)
     }
 
+    @Test func audioIsDiscardedOnCloseOnlyWhenNotKeptAndTextWasGenerated() {
+        let generated = Entry(source: .voice, awaitingText: true, audioData: Data([1]), audioDuration: 2)
+        generated.applyGeneratedText("hello")
+
+        generated.discardAudioIfNotKept(keepAudio: true)
+        #expect(generated.audioData != nil)
+
+        generated.discardAudioIfNotKept(keepAudio: false)
+        #expect(generated.audioData == nil)
+        #expect(generated.audioDuration == nil)
+    }
+
+    @Test func audioIsKeptWhenTextWasTypedOrStillPending() {
+        let pending = Entry(source: .voice, awaitingText: true, audioData: Data([1]))
+        pending.discardAudioIfNotKept(keepAudio: false)
+        #expect(pending.audioData != nil)
+
+        let typedInstead = Entry(source: .voice, awaitingText: true, audioData: Data([1]))
+        typedInstead.text = "typed"
+        typedInstead.userDidEditText()
+        typedInstead.discardAudioIfNotKept(keepAudio: false)
+        #expect(typedInstead.audioData != nil)
+    }
+
     @Test func blankMeansNoTextAndNoAudio() {
         #expect(Entry().isBlank)
         #expect(Entry(text: " ").isBlank == false)

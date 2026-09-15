@@ -122,5 +122,6 @@ private struct EntryRow: View {
         .modelContainer(container)
         .environment(EntrySaver(context: container.mainContext))
         .environment(RecordingIngestor())
+        .environment(TranscriptionCoordinator())
         .environment(SettingsStore(store: UserDefaults(suiteName: "preview")!))
 }

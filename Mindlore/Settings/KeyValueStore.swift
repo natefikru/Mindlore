@@ -5,4 +5,4 @@ nonisolated protocol KeyValueStore: AnyObject {
     func set(_ value: Any?, forKey key: String)
 }
 
-extension UserDefaults: KeyValueStore {}
+nonisolated extension UserDefaults: KeyValueStore {}

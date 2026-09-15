@@ -19,7 +19,7 @@ struct SettingsView: View {
                 Section {
                     Toggle("Keep recordings", isOn: $settings.keepAudioAfterTranscription)
                 } footer: {
-                    Text("When this is off, a recording is deleted after its text has been generated and you've opened the entry.")
+                    Text("When this is off, a recording is deleted once its text has been generated and you've closed the entry.")
                 }
 
                 Section("Storage") {
