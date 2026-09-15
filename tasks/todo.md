@@ -458,11 +458,51 @@ The automatic pass currently fires the first time a typed entry's editor closes,
 - [x] Also reran after the drafts change: `ContinuousSaveUITests`, `TitleUITests`, `EntryDateUITests`, and `PageTranscriptionUITests` all pass.
 
 ### Phase 11: Insights view and Run AI
-- [ ] Editor toolbar button opens `EntryInsightsView` as a sheet. The list row's context menu has "Run AI".
-- [ ] Cards: summary; moods (primary and secondary, category, description); themes; tags; mentions grouped by kind; open threads; custom cards; cleaned-up text for voice entries ("Use this text" enabled only when current, "Revert to original" once applied, skipped-for-length note). Footer with model and time.
-- [ ] Run AI button: "Generate insights" with none, "Try again" after a failure, "Run again" when insights exist, highlighted when stale; disabled with a spinner while running; disabled with "Approve the text first" on unapproved photo entries.
-- [ ] States: AI off (link to AI settings), no key, nothing to analyze.
-- [ ] UI test with `-uiTestingFakeAI` (fake generators and page transcriber, no network): voice-style entry generates insights, tap to apply cleanup, revert, edit then "Use this text" disabled; photo entry with fake pages transcribes, review, approve, insights appear; Run AI replaces insights.
+
+**Proposed UX (for review before building).**
+
+*Getting there.*
+- Editor toolbar gains a sparkles button, left of Edit pages and the date button. Filled when the entry has current insights, outlined when it has none or they're out of date, with a spinner while a run is in flight.
+- The list's long-press menu on a row gets "Insights" and "Run AI", so old entries can be analyzed without opening them.
+- Tapping Done on a draft does not open anything. The editor header shows a quiet line: "Finding insights…", then "Insights ready" as a button that opens the sheet. It disappears once the sheet has been opened.
+
+*The sheet.* Presented over the editor (so the editor's close rules don't fire), large detent, dismissible.
+- **Header:** what made these insights and when, e.g. "gpt-5.6-luna · today at 4:12 PM". Under it, a Run AI button whose label matches the situation: "Generate insights", "Run again", "Try again" after a failure.
+- **Out of date banner:** "Your entry changed since these insights." with Run AI, shown when the entry's text no longer matches what was analyzed.
+- **Cards**, in this order, each hidden when empty: summary; moods; themes; tags; people and places; open threads; each custom prompt; cleaned-up text.
+- **Moods:** the primary mood as a filled chip with its category color, secondary moods as outlined chips. Each chip shows the mood word; its meaning ("worried about what might happen") is the accessibility label and appears under the chips as a caption for the primary mood.
+- **Tags** are lowercase chips; **themes** are plain phrases; **people and places** are grouped by kind with a small icon per kind; **open threads** are bullets.
+- **Cleaned-up text:** shows the cleaned version with "Use this text". Once applied, the card shows "Revert to original" instead, and asks first if the entry changed after applying. When it was skipped for length, the card says so.
+
+*States.*
+- AI off: "Turn on AI in Settings to generate insights." with a link to the AI settings.
+- No key: same shape, "Add your OpenAI key in Settings."
+- Draft: "Finish this entry with Done to generate insights." Run AI stays available for someone who wants it now.
+- Still transcribing or waiting for page approval: "Insights run once this entry's text is ready."
+- Manual mode, nothing yet: the Run AI button with a one-line explanation.
+- Running: progress row.
+- Failed: the failure message, Try again, and, for a bad key or quota, a link to AI settings.
+- Nothing came back (every section empty): "AI found nothing to note in this entry."
+
+*Cost.* Run AI sends the entry to OpenAI each time. The button's footnote names the model so a tap is never a surprise.
+
+- [x] `EntryInsightsView` with the cards, states, and Run AI as above.
+- [x] Editor toolbar button, header "Insights ready" line, list context menu.
+- [x] `MoodCategory` colors; chips; mention icons per kind.
+- [x] Apply and revert cleaned text from the card, with the confirmation when the text changed after applying.
+- [x] UI test with the stub: generate, cards appear, apply cleanup, revert, edit the entry and see the out-of-date banner, Run AI again.
+- [x] Unit tests for anything with logic: card visibility per result, button labels per state.
+
+**Built after the UX review (build with changes; gating items 1 to 4 taken):**
+- Cleaned-up text left the insights sheet. It is a banner in the editor ("Cleaned up punctuation and paragraphs. Review / Dismiss"), and Review opens a compare screen with a word-level difference and one "Replace my text" button. The sheet only notes when cleanup was skipped for length.
+- Revert survives regenerating or deleting insights: the applied-cleanup mark moved from `EntryInsights.appliedTextHash` to `Entry.cleanupAppliedHash`, next to `originalText`. "View original text" lives in the editor's overflow menu and asks first when the text changed after the cleanup. This fixed a real bug: every insights run cleared the mark, so revert became unreachable and the "changed since" check silently said no.
+- Drafts can't be analyzed at all (`InsightsCoordinator.canRunAI` refuses them); the sheet offers "Finish and generate insights" instead.
+- The run button names the state ("Generate insights", "Update insights", "Generate again", "Try again"), always shows "Sends this entry to OpenAI · model", and asks before spending again on current insights.
+- Moods are rows with their meanings under "Primary" and "Also", with the category colour as a dot only. Tags wrap instead of scrolling. Mentions are grouped by kind ("Mentioned", not "People and places"); open threads are "Loose ends"; themes and tags carry one-line captions.
+- Added: copy from any card, "Delete insights" (the entry stays), "What was sent" (model, text length, sections asked for, and the first 300 characters), and an Approve button for an unapproved photo entry instead of a dead run button.
+- The sheet is a `NavigationStack` so "What was sent" pushes. The list row shows a sparkles marker, orange when the insights are out of date, plus a context menu with Insights and Run AI.
+- Not taken: per-card regeneration and a history of previous runs, both of which spend the user's credit again for little gain.
+- Tests: presentation states and button labels, the word diff, and a UI test that finishes an entry, reads its insights, edits it, updates them, and deletes them. It passes against real OpenAI and against the stub.
 
 ### Phase 12: Privacy tests, review, device smoke test
 - [ ] `DiagnosticsPrivacyTests` extended: sentinel as entry text, title, tag, mention name, custom prompt name and instructions, generated text, page transcription, API key, inside a fake error response body, and inside a `DecodingError`; none may reach the log.

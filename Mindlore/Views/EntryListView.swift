@@ -13,6 +13,8 @@ struct EntryListView: View {
     @State private var writingNewEntry = false
     @State private var recording = false
     @State private var pageOrder: PageOrderTarget?
+    @State private var insightsEntry: Entry?
+    @Environment(InsightsCoordinator.self) private var insightsCoordinator
 
     enum PageOrderTarget: Identifiable {
         case new
@@ -41,6 +43,14 @@ struct EntryListView: View {
                     } else {
                         NavigationLink(value: entry) {
                             EntryRow(entry: entry)
+                        }
+                        .contextMenu {
+                            Button("Insights", systemImage: "sparkles") { insightsEntry = entry }
+                            if InsightsCoordinator.canRunAI(on: entry) {
+                                Button("Run AI", systemImage: "arrow.clockwise") {
+                                    Task { await insightsCoordinator.runAI(for: entry, context: modelContext) }
+                                }
+                            }
                         }
                     }
                 }
@@ -86,6 +96,9 @@ struct EntryListView: View {
             }
             .fullScreenCover(isPresented: $recording) {
                 RecordingView { entry in path.append(entry) }
+            }
+            .sheet(item: $insightsEntry) { entry in
+                EntryInsightsView(entry: entry)
             }
             .fullScreenCover(item: $pageOrder) { target in
                 switch target {
@@ -141,6 +154,12 @@ private struct EntryRow: View {
                         .padding(.horizontal, 6)
                         .padding(.vertical, 2)
                         .background(.quaternary, in: Capsule())
+                }
+                if let insights = entry.insights {
+                    Image(systemName: "sparkles")
+                        .font(.caption2)
+                        .foregroundStyle(insights.isCurrent(for: entry) ? Color.secondary : Color.orange)
+                        .accessibilityLabel(insights.isCurrent(for: entry) ? "Has insights" : "Insights out of date")
                 }
             }
             EntryAddedText(entry: entry)

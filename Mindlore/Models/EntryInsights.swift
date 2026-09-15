@@ -9,7 +9,6 @@ final class EntryInsights {
     var generatedAt: Date = Date.now
     var modelUsed: String = ""
     var sourceTextHash: String = ""
-    var appliedTextHash: String?
     var summary: String?
     var primaryMoodRaw: String?
     var secondaryMoodsRaw: [String] = []
@@ -45,10 +44,10 @@ final class EntryInsights {
         set { customCardsData = newValue.isEmpty ? nil : try? JSONEncoder().encode(newValue) }
     }
 
-    // Insights describe the text they were made from; an applied cleanup counts as the same text.
+    // Insights describe the text they were made from; text the user cleaned up counts as the same.
     func isCurrent(for entry: Entry) -> Bool {
         let hash = TextHash.of(entry.text)
-        return hash == sourceTextHash || hash == appliedTextHash
+        return hash == sourceTextHash || hash == entry.cleanupAppliedHash
     }
 }
 

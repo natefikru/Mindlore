@@ -44,8 +44,9 @@ final class InsightsCoordinator {
     }
 
     // Run AI needs text that is final: not still being transcribed and not waiting for page review.
+    // Drafts wait for Done: analyzing half-written text costs the user money for a partial entry.
     static func canRunAI(on entry: Entry) -> Bool {
-        !entry.awaitingText && !entry.textReviewPending && !entry.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        !entry.isDraft && !entry.awaitingText && !entry.textReviewPending && !entry.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             && (entry.source != .photo || entry.pagesConfirmed)
     }
 
@@ -159,7 +160,6 @@ final class InsightsCoordinator {
         insights.generatedAt = .now
         insights.modelUsed = generator.label
         insights.sourceTextHash = analyzedHash
-        insights.appliedTextHash = nil
         insights.summary = result.summary
         insights.primaryMoodRaw = result.primaryMood?.rawValue
         insights.secondaryMoodsRaw = result.secondaryMoods.map(\.rawValue)

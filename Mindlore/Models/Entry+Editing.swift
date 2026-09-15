@@ -164,14 +164,21 @@ extension Entry {
             originalText = text
         }
         text = cleaned
-        insights.appliedTextHash = TextHash.of(cleaned)
+        cleanupAppliedHash = TextHash.of(cleaned)
         return true
     }
 
     // True when the user has typed since the cleanup was applied, so reverting would discard those edits.
     var textChangedSinceCleanup: Bool {
-        guard originalText != nil, let applied = insights?.appliedTextHash else { return false }
+        guard originalText != nil, let applied = cleanupAppliedHash else { return false }
         return TextHash.of(text) != applied
+    }
+
+    // A cleanup is waiting when the insights hold one for exactly this text and it isn't applied yet.
+    var pendingCleanedText: String? {
+        guard source == .voice, let cleaned = insights?.cleanedText, !cleaned.isEmpty, cleaned != text,
+              TextHash.of(text) == insights?.sourceTextHash else { return nil }
+        return cleaned
     }
 
     @discardableResult
@@ -179,7 +186,7 @@ extension Entry {
         guard let originalText else { return false }
         text = originalText
         self.originalText = nil
-        insights?.appliedTextHash = nil
+        cleanupAppliedHash = nil
         return true
     }
 }

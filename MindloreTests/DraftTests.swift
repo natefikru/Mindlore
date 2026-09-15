@@ -82,9 +82,12 @@ struct DraftTests {
         #expect(!entry.isDraft)
     }
 
-    @Test func draftsShowInTheListAsDraftAndRunAIStillWorksOnThem() throws {
+    @Test func draftsAreNeverAnalyzedUntilTheyAreFinished() throws {
         let container = try ModelContainerFactory.make(.inMemory)
         let entry = draft("text", in: container.mainContext)
+        #expect(!InsightsCoordinator.canRunAI(on: entry))
+
+        entry.finishDraft()
         #expect(InsightsCoordinator.canRunAI(on: entry))
     }
 

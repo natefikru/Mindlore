@@ -10,11 +10,17 @@ struct EntryEditorView: View {
     @Environment(AIPassTrigger.self) private var aiPass
     @Environment(PageTranscriptionCoordinator.self) private var pageTranscription
     @Environment(ProviderAccountStore.self) private var accounts
+    @Environment(InsightsCoordinator.self) private var insightsCoordinator
     @State private var entry: Entry?
     @State private var editingDate = false
     @State private var editingPages = false
     @State private var viewingPage: Int?
     @State private var confirmingReplace = false
+    @State private var showingInsights = false
+    @State private var reviewingCleanup = false
+    @State private var confirmingRevert = false
+    // Set by Done, so the entry can say when its insights are ready without interrupting.
+    @State private var watchingForInsights = false
     @FocusState private var editorFocused: Bool
 
     init(entry: Entry?) {
@@ -42,6 +48,28 @@ struct EntryEditorView: View {
                         Button("Done") { finish(entry) }
                             .fontWeight(.semibold)
                             .accessibilityIdentifier("finishEntryButton")
+                    }
+                    Button {
+                        showingInsights = true
+                        watchingForInsights = false
+                    } label: {
+                        Label("Insights", systemImage: insightsSymbol(for: entry))
+                            .symbolVariant(InsightsPresentation.isFilled(insightsState(for: entry)) ? .fill : .none)
+                    }
+                    .accessibilityIdentifier("insightsButton")
+                    if entry.originalText != nil {
+                        Menu {
+                            Button("View original text", systemImage: "arrow.uturn.backward") {
+                                if entry.textChangedSinceCleanup {
+                                    confirmingRevert = true
+                                } else {
+                                    revert(entry)
+                                }
+                            }
+                            .accessibilityIdentifier("viewOriginalTextButton")
+                        } label: {
+                            Label("More", systemImage: "ellipsis.circle")
+                        }
                     }
                     if entry.source == .photo && entry.pagesConfirmed {
                         Button("Edit pages", systemImage: "doc.on.doc") { editingPages = true }
@@ -74,6 +102,22 @@ struct EntryEditorView: View {
         } message: {
             Text("The entry's text will be replaced with the transcription of its pages, for you to review again.")
         }
+        .sheet(isPresented: $showingInsights) {
+            if let entry {
+                EntryInsightsView(entry: entry)
+            }
+        }
+        .sheet(isPresented: $reviewingCleanup) {
+            if let entry, let cleaned = entry.pendingCleanedText {
+                CleanupReviewView(entry: entry, cleaned: cleaned) { applyCleanup(entry, cleaned: cleaned) }
+            }
+        }
+        .alert("Go back to your original text?", isPresented: $confirmingRevert) {
+            Button("Cancel", role: .cancel) {}
+            Button("Use original", role: .destructive) { if let entry { revert(entry) } }
+        } message: {
+            Text("You've edited this entry since the cleaned-up text was used, and those edits will be replaced.")
+        }
         .sheet(isPresented: $editingDate) {
             if let entry {
                 EntryDateSheet(entry: entry) { saver.noteChange() }
@@ -102,6 +146,16 @@ struct EntryEditorView: View {
             }
             if let entry, entry.shouldShowDateSuggestion(), let suggested = entry.suggestedEntryDate {
                 dateSuggestion(for: entry, suggested: suggested)
+                    .padding(.horizontal)
+                    .padding(.top, 8)
+            }
+            if let entry, let cleaned = entry.pendingCleanedText {
+                cleanupBanner(for: entry, cleaned: cleaned)
+                    .padding(.horizontal)
+                    .padding(.top, 8)
+            }
+            if let entry, watchingForInsights {
+                insightsReadyLine(for: entry)
                     .padding(.horizontal)
                     .padding(.top, 8)
             }
@@ -206,6 +260,78 @@ struct EntryEditorView: View {
         }
     }
 
+    private func insightsState(for entry: Entry) -> InsightsPresentation.State {
+        InsightsPresentation.state(.init(
+            isDraft: entry.isDraft,
+            awaitingText: entry.awaitingText,
+            textReviewPending: entry.textReviewPending,
+            hasText: !entry.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+            hasInsights: entry.insights != nil,
+            insightsAreEmpty: entry.insights.map(EntryInsightsView.isEmpty) ?? false,
+            insightsAreCurrent: entry.insights?.isCurrent(for: entry) ?? false,
+            running: insightsCoordinator.isRunning(entry),
+            failure: AIJobPolicy.failure(.insights, entry),
+            aiEnabled: settings.aiEnabled,
+            hasKey: accounts.resolve(.text) != nil
+        ))
+    }
+
+    private func insightsSymbol(for entry: Entry) -> String {
+        let state = insightsState(for: entry)
+        if InsightsPresentation.showsStaleBadge(state) { return "sparkles.rectangle.stack" }
+        return InsightsPresentation.symbol(for: state)
+    }
+
+    // Offers the cleaned-up version without touching the entry: the user sees the changes first.
+    private func cleanupBanner(for entry: Entry, cleaned: String) -> some View {
+        HStack(alignment: .firstTextBaseline) {
+            Label("Cleaned up punctuation and paragraphs.", systemImage: "text.badge.checkmark")
+                .font(.footnote)
+            Spacer()
+            Button("Review") { reviewingCleanup = true }
+                .accessibilityIdentifier("reviewCleanupButton")
+            Button("Dismiss", role: .cancel) {
+                entry.insights?.cleanedText = nil
+                saver.noteChange()
+                DiagnosticsLog.shared.record("cleanup.dismissed", ["id": .id(entry.id)])
+            }
+        }
+        .buttonStyle(.borderless)
+    }
+
+    private func insightsReadyLine(for entry: Entry) -> some View {
+        Group {
+            if insightsCoordinator.isRunning(entry) {
+                Label { Text("Finding insights…") } icon: { ProgressView().controlSize(.small) }
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            } else if entry.insights?.isCurrent(for: entry) == true {
+                Button {
+                    showingInsights = true
+                    watchingForInsights = false
+                } label: {
+                    Label("Insights ready", systemImage: "sparkles")
+                        .font(.footnote)
+                }
+                .accessibilityIdentifier("insightsReadyButton")
+            }
+        }
+    }
+
+    private func applyCleanup(_ entry: Entry, cleaned: String) {
+        guard entry.applyCleanedText(cleaned) else { return }
+        saver.noteChange()
+        saver.flush()
+        DiagnosticsLog.shared.record("cleanup.applied", ["id": .id(entry.id), "trigger": "manual"])
+    }
+
+    private func revert(_ entry: Entry) {
+        guard entry.revertToOriginalText() else { return }
+        saver.noteChange()
+        saver.flush()
+        DiagnosticsLog.shared.record("cleanup.reverted", ["id": .id(entry.id)])
+    }
+
     // Done: the entry is finished, so its automatic pass runs now. Leaving without Done keeps a draft.
     private func finish(_ entry: Entry) {
         guard entry.finishDraft() else { return }
@@ -215,6 +341,7 @@ struct EntryEditorView: View {
         saver.noteChange()
         saver.flush()
         DiagnosticsLog.shared.record("entry.finished", ["id": .id(entry.id)])
+        watchingForInsights = settings.insightsTrigger == .automatic && AIServices.automaticInsightsUsable(settings: settings, accounts: accounts)
         aiPass.onFlagged?()
     }
 

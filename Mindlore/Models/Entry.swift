@@ -26,6 +26,9 @@ final class Entry {
     var titleWasGenerated: Bool = false
     // The text before the first applied cleanup, so a revert always has the original.
     var originalText: String?
+    // The text as it was right after a cleanup was applied, so "changed since" and revert survive
+    // insights being regenerated or deleted.
+    var cleanupAppliedHash: String?
     var textGeneratedBy: String?
     var textReviewPending: Bool = false
     var textFallbackReasonRaw: String?
