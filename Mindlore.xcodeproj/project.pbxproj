@@ -414,8 +414,8 @@
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = Mindlore/Info.plist;
-				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Mindlore records your voice so you can journal by speaking. Recordings stay on your device.";
-				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "Mindlore turns your recordings into text on your device.";
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Mindlore records your voice so you can journal by speaking.";
+				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "Mindlore turns your recordings into text.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -449,8 +449,8 @@
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = Mindlore/Info.plist;
-				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Mindlore records your voice so you can journal by speaking. Recordings stay on your device.";
-				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "Mindlore turns your recordings into text on your device.";
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Mindlore records your voice so you can journal by speaking.";
+				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "Mindlore turns your recordings into text.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;

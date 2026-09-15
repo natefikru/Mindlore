@@ -21,10 +21,6 @@ struct SettingsView: View {
                 } footer: {
                     Text("When this is off, a recording is deleted once its text has been generated and you've closed the entry.")
                 }
-
-                Section("Storage") {
-                    Label("Your entries are stored on this device only. Mindlore has no servers.", systemImage: "lock.iphone")
-                }
             }
             .navigationTitle("Settings")
             .toolbar {
