@@ -96,6 +96,23 @@ struct EntrySaverTests {
         #expect(try harness.persistedTexts() == ["one more two more three more "])
     }
 
+    // Changes keep arriving faster than the interval and the test never waits on the scheduled save.
+    // A debounce would restart its timer every time and save nothing until typing stopped.
+    @Test func savesDuringUninterruptedTypingNotOnlyAfterItStops() async throws {
+        let harness = try SaverHarness()
+        let entry = Entry(text: "")
+        harness.context.insert(entry)
+
+        for _ in 0..<40 {
+            entry.text.append("a")
+            harness.saver.noteChange()
+            try await Task.sleep(for: .milliseconds(3))
+        }
+        let savesWhileTyping = harness.saveCount
+
+        #expect(savesWhileTyping >= 2)
+    }
+
     @Test func flushSavesImmediatelyAndCancelsTheScheduledSave() async throws {
         let harness = try SaverHarness()
         harness.context.insert(Entry(text: "leaving now"))

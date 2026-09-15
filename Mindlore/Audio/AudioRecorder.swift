@@ -48,6 +48,8 @@ final class AudioRecorder {
         guard await AVAudioApplication.requestRecordPermission() else {
             throw RecorderError.permissionDenied
         }
+        // The permission prompt can outlive the screen that asked; don't start recording for a view that's gone.
+        try Task.checkCancellation()
 
         let session = AVAudioSession.sharedInstance()
         try session.setCategory(.record, mode: .default)

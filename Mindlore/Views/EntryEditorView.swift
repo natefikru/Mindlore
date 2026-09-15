@@ -112,11 +112,10 @@ struct EntryEditorView: View {
     }
 
     private func close() {
-        if let entry {
-            entry.discardAudioIfNotKept(keepAudio: settings.keepAudioAfterTranscription)
-            if entry.isBlank {
-                Entry.delete(entry, in: modelContext)
-            }
+        // If the view is still on screen (a cancelled back swipe), dropping the reference means
+        // the next keystroke creates a fresh entry instead of writing to a deleted one.
+        if let entry, Entry.editorDidClose(entry, keepAudio: settings.keepAudioAfterTranscription, in: modelContext) {
+            self.entry = nil
         }
         saver.flush()
     }

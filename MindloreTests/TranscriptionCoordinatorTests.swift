@@ -96,6 +96,28 @@ struct TranscriptionCoordinatorTests {
         #expect(try harness.persisted(entry.id)?.text == "Walked to the river.")
     }
 
+    @Test func generatedTextStampsUpdatedAt() async throws {
+        let harness = try TranscriptionHarness()
+        let entry = try harness.voiceEntry(createdAt: Date(timeIntervalSince1970: 100))
+        harness.transcriber.automaticResult = .success("hello")
+
+        await harness.coordinator.processQueue(context: harness.context)
+
+        #expect(entry.updatedAt > Date(timeIntervalSince1970: 100))
+    }
+
+    @Test func emptyTranscriptKeepsTheEntryWaitingWithAnExplanation() async throws {
+        let harness = try TranscriptionHarness()
+        let entry = try harness.voiceEntry()
+        harness.transcriber.automaticResult = .success("")
+
+        await harness.coordinator.processQueue(context: harness.context)
+
+        #expect(entry.awaitingText)
+        #expect(entry.textWasGenerated == false)
+        #expect(harness.coordinator.activity[entry.persistentModelID] == .unsupported(TranscriptionError.noSpeechDetected.userMessage))
+    }
+
     @Test func transcriberReceivesTheAudioAsATemporaryFileThatIsCleanedUp() async throws {
         let harness = try TranscriptionHarness()
         try harness.voiceEntry()
@@ -261,6 +283,7 @@ struct TranscriptionCoordinatorTests {
     @Test func errorsThatNeedTheUserAreMarkedPermanent() {
         #expect(TranscriptionError.authorizationDenied.isPermanent)
         #expect(TranscriptionError.unsupportedLocale.isPermanent)
+        #expect(TranscriptionError.noSpeechDetected.isPermanent)
         #expect(TranscriptionError.assetsUnavailable("x").isPermanent == false)
         #expect(TranscriptionError.analysisFailed("x").isPermanent == false)
     }

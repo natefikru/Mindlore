@@ -17,7 +17,7 @@ final class RecordingIngestor {
     @ObservationIgnored private let save: (ModelContext) throws -> Void
     @ObservationIgnored private var inFlight: Set<URL> = []
 
-    init(save: @escaping (ModelContext) throws -> Void = { try $0.save() }) {
+    init(save: @escaping (ModelContext) throws -> Void = { try $0.saveStampingEntries() }) {
         self.save = save
     }
 
@@ -38,9 +38,16 @@ final class RecordingIngestor {
         inFlight.insert(fileURL)
         defer { inFlight.remove(fileURL) }
 
-        guard let prepared = await Self.prepare(fileURL: fileURL) else {
+        let prepared: PreparedRecording
+        switch await Self.prepare(fileURL: fileURL) {
+        case .empty:
             try? FileManager.default.removeItem(at: fileURL)
             return nil
+        case .unreadable:
+            // Could be temporary (file protection before first unlock, an I/O error); try again next launch.
+            return nil
+        case .ready(let recording):
+            prepared = recording
         }
 
         let id = prepared.id
@@ -69,18 +76,26 @@ final class RecordingIngestor {
         return entry
     }
 
-    // Returns nil for an empty file, which holds no audio worth keeping.
+    nonisolated enum PrepareOutcome: Sendable {
+        case empty
+        case unreadable
+        case ready(PreparedRecording)
+    }
+
+    // Only a file that is known to be zero bytes is safe to throw away.
     @concurrent
-    nonisolated static func prepare(fileURL: URL) async -> PreparedRecording? {
-        guard let raw = try? Data(contentsOf: fileURL), !raw.isEmpty else { return nil }
+    nonisolated static func prepare(fileURL: URL) async -> PrepareOutcome {
+        let size = try? fileURL.resourceValues(forKeys: [.fileSizeKey]).fileSize
+        if size == 0 { return .empty }
+        guard let raw = try? Data(contentsOf: fileURL), !raw.isEmpty else { return .unreadable }
         let id = UUID(uuidString: fileURL.deletingPathExtension().lastPathComponent) ?? UUID()
         let createdAt = (try? fileURL.resourceValues(forKeys: [.creationDateKey]).creationDate) ?? Date()
 
         if let converted = try? AudioConverter.convertToAAC(fileURL) {
-            return PreparedRecording(id: id, createdAt: createdAt, audioData: converted.data, duration: converted.duration)
+            return .ready(PreparedRecording(id: id, createdAt: createdAt, audioData: converted.data, duration: converted.duration))
         }
         // Keep audio we can't decode rather than delete something the user recorded.
-        return PreparedRecording(id: id, createdAt: createdAt, audioData: raw, duration: nil)
+        return .ready(PreparedRecording(id: id, createdAt: createdAt, audioData: raw, duration: nil))
     }
 }
 

@@ -35,22 +35,28 @@ struct SpeechAnalyzerTranscriber: Transcriber {
             throw TranscriptionError.assetsUnavailable(String(describing: error))
         }
 
+        let audioFile: AVAudioFile
         do {
-            let audioFile = try AVAudioFile(forReading: audioFileURL)
-            let analyzer = SpeechAnalyzer(modules: [module])
-            // Start collecting before analysis begins so no early results are missed.
-            let collector = Task {
-                var transcript = AttributedString()
-                for try await result in results where isFinal(result) {
-                    transcript += text(result)
-                }
-                return String(transcript.characters)
+            audioFile = try AVAudioFile(forReading: audioFileURL)
+        } catch {
+            throw TranscriptionError.analysisFailed(String(describing: error))
+        }
+
+        let analyzer = SpeechAnalyzer(modules: [module])
+        // Start collecting before analysis begins so no early results are missed.
+        let collector = Task {
+            var transcript = AttributedString()
+            for try await result in results where isFinal(result) {
+                transcript += text(result)
             }
+            return String(transcript.characters)
+        }
+        do {
             try await analyzer.start(inputAudioFile: audioFile, finishAfterFile: true)
             return try await collector.value.trimmingCharacters(in: .whitespacesAndNewlines)
-        } catch let error as TranscriptionError {
-            throw error
         } catch {
+            collector.cancel()
+            await analyzer.cancelAndFinishNow()
             throw TranscriptionError.analysisFailed(String(describing: error))
         }
     }

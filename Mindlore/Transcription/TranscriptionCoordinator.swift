@@ -1,5 +1,6 @@
 import Foundation
 import Observation
+import OSLog
 import SwiftData
 
 // Works through entries that are waiting for text, one at a time. Results are written only
@@ -14,6 +15,7 @@ final class TranscriptionCoordinator {
 
     private(set) var activity: [PersistentIdentifier: Activity] = [:]
 
+    @ObservationIgnored private let logger = Logger(subsystem: "com.natefikru.mindlore", category: "transcription")
     @ObservationIgnored private let transcriber: any Transcriber
     @ObservationIgnored private let locale: Locale
     @ObservationIgnored private let temporaryDirectory: URL
@@ -25,7 +27,7 @@ final class TranscriptionCoordinator {
         transcriber: any Transcriber = SpeechAnalyzerTranscriber(),
         locale: Locale = .current,
         temporaryDirectory: URL = FileManager.default.temporaryDirectory,
-        save: @escaping (ModelContext) throws -> Void = { try $0.save() }
+        save: @escaping (ModelContext) throws -> Void = { try $0.saveStampingEntries() }
     ) {
         self.transcriber = transcriber
         self.locale = locale
@@ -69,16 +71,20 @@ final class TranscriptionCoordinator {
         do {
             try audio.write(to: url)
             let text = try await transcriber.transcribe(audioFileURL: url, locale: locale)
+            // Empty text would mark the entry done with nothing in it; keep it waiting so the user can type.
+            guard !text.isEmpty else { throw TranscriptionError.noSpeechDetected }
             activity[id] = nil
             // The await gave the user time to type into or delete the entry; re-fetch before touching it.
             guard let current = Self.fetch(id, in: context), current.applyGeneratedText(text) else { return }
             try save(context)
-        } catch let error as TranscriptionError where error.isPermanent {
-            activity[id] = .unsupported(error.userMessage)
-        } catch let error as TranscriptionError {
-            activity[id] = .failed(error.userMessage)
         } catch {
-            activity[id] = .failed(TranscriptionError.analysisFailed(String(describing: error)).userMessage)
+            // Error descriptions come from the frameworks and never include entry text.
+            logger.error("Transcription failed: \(String(describing: error), privacy: .public)")
+            if let error = error as? TranscriptionError {
+                activity[id] = error.isPermanent ? .unsupported(error.userMessage) : .failed(error.userMessage)
+            } else {
+                activity[id] = .failed(TranscriptionError.analysisFailed(String(describing: error)).userMessage)
+            }
         }
     }
 

@@ -38,7 +38,7 @@ final class IngestHarness {
         container = try ModelContainerFactory.make(.inMemory)
         ingestor = RecordingIngestor(save: { [unowned self] context in
             if self.failSaves { throw SaveFailure() }
-            try context.save()
+            try context.saveStampingEntries()
         })
     }
 
@@ -117,12 +117,41 @@ struct RecordingIngestorTests {
         let harness = try IngestHarness()
         let file = try harness.finishedFile()
 
-        let first = Task { _ = await harness.ingestor.ingest(file, context: harness.context) }
-        let second = Task { _ = await harness.ingestor.ingest(file, context: harness.context) }
-        await first.value
-        await second.value
+        let first = Task { await harness.ingestor.ingest(file, context: harness.context) != nil }
+        let second = Task { await harness.ingestor.ingest(file, context: harness.context) != nil }
+        let firstIngested = await first.value
+        let secondIngested = await second.value
 
+        // Without the in-flight guard the second call would also return the (existing) entry.
+        #expect(firstIngested)
+        #expect(secondIngested == false)
         #expect(try harness.entries().count == 1)
+    }
+
+    @Test func unreadableFileIsKeptForTheNextLaunch() async throws {
+        let harness = try IngestHarness()
+        let file = harness.directory.finished.appendingPathComponent("\(UUID().uuidString).caf", isDirectory: true)
+        try FileManager.default.createDirectory(at: file, withIntermediateDirectories: true)
+        FileManager.default.createFile(atPath: file.appendingPathComponent("inner").path, contents: Data([1]))
+
+        let entry = await harness.ingestor.ingest(file, context: harness.context)
+
+        #expect(entry == nil)
+        #expect(FileManager.default.fileExists(atPath: file.path))
+        #expect(try harness.entries().isEmpty)
+    }
+
+    @Test func ingestSavingStampsOtherEntriesEditedMeanwhile() async throws {
+        let harness = try IngestHarness()
+        let typed = Entry(createdAt: Date(timeIntervalSince1970: 100), text: "before")
+        harness.context.insert(typed)
+        try harness.context.save()
+        typed.text = "typed while recording"
+
+        _ = await harness.ingestor.ingest(try harness.finishedFile(), context: harness.context)
+
+        #expect(typed.updatedAt > Date(timeIntervalSince1970: 100))
+        #expect(harness.context.hasChanges == false)
     }
 
     @Test func emptyFileIsDeletedWithoutAnEntry() async throws {

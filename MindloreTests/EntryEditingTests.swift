@@ -1,4 +1,5 @@
 import Foundation
+import SwiftData
 import Testing
 @testable import Mindlore
 
@@ -93,6 +94,63 @@ struct EntryEditingTests {
         typedInstead.userDidEditText()
         typedInstead.discardAudioIfNotKept(keepAudio: false)
         #expect(typedInstead.audioData != nil)
+    }
+
+    @Test func clearingGeneratedTextKeepsTheRecordingEvenWhenRecordingsAreNotKept() {
+        let entry = Entry(source: .voice, awaitingText: true, audioData: Data([1]))
+        entry.applyGeneratedText("bad transcription")
+        entry.text = ""
+        entry.userDidEditText()
+
+        entry.discardAudioIfNotKept(keepAudio: false)
+
+        #expect(entry.audioData != nil)
+    }
+
+    @Test func closingKeepsAVoiceEntryWhoseGeneratedTextWasCleared() throws {
+        let container = try ModelContainerFactory.make(.inMemory)
+        let entry = Entry(source: .voice, awaitingText: true, audioData: Data([1]))
+        container.mainContext.insert(entry)
+        entry.applyGeneratedText("bad transcription")
+        entry.text = ""
+        entry.userDidEditText()
+
+        let deleted = Entry.editorDidClose(entry, keepAudio: false, in: container.mainContext)
+        try container.mainContext.save()
+
+        #expect(deleted == false)
+        #expect(try container.mainContext.fetch(FetchDescriptor<Entry>()).count == 1)
+        #expect(entry.audioData != nil)
+    }
+
+    @Test func closingRemovesAudioButKeepsTheEntryWhenGeneratedTextRemains() throws {
+        let container = try ModelContainerFactory.make(.inMemory)
+        let entry = Entry(source: .voice, awaitingText: true, audioData: Data([1]))
+        container.mainContext.insert(entry)
+        entry.applyGeneratedText("kept text")
+
+        let deleted = Entry.editorDidClose(entry, keepAudio: false, in: container.mainContext)
+
+        #expect(deleted == false)
+        #expect(entry.audioData == nil)
+        #expect(entry.text == "kept text")
+    }
+
+    @Test func closingDeletesOnlyBlankEntries() throws {
+        let container = try ModelContainerFactory.make(.inMemory)
+        let context = container.mainContext
+        let blankTyped = Entry(text: "")
+        let written = Entry(text: "hello")
+        let waiting = Entry(source: .voice, awaitingText: true, audioData: Data([1]))
+        [blankTyped, written, waiting].forEach(context.insert)
+        try context.save()
+
+        #expect(Entry.editorDidClose(blankTyped, keepAudio: false, in: context))
+        #expect(Entry.editorDidClose(written, keepAudio: false, in: context) == false)
+        #expect(Entry.editorDidClose(waiting, keepAudio: false, in: context) == false)
+        try context.save()
+
+        #expect(Set(try context.fetch(FetchDescriptor<Entry>()).map(\.id)) == [written.id, waiting.id])
     }
 
     @Test func blankMeansNoTextAndNoAudio() {

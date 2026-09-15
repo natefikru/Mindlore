@@ -42,6 +42,7 @@ struct RecordingView: View {
                     Button("Cancel") {
                         if recorder.state == .idle { dismiss() } else { confirmingDiscard = true }
                     }
+                    .disabled(finishing)
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Done", action: finish)
@@ -56,7 +57,7 @@ struct RecordingView: View {
                 }
             }
         }
-        .interactiveDismissDisabled(recorder.state != .idle)
+        .interactiveDismissDisabled(recorder.state != .idle || finishing)
         .task { await startRecording() }
         .onChange(of: recorder.level) { _, level in
             levels.removeFirst()
@@ -102,6 +103,8 @@ struct RecordingView: View {
             try await recorder.start()
         } catch AudioRecorder.RecorderError.permissionDenied {
             permissionDenied = true
+        } catch is CancellationError {
+            return
         } catch {
             startFailed = true
         }

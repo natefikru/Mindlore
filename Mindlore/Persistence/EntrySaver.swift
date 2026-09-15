@@ -46,10 +46,7 @@ final class EntrySaver {
 
     private func saveNow() {
         guard context.hasChanges else { return }
-        let timestamp = now()
-        for case let entry as Entry in context.changedModelsArray {
-            entry.updatedAt = timestamp
-        }
+        context.stampChangedEntries(at: now())
         do {
             try save(context)
             lastError = nil
