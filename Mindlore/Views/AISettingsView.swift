@@ -56,8 +56,36 @@ struct AISettingsView: View {
             } footer: {
                 Text("Your key is stored in this iPhone's Keychain.")
             }
+
+            Section {
+                NavigationLink { SpeechSettingsView() } label: {
+                    LabeledContent("Speech to text", value: settings.speechEngine == .cloud ? "OpenAI" : "This iPhone")
+                }
+                .accessibilityIdentifier("speechSettingsLink")
+                NavigationLink { PageSettingsView() } label: {
+                    LabeledContent("Journal pages", value: settings.pageModel)
+                }
+                .accessibilityIdentifier("pageSettingsLink")
+                NavigationLink { TitleSettingsView() } label: {
+                    LabeledContent("Titles", value: titleSummary)
+                }
+                .accessibilityIdentifier("titleSettingsLink")
+                NavigationLink { InsightsSettingsView() } label: {
+                    LabeledContent("Insights", value: settings.insightsTrigger == .automatic ? "Automatic" : "When I ask")
+                }
+                .accessibilityIdentifier("insightsSettingsLink")
+            } header: {
+                Text("What AI does")
+            }
+            .disabled(!settings.aiEnabled && settings.titleGenerator != .onDevice)
         }
         .navigationTitle("AI")
+        .task {
+            // Fills the model pickers; without a key this does nothing.
+            if accounts.availableModels.isEmpty, accounts.openAIAccount.map(accounts.hasKey(for:)) == true {
+                _ = await accounts.testConnection()
+            }
+        }
     }
 
     @ViewBuilder
@@ -74,6 +102,14 @@ struct AISettingsView: View {
         case .failed(let message):
             Label(message, systemImage: "exclamationmark.triangle")
                 .foregroundStyle(.orange)
+        }
+    }
+
+    private var titleSummary: String {
+        switch settings.titleGenerator {
+        case .off: "Off"
+        case .onDevice: "This iPhone"
+        case .openAI: "OpenAI"
         }
     }
 

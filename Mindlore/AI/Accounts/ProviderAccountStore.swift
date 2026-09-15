@@ -18,6 +18,8 @@ final class ProviderAccountStore {
     @ObservationIgnored let http: any HTTPClient
     // Bumped whenever a key is saved or removed, so views that show key state refresh.
     private(set) var keyRevision = 0
+    // The provider's model list, once loaded, shared by every model picker.
+    private(set) var availableModels: [String] = []
 
     init(settings: SettingsStore, secrets: any SecretStore = KeychainSecretStore(), http: any HTTPClient = URLSessionHTTPClient(), diagnostics: DiagnosticsLog = .shared) {
         self.settings = settings
@@ -50,6 +52,7 @@ final class ProviderAccountStore {
     func remove(_ account: ProviderAccount) throws {
         try secrets.delete(account: account.id.uuidString)
         settings.providerAccounts.removeAll { $0.id == account.id }
+        availableModels = []
         if settings.speechAccountID == account.id { settings.speechAccountID = nil }
         if settings.pageAccountID == account.id { settings.pageAccountID = nil }
         if settings.textAccountID == account.id { settings.textAccountID = nil }
@@ -76,6 +79,7 @@ final class ProviderAccountStore {
         }
         do {
             let models = try await OpenAICompatibleModelList(baseURL: account.baseURL, apiKey: key, http: http).fetch()
+            availableModels = models
             diagnostics.record("ai.connectionTested", ["ok": true, "models": .int(models.count)])
             return .success(models)
         } catch {

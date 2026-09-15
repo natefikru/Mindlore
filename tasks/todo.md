@@ -450,8 +450,12 @@ The automatic pass currently fires the first time a typed entry's editor closes,
 - [x] Also: a photo entry the user types into without a page transcription becomes a draft too; editing text after a transcription or approval stays finished. The old test that a typed-over voice entry fires on close now expects it to wait for Done.
 
 ### Phase 10: Full AI settings
-- [ ] `AISettingsView` sections: **AI** (on/off). **OpenAI account**. **Speech to text** (engine, model picker from `/models` plus free text, fallback toggle). **Journal pages** (model picker plus free text). **Titles** (Off / On device / OpenAI; On device disabled with the unavailability reason). **Insights** (automatic or manual, text model picker, section toggles, "Clean up voice transcriptions", "Replace voice entry text with the cleaned-up version automatically", "Suggest entry dates"). **Custom insights** (list, add, edit name and instructions, enable, delete, reorder).
-- [ ] Controls that need a key or AI on are disabled with a one-line reason, not hidden.
+- [x] `AISettingsView` sections: **AI** (on/off). **OpenAI account**. **Speech to text** (engine, model picker from `/models` plus free text, fallback toggle). **Journal pages** (model picker plus free text). **Titles** (Off / On device / OpenAI; On device disabled with the unavailability reason). **Insights** (automatic or manual, text model picker, section toggles, "Clean up voice transcriptions", "Replace voice entry text with the cleaned-up version automatically", "Suggest entry dates"). **Custom insights** (list, add, edit name and instructions, enable, delete, reorder).
+- [x] Controls that need a key or AI on are disabled with a one-line reason, not hidden.
+- [x] Structure: the AI screen stays short (AI switch, key, and a link per area) with the details on their own screens: Speech to Text, Journal Pages, Titles, Insights, and Custom Insights. A long single form would have been hard to read and to test.
+- [x] Model pickers list the provider's models filtered per job (`ModelCatalog`), loaded when the AI screen opens, and always fall back to a free-text field so a model Mindlore doesn't know can still be used.
+- [x] UI test `AIConfigurationUITests`: change speech to on-device, insights to manual, turn moods off, add a custom prompt, relaunch, everything stuck. Runs against real OpenAI when a key is set.
+- [x] Also reran after the drafts change: `ContinuousSaveUITests`, `TitleUITests`, `EntryDateUITests`, and `PageTranscriptionUITests` all pass.
 
 ### Phase 11: Insights view and Run AI
 - [ ] Editor toolbar button opens `EntryInsightsView` as a sheet. The list row's context menu has "Run AI".
