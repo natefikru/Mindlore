@@ -3,7 +3,7 @@ import SwiftData
 
 extension Entry {
     var isBlank: Bool {
-        text.isEmpty && audioData == nil
+        title.isEmpty && text.isEmpty && audioData == nil && (pages ?? []).isEmpty
     }
 
     func userDidEditText() {

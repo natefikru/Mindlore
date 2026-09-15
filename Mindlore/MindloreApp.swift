@@ -36,7 +36,17 @@ struct MindloreApp: App {
             environment: ProcessInfo.processInfo.environment
         )
         container = Result { try ModelContainerFactory.make(location) }
-        if case .failure(let error) = container {
+        switch container {
+        case .success(let opened):
+            do {
+                let repaired = try EntryDateRepair.run(in: opened.mainContext)
+                if repaired > 0 {
+                    diagnostics.record("store.entryDatesRepaired", ["count": .int(repaired)])
+                }
+            } catch {
+                diagnostics.record("store.entryDateRepairFailed", ["error": .errorCode(error)])
+            }
+        case .failure(let error):
             diagnostics.record("store.openFailed", ["error": .errorCode(error)])
         }
     }

@@ -16,9 +16,47 @@ final class Entry {
     @Attribute(.externalStorage) var audioData: Data?
     var audioDuration: Double?
 
+    // When the entry belongs in the journal. Equals createdAt until the user picks a day,
+    // then it is noon of that day and entryDateIsDayOnly hides the time.
+    var entryDate: Date = Date.now
+    var entryDateIsDayOnly: Bool = false
+    var suggestedEntryDate: Date?
+
+    var title: String = ""
+    var titleWasGenerated: Bool = false
+    // The text before the first applied cleanup, so a revert always has the original.
+    var originalText: String?
+    var textGeneratedBy: String?
+    var textReviewPending: Bool = false
+    var textFallbackReasonRaw: String?
+    var pagesConfirmed: Bool = false
+    // Bumped by page changes and restarts; AI jobs drop results captured under an older revision.
+    var contentRevision: Int = 0
+    var pageRequestCount: Int = 0
+
+    // AI job state is persisted so failures and attempt caps survive relaunches.
+    var textAttempts: Int = 0
+    var textFailureRaw: String?
+    var automaticAIPassUsed: Bool = false
+    var titlePending: Bool = false
+    var titleAttempts: Int = 0
+    var titleFailureRaw: String?
+    var insightsPending: Bool = false
+    var insightsAttempts: Int = 0
+    var insightsFailureRaw: String?
+
+    @Relationship(deleteRule: .cascade, inverse: \EntryPage.entry)
+    var pages: [EntryPage]? = []
+    @Relationship(deleteRule: .cascade, inverse: \EntryInsights.entry)
+    var insights: EntryInsights?
+
     var source: EntrySource {
         get { EntrySource(rawValue: sourceRaw) ?? .typed }
         set { sourceRaw = newValue.rawValue }
+    }
+
+    var sortedPages: [EntryPage] {
+        (pages ?? []).sorted { $0.index < $1.index }
     }
 
     init(
@@ -33,6 +71,7 @@ final class Entry {
         self.id = id
         self.createdAt = createdAt
         self.updatedAt = createdAt
+        self.entryDate = createdAt
         self.sourceRaw = source.rawValue
         self.text = text
         self.awaitingText = awaitingText

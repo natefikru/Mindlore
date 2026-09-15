@@ -189,7 +189,7 @@ The pages that remain, `createdAt`, and the entry date are kept. Because the use
 
 ### Persistence
 
-**One schema change, lightweight, tested against a real old store.** All new `Entry` fields, `EntryPage`, and `EntryInsights` land in a single phase. Every new attribute has a default or is optional and the new relationships are optional, so SwiftData's automatic lightweight migration handles it with no `VersionedSchema`. (Revision 3 planned a versioned schema with a custom stage; the revision 4 review showed the old model copy has to match today's `Entry` exactly or the existing store fails to open, and the stage's one-shot backfill is less safe than the launch repair above. Versioned schemas get introduced when a change first needs a real migration.) Proof comes from a fixture instead of a hand-copied old model: before any model change, a store is written by today's app (`main`) with typed, voice (with audio), and awaiting-text entries across several days, and committed under `MindloreTests/Fixtures/v1-store/`. The migration test copies it to a temp directory, opens it with the new schema, runs `EntryDateRepair`, and checks every entry and field survived with `entryDate == createdAt`. A device smoke step installs over the current build with real entries before any later phase lands.
+**One schema change, lightweight, tested against a real old store.** All new `Entry` fields, `EntryPage`, and `EntryInsights` land in a single phase. Every new attribute has a default or is optional and the new relationships are optional, so SwiftData's automatic lightweight migration handles it with no `VersionedSchema`. (Revision 3 planned a versioned schema with a custom stage; the revision 4 review showed the old model copy has to match today's `Entry` exactly or the existing store fails to open, and the stage's one-shot backfill is less safe than the launch repair above. Versioned schemas get introduced when a change first needs a real migration.) Proof comes from a fixture instead of a hand-copied old model: before any model change, a store is written by today's app (`main`) with typed, voice (with audio), and awaiting-text entries across several days, and committed as `MindloreTests/Fixtures/v1-store.bundle` (an opaque bundle so the hidden external-storage folder is copied into the test bundle intact; the simulator can't read the fixture from the source tree under `~/Documents`). The migration test copies it to a temp directory, opens it with the new schema, runs `EntryDateRepair`, and checks every entry and field survived with `entryDate == createdAt`. A device smoke step installs over the current build with real entries before any later phase lands.
 
 **`updatedAt` follows content, not insights.** Transcribed text, a generated title, applied cleanup, a changed entry date, and page changes move `updatedAt`. Writing insights does not; the stamping helper skips entries whose only change is the `insights` relationship.
 
@@ -310,21 +310,21 @@ Each phase is a commit or small series, unit tests pass before commit (`-only-te
 ### Phase 0: Plan housekeeping and copy
 - [x] Archive the v1 plan to `tasks/archive/v1-capture-storage.md`.
 - [x] Point `CLAUDE.md` at the archive for v1 decisions and at this file for current work.
-- [ ] Neutral copy, no claims about where data goes:
+- [x] Neutral copy, no claims about where data goes:
   - `SettingsView.swift:25-27` storage section ("Your entries are stored on this device only. Mindlore has no servers.") is removed.
   - `RecordingView.swift:26` becomes "Mindlore needs the microphone to record entries."
   - `NSMicrophoneUsageDescription` (`project.pbxproj:417`, `:452`) becomes "Mindlore records your voice so you can journal by speaking."
   - `NSSpeechRecognitionUsageDescription` (`project.pbxproj:418`, `:453`) becomes "Mindlore turns your recordings into text."
 
 ### Phase 1: Schema change and migration
-- [ ] First, before touching any model: generate the old-store fixture from today's code (a small test-only helper run once on `main`'s models writes typed, voice with audio, and awaiting-text entries across several days to a file store) and commit it under `MindloreTests/Fixtures/v1-store/` (store file plus its `-wal`, `-shm`, and external storage directory, checkpointed).
-- [ ] All new `Entry` fields, `EntryPage`, and `EntryInsights`; `ModelContainerFactory.schema` lists all three models. No `VersionedSchema`.
-- [ ] `EntrySource.photo`. `Entry` init sets `entryDate = createdAt`. `Entry.sortedPages`.
-- [ ] `EntryDateRepair`: at launch, before `RootView` shows the list, fix entries with `entryDateIsDayOnly == false && entryDate != createdAt`.
-- [ ] `Entry+Editing`: `isBlank` includes title and pages.
-- [ ] Stamping helper skips entries whose only change is the insights relationship.
-- [ ] Tests: the fixture store opens with the new schema, every existing field survives, and after `EntryDateRepair` every `entryDate` equals its `createdAt`; repair is idempotent and leaves day-only entries alone; `CloudKitSchemaRulesTests` passes with the new models; deleting an entry in a saved file store deletes its pages and insights; title-only and pages-only entries are not blank; creating insights doesn't move `updatedAt`; unknown source raw value still reads as `.typed`.
-- [ ] Device check: deploy over the current build with real entries; entries intact and in their original order.
+- [x] First, before touching any model: generate the old-store fixture from today's code (a small test-only helper run once on `main`'s models writes typed, voice with audio, and awaiting-text entries across several days to a file store) and commit it as `MindloreTests/Fixtures/v1-store.bundle` (checkpointed store file plus its `.entries_SUPPORT/_EXTERNAL_DATA` directory).
+- [x] All new `Entry` fields, `EntryPage`, and `EntryInsights`; `ModelContainerFactory.schema` lists all three models. No `VersionedSchema`.
+- [x] `EntrySource.photo`. `Entry` init sets `entryDate = createdAt`. `Entry.sortedPages`.
+- [x] `EntryDateRepair`: at launch, before `RootView` shows the list, fix entries with `entryDateIsDayOnly == false && entryDate != createdAt`.
+- [x] `Entry+Editing`: `isBlank` includes title and pages.
+- [x] Stamping helper skips entries whose only change is the insights relationship.
+- [x] Tests: the fixture store opens with the new schema, every existing field survives, and after `EntryDateRepair` every `entryDate` equals its `createdAt`; repair is idempotent and leaves day-only entries alone; `CloudKitSchemaRulesTests` passes with the new models; deleting an entry in a saved file store deletes its pages and insights; title-only and pages-only entries are not blank; creating insights doesn't move `updatedAt`; unknown source raw value still reads as `.typed`.
+- [ ] Device check: deploy over the current build with real entries; entries intact and in their original order. (Waiting for the owner and the phone; batched with the Phase 12 smoke test.)
 
 ### Phase 2: Entry dates
 - [ ] `EntryDates` helpers: noon of a day in a given calendar and time zone, parsing `"yyyy-MM-dd"` from model output, same-day comparison, display formatting (date and time, or date only).

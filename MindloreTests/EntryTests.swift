@@ -16,6 +16,11 @@ struct EntryTests {
         #expect(entry.audioData == nil)
         #expect(entry.audioDuration == nil)
         #expect(entry.updatedAt == entry.createdAt)
+        #expect(entry.entryDate == entry.createdAt)
+        #expect(entry.entryDateIsDayOnly == false)
+        #expect(entry.title.isEmpty)
+        #expect(entry.contentRevision == 0)
+        #expect(entry.sortedPages.isEmpty)
     }
 
     @Test func initStoresValues() {
@@ -28,6 +33,7 @@ struct EntryTests {
         #expect(entry.id == id)
         #expect(entry.createdAt == created)
         #expect(entry.updatedAt == created)
+        #expect(entry.entryDate == created)
         #expect(entry.source == .voice)
         #expect(entry.sourceRaw == "voice")
         #expect(entry.text == "hello")
