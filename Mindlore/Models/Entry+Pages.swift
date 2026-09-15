@@ -69,3 +69,143 @@ extension Entry {
         }
     }
 }
+
+// MARK: - Page transcription and review
+
+extension Entry {
+    var allPagesTranscribed: Bool {
+        let pages = sortedPages
+        return !pages.isEmpty && pages.allSatisfy { $0.transcribedText != nil }
+    }
+
+    // Page texts in order, blank pages skipped, separated by blank lines.
+    var joinedPageText: String {
+        sortedPages.compactMap(\.transcribedText).filter { !$0.isEmpty }.joined(separator: "\n\n")
+    }
+
+    // Whether to offer bringing back the page transcription after the user typed over it.
+    var canReplaceWithPageTranscription: Bool {
+        source == .photo && pagesConfirmed && allPagesTranscribed && !awaitingText && !textReviewPending && text != joinedPageText
+    }
+
+    // Returns false if there was nothing to approve. The caller fires the automatic AI pass.
+    @discardableResult
+    func approveText() -> Bool {
+        guard textReviewPending else { return false }
+        textReviewPending = false
+        return true
+    }
+
+    // Puts the page transcription back as the entry text, to be reviewed again.
+    @discardableResult
+    func replaceWithPageTranscription() -> Bool {
+        guard canReplaceWithPageTranscription else { return false }
+        text = joinedPageText
+        textWasGenerated = true
+        textEditedByUser = false
+        textReviewPending = true
+        return true
+    }
+
+    // Applies an edited page list to a confirmed entry and starts it over: everything derived from the
+    // old pages (text, title, insights, AI state) is cleared. Pages, createdAt, and the entry date stay.
+    func restartPages(applying draft: [PageDraftItem], aiUsable: Bool, in context: ModelContext) {
+        let keptIDs = Set(draft.compactMap(\.existingPage).map(\.persistentModelID))
+        for page in sortedPages where !keptIDs.contains(page.persistentModelID) {
+            pages?.removeAll { $0.persistentModelID == page.persistentModelID }
+            context.delete(page)
+        }
+        for (index, item) in draft.enumerated() {
+            switch item.content {
+            case .existing(let page):
+                page.index = index
+            case .new(let processed, let origin):
+                let page = EntryPage(index: index, imageData: processed.imageData, thumbnailData: processed.thumbnailData, pixelWidth: processed.pixelWidth, pixelHeight: processed.pixelHeight, origin: origin)
+                context.insert(page)
+                page.entry = self
+            }
+        }
+
+        contentRevision += 1
+        text = ""
+        title = ""
+        titleWasGenerated = false
+        textWasGenerated = false
+        textEditedByUser = false
+        originalText = nil
+        textGeneratedBy = nil
+        textFallbackReasonRaw = nil
+        textReviewPending = false
+        suggestedEntryDate = nil
+        for page in sortedPages {
+            page.transcribedText = nil
+            page.writtenDate = nil
+        }
+        awaitingText = false
+        titlePending = false
+        insightsPending = false
+        textAttempts = 0
+        textFailureRaw = nil
+        titleAttempts = 0
+        titleFailureRaw = nil
+        insightsAttempts = 0
+        insightsFailureRaw = nil
+        pageRequestCount = 0
+        automaticAIPassUsed = false
+        if let insights {
+            context.delete(insights)
+            self.insights = nil
+        }
+        pagesConfirmed = true
+        awaitingText = aiUsable
+    }
+}
+
+// One row of the page list while editing a confirmed entry: an existing page or a newly added one.
+struct PageDraftItem: Identifiable {
+    enum Content {
+        case existing(EntryPage)
+        case new(PageImageProcessor.ProcessedPage, PageOrigin)
+    }
+
+    let id = UUID()
+    let content: Content
+
+    var existingPage: EntryPage? {
+        if case .existing(let page) = content { page } else { nil }
+    }
+
+    var thumbnailData: Data? {
+        switch content {
+        case .existing(let page): page.thumbnailData
+        case .new(let processed, _): processed.thumbnailData
+        }
+    }
+
+    var pixelWidth: Int {
+        switch content {
+        case .existing(let page): page.pixelWidth
+        case .new(let processed, _): processed.pixelWidth
+        }
+    }
+
+    var origin: PageOrigin {
+        switch content {
+        case .existing(let page): page.origin
+        case .new(_, let origin): origin
+        }
+    }
+
+    static func draft(from entry: Entry) -> [PageDraftItem] {
+        entry.sortedPages.map { PageDraftItem(content: .existing($0)) }
+    }
+
+    // True when applying the draft would change the entry's pages or their order.
+    static func differs(_ draft: [PageDraftItem], from entry: Entry) -> Bool {
+        let current = entry.sortedPages
+        guard draft.count == current.count else { return true }
+        return zip(draft, current).contains { item, page in
+            item.existingPage?.persistentModelID != page.persistentModelID
+        }
+    }
+}

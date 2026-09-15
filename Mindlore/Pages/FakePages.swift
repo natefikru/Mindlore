@@ -17,7 +17,9 @@ nonisolated enum FakePages {
             return UIGraphicsImageRenderer(size: size, format: { let format = UIGraphicsImageRendererFormat(); format.scale = 1; return format }()).jpegData(withCompressionQuality: 0.8) { context in
                 UIColor(white: 0.97, alpha: 1).setFill()
                 context.fill(CGRect(origin: .zero, size: size))
-                ("Fixture page \(offset + 1)" as NSString).draw(at: CGPoint(x: 60, y: 120), withAttributes: [.font: UIFont.systemFont(ofSize: 64)])
+                // The first page carries a written date, like the top of a journal page.
+                let lines = offset == 0 ? "March 3, 2025\n\nFixture page \(offset + 1)" : "Fixture page \(offset + 1)"
+                (lines as NSString).draw(at: CGPoint(x: 60, y: 120), withAttributes: [.font: UIFont.systemFont(ofSize: 64)])
             }
         }
     }

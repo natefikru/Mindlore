@@ -9,6 +9,7 @@ struct RootView: View {
     @State private var presence: EditorPresence
     @State private var aiPass: AIPassTrigger
     @State private var titles: TitleCoordinator
+    @State private var pageTranscription: PageTranscriptionCoordinator
     @State private var network = NetworkMonitor()
     private let context: ModelContext
 
@@ -38,7 +39,13 @@ struct RootView: View {
             }
         }
 
+        let pageTranscription = PageTranscriptionCoordinator(
+            resolve: { AIServices.pageTranscriber(settings: settings, accounts: accounts) },
+            suggestEntryDates: { settings.suggestEntryDates }
+        )
+
         _presence = State(initialValue: presence)
+        _pageTranscription = State(initialValue: pageTranscription)
         _transcription = State(initialValue: transcription)
         _aiPass = State(initialValue: aiPass)
         _titles = State(initialValue: titles)
@@ -52,9 +59,13 @@ struct RootView: View {
             .environment(presence)
             .environment(aiPass)
             .environment(titles)
+            .environment(pageTranscription)
             .task {
                 await ingestor.ingestAll(in: .standard, context: context)
                 await transcription.processQueue(context: context)
+            }
+            .task {
+                await pageTranscription.processQueue(context: context)
             }
             // Titles and insights run in their own lane so a long transcription doesn't hold them up.
             .task {
@@ -70,11 +81,13 @@ struct RootView: View {
                 } else {
                     Task { await transcription.processQueue(context: context) }
                     Task { await titles.processQueue(context: context) }
+                    Task { await pageTranscription.processQueue(context: context) }
                 }
             }
             .onChange(of: network.isConnected) { _, connected in
                 guard connected else { return }
                 Task { await transcription.networkBecameAvailable(context: context) }
+                Task { await pageTranscription.networkBecameAvailable(context: context) }
             }
     }
 }

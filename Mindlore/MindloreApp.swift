@@ -36,8 +36,16 @@ struct MindloreApp: App {
         let http: any HTTPClient = uiTesting && arguments.contains(UITestingHTTPClient.launchArgument) ? UITestingHTTPClient() : URLSessionHTTPClient()
         let settingsStore = SettingsStore(store: defaults, onDeviceTitlesAvailable: { !uiTesting && FoundationModelsAvailability.isAvailable })
         settingsStore.recordAutomationStartIfNeeded()
+        let accountStore = ProviderAccountStore(settings: settingsStore, secrets: secrets, http: http)
+        // UI tests that need AI start with it on and the stub's key saved, instead of typing it each time.
+        // A real key passed by the test runner (MINDLORE_OPENAI_KEY) runs against OpenAI; otherwise the stub's key.
+        if uiTesting, testStoreName != nil, arguments.contains(UITestingHTTPClient.readyArgument), accountStore.openAIAccount == nil {
+            let liveKey = ProcessInfo.processInfo.environment["MINDLORE_OPENAI_KEY"].flatMap { $0.isEmpty ? nil : $0 }
+            try? accountStore.saveOpenAIKey(liveKey ?? UITestingHTTPClient.validKey)
+            settingsStore.aiEnabled = true
+        }
         _settings = State(initialValue: settingsStore)
-        _accounts = State(initialValue: ProviderAccountStore(settings: settingsStore, secrets: secrets, http: http))
+        _accounts = State(initialValue: accountStore)
 
         // Runs before any UI exists, so no recording can be in progress yet.
         let recovered = (try? RecordingsDirectory.standard.recoverInterruptedRecordings()) ?? []

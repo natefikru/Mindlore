@@ -2,8 +2,10 @@ import PhotosUI
 import SwiftData
 import SwiftUI
 
-// Collects journal pages from the camera or photo library and lets the user put them in order
-// before transcription. Every change is saved right away, so a force-quit keeps the pages.
+// Collects journal pages from the camera or photo library and lets the user put them in order.
+// Before confirmation every change is saved right away, so a force-quit keeps the pages. For a
+// confirmed entry ("Edit pages") changes stay in a draft until the user confirms a real difference,
+// which restarts the entry.
 struct PageOrderView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
@@ -11,24 +13,42 @@ struct PageOrderView: View {
     @Environment(SettingsStore.self) private var settings
     @Environment(ProviderAccountStore.self) private var accounts
     @Environment(EditorPresence.self) private var presence
+    @Environment(PageTranscriptionCoordinator.self) private var pageTranscription
 
     @State private var entry: Entry?
+    @State private var draft: [PageDraftItem]?
     @State private var showingCamera = false
     @State private var pickerItems: [PhotosPickerItem] = []
     @State private var processing = false
     @State private var notice: String?
-    @State private var pageToRemove: EntryPage?
+    @State private var removalIndex: Int?
+    @State private var confirmingRestart = false
     private let startWithCamera: Bool
     private let onConfirmed: (Entry) -> Void
 
     init(entry: Entry?, startWithCamera: Bool, onConfirmed: @escaping (Entry) -> Void) {
         _entry = State(initialValue: entry)
+        _draft = State(initialValue: entry.flatMap { $0.pagesConfirmed ? PageDraftItem.draft(from: $0) : nil })
         self.startWithCamera = startWithCamera
         self.onConfirmed = onConfirmed
     }
 
-    private var pages: [EntryPage] { entry?.sortedPages ?? [] }
-    private var aiUsable: Bool { settings.aiEnabled && accounts.resolve(.pages) != nil }
+    private struct Row: Identifiable {
+        let id: AnyHashable
+        let thumbnailData: Data?
+        let pixelWidth: Int
+        let origin: PageOrigin
+    }
+
+    private var rows: [Row] {
+        if let draft {
+            return draft.map { Row(id: $0.id, thumbnailData: $0.thumbnailData, pixelWidth: $0.pixelWidth, origin: $0.origin) }
+        }
+        return (entry?.sortedPages ?? []).map { Row(id: $0.persistentModelID, thumbnailData: $0.thumbnailData, pixelWidth: $0.pixelWidth, origin: $0.origin) }
+    }
+
+    private var remainingRoom: Int { Entry.maxPages - rows.count }
+    private var aiUsable: Bool { AIServices.pagesUsable(settings: settings, accounts: accounts) }
 
     var body: some View {
         NavigationStack {
@@ -39,19 +59,23 @@ struct PageOrderView: View {
                         .foregroundStyle(.secondary)
                 }
                 Section {
-                    ForEach(pages) { page in
-                        PageRow(page: page) { pageToRemove = page }
+                    ForEach(Array(rows.enumerated()), id: \.element.id) { position, row in
+                        PageRow(number: position + 1, thumbnailData: row.thumbnailData, pixelWidth: row.pixelWidth, origin: row.origin) {
+                            removalIndex = position
+                        }
                     }
                     .onMove(perform: move)
                 } footer: {
-                    if !pages.isEmpty {
-                        Text("Drag pages into the order they were written. The order is locked once transcription starts.")
+                    if draft != nil {
+                        Text("Changing pages erases this entry's text, title, and insights and transcribes the pages again.")
+                    } else if !rows.isEmpty {
+                        Text("Drag pages into the order they were written. The order is locked once you confirm.")
                     }
                 }
             }
             .environment(\.editMode, .constant(.active))
             .overlay {
-                if pages.isEmpty && !processing {
+                if rows.isEmpty && !processing {
                     ContentUnavailableView("No pages yet", systemImage: "doc.viewfinder", description: Text("Scan pages with the camera or add photos of your journal."))
                 }
                 if processing {
@@ -60,22 +84,22 @@ struct PageOrderView: View {
                         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
                 }
             }
-            .navigationTitle("Journal Pages")
+            .navigationTitle(draft == nil ? "Journal Pages" : "Edit Pages")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Close") { close() }
+                    Button(draft == nil ? "Close" : "Cancel") { close() }
                         .accessibilityIdentifier("pageOrderCloseButton")
                 }
                 ToolbarItemGroup(placement: .bottomBar) {
                     Button("Scan", systemImage: "doc.viewfinder") { scan() }
-                        .disabled(processing || (entry?.remainingPageRoom ?? Entry.maxPages) == 0)
+                        .disabled(processing || remainingRoom <= 0)
                         .accessibilityIdentifier("scanPagesButton")
                     addFromPhotosButton
                     Spacer()
-                    Button(aiUsable ? "Transcribe \(pages.count) \(pages.count == 1 ? "page" : "pages")" : "Save pages") { confirm() }
+                    Button(aiUsable ? "Transcribe \(rows.count) \(rows.count == 1 ? "page" : "pages")" : "Save pages") { confirm() }
                         .fontWeight(.semibold)
-                        .disabled(pages.isEmpty || processing)
+                        .disabled(rows.isEmpty || processing)
                         .accessibilityIdentifier("confirmPagesButton")
                 }
             }
@@ -90,15 +114,22 @@ struct PageOrderView: View {
                 .ignoresSafeArea()
             }
             .confirmationDialog(
-                pageToRemove.map { "Remove page \($0.index + 1)?" } ?? "",
-                isPresented: Binding(get: { pageToRemove != nil }, set: { if !$0 { pageToRemove = nil } }),
+                removalIndex.map { "Remove page \($0 + 1)?" } ?? "",
+                isPresented: Binding(get: { removalIndex != nil }, set: { if !$0 { removalIndex = nil } }),
                 titleVisibility: .visible
             ) {
                 Button("Remove Page", role: .destructive) {
-                    if let page = pageToRemove { remove(page) }
-                    pageToRemove = nil
+                    if let removalIndex { remove(at: removalIndex) }
+                    removalIndex = nil
                 }
                 .accessibilityIdentifier("confirmRemovePageButton")
+            }
+            .alert("Start this entry over?", isPresented: $confirmingRestart) {
+                Button("Cancel", role: .cancel) {}
+                Button("Erase and Transcribe", role: .destructive) { restart() }
+                    .accessibilityIdentifier("confirmRestartPagesButton")
+            } message: {
+                Text("Changing pages will erase this entry's text, title, and insights and transcribe the pages again.")
             }
             .onChange(of: pickerItems) { _, items in
                 guard !items.isEmpty else { return }
@@ -120,22 +151,22 @@ struct PageOrderView: View {
     private var addFromPhotosButton: some View {
         if FakePages.isEnabled {
             Button("Photos", systemImage: "photo.on.rectangle") {
-                add(FakePages.make(count: 2, startingWidth: 2_000 + pages.count * 100), origin: .library)
+                add(FakePages.make(count: 2, startingWidth: 2_000 + rows.count * 100), origin: .library)
             }
-            .disabled(processing)
+            .disabled(processing || remainingRoom <= 0)
             .accessibilityIdentifier("addFromPhotosButton")
         } else {
-            PhotosPicker(selection: $pickerItems, maxSelectionCount: max(1, entry?.remainingPageRoom ?? Entry.maxPages), selectionBehavior: .ordered, matching: .images) {
+            PhotosPicker(selection: $pickerItems, maxSelectionCount: max(1, remainingRoom), selectionBehavior: .ordered, matching: .images) {
                 Label("Photos", systemImage: "photo.on.rectangle")
             }
-            .disabled(processing || (entry?.remainingPageRoom ?? Entry.maxPages) == 0)
+            .disabled(processing || remainingRoom <= 0)
             .accessibilityIdentifier("addFromPhotosButton")
         }
     }
 
     private func scan() {
         if FakePages.isEnabled {
-            add(FakePages.make(count: 3, startingWidth: 1_000 + pages.count * 100), origin: .camera)
+            add(FakePages.make(count: 3, startingWidth: 1_000 + rows.count * 100), origin: .camera)
         } else if DocumentCameraView.isSupported {
             showingCamera = true
         }
@@ -159,7 +190,7 @@ struct PageOrderView: View {
 
     private func add(_ images: [Data], origin: PageOrigin, failedToLoad: Int = 0) {
         guard !images.isEmpty else {
-            if failedToLoad > 0 { notice = "\(failedToLoad) photos couldn't be loaded." }
+            if failedToLoad > 0 { notice = Self.notice(leftOut: 0, failed: failedToLoad) }
             return
         }
         processing = true
@@ -179,18 +210,26 @@ struct PageOrderView: View {
                 notice = "Those images couldn't be read."
                 return
             }
-            let target = entry ?? createEntry()
-            let leftOut = target.addPages(processed, origin: origin, in: modelContext)
-            saver.noteChange()
-            saver.flush()
+            let leftOut: Int
+            if draft != nil {
+                let accepted = processed.prefix(max(0, remainingRoom))
+                draft?.append(contentsOf: accepted.map { PageDraftItem(content: .new($0, origin)) })
+                leftOut = processed.count - accepted.count
+            } else {
+                let target = entry ?? createEntry()
+                leftOut = target.addPages(processed, origin: origin, in: modelContext)
+                saver.noteChange()
+                saver.flush()
+            }
             notice = Self.notice(leftOut: leftOut, failed: failedToLoad + unreadable)
             DiagnosticsLog.shared.record("pages.added", [
-                "id": .id(target.id),
+                "id": entry.map { .id($0.id) } ?? "new",
                 "count": .int(processed.count - leftOut),
                 "origin": .string(origin.rawValue),
                 "bytes": .int(processed.reduce(0) { $0 + $1.imageData.count }),
                 "leftOut": .int(leftOut),
                 "failed": .int(failedToLoad + unreadable),
+                "draft": .bool(draft != nil),
             ])
         }
     }
@@ -210,31 +249,71 @@ struct PageOrderView: View {
     }
 
     private func move(from source: IndexSet, to destination: Int) {
+        if draft != nil {
+            draft?.move(fromOffsets: source, toOffset: destination)
+            return
+        }
         guard let entry, entry.movePages(from: source, to: destination) else { return }
         saver.noteChange()
         saver.flush()
-        DiagnosticsLog.shared.record("pages.reordered", ["id": .id(entry.id), "count": .int(pages.count)])
+        DiagnosticsLog.shared.record("pages.reordered", ["id": .id(entry.id), "count": .int(rows.count)])
     }
 
-    private func remove(_ page: EntryPage) {
-        guard let entry, entry.removePage(page, in: modelContext) else { return }
+    private func remove(at position: Int) {
+        if draft != nil {
+            guard draft?.indices.contains(position) == true else { return }
+            draft?.remove(at: position)
+            return
+        }
+        guard let entry, entry.sortedPages.indices.contains(position), entry.removePage(entry.sortedPages[position], in: modelContext) else { return }
         saver.noteChange()
         saver.flush()
-        DiagnosticsLog.shared.record("pages.removed", ["id": .id(entry.id), "count": 1, "remaining": .int(pages.count)])
+        DiagnosticsLog.shared.record("pages.removed", ["id": .id(entry.id), "count": 1, "remaining": .int(rows.count)])
     }
 
     private func confirm() {
-        guard let entry, entry.confirmPages(aiUsable: aiUsable) else { return }
+        guard let entry else { return }
+        if let draft {
+            guard PageDraftItem.differs(draft, from: entry) else { return finish() }
+            confirmingRestart = true
+            return
+        }
+        guard entry.confirmPages(aiUsable: aiUsable) else { return }
         saver.noteChange()
         saver.flush()
-        DiagnosticsLog.shared.record("pages.confirmed", ["id": .id(entry.id), "count": .int(pages.count), "transcribe": .bool(entry.awaitingText)])
-        presence.close(entry.id)
-        dismiss()
+        DiagnosticsLog.shared.record("pages.confirmed", ["id": .id(entry.id), "count": .int(rows.count), "transcribe": .bool(entry.awaitingText)])
+        finish()
         onConfirmed(entry)
+        startTranscription()
     }
 
-    // An entry with no pages is removed only on this explicit action, never when the view disappears.
+    private func restart() {
+        guard let entry, let draft else { return }
+        entry.restartPages(applying: draft, aiUsable: aiUsable, in: modelContext)
+        saver.noteChange()
+        saver.flush()
+        DiagnosticsLog.shared.record("pages.restarted", ["id": .id(entry.id), "count": .int(draft.count), "transcribe": .bool(entry.awaitingText)])
+        finish()
+        startTranscription()
+    }
+
+    private func startTranscription() {
+        let context = modelContext
+        let coordinator = pageTranscription
+        Task { await coordinator.processQueue(context: context) }
+    }
+
+    private func finish() {
+        if let entry { presence.close(entry.id) }
+        dismiss()
+    }
+
+    // Nothing is deleted when the view disappears; an unconfirmed entry with no pages is removed only here.
     private func close() {
+        if draft != nil {
+            DiagnosticsLog.shared.record("pages.editCancelled", ["id": entry.map { .id($0.id) } ?? "none"])
+            return finish()
+        }
         if let entry {
             presence.close(entry.id)
             if (entry.pages ?? []).isEmpty {
@@ -255,13 +334,16 @@ struct PageOrderView: View {
 }
 
 private struct PageRow: View {
-    let page: EntryPage
+    let number: Int
+    let thumbnailData: Data?
+    let pixelWidth: Int
+    let origin: PageOrigin
     let onRemove: () -> Void
 
     var body: some View {
         HStack(spacing: 12) {
             Group {
-                if let data = page.thumbnailData, let image = UIImage(data: data) {
+                if let thumbnailData, let image = UIImage(data: thumbnailData) {
                     Image(uiImage: image).resizable().scaledToFill()
                 } else {
                     Color.secondary.opacity(0.2)
@@ -270,16 +352,16 @@ private struct PageRow: View {
             .frame(width: 48, height: 64)
             .clipShape(RoundedRectangle(cornerRadius: 4))
             VStack(alignment: .leading) {
-                Text("Page \(page.index + 1)")
-                Text(page.origin == .camera ? "Scanned" : "From Photos")
+                Text("Page \(number)")
+                Text(origin == .camera ? "Scanned" : "From Photos")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
             Spacer()
-            Button("Remove page \(page.index + 1)", systemImage: "trash", role: .destructive, action: onRemove)
+            Button("Remove page \(number)", systemImage: "trash", role: .destructive, action: onRemove)
                 .labelStyle(.iconOnly)
                 .buttonStyle(.borderless)
         }
-        .accessibilityIdentifier("pageRow-\(page.pixelWidth)")
+        .accessibilityIdentifier("pageRow-\(pixelWidth)")
     }
 }

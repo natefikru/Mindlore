@@ -21,6 +21,19 @@ enum AIServices {
     }
 }
 
+extension AIServices {
+    static func pageTranscriber(settings: SettingsStore, accounts: ProviderAccountStore) -> Result<PageTranscriptionCoordinator.Transcription, AIJobFailure> {
+        guard settings.aiEnabled else { return .failure(AIJobFailure(raw: "settings.aiOff")) }
+        guard let provider = accounts.resolve(.pages) else { return .failure(AIJobFailure(.missingKey)) }
+        let generator = OpenAICompatibleTextGenerator(baseURL: provider.account.baseURL, apiKey: provider.apiKey, http: accounts.http)
+        return .success(.init(transcriber: OpenAICompatiblePageTranscriber(generator: generator, model: provider.model), label: "openai:\(provider.model)"))
+    }
+
+    static func pagesUsable(settings: SettingsStore, accounts: ProviderAccountStore) -> Bool {
+        settings.aiEnabled && accounts.resolve(.pages) != nil
+    }
+}
+
 extension Result {
     var isSuccess: Bool {
         if case .success = self { true } else { false }

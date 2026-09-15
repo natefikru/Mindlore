@@ -8,8 +8,13 @@ struct EntryEditorView: View {
     @Environment(TranscriptionCoordinator.self) private var transcription
     @Environment(EditorPresence.self) private var presence
     @Environment(AIPassTrigger.self) private var aiPass
+    @Environment(PageTranscriptionCoordinator.self) private var pageTranscription
+    @Environment(ProviderAccountStore.self) private var accounts
     @State private var entry: Entry?
     @State private var editingDate = false
+    @State private var editingPages = false
+    @State private var viewingPage: Int?
+    @State private var confirmingReplace = false
     @FocusState private var editorFocused: Bool
 
     init(entry: Entry?) {
@@ -31,12 +36,38 @@ struct EntryEditorView: View {
         .navigationTitle(title)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
-            if entry != nil {
-                ToolbarItem(placement: .topBarTrailing) {
+            if let entry {
+                ToolbarItemGroup(placement: .topBarTrailing) {
+                    if entry.source == .photo && entry.pagesConfirmed {
+                        Button("Edit pages", systemImage: "doc.on.doc") { editingPages = true }
+                            .disabled(pageTranscription.isRunning(entry))
+                            .accessibilityIdentifier("editPagesButton")
+                    }
                     Button("Entry date", systemImage: "calendar") { editingDate = true }
                         .accessibilityIdentifier("entryDateButton")
                 }
             }
+        }
+        .fullScreenCover(isPresented: $editingPages) {
+            if let entry {
+                PageOrderView(entry: entry, startWithCamera: false) { _ in }
+            }
+        }
+        .fullScreenCover(item: Binding(get: { viewingPage.map(PageSelection.init) }, set: { viewingPage = $0?.index })) { selection in
+            if let entry {
+                PageViewer(pages: entry.sortedPages, selection: selection.index)
+            }
+        }
+        .alert("Replace the text?", isPresented: $confirmingReplace) {
+            Button("Cancel", role: .cancel) {}
+            Button("Replace", role: .destructive) {
+                guard let entry, entry.replaceWithPageTranscription() else { return }
+                saver.noteChange()
+                saver.flush()
+                DiagnosticsLog.shared.record("pages.textReplaced", ["id": .id(entry.id)])
+            }
+        } message: {
+            Text("The entry's text will be replaced with the transcription of its pages, for you to review again.")
         }
         .sheet(isPresented: $editingDate) {
             if let entry {
@@ -69,6 +100,14 @@ struct EntryEditorView: View {
                     .padding(.horizontal)
                     .padding(.top, 8)
             }
+            if let entry, entry.source == .photo, !(entry.pages ?? []).isEmpty {
+                PageStripView(pages: entry.sortedPages) { viewingPage = $0 }
+                    .padding(.top, 8)
+                pageStatus(for: entry)
+                    .font(.footnote)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal)
+            }
             if let audioData = entry?.audioData {
                 AudioPlayerView(data: audioData, duration: entry?.audioDuration)
                     .padding(.horizontal)
@@ -79,7 +118,7 @@ struct EntryEditorView: View {
                     .padding(.horizontal)
                     .padding(.top, 8)
             }
-            if let entry, entry.awaitingText {
+            if let entry, entry.awaitingText, entry.source != .photo {
                 transcriptionStatus(for: entry)
                     .font(.footnote)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -102,6 +141,73 @@ struct EntryEditorView: View {
             }
             Spacer().frame(height: 4)
         }
+    }
+
+    // Progress, failures, review, and recovery for an entry made from journal pages.
+    @ViewBuilder
+    private func pageStatus(for entry: Entry) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            if entry.textReviewPending {
+                HStack(alignment: .firstTextBaseline) {
+                    Label(entry.text.isEmpty ? "No writing was found on these pages. Type the text, or edit the pages." : "Check the text against your pages, then approve it.", systemImage: "checkmark.circle")
+                    Spacer()
+                    Button("Approve") { approve(entry) }
+                        .buttonStyle(.borderedProminent)
+                        .accessibilityIdentifier("approveTextButton")
+                }
+            }
+            if entry.awaitingText {
+                switch pageTranscription.activity[entry.id] {
+                case .transcribing(let page, let count):
+                    Label {
+                        Text("Transcribing page \(page) of \(count)…")
+                    } icon: {
+                        ProgressView().controlSize(.small)
+                    }
+                    .foregroundStyle(.secondary)
+                    .accessibilityIdentifier("pageTranscriptionProgress")
+                case .failed(let message):
+                    retryRow(message: message, entry: entry)
+                case nil:
+                    if let failure = AIJobPolicy.failure(.text, entry) {
+                        retryRow(message: failure.userMessage, entry: entry)
+                    } else if !AIServices.pagesUsable(settings: settings, accounts: accounts) {
+                        Label("Turn on AI in Settings to transcribe these pages, or type the text yourself.", systemImage: "sparkles")
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            } else if entry.text.isEmpty && !entry.allPagesTranscribed && AIServices.pagesUsable(settings: settings, accounts: accounts) {
+                Button("Transcribe pages", systemImage: "text.viewfinder") {
+                    Task { await pageTranscription.transcribePages(for: entry, context: modelContext) }
+                }
+                .accessibilityIdentifier("transcribePagesButton")
+            }
+            if entry.canReplaceWithPageTranscription {
+                Button("Replace with page transcription", systemImage: "arrow.uturn.backward") { confirmingReplace = true }
+                    .accessibilityIdentifier("replaceWithPagesButton")
+            }
+        }
+        .padding(.top, 6)
+    }
+
+    private func retryRow(message: String, entry: Entry) -> some View {
+        HStack {
+            Label(message, systemImage: "exclamationmark.triangle")
+                .foregroundStyle(.orange)
+            Spacer()
+            Button("Retry") {
+                Task { await pageTranscription.transcribePages(for: entry, context: modelContext) }
+            }
+        }
+    }
+
+    private func approve(_ entry: Entry) {
+        guard entry.approveText() else { return }
+        aiPass.fire(for: entry, at: .approved)
+        saver.noteChange()
+        saver.flush()
+        DiagnosticsLog.shared.record("text.approved", ["id": .id(entry.id)])
+        aiPass.onFlagged?()
     }
 
     // The entry is created on the first non-empty change, so opening and leaving a new entry leaves nothing behind.
@@ -249,4 +355,9 @@ struct EntryEditorView: View {
         saver.flush()
         aiPass.onFlagged?()
     }
+}
+
+private struct PageSelection: Identifiable {
+    let index: Int
+    var id: Int { index }
 }

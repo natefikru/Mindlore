@@ -30,12 +30,14 @@ nonisolated struct OpenAICompatiblePageTranscriber: PageTranscriber {
     var calendar: Calendar = .current
 
     static let systemPrompt = """
-    You transcribe photographed pages of a personal handwritten journal.
+    You transcribe photographed pages of a personal journal. Most pages are handwritten, but some writing \
+    may be printed, typed, or in block letters; transcribe all of it the same way.
 
     Copy the writing exactly as written: keep the writer's words, spelling, grammar, and punctuation. \
     Do not correct, summarize, reword, or add anything. Keep paragraph breaks; join lines that were only \
-    wrapped by the edge of the page. Write [illegible] for any word you cannot read. Ignore printed page \
-    furniture such as ruled lines, page numbers, and headers. If the page has no handwriting, return an empty string.
+    wrapped by the edge of the page. Write [illegible] for any word you cannot read. Ignore the notebook's \
+    own printing, such as ruled lines, preprinted page numbers, and preprinted headers. Return an empty \
+    string only if the page has no writing at all.
 
     writtenDate is the date this journal entry was written on, if the page states it with a year, month, and \
     day, as yyyy-MM-dd. Ignore other dates mentioned in the writing. Use null if there is no such date or any part is missing.

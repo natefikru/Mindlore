@@ -189,6 +189,7 @@ private struct EntryRow: View {
         .environment(TranscriptionCoordinator())
         .environment(EditorPresence())
         .environment(ProviderAccountStore(settings: SettingsStore(store: UserDefaults(suiteName: "preview")!)))
+        .environment(PageTranscriptionCoordinator(resolve: { .failure(AIJobFailure(raw: "settings.aiOff")) }))
         .environment(AIPassTrigger(settings: SettingsStore(store: UserDefaults(suiteName: "preview")!), presence: EditorPresence(), titleUsable: { false }))
         .environment(SettingsStore(store: UserDefaults(suiteName: "preview")!))
 }

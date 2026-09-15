@@ -171,6 +171,8 @@ nonisolated struct AIJobFailure: Error, Equatable, Sendable {
         case "device.appleIntelligenceNotEnabled": return "Turn on Apple Intelligence in Settings to generate titles on this iPhone."
         case "device.modelNotReady": return "Apple's on-device model is still downloading. Mindlore will try again later."
         case "device.generationFailed", "device.unknown": return "The on-device model couldn't write a title for this entry."
+        case "settings.aiOff": return "Turn on AI in Settings to transcribe these pages, or type the text yourself."
+        case "pages.requestCap": return "Mindlore stopped retrying these pages. Tap Retry to try again."
         default: return transcriptionError?.userMessage ?? "Something went wrong."
         }
     }
