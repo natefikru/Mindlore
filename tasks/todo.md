@@ -650,6 +650,31 @@ question, recorded there).
       `-uiTestingFakeAI`): finish an entry, open Connections, tap Sarah, see the entry, merge the
       second person into Sarah, relaunch, the merge and the count survive, unmerge.
 
+### Phase 5c: Names that sound alike (owner request, 2026-09-16; not yet specified)
+
+A dictated "Luis" arrives as "Lewis", a real name the writer has no one by. The writer wants every
+"Lewis" and "luis" to mean their friend Luis, until they add a second, real Lewis; from then on
+AI should pick which one each mention means, and ask when it can't tell.
+
+- [ ] Rename offers "Keep '{old}' as another name" (on by default for entries from recordings),
+      so a corrected spelling still catches later mentions.
+- [ ] A link records what the entry actually wrote when the model corrected the name, and entity
+      rows and bio excerpts search for that, not the corrected name (today a corrected "Luis"
+      finds no sentence in text that says "Lewis").
+- [ ] "A different person also called {name}": creating an entity that shares a name on purpose.
+      Today a new name something already answers to goes to that entity (5a.4), and the rename
+      and alias checks refuse it as a collision.
+- [ ] Shared names resolve to "unsure" instead of the resolver's silent tie-break: the chip shows
+      it, the Review list (5b) asks "Which {name}?", and the answer is kept for that entry.
+- [ ] AI picks between the candidates first, which needs a line about each one in the insights
+      request. That sends bios or similar out, so it waits for the privacy review listed under
+      "Not in scope" (bios in the insights prompt).
+- [ ] Known names as a hint for transcription: the OpenAI transcriber already takes a `prompt`
+      (`OpenAICompatibleTranscriber.swift:34`, today only the previous chunk's tail); the
+      on-device recognizer's custom vocabulary in iOS 26 needs a spike. A new place names are
+      sent, so the AI settings text and privacy note change with it.
+- [ ] A new, unconfirmed person offers "Spelled right?" on its chip or page.
+
 ### Phase 6: Co-occurrence
 - [ ] `Mindlore/Graph/EntityGraph.swift`: `build(links:asOf:halfLife:)` groups links by entry,
       emits weighted pairs with exponential decay from the entry date; `neighbourhood(of:depth:)`;
