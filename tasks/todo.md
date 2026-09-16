@@ -582,7 +582,11 @@ fallback.
       route resolution. (Built: the insights sheet's stack takes a typed `[EntityRoute]` path;
       a gone route shows "No longer in your journal" until the user goes back. Nothing pushes a
       page from an entry yet; that is 5a.5.)
-- [ ] 5a.4 Rename, kind, aliases, hide, `MergeIntoView`, `RepointView`, the collision flow.
+- [x] 5a.4 Rename, kind, aliases, hide, `MergeIntoView`, `RepointView`, the collision flow.
+      (Built: `GraphServices` wraps every page edit and saves; merging into a hidden entity
+      unhides it in `GraphEditor.merge`; a merge made from a page swaps the route through an
+      `entityRouteReplacer` environment value set on the sheet's stack; a merged entity's own
+      page shows "Merged into X" with Undo; guessed entry rows open `RepointView`.)
 - [ ] 5a.5 `EntityChipIndex`, tappable chips, per-name mention chips, navigation from the sheet.
 - [ ] 5a.6 UI test, sub-agent review of 5a, fixes, simulator screenshots of each screen state.
 

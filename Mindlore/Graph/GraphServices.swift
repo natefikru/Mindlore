@@ -45,9 +45,105 @@ final class GraphServices {
     // can't stamp one by accident.
 
     func setBio(_ bio: String?, on entityID: UUID, in context: ModelContext) {
-        guard let entity = editor.entity(withID: entityID, in: context) else { return }
-        editor.setBio(bio, on: entity)
-        save(context)
+        edit(entityID, in: context) {
+            editor.setBio(bio, on: $0)
+            return .applied
+        }
+    }
+
+    @discardableResult
+    func rename(_ entityID: UUID, to name: String, in context: ModelContext) -> GraphEditor.EditOutcome {
+        edit(entityID, in: context) { editor.rename($0, to: name, in: context) }
+    }
+
+    @discardableResult
+    func setKind(_ kind: EntityKind, on entityID: UUID, in context: ModelContext) -> GraphEditor.EditOutcome {
+        edit(entityID, in: context) { editor.setKind(kind, on: $0, in: context) }
+    }
+
+    @discardableResult
+    func addAlias(_ alias: String, to entityID: UUID, in context: ModelContext) -> GraphEditor.EditOutcome {
+        edit(entityID, in: context) { editor.addAlias(alias, to: $0, in: context) }
+    }
+
+    func removeAlias(_ alias: String, from entityID: UUID, in context: ModelContext) {
+        edit(entityID, in: context) {
+            editor.removeAlias(alias, from: $0)
+            return .applied
+        }
+    }
+
+    func setHidden(_ hidden: Bool, on entityID: UUID, in context: ModelContext) {
+        edit(entityID, in: context) {
+            editor.setHidden(hidden, on: $0)
+            return .applied
+        }
+    }
+
+    // Returns the entity the merged one now stands for, which is where its page should go.
+    @discardableResult
+    func merge(_ loserID: UUID, into targetID: UUID, in context: ModelContext) -> UUID? {
+        guard let loser = editor.entity(withID: loserID, in: context),
+              let target = editor.entity(withID: targetID, in: context),
+              editor.merge(loser, into: target, in: context) == .merged
+        else { return nil }
+        revision += 1
+        return loser.mergedIntoID
+    }
+
+    func unmerge(_ loserID: UUID, in context: ModelContext) {
+        guard let loser = editor.entity(withID: loserID, in: context), editor.unmerge(loser, in: context) else { return }
+        revision += 1
+    }
+
+    // "This is someone else", for one mention. The mention is found again by what it says,
+    // because Generate again may have replaced the link since the sheet opened.
+    enum RepointTarget: Equatable {
+        case existing(UUID)
+        case new(name: String)
+    }
+
+    enum RepointOutcome: Equatable {
+        case applied(UUID)
+        // Moved, but the name still belongs to someone else for future mentions.
+        case aliasCollides(entityID: UUID, with: UUID)
+        case mentionChanged
+    }
+
+    func repoint(_ mention: MentionRef, to target: RepointTarget, addingAlias: Bool, in context: ModelContext) -> RepointOutcome {
+        guard let link = indexer.allLinks(in: context).first(where: {
+            $0.entryID == mention.entryID && $0.surface == mention.surface && $0.kind == mention.kind
+        }) else { return .mentionChanged }
+
+        let entity: Entity
+        switch target {
+        case .existing(let id):
+            guard let found = editor.entity(withID: id, in: context) else { return .mentionChanged }
+            entity = editor.root(of: found, in: context)
+        case .new(let name):
+            let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { return .mentionChanged }
+            if let existing = editor.entity(answering: trimmed, kind: mention.kind, in: context) {
+                entity = existing
+            } else {
+                entity = Entity(name: trimmed, key: EntityNormalizer.key(for: trimmed, kind: mention.kind), kind: mention.kind)
+            }
+        }
+        guard link.entityID != entity.id || addingAlias else { return .applied(entity.id) }
+
+        let outcome = editor.repoint(link, to: entity, addingAlias: addingAlias, in: context)
+        revision += 1
+        switch outcome {
+        case .applied: return .applied(entity.id)
+        case .collides(let other): return .aliasCollides(entityID: entity.id, with: other)
+        }
+    }
+
+    private func edit(_ entityID: UUID, in context: ModelContext, _ change: (Entity) -> GraphEditor.EditOutcome) -> GraphEditor.EditOutcome {
+        guard let entity = editor.entity(withID: entityID, in: context) else { return .applied }
+        let outcome = change(entity)
+        if outcome == .applied { save(context) }
+        return outcome
     }
 
     private func save(_ context: ModelContext) {

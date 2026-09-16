@@ -7,6 +7,15 @@ nonisolated struct EntityRoute: Hashable, Sendable {
     var follow = true
 }
 
+// One mention in one entry, by what it says rather than by link id: regenerating insights
+// replaces links, and a sheet holding an old id would act on nothing.
+nonisolated struct MentionRef: Hashable, Identifiable, Sendable {
+    var id: Self { self }
+    let entryID: UUID
+    let surface: String
+    let kind: EntityKind
+}
+
 // What an entity page shows, decided from plain values so it can be tested without a view.
 nonisolated enum EntityPagePresentation {
     enum Resolution: Equatable {
@@ -19,6 +28,16 @@ nonisolated enum EntityPagePresentation {
         guard exists else { return .gone }
         if route.follow, let winner = mergedIntoID { return .show(winner) }
         return .show(route.id)
+    }
+
+    // After a merge made from a page, the page's route names the winner itself, so undoing
+    // that merge later doesn't flip the page back to the loser. Only the top route that shows
+    // the loser is replaced.
+    static func replacing(_ loserID: UUID, with winnerID: UUID, in path: [EntityRoute]) -> [EntityRoute] {
+        guard let index = path.lastIndex(where: { $0.id == loserID }) else { return path }
+        var path = path
+        path[index] = EntityRoute(id: winnerID)
+        return path
     }
 
     // MARK: - Header
@@ -46,7 +65,8 @@ nonisolated enum EntityPagePresentation {
         let title: String
         let text: String
         let surfaces: [String]
-        let guessed: Bool
+        // The mention the resolver linked by guessing, which the row offers to correct.
+        let guessed: MentionRef?
     }
 
     struct EntryRow: Equatable, Identifiable {
@@ -55,7 +75,7 @@ nonisolated enum EntityPagePresentation {
         let heading: String
         // Where the entry names them, if it still does.
         let sentence: String?
-        let guessed: Bool
+        let guessed: MentionRef?
     }
 
     static let headingWords = 8

@@ -266,7 +266,7 @@ struct AIDiagnosticsPrivacyTests {
         editor.rename(first, to: "Renamed \(sentinel)", in: context)
         editor.addAlias("Alias \(sentinel)", to: first, in: context)
         editor.setBio("Bio \(sentinel)", on: first)
-        editor.setKind(.organization, on: first)
+        editor.setKind(.organization, on: first, in: context)
         editor.setHidden(true, on: second)
         editor.setHidden(false, on: second)
         editor.markNotSame(first, as: second)

@@ -143,7 +143,7 @@ struct GraphVocabularyTests {
     @Test func anUnsettledOtherGoesWithoutAKind() throws {
         try harness.entry(mentions: [("Denver", .other), ("Acme", .other)])
         harness.indexer.sweep(in: harness.context)
-        GraphEditor(diagnostics: .disabled).setKind(.other, on: try harness.entity("Acme"))
+        GraphEditor(diagnostics: .disabled).setKind(.other, on: try harness.entity("Acme"), in: harness.context)
         try harness.entity("Acme").kindEditedByUser = true
 
         let named = try vocabulary().named

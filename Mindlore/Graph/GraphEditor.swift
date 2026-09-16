@@ -39,16 +39,35 @@ struct GraphEditor {
         return .applied
     }
 
-    func setKind(_ kind: EntityKind, on entity: Entity) {
-        guard entity.kind != kind else { return }
+    // A mention stays a mention and a label stays a label: a person can become a place, and a
+    // tag a theme, but a person never a tag. Labels match only their own kind, so crossing over
+    // would strand the entity's links.
+    static func kinds(changeableFrom kind: EntityKind) -> [EntityKind] {
+        switch kind {
+        case .tag, .theme: [.tag, .theme]
+        default: [.person, .place, .organization, .project, .event, .other]
+        }
+    }
+
+    @discardableResult
+    func setKind(_ kind: EntityKind, on entity: Entity, in context: ModelContext) -> EditOutcome {
+        guard entity.kind != kind, Self.kinds(changeableFrom: entity.kind).contains(kind) else { return .applied }
+        // Keys are kind-sensitive, so every name is checked again under the new kind.
+        for surface in [entity.name] + entity.aliases {
+            let key = EntityNormalizer.key(for: surface, kind: kind)
+            if let clash = entityAnswering(to: key, kind: kind, excluding: entity, in: context) {
+                return .collides(with: clash.id)
+            }
+        }
         entity.kind = kind
-        // Keys are kind-sensitive, so the name has to be keyed again under the new kind or
-        // the resolver and the collision check stop agreeing about what this answers to.
+        // Keyed again under the new kind, or the resolver and the collision check stop
+        // agreeing about what this answers to.
         entity.key = EntityNormalizer.key(for: entity.name, kind: kind)
         // From here on the extraction never changes it back.
         entity.kindEditedByUser = true
         claim(entity)
         diagnostics.record("graph.entityEdited", ["id": .id(entity.id), "field": "kind", "kind": .string(kind.rawValue)])
+        return .applied
     }
 
     @discardableResult
@@ -115,6 +134,8 @@ struct GraphEditor {
         guard winner.id != loser.id, !loser.isMerged else { return .refused }
         guard root(of: winner, in: context).id != loser.id else { return .refused }
         register(winner, in: context)
+        // The user chose it, so it is no longer something they want out of sight.
+        winner.hidden = false
 
         // By id, not through the relationship: mid-batch a relationship can read nil, and a
         // predicate that reaches through one is worse.
@@ -232,6 +253,12 @@ struct GraphEditor {
         })
     }
 
+    // The live entity a typed name would land on, so a new name never duplicates one.
+    func entity(answering name: String, kind: EntityKind, in context: ModelContext) -> Entity? {
+        let key = EntityNormalizer.key(for: name, kind: kind)
+        return entityAnswering(to: key, kind: kind, excluding: nil, in: context)
+    }
+
     func entity(withID id: UUID, in context: ModelContext) -> Entity? {
         var descriptor = FetchDescriptor<Entity>(predicate: #Predicate { $0.id == id })
         descriptor.fetchLimit = 1
@@ -269,14 +296,14 @@ struct GraphEditor {
         ([entity.name] + entity.aliases).map { EntityNormalizer.key(for: $0, kind: entity.kind) }
     }
 
-    private func entityAnswering(to key: String, kind: EntityKind, excluding entity: Entity, in context: ModelContext) -> Entity? {
+    private func entityAnswering(to key: String, kind: EntityKind, excluding entity: Entity?, in context: ModelContext) -> Entity? {
         guard !key.isEmpty else { return nil }
         let live = ((try? context.fetch(FetchDescriptor<Entity>(
             predicate: #Predicate { $0.mergedIntoID == nil },
             sortBy: [SortDescriptor(\.createdAt), SortDescriptor(\.name)]
         ))) ?? [])
         return live.first { other in
-            other.id != entity.id
+            other.id != entity?.id
                 && (other.kind == kind || other.kind == .other || kind == .other)
                 && keys(of: other).contains(key)
         }

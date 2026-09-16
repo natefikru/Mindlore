@@ -25,6 +25,13 @@ struct EntityPagePresentationTests {
         #expect(P.resolve(EntityRoute(id: a, follow: false), exists: false, mergedIntoID: b) == .gone)
     }
 
+    @Test func aMergeFromAPageReplacesOnlyTheTopRouteForTheLoser() {
+        let other = UUID()
+        let path = [EntityRoute(id: a), EntityRoute(id: other), EntityRoute(id: a)]
+        #expect(P.replacing(a, with: b, in: path) == [EntityRoute(id: a), EntityRoute(id: other), EntityRoute(id: b)])
+        #expect(P.replacing(UUID(), with: b, in: path) == path)
+    }
+
     // MARK: - Header
 
     @Test func countsReadNaturally() {
@@ -47,22 +54,23 @@ struct EntityPagePresentationTests {
     @Test func rowsAreNewestFirstWithTheSentenceThatNamesThem() {
         let old = UUID()
         let new = UUID()
+        let guess = MentionRef(entryID: new, surface: "sarah", kind: .person)
         let rows = P.entryRows([
-            .init(entryID: old, date: Date(timeIntervalSince1970: 1), title: "Walk", text: "Rain. Sarah came along.", surfaces: ["Sarah"], guessed: false),
-            .init(entryID: new, date: Date(timeIntervalSince1970: 2), title: "", text: "saw sarah at the market today and we talked for a while", surfaces: ["sarah"], guessed: true),
+            .init(entryID: old, date: Date(timeIntervalSince1970: 1), title: "Walk", text: "Rain. Sarah came along.", surfaces: ["Sarah"], guessed: nil),
+            .init(entryID: new, date: Date(timeIntervalSince1970: 2), title: "", text: "saw sarah at the market today and we talked for a while", surfaces: ["sarah"], guessed: guess),
         ])
 
         #expect(rows.map(\.id) == [new, old])
         #expect(rows[0].heading == "saw sarah at the market today and we…")
         #expect(rows[0].sentence == "saw sarah at the market today and we talked for a while")
-        #expect(rows[0].guessed)
+        #expect(rows[0].guessed == guess)
         #expect(rows[1].heading == "Walk")
         #expect(rows[1].sentence == "Sarah came along.")
-        #expect(!rows[1].guessed)
+        #expect(rows[1].guessed == nil)
     }
 
     @Test func anEntryThatNoLongerNamesThemHasNoSentence() {
-        let rows = P.entryRows([.init(entryID: a, date: .now, title: "", text: "", surfaces: ["Sarah"], guessed: false)])
+        let rows = P.entryRows([.init(entryID: a, date: .now, title: "", text: "", surfaces: ["Sarah"], guessed: nil)])
         #expect(rows[0].sentence == nil)
         #expect(rows[0].heading == "Untitled entry")
     }

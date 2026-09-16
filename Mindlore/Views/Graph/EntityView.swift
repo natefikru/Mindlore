@@ -1,6 +1,15 @@
 import SwiftData
 import SwiftUI
 
+// Lets a page swap its own route after a merge it made. The sheet that owns the path sets it.
+struct EntityRouteReplacer {
+    var replace: (_ loserID: UUID, _ winnerID: UUID) -> Void = { _, _ in }
+}
+
+extension EnvironmentValues {
+    @Entry var entityRouteReplacer = EntityRouteReplacer()
+}
+
 // One entity's page, pushed by value. It holds an id, never an Entity: an edit, a merge, or a
 // prune can change what the id means, and the query follows it.
 struct EntityView: View {
@@ -21,7 +30,7 @@ struct EntityView: View {
     var body: some View {
         switch resolution {
         case .show(let id):
-            EntityPage(id: id)
+            EntityPage(id: id, showsLoser: id == route.id && !route.follow)
                 .id(id)
         case .gone:
             ContentUnavailableView(
@@ -36,7 +45,10 @@ struct EntityView: View {
 
 private struct EntityPage: View {
     let id: UUID
+    // Reached from a "Merged into this" row: the page is about the merged entity itself.
+    let showsLoser: Bool
     @Environment(\.modelContext) private var modelContext
+    @Environment(\.entityRouteReplacer) private var routeReplacer
     @Environment(EntrySaver.self) private var saver
     @Environment(GraphServices.self) private var graph
     @Environment(SettingsStore.self) private var settings
@@ -45,9 +57,16 @@ private struct EntityPage: View {
     @Query private var links: [EntityLink]
     @Query private var entities: [Entity]
     @State private var editingBio = false
+    @State private var renaming = false
+    @State private var addingAlias = false
+    @State private var draftText = ""
+    @State private var merging = false
+    @State private var collision: UUID?
+    @State private var repointing: MentionRef?
 
-    init(id: UUID) {
+    init(id: UUID, showsLoser: Bool) {
         self.id = id
+        self.showsLoser = showsLoser
         _matches = Query(filter: #Predicate<Entity> { $0.id == id })
     }
 
@@ -57,26 +76,83 @@ private struct EntityPage: View {
         if let entity {
             Form {
                 header(entity)
-                about(entity)
-                if !entity.aliases.isEmpty {
-                    Section("Also called") {
-                        WrappingChips(items: entity.aliases)
-                    }
+                if let winnerID = entity.mergedIntoID {
+                    mergedAwaySection(entity, into: winnerID)
                 }
+                about(entity)
+                aliasesSection(entity)
                 entriesSection
                 mergedInSection
+                if !entity.isMerged {
+                    actionsSection(entity)
+                }
             }
             .navigationTitle(entity.name)
             .navigationBarTitleDisplayMode(.inline)
             .accessibilityIdentifier("entityPage")
-            .onAppear { graph.pageOpened(id, in: modelContext) }
+            .onAppear {
+                if !showsLoser { graph.pageOpened(id, in: modelContext) }
+            }
             .sheet(isPresented: $editingBio) {
                 BioEditorSheet(initial: entity.bio ?? "") { text in
                     saver.flush()
                     graph.setBio(text, on: id, in: modelContext)
                 }
             }
+            .sheet(isPresented: $merging) {
+                MergeIntoView(entityID: id) { targetID in
+                    saver.flush()
+                    merge(into: targetID)
+                }
+            }
+            .sheet(item: $repointing) { mention in
+                RepointView(mention: mention, currentEntityID: id)
+            }
+            .alert("Rename", isPresented: $renaming) {
+                TextField("Name", text: $draftText)
+                    .accessibilityIdentifier("entityRenameField")
+                Button("Save") { apply { graph.rename(id, to: draftText, in: modelContext) } }
+                Button("Cancel", role: .cancel) {}
+            }
+            .alert("Add another name", isPresented: $addingAlias) {
+                TextField("Name", text: $draftText)
+                    .accessibilityIdentifier("entityAliasField")
+                Button("Add") { apply { graph.addAlias(draftText, to: id, in: modelContext) } }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("Future mentions of this name will link here.")
+            }
+            .alert(collisionTitle, isPresented: Binding(get: { collision != nil }, set: { if !$0 { collision = nil } })) {
+                Button("Merge") {
+                    if let collision { merge(into: collision) }
+                }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("Merge them? Everything that mentions this will link there, and you can undo it from that page.")
+            }
         }
+    }
+
+    // MARK: - Edits
+
+    // Every edit starts from saved entries, so the graph's save can't stamp one by accident.
+    private func apply(_ edit: () -> GraphEditor.EditOutcome) {
+        saver.flush()
+        if case .collides(let other) = edit() {
+            collision = other
+        }
+    }
+
+    private func merge(into targetID: UUID) {
+        guard let winnerID = graph.merge(id, into: targetID, in: modelContext) else { return }
+        routeReplacer.replace(id, winnerID)
+    }
+
+    private var collisionTitle: String {
+        guard let collision, let other = graph.editor.entity(withID: collision, in: modelContext) else {
+            return "That name is taken"
+        }
+        return "\(other.name)\(other.hidden ? " (hidden)" : "") already goes by that name"
     }
 
     // MARK: - Sections
@@ -84,9 +160,6 @@ private struct EntityPage: View {
     private func header(_ entity: Entity) -> some View {
         Section {
             VStack(alignment: .leading, spacing: 4) {
-                Label(entity.kind.label, systemImage: entity.kind.symbol)
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
                 Text(EntityPagePresentation.mentionSummary(count: entity.linkCount))
                 if let range = EntityPagePresentation.dateRange(first: entity.firstLinkedAt, last: entity.lastLinkedAt) {
                     Text(range)
@@ -100,6 +173,79 @@ private struct EntityPage: View {
                 }
             }
             .accessibilityElement(children: .combine)
+            if !entity.isMerged {
+                Button {
+                    draftText = entity.name
+                    renaming = true
+                } label: {
+                    LabeledContent("Name", value: entity.name)
+                }
+                .accessibilityIdentifier("entityRename")
+                Picker(selection: Binding(
+                    get: { entity.kind },
+                    set: { kind in apply { graph.setKind(kind, on: id, in: modelContext) } }
+                )) {
+                    ForEach(GraphEditor.kinds(changeableFrom: entity.kind), id: \.self) { kind in
+                        Label(kind.label, systemImage: kind.symbol).tag(kind)
+                    }
+                } label: {
+                    Text("Kind")
+                }
+                .accessibilityIdentifier("entityKind")
+            }
+        }
+    }
+
+    private func mergedAwaySection(_ entity: Entity, into winnerID: UUID) -> some View {
+        Section {
+            let winner = graph.editor.entity(withID: winnerID, in: modelContext)
+            Text("Merged into \(winner?.name ?? "another entry")\(entity.mergedAt.map { " on \($0.formatted(date: .abbreviated, time: .omitted))" } ?? "").")
+            Button("Undo merge") {
+                saver.flush()
+                graph.unmerge(id, in: modelContext)
+            }
+            .accessibilityIdentifier("entityUnmerge")
+        }
+    }
+
+    @ViewBuilder
+    private func aliasesSection(_ entity: Entity) -> some View {
+        if !entity.aliases.isEmpty || !entity.isMerged {
+            Section("Also called") {
+                if !entity.aliases.isEmpty {
+                    FlowLayout(spacing: 6) {
+                        ForEach(entity.aliases, id: \.self) { alias in
+                            AliasChip(alias: alias, removable: !entity.isMerged) {
+                                saver.flush()
+                                graph.removeAlias(alias, from: id, in: modelContext)
+                            }
+                        }
+                    }
+                }
+                if !entity.isMerged {
+                    Button("Add another name") {
+                        draftText = ""
+                        addingAlias = true
+                    }
+                    .accessibilityIdentifier("entityAddAlias")
+                }
+            }
+        }
+    }
+
+    private func actionsSection(_ entity: Entity) -> some View {
+        Section {
+            Button("Merge into…") { merging = true }
+                .accessibilityIdentifier("entityMergeInto")
+            Button(entity.hidden ? "Unhide" : "Hide") {
+                saver.flush()
+                graph.setHidden(!entity.hidden, on: id, in: modelContext)
+            }
+            .accessibilityIdentifier("entityHide")
+        } footer: {
+            Text(entity.hidden
+                 ? "Hidden things stay linked but don't appear in insights prompts or lists."
+                 : "Hiding keeps its links but leaves it out of lists and of what AI is told about your journal.")
         }
     }
 
@@ -180,7 +326,7 @@ private struct EntityPage: View {
                         HStack(alignment: .firstTextBaseline) {
                             Text(row.heading).font(.headline)
                             Spacer()
-                            if row.guessed {
+                            if row.guessed != nil {
                                 Text("Guessed")
                                     .font(.caption)
                                     .foregroundStyle(.orange)
@@ -195,8 +341,13 @@ private struct EntityPage: View {
                                 .foregroundStyle(.secondary)
                                 .lineLimit(3)
                         }
+                        if let guessed = row.guessed {
+                            Button("Not them") { repointing = guessed }
+                                .buttonStyle(.borderless)
+                                .font(.subheadline)
+                                .accessibilityIdentifier("entityNotThem")
+                        }
                     }
-                    .accessibilityElement(children: .combine)
                 }
             }
         }
@@ -221,6 +372,18 @@ private struct EntityPage: View {
                             }
                         }
                     }
+                    .swipeActions {
+                        Button("Undo merge") {
+                            saver.flush()
+                            graph.unmerge(loser.id, in: modelContext)
+                        }
+                    }
+                    .contextMenu {
+                        Button("Undo merge", systemImage: "arrow.uturn.backward") {
+                            saver.flush()
+                            graph.unmerge(loser.id, in: modelContext)
+                        }
+                    }
                 }
             }
         }
@@ -243,7 +406,9 @@ private struct EntityPage: View {
                 title: entry.title,
                 text: entry.text,
                 surfaces: links.map(\.surface),
-                guessed: links.contains(where: \.inferred)
+                guessed: links.first(where: \.inferred).map {
+                    MentionRef(entryID: entry.id, surface: $0.surface, kind: $0.kind)
+                }
             )
         })
     }
@@ -282,5 +447,29 @@ private struct BioEditorSheet: View {
             }
         }
         .presentationDetents([.medium, .large])
+    }
+}
+
+private struct AliasChip: View {
+    let alias: String
+    let removable: Bool
+    let onRemove: () -> Void
+
+    var body: some View {
+        HStack(spacing: 4) {
+            Text(alias)
+            if removable {
+                Button(action: onRemove) {
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.borderless)
+                .accessibilityLabel("Remove \(alias)")
+            }
+        }
+        .font(.subheadline)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 5)
+        .background(.quaternary, in: Capsule())
     }
 }

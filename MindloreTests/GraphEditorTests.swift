@@ -83,7 +83,7 @@ struct GraphEditorTests {
         let entity = Entity(name: "Acme", key: "acme", kind: .other)
         harness.context.insert(entity)
 
-        editor.setKind(.organization, on: entity)
+        editor.setKind(.organization, on: entity, in: harness.context)
 
         #expect(entity.kind == .organization)
         #expect(entity.kindEditedByUser)
@@ -410,7 +410,7 @@ struct GraphRepairTests {
         let entity = try harness.entity("Dr Kim")
         #expect(entity.key == "dr kim")
 
-        editor.setKind(.person, on: entity)
+        editor.setKind(.person, on: entity, in: harness.context)
         try harness.context.save()
 
         #expect(entity.key == "kim", "an honorific only comes off a person's name")

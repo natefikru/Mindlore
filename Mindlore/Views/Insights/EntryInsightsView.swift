@@ -97,6 +97,10 @@ struct EntryInsightsView: View {
                 Text("The entry, its text, and its pages stay. You can generate insights again later.")
             }
         }
+        // On the stack, so pushed pages and their sheets see it.
+        .environment(\.entityRouteReplacer, EntityRouteReplacer { loser, winner in
+            path = EntityPagePresentation.replacing(loser, with: winner, in: path)
+        })
     }
 
     @ViewBuilder
