@@ -1088,17 +1088,306 @@ functions); `GraphSimulation` and any rendering; caching or incrementally updati
 (the existing "Recount cost" risk note, plan line 1008-1010, already covers the O(links) budget this
 reuses); showing edge weight as a number anywhere in the UI.
 
-### Phase 7: The picture
-- [ ] `Mindlore/Graph/GraphSimulation.swift`: forces, tick, alpha schedule, pin and unpin.
-- [ ] `Mindlore/Views/Graph/GraphCanvasView.swift`: `TimelineView` plus `Canvas`, gestures, labels,
-      kind colours from `EntityKind`, stop when settled. `graph.rendered` event.
-- [ ] `LocalGraphView` from the entity page (depth control); `GlobalGraphView` from Connections
-      (kind toggles, minimum count, time scrubber).
-- [ ] Tests (no `@MainActor`, the simulation is `nonisolated`): the simulation settles (alpha
-      reaches the floor, every position finite, no two nodes coincident) for 1, 2, 50, and 300
-      nodes, and 300 nodes settle within a fixed tick budget so a change to the constants is caught;
-      a pinned node does not move; the layout is deterministic for a fixed seed. The picture itself
-      is checked on the phone.
+### Phase 7: The picture (specified 2026-09-16)
+
+`EntityGraph` (Phase 6) turns links into weighted edges; nothing draws them yet. This phase adds the
+force layout and the two screens that show it: `LocalGraphView` from an entity page, `GlobalGraphView`
+from Connections. Rendering quality and frame time can only be judged on a phone (`docs/remaining-work.md`,
+Phase 8's device smoke steps); this phase's own tests cover the simulation's math, which is
+`nonisolated` and has no view or model dependency, the same way `EntityGraph`'s did.
+
+**Key decisions:**
+
+- `GraphSimulation` is a plain `nonisolated final class`, not `@Observable` (plan line 275): the
+  canvas ticks it from inside its own draw closure every frame, and an `@Observable` property write
+  there trips "modifying state during view update" the way a plain class reference never does. It
+  owns parallel arrays over `SIMD2<Double>`, one entry per node, indexed by the node's position in
+  the `nodes` array passed to `init`; a `[UUID: Int]` built once in `init` maps ids to indices for
+  every public lookup (`position(of:)`, `pin(_:at:)`, `isPinned(_:)`), the same "resolve into an
+  in-memory map once" shape `GraphServices.mentionedWith` already uses for entities rather than a
+  fetch or dictionary rebuild per call.
+  ```swift
+  nonisolated final class GraphSimulation {
+      struct Node: Sendable { let id: UUID; let kind: EntityKind; let linkCount: Int }
+
+      let alphaMin: Double = 0.001
+      let alphaDecay: Double = 1 - pow(0.001, 1.0 / 300.0)
+      let velocityDecay: Double = 0.6
+      private(set) var alpha: Double = 1.0
+
+      init(nodes: [Node], edges: [EntityGraph.Edge])   // reuses Phase 6's Edge directly; no second edge type
+      func tick()
+      var settled: Bool { alpha <= alphaMin }
+      func position(of id: UUID) -> SIMD2<Double>?
+      func radius(of id: UUID) -> Double?
+      func kind(of id: UUID) -> EntityKind?
+      func pin(_ id: UUID, at point: SIMD2<Double>)     // sticky: stays pinned until unpin
+      func unpin(_ id: UUID)
+      func isPinned(_ id: UUID) -> Bool
+      func anchor(_ id: UUID, at point: SIMD2<Double>)  // permanent pin with no unpin, for the local graph's centred subject
+  }
+  ```
+  `EntityGraph.Edge`'s existing `a`/`b`/`weight` (`EntityGraph.swift:20-43`) is passed straight through;
+  there is no second, simulation-specific edge type to keep in sync. `Node.linkCount` sets radius,
+  `Node.kind` sets colour (next bullet); a node's `id` order is the array order, and because initial
+  placement is a pure function of that order (below), two simulations built from the same `nodes`
+  array in the same order always converge identically. That is what "deterministic for a fixed seed"
+  means here: there is no random-number generator to seed, only a fixed formula over index, so
+  determinism follows from determinism of the caller's array order, which `EntityGraph.build`'s
+  grouping and `GraphServices`'s batch fetches already guarantee is stable for a stable input.
+- **Initial placement**, in `init`, before any tick: `position[i] = sqrt(Double(i) + 0.5) * 12 *
+  SIMD2(cos(Double(i) * goldenAngle), sin(Double(i) * goldenAngle))`, `goldenAngle = Double.pi * (3 -
+  sqrt(5))`, d3's own default (`forceSimulation`'s phyllotaxis spiral) chosen because it starts nodes
+  already spread apart instead of stacked at the origin, which is what "no two nodes coincident"
+  needs to hold from tick zero, not just at settle.
+- **Forces**, applied once per `tick()`, in this order, each only to a node that is neither pinned nor
+  anchored (a pinned or anchored node's velocity is zeroed and its position held at the pin point every
+  tick, before forces run, so a force computed against its old position in the same tick cannot move
+  it after the clamp; the overall tick is: clamp pinned/anchored positions, accumulate forces into
+  `velocities`, then `velocities[i] *= (1 - velocityDecay)` for everyone else (d3's actual damping
+  step: shrink the velocity itself every tick, not the distance moved, which is what makes repeated
+  ticks lose energy and settle rather than oscillate at a fixed amplitude forever), then
+  `positions[i] += velocities[i]`, then advance `alpha`):
+  1. **Many-body repulsion**: every unpinned pair (O(n^2), the plan's own call at up to 500 nodes,
+     plan line 93) pushes apart with force `strength / max(distance, 1)^2` along the vector between
+     them, `strength = -30 * alpha` (d3's default charge, scaled by alpha so it fades with everything
+     else); two nodes closer than 1 unit are treated as 1 unit apart for the force *magnitude*, but the
+     *direction* is a separate unit vector (`(dx, dy) / distance`) that a literally-zero distance turns
+     into `0/0`. Phyllotaxis placement rules this out at tick zero, but a user can drag one node's pin
+     onto another already-pinned node's exact point, after which every later tick's repulsion and
+     collision terms for that pair divide by zero and the resulting NaN poisons the whole layout (both
+     nodes are unpinned in this pair only if neither end is pinned, so a pin-onto-pin is exactly the
+     case that needs a fallback). Fix: whenever `distance == 0` exactly, use a deterministic fallback
+     direction, `angle = Double(min(i, j)) * goldenAngle` (the same phyllotaxis constant, so it needs
+     no new value), rather than leaving the vector undefined. Collision (below) needs the identical
+     fallback for the same reason.
+  2. **Link springs**: every edge pulls its two ends toward a target separation
+     `targetDistance(weight) = max(24, 70 - 30 * min(weight, 1))` (well co-occurring pairs sit closer;
+     `weight` is already 0 to 1 per Phase 6's decay, so the `min` is a defensive clamp, not an
+     expected case), force `alpha * (distance - targetDistance) * 0.3` along the edge, split evenly
+     between both ends (both get pulled unless one is pinned/anchored, in which case the unpinned end
+     takes the whole correction, the standard spring-to-a-fixed-point behaviour).
+  3. **Centre gravity**: every unpinned node is nudged toward the canvas origin by
+     `-position * 0.01 * alpha`, a weak per-node attraction rather than d3's default `forceCenter`
+     (which recentres by translating every node, pinned or not, by the same offset). A local graph
+     pins its subject node at the origin (`anchor`, above) for the whole simulation; translating
+     everyone including the anchor would drag the one point the view promises stays still, so this
+     phase uses per-node gravity instead of d3's translate-the-centroid version.
+  4. **Collision**: any unpinned pair closer than the sum of their radii (below) is pushed apart along
+     their separating vector (the same zero-distance fallback as repulsion) by half the overlap each,
+     run only between pairs already within a loose bounding check (`abs(dx) < sumRadii && abs(dy) <
+     sumRadii`) before the exact distance check, so it stays cheap at low alpha when most pairs have
+     already separated.
+  `radius(linkCount) = min(28, 6 + sqrt(Double(max(linkCount, 1))) * 4)`, used by both collision and
+  the canvas's circle size.
+- **Alpha schedule**: `alpha += (0 - alpha) * alphaDecay` at the end of every `tick()` (d3's decay
+  toward an `alphaTarget` of 0, the constant plan line 275 already committed to); `settled` becomes
+  true once `alpha <= alphaMin`, and `tick()` after that point is a no-op rather than continuing to
+  decay past the floor, so a caller that keeps calling it after settle (the canvas does, since
+  `TimelineView` still fires its content closure once more before `paused` takes effect) cannot walk
+  `alpha` negative. `alpha` reaching its floor is a tick count, not a check that the layout actually
+  stopped moving; the velocity-decay step above is what makes it also true in practice (each tick's
+  velocity is a shrinking fraction of the last), but the 7.1 tests verify that directly (below) rather
+  than trusting the schedule alone, since a future constant change (a stronger spring, a smaller
+  `velocityDecay`) could reach the alpha floor while still oscillating, freezing the canvas mid-motion
+  the moment `TimelineView` pauses.
+- **Colour**: `EntityKind.color -> Color`, added beside `symbol`/`heading`/`label`
+  (`Mindlore/Views/Insights/InsightCards.swift:19-46`, same switch-statement style as
+  `MoodCategory.color` in the same file), eight fixed, visually distinct colours (person, place,
+  organization, project, event, tag, theme, other), reused by both the canvas node fill and any kind
+  legend on `GlobalGraphView`.
+- **`graph.rendered` event**: new, `diagnostics.record("graph.rendered", ["nodes": .int(nodes.count),
+  "edges": .int(edges.count), "settleMilliseconds": .double(settleMilliseconds)])`, following the
+  existing `.int`/`.double` field style (`GraphEditor.swift:99`, `GraphIndexer.swift:131`). Logged
+  once per graph screen appearance with the counts and settle time it actually took (measured from
+  first tick to `settled`), not once per frame, so it answers "was this graph slow to settle." The
+  field is named `settleMilliseconds`, not `ms`, precisely so it cannot be misread as a per-frame
+  number: 300 nodes over roughly 300 ticks legitimately settling in well over 16 ms is the expected,
+  fine outcome, not a regression. Per-frame draw cost is a different thing this event does not
+  measure at all, and stays a manual observation on the phone in Phase 8 (a logged event per frame
+  would defeat Diagnostics' own "never a hot path" shape used everywhere else in this codebase);
+  Phase 8's checklist is worded to keep the two apart rather than quoting one threshold against the
+  other (see its "Device smoke steps" entry, corrected below).
+- **Data preparation is `GraphServices`'s job, not the views'**: `EntityGraph` and `GraphSimulation`
+  take plain values and touch no model type, so something still has to fetch, resolve merges and
+  hidden entities, and hand over `[GraphSimulation.Node]` and `[EntityGraph.Edge]`, exactly the role
+  `mentionedWith` already plays for the "Mentioned with" section (`GraphServices.swift:243-285`). Two
+  new read-only methods beside it, same shape, no `revision` bump, no diagnostics (matching
+  `chipIndex`/`unsureLinks`/`mentionedWith` being unlogged reads):
+  - `localGraph(around id: UUID, depth: Int, in context: ModelContext) -> GraphData`: builds the same
+    resolved `[EntityGraph.LinkInput]` `mentionedWith` builds (one `Entity` fetch, one
+    `indexer.allLinks(in:)` fetch, one `Entry` fetch for dates, merges/hidden resolved through the
+    same in-memory `root(of:)`/`isBrowsable` walk), calls `EntityGraph.build(links:)`, then
+    `EntityGraph.neighbourhood(of: id, in: edges, depth: depth)` to get the node set, filters `edges`
+    to pairs both inside that set or equal to `id` (the exact filter Phase 6's spec already named as
+    the local graph's job, plan line 1005-1006), and returns `GraphData(nodes: [GraphSimulation.Node],
+    edges: [EntityGraph.Edge])` built from that filtered set (a node missing from the live `Entity`
+    map, pruned since `edges` was built, is dropped the same way `mentionedWith` drops a vanished id).
+    An id with zero neighbours returns a single-node, zero-edge `GraphData` rather than an error, so
+    the view can still show the lone subject.
+  - `globalGraph(asOf: Date, kinds: Set<EntityKind>?, minimumLinkCount: Int, in context: ModelContext)
+    -> GraphData`: the same resolved link build, `EntityGraph.build(links:, asOf: asOf)`, then
+    `EntityGraph.filtered(edges:nodes:kinds:minimumLinkCount:)` with a `nodes` map built from the same
+    `Entity` fetch already in hand (`isBrowsable` entities only), and a final node list trimmed to
+    exactly the ids the filtered edges touch plus every browsable entity meeting **both**
+    `minimumLinkCount` **and** `kinds` on its own (an isolated node above the threshold with no
+    surviving edge, e.g. the min-count default of 2 with no co-occurring partner, still shows as a
+    dot; this is intentional, since "hairball avoidance" (plan line 74-75, 268-269) is about edges and
+    clutter, not about hiding an entity the user asked to see). The kind check on this standalone
+    clause is not redundant with `filtered`'s own kind check: `filtered` only constrains edges, so
+    without it here, toggling off a kind would still leave that kind's edgeless nodes on screen,
+    which is exactly what the toggle promises to hide.
+  - Both share their `Entity`/link/date fetch through one private helper (`resolvedLinks(in:)`) so the
+    fetch-once discipline `mentionedWith` already follows isn't duplicated a third time; `mentionedWith`
+    itself is left as its own method rather than folded in, since its extra "touching id, sorted,
+    capped" step is a different shape from either graph method's output.
+- **Navigation and presentation**:
+  - `LocalGraphView` is a sheet from the entity page, not a stack push: `EntityRoute` carries no depth
+    parameter (research confirmed no field exists for one, and adding one would force every existing
+    `EntityRoute` call site to pass a default), and a depth control is per-screen UI state, not
+    identity a route should encode. `EntityView`'s `actionsSection` (`EntityView.swift:273`) gains a
+    "Graph" button opening `.sheet(item:)` with a small `LocalGraphRoute { let id: UUID }` (mirroring
+    how `EntryPreview` is already presented from `EntityView`, Phase 5b.4), so the sheet is keyed by
+    id and rebuilding the simulation for a different entity does not reuse stale state. Inside the
+    sheet: a `Picker` or two-button toggle for depth 1 or 2 (default 1, matching the plan's "depth 1
+    (neighbours) or 2", plan line 266), rebuilding `GraphSimulation` when depth changes (a full
+    re-init, not a live re-force, since the node set itself changes). Tapping a node inside the sheet
+    opens that entity's page: the sheet gets its own `NavigationStack` and `@State private var path:
+    [EntityRoute]`, exactly `ConnectionsView`/`EntryInsightsView`'s existing pattern
+    (`ConnectionsView.swift:120`, both owning their own stack rather than sharing the presenting
+    screen's), so pushing from inside the graph sheet cannot corrupt the entity page's own stack. This
+    sheet's stack must also set `.environment(\.entityRouteReplacer, ...)` the same way
+    `ConnectionsView.swift:151` does: without it, `EntityView` inside the sheet falls back to the
+    default no-op replacer, and merging an entity from inside the local-graph sheet leaves a stale id
+    on the sheet's own `path`, the exact bug Phase 5a's replacer exists to prevent on the main stack.
+    `GlobalGraphView`, by contrast, is pushed into `ConnectionsView`'s existing stack (next bullet) and
+    inherits its replacer for free; only the sheet-owned stack needs one installed by hand.
+  - `GlobalGraphView` is pushed from `ConnectionsView`, a third toolbar item beside Filter and Sort
+    (`ConnectionsView.swift:128-150`), `NavigationLink(value: GlobalGraphRoute())` or a plain
+    `.sheet`-free push since `ConnectionsView` already owns a `NavigationStack` (`ConnectionsView.swift`
+    line 120) that `GlobalGraphView` can register into with its own `.navigationDestination`, so
+    tapping a node there pushes `EntityRoute` onto the same path Connections rows already use, instead
+    of opening a second stack. Controls: a kind-toggle row (`Set<EntityKind>`, every kind on by
+    default, a distinct control from `ConnectionsView`'s own single-select `EntityKind?` filter
+    Picker at line 130-135, since the global graph needs several kinds visible at once, not one), a
+    minimum-count `Stepper` or `Slider` (default 2, plan line 268), and a date `Slider` or
+    `DatePicker` for the time scrubber, bound to `asOf`, defaulting to `.now`. Every control change
+    calls `globalGraph` again and rebuilds the simulation (the same full re-init as depth changing in
+    the local view; nothing in this phase updates a running simulation's node/edge set in place).
+  - Both views build their `GraphSimulation` once per `GraphData` via `@State private var simulation:
+    GraphSimulation?`, replaced (not mutated) whenever the underlying `GraphData` changes, and read
+    `GraphServices` from the environment (`@Environment(GraphServices.self)`) the same way
+    `EntityView`/`ConnectionsView` already do (`RootView.swift:94` is where it enters the environment;
+    no new injection point needed).
+- **`GraphCanvasView`**, the shared drawing surface both screens embed, takes a `GraphSimulation` and a
+  `namer: (UUID) -> String?` closure (so it never touches `Entity` or the model layer itself, staying
+  as free of SwiftData as `EntityChipIndex`'s consumers already are):
+  - `TimelineView(.animation(paused: simulation.settled))`, `Canvas { context, size in
+    simulation.tick(); draw links as one Path; draw nodes as circles filled by
+    EntityKind.color(for:); resolveSymbol for the labelled subset } symbols: { ForEach(labelledIDs) {
+    Text(namer($0) ?? "") .tag($0) } }`, following the plan's own note that `Text` has no once-only
+    resolution and symbols are the supported path (plan line 279).
+  - **Labelled subset**: the largest nodes by `linkCount` (a fixed count, 12, chosen so a 300-node
+    global graph still reads per the plan's own "so 300 nodes stay readable," plan line 271) plus
+    whichever node is currently selected (below). Recomputed only when `simulation`'s node set
+    changes, not every frame, since it depends on static `linkCount`, not position.
+  - **Gestures**: a `DragGesture` that hit-tests its start location (converted through the view's pan
+    and zoom, `@State private var pan: CGSize = .zero`, `@State private var zoom: CGFloat = 1`)
+    against every node's `position(of:)` and `radius(of:)`; a hit turns the rest of the drag into
+    `simulation.pin(hitID, at: convertedPoint)` each update, leaving the node pinned (sticky) after
+    release; a miss pans the canvas instead. A `MagnificationGesture` scales `zoom` about the pinch
+    centre. **Tap** (a `SpatialTapGesture`, since it needs the tap location, which a plain `.onTapGesture`
+    on the whole canvas does not give) hit-tests the same way: a first tap on a node **selects** it
+    (added to the labelled subset, a highlight ring drawn around it and its direct neighbours via
+    `neighbourhood(of:depth:1)` against the already-known edges); a second tap on the **same,
+    already-selected** node navigates to its entity page. A tap on empty canvas clears the selection.
+    *This reads "Tap opens the entity page" and "Labels draw for the largest nodes and on tap" (plan
+    line 266-271) as two effects of the same gesture rather than a contradiction (an immediate,
+    unconditional navigation on first tap would make the "and on tap" labelling clause pointless,
+    since the screen would already be gone); flagged for plan review as the one place this spec makes
+    a call the source plan text left ambiguous, in case the owner meant a single, immediate tap-to-open
+    instead.* Unpinning a pinned (not anchored) node is a **long-press**, `.onLongPressGesture` at the
+    hit-tested location, not a second, separate double-tap recognizer: the plan review caught that a
+    real `TapGesture(count: 2)` on the same view as the single-tap select/navigate state machine above
+    is ambiguous to compose (SwiftUI has no built-in priority between "two independent single taps in
+    sequence, tracked as view state" and "a genuine double-tap gesture," and nothing in this spec says
+    which wins), and a long-press has no such collision with tap counting.
+  - A local graph's subject node is drawn distinctly (a ring, or its label always shown regardless of
+    the labelled-subset rule) and is `anchor`ed, never `pin`ned, so it never responds to drag and the
+    long-press-unpins rule does not apply to it.
+
+**Steps**, each committed and pushed on its own with the unit suite green (7.3-7.5 have no automated
+test beyond compiling and the existing suite staying green; their behaviour is judged on the phone,
+Phase 8):
+
+- [ ] 7.1 `Mindlore/Graph/GraphSimulation.swift`: `Node`, the constants, `init`, `tick`, `settled`,
+      the lookup accessors, `pin`/`unpin`/`isPinned`/`anchor`, the four forces, the phyllotaxis
+      initial placement.
+      Test file `GraphSimulationTests.swift`, styled like `EntityGraphTests.swift` (plain `struct`, no
+      `@MainActor`, no `ModelContainer`, hand-built `Node`/`Edge` fixtures):
+      - Zero, 1, 2, 50, and 300 nodes each settle (`alpha` reaches `alphaMin`) within a fixed tick
+        budget (2,000 ticks is generous headroom over d3's own ~300-tick target at these constants;
+        the budget exists so a future constant change that stops convergence fails a test instead of
+        hanging a device).
+      - Every node's position is finite (`.isFinite` on both components) at every check, not only at
+        settle, since a divide-by-zero in repulsion or collision would show up mid-simulation first.
+      - No two nodes are ever coincident (within a small epsilon) once ticking has started, given the
+        phyllotaxis start keeps them apart from tick zero.
+      - **Pinning two nodes to the exact same point** (`pin(a, at: p); pin(b, at: p)`) and ticking does
+        not produce a NaN or infinite position on either pinned node or on any other node whose force
+        depends on that pair's now-zero separation, exercising the zero-distance fallback direction
+        directly rather than hoping phyllotaxis placement makes the case unreachable.
+      - **Actual convergence, not just the alpha countdown**: at 50 and 300 nodes, the position delta
+        between the last two ticks before `settled` becomes true is small (below a fixed epsilon well
+        under one node radius), so a future constant change that reaches the alpha floor while still
+        oscillating fails this test even though the "settles within budget" test above would still
+        pass.
+      - A pinned node's position after `tick()` equals the pin point exactly, across repeated ticks
+        and regardless of edges pulling on it; an anchored node behaves the same and additionally
+        ignores `unpin` (there is nothing to unpin).
+      - Two simulations built from the same `nodes`/`edges` arrays in the same order and ticked the
+        same number of times produce identical positions (the "deterministic" property, verified
+        directly rather than inferred).
+      - A single edge between two nodes settles them near `targetDistance(weight:)` apart, at a few
+        sample weights (0, 0.5, 1), the way `EntityGraphTests` checks decay values at named half-lives.
+      - `EntityKind.color` returns eight distinct, defined colours (`ColorTests`-style equality check
+        against `Color`'s own `Equatable` conformance, or a resolved-component comparison if `Color`
+        equality proves unreliable across colour spaces).
+- [ ] 7.2 `GraphServices.resolvedLinks(in:)`, `localGraph(around:depth:in:)`, `globalGraph(asOf:kinds:minimumLinkCount:in:)`,
+      `GraphData`; `EntityKind.color` (if not folded into 7.1's file); the `graph.rendered` event
+      shape (recorded once wiring exists in 7.4/7.5, defined here so both views call the same helper).
+      Test (`GraphServicesTests`, the existing SwiftData harness): `localGraph` at depth 1 includes
+      only direct co-mentions and at depth 2 includes their partners too, matching a hand-built
+      expectation; a subject with no co-occurrence returns one node, zero edges; a hidden or
+      merged-away entity never appears as a node; `globalGraph` respects `kinds`, `minimumLinkCount`,
+      and `asOf` (an entry dated after `asOf` contributes neither its edges nor, if that was its only
+      qualifying link, its node); an entity above `minimumLinkCount` with no surviving edge still
+      appears as a node; **an entity above `minimumLinkCount` with no surviving edge, whose kind is
+      excluded from `kinds`, does not appear as a node** (the standalone-node clause's own kind check,
+      not just `filtered`'s edge-level one).
+- [ ] 7.3 `Mindlore/Views/Graph/GraphCanvasView.swift`: `TimelineView` + `Canvas`, the pan/zoom state,
+      drag/magnify/tap gestures, the labelled subset, the selection ring, `EntityKind.color` fill,
+      subject anchoring support (a flag or parameter for "this id is anchored, draw it distinctly").
+      No unit test; confirms it compiles and the existing suite stays green.
+- [ ] 7.4 `LocalGraphView`, `LocalGraphRoute`, the entity page's "Graph" button and `.sheet(item:)`,
+      the sheet's own `NavigationStack` with its own `entityRouteReplacer` installed (so a merge made
+      from inside the sheet redirects that stack's own `path`, matching what `ConnectionsView.swift:151`
+      already does for the main stack), the depth toggle. `graph.rendered` logged once per sheet
+      appearance and once per depth change.
+- [ ] 7.5 `GlobalGraphView`, the Connections toolbar button, kind-toggle row, minimum-count control,
+      time scrubber, pushed onto `ConnectionsView`'s existing stack. `graph.rendered` logged once per
+      appearance and once per control change that rebuilds the simulation.
+- [ ] 7.6 Sub-agent review of the whole phase; fix what it finds.
+
+**Not in scope, this phase:** incremental/live updates to a running simulation when the underlying
+graph changes mid-view (a control change or navigating back and re-opening always rebuilds fresh);
+Barnes-Hut or any repulsion approximation (the plan's own O(n^2)-is-fine call, plan line 93, stands
+until a real journal proves otherwise, tracked under "Risks"); saved layouts, hierarchical layouts, or
+clustering metrics (already excluded under "Not in scope" at the plan level); per-frame draw-time
+logging (the smoke step in Phase 8 observes this on the phone; `graph.rendered` logs settle time and
+counts only); any UI test (Canvas/gesture interaction is not meaningfully assertable through
+accessibility identifiers the way a `Form` row is, and the picture's correctness is a device
+judgement per Phase 8, not a Phase 7 one).
 
 ### Phase 8: Privacy, review, device, docs
 - [ ] `DiagnosticsPrivacyTests`: sentinel as entity name, alias, bio, surface text, during merge and
@@ -1107,7 +1396,9 @@ reuses); showing edge weight as a number anywhere in the UI.
 - [ ] Device smoke steps in `tasks/smoke-test.md`: upgrade over real entries and watch the sweep
       index them (`graph.sweep` counts match); a new voice entry links to an existing person; merge
       two entities and relaunch; hide a tag; the global graph with the owner's real journal stays
-      responsive (`graph.rendered` under 16 ms per frame at settle); the time scrubber.
+      responsive (per-frame draw stays smooth by eye at 300 nodes; `graph.rendered`'s
+      `settleMilliseconds` is a separate figure, how long the layout took to stop moving, not a
+      per-frame budget, and is only recorded for reference); the time scrubber.
 - [ ] `CLAUDE.md`: Graph section (models, resolution rules, indexer hooks, how views query from the
       link side). `docs/remaining-work.md`: next projects updated.
 - [ ] PR description; mark ready.
