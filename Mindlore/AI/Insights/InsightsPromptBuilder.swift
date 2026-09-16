@@ -226,16 +226,17 @@ nonisolated enum InsightsPromptBuilder {
     //
     // If the whole name is in the entry, it stays. If only its first words are, the entry's own
     // spelling of those words is used. If none of it is, the model fixed a garbled name ("sara
-    // kym" to "Sarah Kim"), and that is kept, which is what the journal's names are sent for.
-    static func grounded(_ name: String, in text: String) -> String {
+    // kym" to "Sarah Kim"), and that is kept, which is what the journal's names are sent for;
+    // `wasCorrected` tells the caller that happened, so it can look for what was actually written.
+    static func grounded(_ name: String, in text: String) -> (surface: String, wasCorrected: Bool) {
         let words = name.split(separator: " ").map(String.init)
         for count in stride(from: words.count, through: 1, by: -1) {
             let phrase = words.prefix(count).joined(separator: " ")
             if let range = NameMatching.range(of: phrase, in: text) {
-                return String(text[range])
+                return (String(text[range]), false)
             }
         }
-        return name
+        return (name, true)
     }
 
     static func parse(_ text: String, plan: InsightsRequestPlan, calendar: Calendar = .current) throws -> InsightsResult {
@@ -269,8 +270,10 @@ nonisolated enum InsightsPromptBuilder {
         for item in (json["mentions"] as? [[String: Any]]) ?? [] {
             guard let written = (item["name"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines), !written.isEmpty,
                   let kind = (item["kind"] as? String).flatMap(MentionKind.init(rawValue:)) else { continue }
-            let name = grounded(written, in: plan.request.user)
-            let mention = Mention(name: name, kindRaw: kind.rawValue)
+            let grounding = grounded(written, in: plan.request.user)
+            let name = grounding.surface
+            let writtenSurface = grounding.wasCorrected ? NameMatching.nearestWord(to: name, in: plan.request.user) : nil
+            let mention = Mention(name: name, kindRaw: kind.rawValue, writtenSurface: writtenSurface)
             if !mentions.contains(where: { $0.name.caseInsensitiveCompare(name) == .orderedSame && $0.kindRaw == mention.kindRaw }) {
                 mentions.append(mention)
             }

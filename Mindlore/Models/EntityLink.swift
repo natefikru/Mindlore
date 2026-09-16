@@ -18,6 +18,10 @@ final class EntityLink {
     var entryID: UUID?
     // The value exactly as the AI wrote it, so the entity page can show what was said.
     var surface: String = ""
+    // What the entry itself said, only when the AI corrected a name grounding couldn't find
+    // verbatim; nil means `surface` already is the entry's own wording. Excerpts and entry rows
+    // search this first, so a corrected "Luis" still finds the sentence that says "Lewis".
+    var writtenSurface: String?
     var kindRaw: String = EntityKind.other.rawValue
     var sourceRaw: String = EntityLinkSource.ai.rawValue
     // Linked by the first-name rule rather than an exact match, so the UI can mark it a guess.

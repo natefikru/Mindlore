@@ -420,7 +420,7 @@ private struct EntityPage: View {
                 date: entry.entryDate,
                 title: entry.title,
                 text: entry.text,
-                surfaces: links.map(\.surface),
+                surfaces: links.map { $0.writtenSurface ?? $0.surface },
                 guessed: links.first(where: \.inferred).map {
                     MentionRef(entryID: entry.id, surface: $0.surface, kind: $0.kind)
                 }

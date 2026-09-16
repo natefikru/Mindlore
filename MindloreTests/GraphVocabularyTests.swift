@@ -278,7 +278,18 @@ struct GroundedMentionTests {
         ("C++ Guild", "joined the c++ guild", "c++ guild"),
     ])
     func namesAreGroundedInTheEntry(_ name: String, _ text: String, _ expected: String) {
-        #expect(InsightsPromptBuilder.grounded(name, in: text) == expected)
+        #expect(InsightsPromptBuilder.grounded(name, in: text).surface == expected)
+    }
+
+    @Test func wasCorrectedIsTrueOnlyOnTheNoMatchFallback() {
+        #expect(InsightsPromptBuilder.grounded("Sarah Kim", in: "lunch with Sarah Kim today").wasCorrected == false)
+        #expect(InsightsPromptBuilder.grounded("Sarah Kim", in: "had lunch with sarah today").wasCorrected == false)
+        #expect(InsightsPromptBuilder.grounded("Sarah Kim", in: "met sara kym this morning").wasCorrected == true)
+    }
+
+    @Test func nearestWordFindsWhatTheEntryActuallyWrote() {
+        #expect(NameMatching.nearestWord(to: "Luis", in: "dinner with Lewis last night") == "Lewis")
+        #expect(NameMatching.nearestWord(to: "Sarah Kim", in: "a totally unrelated sentence") == nil)
     }
 
     @Test func parsingGroundsEveryMention() throws {

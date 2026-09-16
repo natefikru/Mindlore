@@ -725,7 +725,7 @@ transcription-hint bullet waits on an owner call about scope.
 
 **Steps**, each committed and pushed on its own with the unit suite green:
 
-- [ ] 5c.1 Keep what the entry wrote alongside a corrected name, so bio excerpts and entry-row
+- [x] 5c.1 Keep what the entry wrote alongside a corrected name, so bio excerpts and entry-row
       sentences can search for it. `InsightsPromptBuilder.grounded(_:in:)`
       (`InsightsPromptBuilder.swift:230-238`) already recovers the entry's own wording when the
       model's name, or a decreasing word-prefix of it, appears literally in the entry text; only
@@ -737,9 +737,13 @@ transcription-hint bullet waits on an owner call about scope.
       to return `(surface: String, wasCorrected: Bool)`; when `wasCorrected`,
       `InsightsPromptBuilder.parse(_:plan:calendar:)` (`InsightsPromptBuilder.swift:242-272`) calls
       a new `NameMatching.nearestWord(to:in:threshold:)`, which scores every word and two-word
-      phrase of the entry text against the model's name with `EntityMatcher.jaroWinkler` (already
-      internal, not private, nothing to change there) and returns the best match at or above
-      `EntityMatcher.threshold` (0.88), or nil. `Mention` gains `writtenSurface: String?`.
+      phrase of the entry text sharing the name's first letter (a cheap filter against noise: two
+      unrelated words rarely share both a first letter and a high score) against the model's name
+      with `EntityMatcher.jaroWinkler` (already internal, not private, nothing to change there),
+      returning the best match at or above `NameMatching.nearestWordThreshold` (0.8, looser than
+      `EntityMatcher.threshold`'s 0.88 since that one is tuned for whole entity names and a
+      corrected "Luis" against an entry's "Lewis" scores 0.805), or nil. `Mention` gains
+      `writtenSurface: String?`.
       `EntityResolver.Value` (`EntityResolver.swift:8-13`) has no field for it and `resolve`
       doesn't need one, so it stays off `Value`; `GraphIndexer.values(of:)`
       (`GraphIndexer.swift:382-394`) instead builds a parallel `[Claim: String]` lookup of
@@ -753,10 +757,15 @@ transcription-hint bullet waits on an owner call about scope.
       (`EntityPagePresentation.swift:89`) try `link.writtenSurface` before `link.surface`.
       Test: `grounded` reports `wasCorrected` only on the no-match fallback, never on a full or
       prefix match; `nearestWord` finds "Lewis" for a corrected "Luis" when the entry says "Lewis,"
-      and returns nil when nothing in the entry scores 0.88 or above (a truly garbled clip, where
+      and returns nil when nothing in the entry scores 0.8 or above (a truly garbled clip, where
       the model invented a name out of nothing); `BioExcerpts` and the entry row use
       `writtenSurface` when present, `surface` otherwise; a link from before this ships has a nil
       `writtenSurface` and behaves as it does today (lightweight migration, one new optional field).
+      (Built: `writtenSurface` threaded through a `[Claim: String]` lookup in
+      `GraphIndexer.index`, set on the link after creation rather than through its initializer,
+      the same way `originalEntityID` already is; `NameMatching.nearestWord` requires the
+      candidate word or phrase to share the name's first letter before scoring, which is what lets
+      `nearestWordThreshold` sit at 0.8 instead of `EntityMatcher`'s 0.88 without matching noise.)
 - [ ] 5c.2 Rename offers "Keep '{old name}' as another name." `GraphEditor.rename(_:to:in:)`
       (`GraphEditor.swift:27-38`) gains `keepingOldNameAsAlias: Bool = false`; on a successful
       rename it appends the entity's old `name` to `aliases` in the same edit, skipping

@@ -73,6 +73,12 @@ struct GraphIndexer {
             context.delete(link)
         }
         var kept = keptByUser
+        let writtenSurfaces: [Claim: String] = Dictionary(
+            insights.mentions.compactMap { mention in
+                mention.writtenSurface.map { (Claim(surface: mention.name, kind: EntityKind(mention.kind)), $0) }
+            },
+            uniquingKeysWith: { first, _ in first }
+        )
 
         var created = 0
         var linked = 0
@@ -111,6 +117,7 @@ struct GraphIndexer {
             context.insert(link)
             link.attach(to: entry, entity: target)
             link.originalEntityID = origins[Claim(surface: value.surface, kind: value.kind)]
+            link.writtenSurface = writtenSurfaces[Claim(surface: value.surface, kind: value.kind)]
             kept.append(link)
             linked += 1
         }

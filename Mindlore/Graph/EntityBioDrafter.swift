@@ -38,7 +38,7 @@ struct EntityBioDrafter {
     func excerpts(for entityID: UUID, in context: ModelContext) -> BioExcerpts.Selection {
         let links = ((try? context.fetch(FetchDescriptor<EntityLink>())) ?? [])
             .filter { $0.entityID == entityID && !$0.isDeleted }
-        let surfaces = Dictionary(grouping: links.compactMap { link in link.entryID.map { ($0, link.surface) } }, by: \.0)
+        let surfaces = Dictionary(grouping: links.compactMap { link in link.entryID.map { ($0, link.writtenSurface ?? link.surface) } }, by: \.0)
             .mapValues { $0.map(\.1) }
         guard !surfaces.isEmpty else { return BioExcerpts.Selection() }
         let ids = Set(surfaces.keys)
