@@ -24,13 +24,11 @@ struct PageOrderView: View {
     @State private var removalIndex: Int?
     @State private var confirmingRestart = false
     @State private var previewingPage: Int?
-    private let startWithCamera: Bool
     private let onConfirmed: (Entry) -> Void
 
-    init(entry: Entry?, startWithCamera: Bool, onConfirmed: @escaping (Entry) -> Void) {
+    init(entry: Entry?, onConfirmed: @escaping (Entry) -> Void) {
         _entry = State(initialValue: entry)
         _draft = State(initialValue: entry.flatMap { $0.pagesConfirmed ? PageDraftItem.draft(from: $0) : nil })
-        self.startWithCamera = startWithCamera
         self.onConfirmed = onConfirmed
     }
 
@@ -62,6 +60,8 @@ struct PageOrderView: View {
     }
 
     private var remainingRoom: Int { Entry.maxPages - rows.count }
+    private var canScan: Bool { FakePages.isEnabled || DocumentCameraView.isSupported }
+    private var canAdd: Bool { !processing && remainingRoom > 0 }
     private var aiUsable: Bool { AIServices.pagesUsable(settings: settings, accounts: accounts) }
 
     var body: some View {
@@ -95,7 +95,7 @@ struct PageOrderView: View {
             .environment(\.editMode, .constant(.active))
             .overlay {
                 if rows.isEmpty && !processing {
-                    ContentUnavailableView("No pages yet", systemImage: "doc.viewfinder", description: Text("Scan pages with the camera or add photos of your journal."))
+                    emptyState
                 }
                 if processing {
                     ProgressView("Adding pages…")
@@ -111,10 +111,15 @@ struct PageOrderView: View {
                         .accessibilityIdentifier("pageOrderCloseButton")
                 }
                 ToolbarItemGroup(placement: .bottomBar) {
-                    Button("Scan", systemImage: "doc.viewfinder") { scan() }
-                        .disabled(processing || remainingRoom <= 0)
-                        .accessibilityIdentifier("scanPagesButton")
-                    addFromPhotosButton
+                    // With no pages yet, the empty state carries these as large buttons instead.
+                    if !rows.isEmpty {
+                        if canScan {
+                            Button("Take Photos", systemImage: "camera") { scan() }
+                                .disabled(!canAdd)
+                                .accessibilityIdentifier("scanPagesButton")
+                        }
+                        addFromPhotosButton(wide: false)
+                    }
                     Spacer()
                     Button(aiUsable ? "Transcribe \(rows.count) \(rows.count == 1 ? "page" : "pages")" : "Save pages") { confirm() }
                         .fontWeight(.semibold)
@@ -160,28 +165,55 @@ struct PageOrderView: View {
             }
         }
         .onAppear {
+            // A new entry waits for the user to pick camera or library, rather than opening the camera.
             if let entry {
                 presence.open(entry.id)
-            } else if startWithCamera {
-                scan()
             }
         }
         .interactiveDismissDisabled()
     }
 
-    @ViewBuilder
-    private var addFromPhotosButton: some View {
-        if FakePages.isEnabled {
-            Button("Photos", systemImage: "photo.on.rectangle") {
-                add(FakePages.make(count: 2, startingWidth: 2_000 + rows.count * 100), origin: .library)
+    private var emptyState: some View {
+        ContentUnavailableView {
+            Label("No pages yet", systemImage: "camera")
+        } description: {
+            Text("Take photos of your journal pages, or choose ones you already have.")
+        } actions: {
+            VStack(spacing: 12) {
+                if canScan {
+                    Button { scan() } label: {
+                        Label("Take Photos", systemImage: "camera")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(!canAdd)
+                    .accessibilityIdentifier("scanPagesButton")
+                }
+                addFromPhotosButton(wide: true)
+                    .buttonStyle(.bordered)
             }
-            .disabled(processing || remainingRoom <= 0)
+            .controlSize(.large)
+            .frame(maxWidth: 320)
+        }
+    }
+
+    @ViewBuilder
+    private func addFromPhotosButton(wide: Bool) -> some View {
+        let label = Label(wide ? "Choose Photos" : "Photos", systemImage: "photo.on.rectangle")
+            .frame(maxWidth: wide ? .infinity : nil)
+        if FakePages.isEnabled {
+            Button {
+                add(FakePages.make(count: 2, startingWidth: 2_000 + rows.count * 100), origin: .library)
+            } label: {
+                label
+            }
+            .disabled(!canAdd)
             .accessibilityIdentifier("addFromPhotosButton")
         } else {
             PhotosPicker(selection: $pickerItems, maxSelectionCount: max(1, remainingRoom), selectionBehavior: .ordered, matching: .images) {
-                Label("Photos", systemImage: "photo.on.rectangle")
+                label
             }
-            .disabled(processing || remainingRoom <= 0)
+            .disabled(!canAdd)
             .accessibilityIdentifier("addFromPhotosButton")
         }
     }

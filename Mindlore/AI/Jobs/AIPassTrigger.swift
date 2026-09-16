@@ -44,6 +44,13 @@ final class AIPassTrigger {
         return entry.source != .photo || entry.pagesConfirmed
     }
 
+    // Whether the editor offers Done: a draft waiting to be finished, or an entry whose text is ready
+    // but hasn't had its automatic pass, like a recording just made. Done starts the pass right away
+    // instead of when the entry closes.
+    static func offersDone(_ entry: Entry, automationStartedAt: Date?) -> Bool {
+        entry.isDraft || isEligible(entry, automationStartedAt: automationStartedAt)
+    }
+
     // Returns true if the pass fired. The caller saves.
     @discardableResult
     func fire(for entry: Entry, at moment: Moment) -> Bool {

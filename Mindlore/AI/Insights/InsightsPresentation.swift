@@ -59,6 +59,13 @@ nonisolated enum InsightsPresentation {
         }
     }
 
+    // Opening insights from an entry starts its first run, rather than showing an empty sheet with a
+    // button to press. Only then: running again spends again, and a failure should be read before
+    // it's retried.
+    static func runsWhenOpened(_ inputs: Inputs) -> Bool {
+        inputs.hasText && state(inputs) == .none
+    }
+
     // Asked before spending again on an entry whose insights already match its text.
     static func confirmsBeforeRunning(_ state: State) -> Bool {
         state == .current || state == .empty

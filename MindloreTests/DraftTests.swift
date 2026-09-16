@@ -39,6 +39,44 @@ struct DraftTests {
         #expect(!pass.fire(for: entry, at: .editorClosed))
     }
 
+    // A recording opens straight into the editor with its text, so Done is offered there as it is
+    // on a typed draft, and it starts the same pass. Once used, Done goes away.
+    @Test func aRecordingOffersDoneUntilItsPassIsUsed() throws {
+        let container = try ModelContainerFactory.make(.inMemory)
+        let started = Date(timeIntervalSince1970: 1_000)
+        let voice = Entry(createdAt: Date(timeIntervalSince1970: 5_000), source: .voice, awaitingText: true, audioData: Data([1]))
+        container.mainContext.insert(voice)
+        let pass = trigger()
+
+        // Not while its text is still coming.
+        #expect(!AIPassTrigger.offersDone(voice, automationStartedAt: started))
+
+        voice.applyGeneratedText("spoken words")
+        #expect(AIPassTrigger.offersDone(voice, automationStartedAt: started))
+        #expect(pass.fire(for: voice, at: .finished))
+        #expect(voice.titlePending && voice.insightsPending)
+        #expect(!AIPassTrigger.offersDone(voice, automationStartedAt: started))
+    }
+
+    @Test func doneIsOfferedOnDraftsButNotOnEntriesThatCantRunYet() throws {
+        let container = try ModelContainerFactory.make(.inMemory)
+        let started = Date(timeIntervalSince1970: 1_000)
+        #expect(AIPassTrigger.offersDone(draft("half written", in: container.mainContext), automationStartedAt: started))
+
+        // From before automatic AI existed on this phone: no pass, so no Done.
+        let old = Entry(createdAt: Date(timeIntervalSince1970: 10), source: .voice, text: "old words")
+        #expect(!AIPassTrigger.offersDone(old, automationStartedAt: started))
+
+        // A photo entry waits for its text to be approved, which has its own button.
+        let pages = Entry(createdAt: Date(timeIntervalSince1970: 5_000), source: .photo, text: "page text")
+        pages.pagesConfirmed = true
+        pages.textReviewPending = true
+        #expect(!AIPassTrigger.offersDone(pages, automationStartedAt: started))
+
+        let silent = Entry(createdAt: Date(timeIntervalSince1970: 5_000), source: .voice, text: "   ")
+        #expect(!AIPassTrigger.offersDone(silent, automationStartedAt: started))
+    }
+
     @Test func typingOverAPendingRecordingMakesADraft() {
         let voice = Entry(createdAt: Date(timeIntervalSince1970: 5_000), source: .voice, awaitingText: true, audioData: Data([1]))
         voice.text = "typed instead"

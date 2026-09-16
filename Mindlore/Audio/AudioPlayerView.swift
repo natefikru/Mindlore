@@ -8,31 +8,72 @@ struct AudioPlayerView: View {
     @State private var player: AVAudioPlayer?
     @State private var isPlaying = false
     @State private var failed = false
+    @State private var position: TimeInterval = 0
+    // While the scrubber is held, the playhead follows the finger rather than the player.
+    @State private var scrubbing = false
+
+    private var length: TimeInterval {
+        player?.duration ?? duration ?? 0
+    }
 
     var body: some View {
-        HStack(spacing: 12) {
-            Button(action: toggle) {
-                Image(systemName: isPlaying ? "pause.circle.fill" : "play.circle.fill")
-                    .font(.system(size: 34))
-            }
-            .accessibilityLabel(isPlaying ? "Pause recording" : "Play recording")
-            .disabled(failed)
+        VStack(spacing: 8) {
+            HStack(spacing: 16) {
+                Button { skip(by: -PlaybackPosition.skipSeconds) } label: {
+                    Image(systemName: "gobackward.10")
+                        .font(.title3)
+                }
+                .accessibilityLabel("Back 10 seconds")
+                .accessibilityIdentifier("skipBackButton")
 
-            VStack(alignment: .leading, spacing: 2) {
-                Text("Recording")
-                    .font(.subheadline.weight(.medium))
-                Text(failed ? "This recording can't be played." : durationText)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                Button(action: toggle) {
+                    Image(systemName: isPlaying ? "pause.circle.fill" : "play.circle.fill")
+                        .font(.system(size: 34))
+                }
+                .accessibilityLabel(isPlaying ? "Pause recording" : "Play recording")
+
+                Button { skip(by: PlaybackPosition.skipSeconds) } label: {
+                    Image(systemName: "goforward.10")
+                        .font(.title3)
+                }
+                .accessibilityLabel("Forward 10 seconds")
+                .accessibilityIdentifier("skipForwardButton")
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Recording")
+                        .font(.subheadline.weight(.medium))
+                    Text(failed ? "This recording can't be played." : timeText)
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
             }
-            Spacer()
+            .buttonStyle(.borderless)
+
+            if !failed, length > 0 {
+                Slider(value: $position, in: 0...length) { editing in
+                    scrubbing = editing
+                    if !editing { seek(to: position) }
+                }
+                .accessibilityLabel("Playback position")
+                .accessibilityValue(PlaybackPosition.label(position))
+                .accessibilityIdentifier("playbackScrubber")
+            }
         }
+        .disabled(failed)
         .padding(12)
         .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 12))
+        .task { loadPlayer() }
         .task(id: isPlaying) {
             while isPlaying, !Task.isCancelled {
-                try? await Task.sleep(for: .milliseconds(200))
-                if player?.isPlaying != true { isPlaying = false }
+                try? await Task.sleep(for: .milliseconds(100))
+                guard let player else { break }
+                if !scrubbing { position = player.currentTime }
+                if !player.isPlaying {
+                    isPlaying = false
+                    // A finished player rewinds itself; the playhead goes with it.
+                    position = player.currentTime
+                }
             }
         }
         .onDisappear {
@@ -41,9 +82,19 @@ struct AudioPlayerView: View {
         }
     }
 
-    private var durationText: String {
-        guard let duration else { return "Length unknown" }
-        return Duration.seconds(duration).formatted(.time(pattern: .minuteSecond))
+    private var timeText: String {
+        guard length > 0 else { return "Length unknown" }
+        return "\(PlaybackPosition.label(position)) / \(PlaybackPosition.label(length))"
+    }
+
+    private func loadPlayer() {
+        guard player == nil else { return }
+        do {
+            player = try AVAudioPlayer(data: data)
+            player?.prepareToPlay()
+        } catch {
+            failed = true
+        }
     }
 
     private func toggle() {
@@ -53,14 +104,39 @@ struct AudioPlayerView: View {
             return
         }
         do {
-            if player == nil {
-                try AVAudioSession.sharedInstance().setCategory(.playback, mode: .spokenAudio)
-                player = try AVAudioPlayer(data: data)
-            }
+            try AVAudioSession.sharedInstance().setCategory(.playback, mode: .spokenAudio)
             try AVAudioSession.sharedInstance().setActive(true)
+            loadPlayer()
             isPlaying = player?.play() ?? false
         } catch {
             failed = true
         }
+    }
+
+    private func skip(by seconds: TimeInterval) {
+        seek(to: PlaybackPosition.skipped(from: player?.currentTime ?? position, by: seconds, duration: length))
+    }
+
+    private func seek(to time: TimeInterval) {
+        loadPlayer()
+        guard let player else { return }
+        player.currentTime = time
+        position = time
+    }
+}
+
+// Where the playhead lands and how it reads. Kept out of the view so the edges are testable.
+nonisolated enum PlaybackPosition {
+    static let skipSeconds: TimeInterval = 10
+
+    // A skip never leaves the recording: back from the first seconds lands at the start, forward
+    // from the last seconds lands at the end.
+    static func skipped(from time: TimeInterval, by seconds: TimeInterval, duration: TimeInterval) -> TimeInterval {
+        min(max(0, time + seconds), max(0, duration))
+    }
+
+    static func label(_ time: TimeInterval) -> String {
+        let seconds = time.isFinite ? max(0, time) : 0
+        return Duration.seconds(seconds.rounded(.down)).formatted(.time(pattern: .minuteSecond))
     }
 }

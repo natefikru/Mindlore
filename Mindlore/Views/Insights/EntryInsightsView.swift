@@ -6,6 +6,8 @@ import SwiftUI
 // editor, where they can see what changes.
 struct EntryInsightsView: View {
     let entry: Entry
+    // Set when the entry's own Insights button opened this, so a first run needs no second tap.
+    var runsWhenOpened = false
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
     @Environment(EntrySaver.self) private var saver
@@ -17,11 +19,16 @@ struct EntryInsightsView: View {
     @State private var confirmingRun = false
     @State private var confirmingDelete = false
     @State private var editingMoods = false
+    @State private var startedOnOpen = false
 
     private var insights: EntryInsights? { entry.insights }
 
     private var state: InsightsPresentation.State {
-        InsightsPresentation.state(.init(
+        InsightsPresentation.state(inputs)
+    }
+
+    private var inputs: InsightsPresentation.Inputs {
+        .init(
             isDraft: entry.isDraft,
             awaitingText: entry.awaitingText,
             textReviewPending: entry.textReviewPending,
@@ -33,7 +40,7 @@ struct EntryInsightsView: View {
             failure: AIJobPolicy.failure(.insights, entry),
             aiEnabled: settings.aiEnabled,
             hasKey: accounts.hasUsableKey && accounts.settingsAccount(for: .text) != nil
-        ))
+        )
     }
 
     var body: some View {
@@ -66,6 +73,11 @@ struct EntryInsightsView: View {
                     }
                     .accessibilityIdentifier("insightsMenuButton")
                 }
+            }
+            .task {
+                guard runsWhenOpened, !startedOnOpen, InsightsPresentation.runsWhenOpened(inputs) else { return }
+                startedOnOpen = true
+                run()
             }
             .sheet(isPresented: $editingMoods) {
                 if let insights {
