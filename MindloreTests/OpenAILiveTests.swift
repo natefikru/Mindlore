@@ -80,4 +80,34 @@ struct OpenAILiveTests {
         #expect(result.cleanedText?.isEmpty == false)
         #expect(!result.openThreads.isEmpty)
     }
+    // The journal's own names, against the real model, at the real cap of 50. A name is written
+    // as the entry writes it, a garbled one takes the listed spelling, and nothing on the list
+    // turns up unless the entry says it.
+    @Test func knownNamesFixSpellingWithoutRewritingOrInventing() async throws {
+        let decoys: [InsightsPromptBuilder.KnownEntity] = (1...48).map { .init(name: "Decoy Person \($0)", kind: .person) }
+        let named = [InsightsPromptBuilder.KnownEntity(name: "Sarah Kim", kind: .person), .init(name: "Harbor Coffee", kind: .place)] + decoys
+        let vocabulary = InsightsPromptBuilder.JournalVocabulary(tags: ["work", "friends"], themes: ["new beginnings"], named: named)
+        let generator = OpenAICompatibleTextGenerator(baseURL: baseURL, apiKey: key, http: http, jsonModeMemory: JSONModeMemory())
+
+        func mentions(_ text: String, _ vocabulary: InsightsPromptBuilder.JournalVocabulary) async throws -> ([Mention], Int) {
+            let plan = InsightsPromptBuilder.plan(text: text, source: .voice, sections: InsightSections(), vocabulary: vocabulary, model: ProviderDefaults.textModel)
+            let response = try await generator.generate(plan.request)
+            return (try InsightsPromptBuilder.parse(response.text, plan: plan).mentions, response.inputTokens ?? -1)
+        }
+
+        let (partial, withNames) = try await mentions("had lunch with sarah today and she told me about her new job at the hospital", vocabulary)
+        let (garbled, _) = try await mentions("met sara kym at harbour coffee this morning", vocabulary)
+        let (_, withoutNames) = try await mentions("had lunch with sarah today and she told me about her new job at the hospital", .empty)
+
+        print("LIVE vocabulary partial \(partial.map(\.name)) garbled \(garbled.map(\.name))")
+        print("LIVE vocabulary tokens in with 50 names \(withNames), without \(withoutNames)")
+
+        #expect(partial.contains { $0.name.lowercased() == "sarah" }, "written as the entry writes it")
+        #expect(!partial.contains { $0.name == "Sarah Kim" }, "not completed to the listed name")
+        #expect(garbled.contains { $0.name == "Sarah Kim" }, "a garbled name takes the listed spelling")
+        #expect(garbled.contains { $0.name == "Harbor Coffee" })
+        for mention in partial + garbled {
+            #expect(!mention.name.hasPrefix("Decoy"), "\(mention.name) is not in either entry")
+        }
+    }
 }

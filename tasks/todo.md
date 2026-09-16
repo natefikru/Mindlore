@@ -220,13 +220,21 @@ mention. One link or all of them; the user chooses.
 
 ### Feedback into the AI pass
 
-**Known names go into the prompt.** `InsightsPromptBuilder` already sends the 50 most-used tags.
-This adds the 50 most-linked themes ("Themes already used in this journal; reuse one when it fits")
-and the 50 most-linked people, places, organizations, projects, and events with their kind ("Named
-things already in this journal; use these exact names when the entry refers to them"). Hidden
-entities are excluded. `WhatWasSentView` lists both. The names came from the provider in the first
-place, so this is not a new disclosure category, but bios never go: sending the user's own words
-about a person is a different decision and is left for the context-injection work in the next PR.
+**Known names go into the prompt, to fix spelling, not to rewrite.** Each insights request carries
+up to 50 tags, 50 themes, and 50 names this journal already uses: about seven in ten by use and the
+rest by recency, so someone new still makes the list. Hidden entities and merge losers are left out.
+Names are written the way the entry writes them; the list only fixes a misspelled or garbled name
+and settles kinds. A dictated "sarah" stays "sarah" and the graph decides which Sarah, because the
+user's corrections are keyed on what the entry says. An `other` nobody has settled is listed
+without a kind. Every item is cleaned to one line of at most 60 characters. Before the graph exists
+the tags are counted off the insights as before; once it exists, an empty list means the user hid
+them. The counts that went out are stored on `EntryInsights` and shown by `WhatWasSentView`.
+
+**Assumption, for the owner to confirm: names the user typed are sent too.** A renamed entity, and
+later a re-pointed one, carries a name the provider never produced. This PR treats that as part of
+"words this journal uses", says so on the disclosure screen, and never sends aliases or bios. The
+alternative is to send such an entity only under the last name the provider saw. Recorded here so
+the privacy review before an external build can decide.
 
 ### Views
 
@@ -553,6 +561,26 @@ the phone.
 - Search across entry text (synthesis PR)
 
 ## Review log
+
+Phase 4 (sub-agent review of `3334c58`, 2026-09-16, verdict "needs rework"; 11 findings):
+
+1. "Use this exact name" made the model complete "sarah" to "Sarah Kim", bypassing the user's
+   corrections and the first-name guess: names are written as the entry writes them, and the list
+   only fixes spelling. The live test now asserts that instead of the opposite.
+2. The tag fallback ran whenever the list was empty, so hiding every tag re-sent them: the graph
+   returns nil only when it has not been built, and switched-off sections skip the fallback.
+3. The fallback was listed as tested and was not: three coordinator tests now cover it.
+4. User-typed names reach the provider: recorded as an assumption above, and said on screen.
+5. The disclosure screen showed today's vocabulary and fetched on every render: it shows counts
+   stored when the request was built.
+6. Listing every kind froze unsettled `other` entities: those go without a kind, and the type is
+   `MentionKind?` so tags and themes cannot be listed as names.
+7. Names were not cleaned: one line, 60 characters, blanks and repeats dropped, one per line.
+8. Order starved new names: seven in ten by use, the rest by recency.
+9. Every request fetched every entity: bounded fetches per list, none for switched-off sections.
+10. Integration, hidden person and theme, odd names, and switched-off sections are tested.
+11. The `plan` default is gone, the counts are in `insights.started`, and the redundant
+    `nonisolated` markers are removed.
 
 Phases 2 and 3 (sub-agent review of `8343786` and `cfcd532`, 2026-09-16, verdict "needs rework";
 12 findings; fixed in the commit after Phase 4 unless noted):

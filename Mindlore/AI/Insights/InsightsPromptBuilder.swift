@@ -28,6 +28,9 @@ nonisolated struct InsightsRequestPlan: Sendable {
     let cleanedTextSkippedReason: String?
     let asksForCleanedText: Bool
     let asksForWrittenDate: Bool
+    // Exactly what went into the prompt after section toggles, cleaning, and caps, so the
+    // disclosure screen can say what was sent rather than what the journal holds today.
+    var vocabularySent: InsightsPromptBuilder.JournalVocabulary = .empty
 }
 
 nonisolated struct InsightsResult: Equatable, Sendable {
@@ -60,9 +63,12 @@ nonisolated enum InsightsPromptBuilder {
     static let maxTags = 8
     static let maxSecondaryMoods = 2
 
+    // Longer than any real name; anything past it is not a name worth steering towards.
+    static let maxVocabularyItemCharacters = 60
+
     // What this journal already calls things. Sent so the model reuses the user's own words
     // instead of inventing a near-duplicate of a tag, theme, or person they already have.
-    nonisolated struct JournalVocabulary: Equatable, Sendable {
+    struct JournalVocabulary: Equatable, Sendable {
         var tags: [String] = []
         var themes: [String] = []
         var named: [KnownEntity] = []
@@ -70,15 +76,31 @@ nonisolated enum InsightsPromptBuilder {
         static let empty = JournalVocabulary()
     }
 
-    nonisolated struct KnownEntity: Equatable, Sendable {
+    // A name and, when it is settled, what it is. An `other` nobody has pinned down goes
+    // without a kind, so the model is free to say what the entry makes it.
+    struct KnownEntity: Equatable, Sendable {
         let name: String
-        let kind: EntityKind
+        let kind: MentionKind?
     }
 
-    static func plan(text fullText: String, source: EntrySource, sections: InsightSections, vocabulary: JournalVocabulary = .empty, model: String) -> InsightsRequestPlan {
+    // One line, trimmed, capped. Names can be typed by the user, so a newline or a stray
+    // comma must not be able to reshape the prompt around it.
+    static func promptSafe(_ value: String) -> String? {
+        let collapsed = value.split(whereSeparator: { $0.isWhitespace || $0.isNewline }).joined(separator: " ")
+        guard !collapsed.isEmpty else { return nil }
+        return String(collapsed.prefix(maxVocabularyItemCharacters))
+    }
+
+    private static func listed(_ items: [String], cap: Int) -> [String] {
+        var seen: Set<String> = []
+        return items.compactMap(promptSafe).filter { seen.insert($0.lowercased()).inserted }.prefix(cap).map { $0 }
+    }
+
+    static func plan(text fullText: String, source: EntrySource, sections: InsightSections, vocabulary: JournalVocabulary, model: String) -> InsightsRequestPlan {
         let text = String(fullText.prefix(maxInputCharacters))
         var properties: [JSONSchema.Property] = []
         var guidance: [String] = []
+        var sent = JournalVocabulary.empty
 
         if sections.summary {
             properties.append(.init("summary", .string(description: "One or two sentences on what the entry is about, however short the entry is. Null only when the entry has no content at all.", nullable: true)))
@@ -95,16 +117,16 @@ nonisolated enum InsightsPromptBuilder {
         }
         if sections.themes {
             properties.append(.init("themes", .array(.string(), description: "One to four short phrases naming what the entry is about. A short entry still has at least one.")))
-            let themes = Array(vocabulary.themes.prefix(maxExistingThemes))
-            if !themes.isEmpty {
-                guidance.append("Themes already used in this journal; reuse one when it fits instead of inventing a near-duplicate: \(themes.joined(separator: ", ")).")
+            sent.themes = listed(vocabulary.themes, cap: maxExistingThemes)
+            if !sent.themes.isEmpty {
+                guidance.append("Themes already used in this journal, one per line. Reuse one when it fits instead of inventing a near-duplicate.\n" + sent.themes.map { "- \($0)" }.joined(separator: "\n"))
             }
         }
         if sections.tags {
             properties.append(.init("tags", .array(.string(), description: "One to \(maxTags) short lowercase labels for grouping entries with others, like work or family.")))
-            let tags = Array(vocabulary.tags.prefix(maxExistingTags))
-            if !tags.isEmpty {
-                guidance.append("Tags already used in this journal; reuse one when it fits instead of inventing a near-duplicate: \(tags.joined(separator: ", ")).")
+            sent.tags = listed(vocabulary.tags, cap: maxExistingTags)
+            if !sent.tags.isEmpty {
+                guidance.append("Tags already used in this journal, one per line. Reuse one when it fits instead of inventing a near-duplicate.\n" + sent.tags.map { "- \($0)" }.joined(separator: "\n"))
             }
         }
         if sections.mentions {
@@ -112,10 +134,23 @@ nonisolated enum InsightsPromptBuilder {
                 .init("name", .string(description: "The name as written.")),
                 .init("kind", .enumeration(MentionKind.allCases.map(\.rawValue))),
             ]), description: "People, places, organizations, projects, events, and other named things in the entry. Empty if none.")))
-            let named = Array(vocabulary.named.prefix(maxKnownEntities))
-            if !named.isEmpty {
-                let listed = named.map { "\($0.name) (\($0.kind.rawValue))" }.joined(separator: ", ")
-                guidance.append("Named things already in this journal; when the entry refers to one of these, use this exact name and kind rather than a variation: \(listed).")
+            // Names stay as written: "sarah" is not rewritten to "Sarah Kim", because deciding
+            // which Sarah is the graph's job, and the user's corrections are keyed on what the
+            // entry actually says. The list only fixes spelling and settles kinds.
+            var seen: Set<String> = []
+            sent.named = vocabulary.named.compactMap { known in
+                guard let name = promptSafe(known.name), seen.insert(name.lowercased()).inserted else { return nil }
+                return KnownEntity(name: name, kind: known.kind)
+            }.prefix(maxKnownEntities).map { $0 }
+            if !sent.named.isEmpty {
+                let lines = sent.named.map { known in known.kind.map { "- \(known.name) (\($0.rawValue))" } ?? "- \(known.name)" }
+                guidance.append("""
+                Names already in this journal, one per line, with their kind where it is known. \
+                Write every name the way the entry writes it; do not lengthen or complete it. \
+                If the entry misspells one of these, or a transcription garbled it, use the spelling listed here. \
+                Include only names that actually appear in this entry. \
+                Use the listed kind unless the entry clearly says otherwise.
+                """ + "\n" + lines.joined(separator: "\n"))
             }
         }
         if sections.openThreads {
@@ -169,7 +204,7 @@ nonisolated enum InsightsPromptBuilder {
             schemaName: "journal_insights",
             maxOutputTokens: min(16_000, 3_000 + (asksForCleanedText ? text.count / 2 : 0))
         )
-        return InsightsRequestPlan(request: request, customKeys: customKeys, customKeyOrder: customKeyOrder, cleanedTextSkippedReason: skippedReason, asksForCleanedText: asksForCleanedText, asksForWrittenDate: asksForWrittenDate)
+        return InsightsRequestPlan(request: request, customKeys: customKeys, customKeyOrder: customKeyOrder, cleanedTextSkippedReason: skippedReason, asksForCleanedText: asksForCleanedText, asksForWrittenDate: asksForWrittenDate, vocabularySent: sent)
     }
 
     // Derived from the prompt's id, so the key stays the same when prompts move or others are deleted.

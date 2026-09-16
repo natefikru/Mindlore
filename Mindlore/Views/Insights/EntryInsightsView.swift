@@ -243,7 +243,6 @@ struct EntryInsightsView: View {
 struct WhatWasSentView: View {
     let entry: Entry
     let settings: SettingsStore
-    @Environment(\.modelContext) private var modelContext
 
     var body: some View {
         Form {
@@ -255,22 +254,15 @@ struct WhatWasSentView: View {
             Section("Asked for") {
                 ForEach(Self.sections(settings, source: entry.source), id: \.self) { Text($0) }
             }
-            if settings.insightTags || settings.insightThemes || settings.insightMentions {
-                let vocabulary = GraphIndexer().vocabulary(in: modelContext)
+            if let insights = entry.insights, insights.sentTagCount + insights.sentThemeCount + insights.sentNameCount > 0 {
                 Section {
-                    if settings.insightTags, !vocabulary.tags.isEmpty {
-                        LabeledContent("Tags", value: "\(vocabulary.tags.count)")
-                    }
-                    if settings.insightThemes, !vocabulary.themes.isEmpty {
-                        LabeledContent("Themes", value: "\(vocabulary.themes.count)")
-                    }
-                    if settings.insightMentions, !vocabulary.named.isEmpty {
-                        LabeledContent("Names", value: "\(vocabulary.named.count)")
-                    }
+                    if insights.sentTagCount > 0 { LabeledContent("Tags", value: "\(insights.sentTagCount)") }
+                    if insights.sentThemeCount > 0 { LabeledContent("Themes", value: "\(insights.sentThemeCount)") }
+                    if insights.sentNameCount > 0 { LabeledContent("Names", value: "\(insights.sentNameCount)") }
                 } header: {
-                    Text("Words this journal already uses")
+                    Text("Also sent: words this journal already uses")
                 } footer: {
-                    Text("Sent so the wording matches what you already have, instead of a near-duplicate.")
+                    Text("Tags, themes, and the names of people, places, and other things from your other entries, including names you typed yourself, so the wording matches what you already have.")
                 }
             }
             Section {

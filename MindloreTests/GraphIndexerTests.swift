@@ -562,3 +562,25 @@ struct UserLinkReindexTests {
         #expect(file.contents().contains("graph.ambiguous"))
     }
 }
+
+@MainActor
+struct RemoveInsightsGuardTests {
+    let harness: GraphHarness
+
+    init() throws {
+        harness = try GraphHarness()
+    }
+
+    // Indexing and deleting in one unsaved batch still removes everything. This does not prove the
+    // switch to removal by id: the relationship happened to read correctly here too, so the test
+    // passes either way. It stays because the behavior itself is worth pinning.
+    @Test func removingInsightsFindsLinksMadeInTheSameUnsavedBatch() throws {
+        let entry = try harness.entry(tags: ["nature", "family"], mentions: [("Sarah", .person)])
+
+        harness.indexer.index(entry, in: harness.context)
+        entry.removeInsights(in: harness.context)
+        try harness.context.save()
+
+        #expect(harness.links(of: entry).isEmpty)
+    }
+}

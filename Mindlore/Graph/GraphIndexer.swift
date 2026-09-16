@@ -128,22 +128,53 @@ struct GraphIndexer {
         return stale.count
     }
 
-    // What this journal already calls things, most used first, for the next insights request.
-    // Hidden entities are left out: the user does not want to see them, so the model should
-    // not be steered towards them either. Merged losers are left out because their name is
-    // already an alias of the winner.
-    func vocabulary(in context: ModelContext) -> InsightsPromptBuilder.JournalVocabulary {
-        let browsable = ((try? context.fetch(FetchDescriptor<Entity>(sortBy: [
-            SortDescriptor(\.linkCount, order: .reverse), SortDescriptor(\.createdAt),
-        ]))) ?? []).filter(\.isBrowsable)
+    // What this journal already calls things, for the next insights request. Nil when the graph
+    // has not been built yet, which is different from a graph with nothing worth sending: only
+    // the first should fall back to counting tags off the insights themselves.
+    //
+    // Hidden entities are left out because the user does not want to see them, and merge losers
+    // because their winner already stands for them. Each list mixes the most used names with the
+    // most recent, so someone new in a long journal, the likeliest to be misspelled, still makes
+    // the cut. Lists for switched-off sections are never fetched.
+    func vocabulary(in context: ModelContext, sections: InsightSections = InsightSections()) -> InsightsPromptBuilder.JournalVocabulary? {
+        guard ((try? context.fetchCount(FetchDescriptor<Entity>())) ?? 0) > 0 else { return nil }
 
-        return .init(
-            tags: browsable.filter { $0.kind == .tag }.prefix(InsightsPromptBuilder.maxExistingTags).map(\.name),
-            themes: browsable.filter { $0.kind == .theme }.prefix(InsightsPromptBuilder.maxExistingThemes).map(\.name),
-            named: browsable.filter { $0.kind != .tag && $0.kind != .theme }
-                .prefix(InsightsPromptBuilder.maxKnownEntities)
-                .map { .init(name: $0.name, kind: $0.kind) }
-        )
+        let tag = EntityKind.tag.rawValue
+        let theme = EntityKind.theme.rawValue
+        var vocabulary = InsightsPromptBuilder.JournalVocabulary()
+        if sections.tags {
+            vocabulary.tags = mix(#Predicate { !$0.hidden && $0.mergedIntoID == nil && $0.kindRaw == tag },
+                                  cap: InsightsPromptBuilder.maxExistingTags, in: context).map(\.name)
+        }
+        if sections.themes {
+            vocabulary.themes = mix(#Predicate { !$0.hidden && $0.mergedIntoID == nil && $0.kindRaw == theme },
+                                    cap: InsightsPromptBuilder.maxExistingThemes, in: context).map(\.name)
+        }
+        if sections.mentions {
+            vocabulary.named = mix(#Predicate { !$0.hidden && $0.mergedIntoID == nil && $0.kindRaw != tag && $0.kindRaw != theme },
+                                   cap: InsightsPromptBuilder.maxKnownEntities, in: context).map { entity in
+                // An `other` nobody has settled goes without a kind, so the model can say what it is.
+                let settled = entity.kind != .other || entity.kindEditedByUser
+                return .init(name: entity.name, kind: settled ? MentionKind(rawValue: entity.kind.rawValue) : nil)
+            }
+        }
+        return vocabulary
+    }
+
+    // Seven in ten of the cap by use, the rest by recency, without repeats.
+    private func mix(_ predicate: Predicate<Entity>, cap: Int, in context: ModelContext) -> [Entity] {
+        let byUse = cap * 7 / 10
+        var used = FetchDescriptor<Entity>(predicate: predicate, sortBy: [SortDescriptor(\.linkCount, order: .reverse), SortDescriptor(\.createdAt)])
+        used.fetchLimit = byUse
+        var recent = FetchDescriptor<Entity>(predicate: predicate, sortBy: [SortDescriptor(\.lastLinkedAt, order: .reverse), SortDescriptor(\.createdAt)])
+        recent.fetchLimit = cap
+
+        var picked = (try? context.fetch(used)) ?? []
+        var ids = Set(picked.map(\.id))
+        for entity in (try? context.fetch(recent)) ?? [] where picked.count < cap && ids.insert(entity.id).inserted {
+            picked.append(entity)
+        }
+        return picked
     }
 
     // MARK: - Counters

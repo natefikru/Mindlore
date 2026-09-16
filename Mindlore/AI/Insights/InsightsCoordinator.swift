@@ -25,8 +25,8 @@ final class InsightsCoordinator {
     // disk in the same save and the entry is never stamped for work that isn't an edit.
     @ObservationIgnored private let onInsightsWritten: (Entry, ModelContext) -> Void
     // What the journal already calls things, sent with the request so the model reuses the
-    // user's own words. Empty until the graph has been built.
-    @ObservationIgnored private let vocabulary: (ModelContext) -> InsightsPromptBuilder.JournalVocabulary
+    // user's own words. Nil until the graph has been built.
+    @ObservationIgnored private let vocabulary: (ModelContext, InsightSections) -> InsightsPromptBuilder.JournalVocabulary?
     @ObservationIgnored private let diagnostics: DiagnosticsLog
     @ObservationIgnored private let calendar: Calendar
     @ObservationIgnored private var failedThisSession: Set<UUID> = []
@@ -42,7 +42,7 @@ final class InsightsCoordinator {
         presence: EditorPresence,
         save: @escaping (ModelContext, Set<PersistentIdentifier>) throws -> Void = { try $0.saveStampingEntries(except: $1) },
         onInsightsWritten: @escaping (Entry, ModelContext) -> Void = { _, _ in },
-        vocabulary: @escaping (ModelContext) -> InsightsPromptBuilder.JournalVocabulary = { _ in .empty },
+        vocabulary: @escaping (ModelContext, InsightSections) -> InsightsPromptBuilder.JournalVocabulary? = { _, _ in nil },
         diagnostics: DiagnosticsLog = .shared,
         calendar: Calendar = .current
     ) {
@@ -139,10 +139,10 @@ final class InsightsCoordinator {
         let analyzedText = entry.text
         let analyzedHash = TextHash.of(analyzedText)
         let revision = entry.contentRevision
-        var vocabulary = self.vocabulary(context)
-        // Before the graph exists there are no tag entities to read, so fall back to counting
-        // the tags on the insights themselves.
-        if vocabulary.tags.isEmpty { vocabulary.tags = Self.topTags(in: context) }
+        // Before the graph exists there are no entities to read, so tags are counted off the
+        // insights themselves. Once it exists, an empty list means the user hid them all.
+        let vocabulary = self.vocabulary(context, sections)
+            ?? .init(tags: sections.tags ? Self.topTags(in: context) : [])
         let plan = InsightsPromptBuilder.plan(text: analyzedText, source: source, sections: sections, vocabulary: vocabulary, model: generator.model)
 
         AIJobPolicy.recordAttempt(.insights, entry)
@@ -156,6 +156,9 @@ final class InsightsCoordinator {
             "model": .string(generator.label),
             "attempt": .int(entry.insightsAttempts),
             "customPrompts": .int(plan.customKeys.count),
+            "knownTags": .int(plan.vocabularySent.tags.count),
+            "knownThemes": .int(plan.vocabularySent.themes.count),
+            "knownNames": .int(plan.vocabularySent.named.count),
         ])
 
         let result: InsightsResult
@@ -201,6 +204,9 @@ final class InsightsCoordinator {
         insights.cleanedText = result.cleanedText
         insights.cleanedTextSkippedReasonRaw = plan.cleanedTextSkippedReason
         insights.customResults = result.custom
+        insights.sentTagCount = plan.vocabularySent.tags.count
+        insights.sentThemeCount = plan.vocabularySent.themes.count
+        insights.sentNameCount = plan.vocabularySent.named.count
         AIJobPolicy.recordSuccess(.insights, current)
 
         // Suggestions and cleanup only act on the exact text that was analyzed.

@@ -52,7 +52,7 @@ struct InsightsPromptBuilderTests {
         #expect(plan.request.system.contains("do not give advice"))
         #expect(plan.request.system.contains("Fill in every field the entry supports"))
         #expect(plan.request.system.contains("burnedOut (worn down over a long stretch)"))
-        #expect(plan.request.system.contains("work, family"))
+        #expect(plan.request.system.contains("\n- work\n- family"))
     }
 
     @Test func typedEntriesAskForTheWrittenDateAndNeverCleanup() throws {
@@ -161,7 +161,11 @@ final class InsightsHarness {
     var autoApply = false
     var autoApplyDate = false
     var unavailable: AIJobFailure?
-    var vocabulary = InsightsPromptBuilder.JournalVocabulary.empty
+    // Nil means no graph yet, so the coordinator counts tags off the insights. Set useGraph to
+    // run the real indexer on both ends instead.
+    var vocabulary: InsightsPromptBuilder.JournalVocabulary?
+    var useGraph = false
+    let graph = GraphIndexer(diagnostics: .disabled)
     private(set) var coordinator: InsightsCoordinator!
 
     var context: ModelContext { container.mainContext }
@@ -181,7 +185,14 @@ final class InsightsHarness {
             autoApplyCleanedText: { [unowned self] in self.autoApply },
             autoApplyEntryDate: { [unowned self] in self.autoApplyDate },
             presence: presence,
-            vocabulary: { [unowned self] _ in self.vocabulary },
+            onInsightsWritten: { [unowned self] entry, context in
+                guard self.useGraph else { return }
+                self.graph.index(entry, in: context)
+                self.graph.recount(in: context)
+            },
+            vocabulary: { [unowned self] context, sections in
+                self.useGraph ? self.graph.vocabulary(in: context, sections: sections) : self.vocabulary
+            },
             diagnostics: .disabled,
             calendar: { var calendar = Calendar(identifier: .gregorian); calendar.timeZone = TimeZone(identifier: "UTC")!; return calendar }()
         )
@@ -383,7 +394,7 @@ struct InsightsCoordinatorTests {
 
         await harness.coordinator.processQueue(context: harness.context)
 
-        #expect(harness.generator.requests.first?.system.contains("family, running") == true)
+        #expect(harness.generator.requests.first?.system.contains("\n- family\n- running") == true)
     }
 }
 
