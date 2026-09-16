@@ -136,6 +136,14 @@ final class GraphServices {
             if candidates.count > 1 {
                 result.append(UnsureMention(mention: MentionRef(entryID: entryID, surface: link.surface, kind: link.kind), candidates: candidates))
             } else {
+                // A tie down to exactly one visible candidate is a real answer, not just an
+                // empty list to clear: without actually repointing, the link stays wherever it
+                // was left (possibly a now-hidden loser filtered out above) and, with
+                // unsureAmong now empty, "Which one?" never offers to fix it again.
+                if let onlyCandidate = candidates.first, link.entityID != onlyCandidate.id,
+                   let target = editor.entity(withID: onlyCandidate.id, in: context) {
+                    editor.repoint(link, to: target, addingAlias: false, in: context)
+                }
                 link.unsureAmong = []
                 resolvedAutomatically = true
             }
@@ -175,6 +183,10 @@ final class GraphServices {
             let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !trimmed.isEmpty else { return .mentionChanged }
             if let existing = editor.entity(answering: trimmed, kind: mention.kind, in: context) {
+                // Typing a name that happens to key-match a hidden entity means that is who the
+                // user means, the same reasoning merge already applies to its winner: chosen by
+                // name is not something left out of sight any more.
+                if existing.hidden { editor.setHidden(false, on: existing) }
                 entity = existing
             } else {
                 entity = Entity(name: trimmed, key: EntityNormalizer.key(for: trimmed, kind: mention.kind), kind: mention.kind)
@@ -232,6 +244,10 @@ final class GraphServices {
     struct GraphData {
         let nodes: [GraphSimulation.Node]
         let edges: [EntityGraph.Edge]
+        // From the same in-memory Entity map resolvedLinks already built, so a view never has to
+        // fetch per node just to label it, the fetch-per-link anti-pattern the Phase 6 review
+        // already flagged once for mentionedWith.
+        let names: [UUID: String]
     }
 
     private struct ResolvedGraph {
@@ -286,7 +302,8 @@ final class GraphServices {
         let nodes = nodeIDs.compactMap { nodeID -> GraphSimulation.Node? in
             resolved.byID[nodeID].map { GraphSimulation.Node(id: nodeID, kind: $0.kind, linkCount: $0.linkCount) }
         }
-        return GraphData(nodes: nodes, edges: filteredEdges)
+        let names = Dictionary(uniqueKeysWithValues: nodes.compactMap { node in resolved.byID[node.id].map { (node.id, $0.name) } })
+        return GraphData(nodes: nodes, edges: filteredEdges, names: names)
     }
 
     // Every browsable entity as of a given date, for Connections' "Graph" screen. A node appears
@@ -316,7 +333,8 @@ final class GraphServices {
         let nodes = edgeNodeIDs.union(standaloneIDs).compactMap { nodeID -> GraphSimulation.Node? in
             resolved.byID[nodeID].map { GraphSimulation.Node(id: nodeID, kind: $0.kind, linkCount: $0.linkCount) }
         }
-        return GraphData(nodes: nodes, edges: filteredEdges)
+        let names = Dictionary(uniqueKeysWithValues: nodes.compactMap { node in resolved.byID[node.id].map { (node.id, $0.name) } })
+        return GraphData(nodes: nodes, edges: filteredEdges, names: names)
     }
 
     // Logged once per graph screen appearance and once per control change that rebuilds the

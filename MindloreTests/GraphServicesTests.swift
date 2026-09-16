@@ -104,6 +104,32 @@ struct GraphServicesTests {
         #expect(link.unsureAmong.isEmpty)
     }
 
+    // A tie down to one visible candidate must actually move the mention there: clearing
+    // unsureAmong without repointing left the link pointed at whichever candidate the resolver
+    // provisionally picked, even when that one is the one that just hid, with no way back since
+    // "Which one?" never asks about it again.
+    @Test func unsureLinksRepointsToTheSurvivorWhenTheTiePickedTheOneThatHides() throws {
+        let a = Entity(name: "Lewis", key: "lewis", kind: .person)
+        let b = Entity(name: "Lewis", key: "lewis", kind: .person)
+        harness.context.insert(a)
+        harness.context.insert(b)
+        try harness.context.save()
+        let entry = try harness.entry(mentions: [("Lewis", .person)])
+        services.insightsWritten(for: entry, in: harness.context)
+        try harness.context.save()
+
+        let picked = try #require(harness.links(of: entry).first?.entityID)
+        let survivor = picked == a.id ? b.id : a.id
+        services.setHidden(true, on: picked, in: harness.context)
+
+        let unsure = services.unsureLinks(in: harness.context)
+
+        #expect(unsure.isEmpty)
+        let link = try #require(harness.links(of: entry).first)
+        #expect(link.entityID == survivor)
+        #expect(link.unsureAmong.isEmpty)
+    }
+
     @Test func repointingAnUnsureLinkToTheOtherCandidateClearsUnsureAmong() throws {
         let a = Entity(name: "Lewis", key: "lewis", kind: .person)
         let b = Entity(name: "Lewis", key: "lewis", kind: .person)

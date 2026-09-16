@@ -19,6 +19,7 @@ struct GlobalGraphView: View {
         let kinds: Set<EntityKind>
         let minimumLinkCount: Int
         let asOf: Date
+        let revision: Int
     }
 
     var body: some View {
@@ -47,18 +48,18 @@ struct GlobalGraphView: View {
         .sheet(isPresented: $showingFilters) {
             GlobalGraphFiltersView(kinds: $kinds, minimumLinkCount: $minimumLinkCount, asOf: $asOf)
         }
-        .task(id: RebuildKey(kinds: kinds, minimumLinkCount: minimumLinkCount, asOf: asOf)) { rebuild() }
+        .task(id: RebuildKey(kinds: kinds, minimumLinkCount: minimumLinkCount, asOf: asOf, revision: graph.revision)) { rebuild() }
         .onDisappear { settleTask?.cancel() }
     }
 
     // A full re-init every control change, the same as the local graph's depth toggle: nothing
-    // in this phase updates a running simulation's node/edge set in place.
+    // in this phase updates a running simulation's node/edge set in place. Keyed on graph.revision
+    // too, so a merge or rename made from a node pushed onto this same stack rebuilds the picture
+    // once the user pops back to it, rather than showing a stale name or a since-merged node.
     private func rebuild() {
         settleTask?.cancel()
         let data = graph.globalGraph(asOf: asOf, kinds: kinds, minimumLinkCount: minimumLinkCount, in: modelContext)
-        nameByID = Dictionary(uniqueKeysWithValues: data.nodes.compactMap { node in
-            graph.editor.entity(withID: node.id, in: modelContext).map { (node.id, $0.name) }
-        })
+        nameByID = data.names
         let built = GraphSimulation(nodes: data.nodes, edges: data.edges)
         simulation = built
         let start = Date.now

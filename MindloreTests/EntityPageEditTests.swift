@@ -234,6 +234,21 @@ struct EntityPageEditTests {
         #expect(try harness.graph.entities().filter { $0.key == "tom" }.count == 1)
     }
 
+    // A typed name that key-matches a hidden entity means that is who the user means, the same
+    // reasoning merge already applies to its winner: unhide rather than silently attaching the
+    // link to something the user can no longer see anywhere.
+    @Test func aTypedNameThatMatchesAHiddenEntityUnhidesIt() throws {
+        let (_, mention) = try guessedSarah()
+        try harness.entry("Tom called.", mentions: [("Tom", .person)])
+        let tom = try harness.entity("Tom")
+        services.setHidden(true, on: tom.id, in: context)
+        #expect(tom.hidden)
+
+        #expect(services.repoint(mention, to: .new(name: "tom"), addingAlias: false, in: context) == .applied(tom.id))
+
+        #expect(!tom.hidden)
+    }
+
     @Test func aMentionRegeneratedAwayReportsTheChange() throws {
         let (entry, mention) = try guessedSarah()
         try harness.entry("Tom called.", mentions: [("Tom", .person)])

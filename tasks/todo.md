@@ -1392,7 +1392,7 @@ judgement per Phase 8, not a Phase 7 one).
 ### Phase 8: Privacy, review, device, docs
 - [x] `DiagnosticsPrivacyTests`: sentinel as entity name, alias, bio, surface text, during merge and
       render.
-- [ ] Sub-agent code review over the PR diff; fixes in separate commits.
+- [x] Sub-agent code review over the PR diff; fixes in separate commits.
 - [ ] Device smoke steps in `tasks/smoke-test.md`: upgrade over real entries and watch the sweep
       index them (`graph.sweep` counts match); a new voice entry links to an existing person; merge
       two entities and relaunch; hide a tag; the global graph with the owner's real journal stays
@@ -1486,6 +1486,41 @@ the phone.
 - Search across entry text (synthesis PR)
 
 ## Review log
+
+Full-branch build (sub-agent review of `main...feature/knowledge-graph`, 2026-09-16, verdict
+"approve with fixes"; 5 findings, all fixed). This is the first review of the whole branch as a
+unit rather than one phase; it explicitly did not re-litigate anything already fixed in a
+phase-scoped review below. Cross-checked and confirmed clean: CloudKit readiness for every new
+`@Model` property across the whole branch, `EntityRoute`/`entityRouteReplacer` consistency across
+every entity-page push site, diagnostics field conventions and privacy, and no documentation drift
+between the plan's "Key decisions" and the shipped code. 654 tests green after fixes.
+
+1. **Critical.** Chaining a third merge onto an already-merged pair silently dropped the deepest
+   loser's name: merging B into A, then A into C, stripped B's name off A (which is correct, it no
+   longer stands for anything) but never added it to C, so the next mention of B's name created a
+   duplicate entity instead of resolving to C. `GraphEditor.merge` now also folds each flattened
+   entity's own `contributedAliases` onto the winner when it flattens their pointer, leaving
+   `contributedAliases` itself untouched so unmerging one entity out of a chain still returns
+   exactly what it, alone, brought. New test merges a chain, asserts the deepest name survives on
+   the final winner, and that unmerging the deepest entity alone removes only its own name.
+2. **Medium.** `LocalGraphView`/`GlobalGraphView` never keyed their rebuild off `graph.revision`,
+   so merging, renaming, or hiding a node from its own pushed entity page left the picture (and its
+   labels) stale once the user popped back to it, even though `entityRouteReplacer` kept the
+   *route* correct. Both now fold `graph.revision` into their rebuild key, the same signal
+   `ConnectionsView` already uses.
+3. **Medium**, alongside 2. Both views resolved node names with one `context.fetch` per node on
+   every rebuild, reintroducing the fetch-per-item pattern the Phase 6 review already flagged once
+   for `mentionedWith`. `GraphData` now carries `names: [UUID: String]` from the same in-memory
+   `Entity` map `resolvedLinks` already builds, so neither view fetches at all.
+4. **Medium.** A resolver tie that collapsed to exactly one *visible* candidate (its sibling
+   candidate having since hidden) had `unsureLinks` clear `unsureAmong` without ever repointing the
+   link: if the tie had provisionally picked the now-hidden loser, the mention stayed pointed at it
+   forever, invisible and with no way back once "Which one?" stopped asking. `unsureLinks` now
+   repoints to the surviving candidate before clearing.
+5. **Low.** `merge` explicitly unhides its winner ("the user chose it"); `repoint`'s free-text
+   `.new(name:)` path had no equivalent, so correcting a mention to a name that happened to
+   key-match a hidden entity silently attached the link to it while it stayed hidden. `repoint` now
+   unhides a key-matched target the same way merge does.
 
 Phase 7 build (sub-agent review of `d06f3f4..c0f2ceb`, 2026-09-16, verdict "approve with fixes";
 7 findings, all folded in). Confirmed sound: the repulsion, spring, gravity, and collision

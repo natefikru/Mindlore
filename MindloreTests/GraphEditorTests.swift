@@ -281,6 +281,28 @@ struct GraphEditorTests {
         #expect(editor.root(of: b, in: harness.context).id == c.id)
     }
 
+    // B's own name lived on A's alias list (from the first merge) and gets stripped off A when
+    // A flattens onto C; without also handing it to C, "Sarah K" would stop resolving to anyone
+    // the moment A is merged away, and the next mention of it would create a duplicate.
+    @Test func mergingAWinnerFlattensWhatPointedAtItKeepsTheDeepestLosersName() throws {
+        let (b, a) = try twoPeople()
+        try harness.entry(mentions: [("Sarah Kim-Jones", .person)])
+        harness.indexer.sweep(in: harness.context)
+        let c = try harness.entity("Sarah Kim-Jones")
+
+        editor.merge(b, into: a, in: harness.context)
+        editor.merge(a, into: c, in: harness.context)
+        try harness.context.save()
+
+        #expect(c.aliases.contains(b.name))
+        #expect(a.aliases.isEmpty, "A's own alias list is not where B's name lives any more")
+
+        // Unmerging just B still takes back only what it brought, and C keeps A's own name.
+        #expect(editor.unmerge(b, in: harness.context))
+        #expect(!c.aliases.contains(b.name))
+        #expect(c.aliases.contains("Sarah Kim"))
+    }
+
     // The link B brought is on C now, but it was born on B, so unmerging B claims it back.
     @Test func unmergingAfterAChainReturnsOnlyItsOwnLinks() throws {
         let (b, a) = try twoPeople()

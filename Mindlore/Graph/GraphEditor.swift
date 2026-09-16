@@ -160,12 +160,13 @@ struct GraphEditor {
         // brought them, so unmerging this one does not take away someone else's name.
         let deeper = merged(into: loser, in: context)
         let inherited = Set(deeper.flatMap(\.contributedAliases))
-        let existing = Set(keys(of: winner))
+        var existing = Set(keys(of: winner))
         var contributed: [String] = []
         for surface in [loser.name] + loser.aliases where !inherited.contains(surface) {
             let key = EntityNormalizer.key(for: surface, kind: winner.kind)
             guard !key.isEmpty, !existing.contains(key), !contributed.contains(surface) else { continue }
             contributed.append(surface)
+            existing.insert(key)
         }
         winner.aliases.append(contentsOf: contributed)
         loser.contributedAliases = contributed
@@ -174,9 +175,20 @@ struct GraphEditor {
         loser.mergedAt = .now
         // Anything that pointed at the loser now points at the winner, so no pointer is ever
         // more than one hop from a live entity. Their own links keep their own birthplaces,
-        // so unmerging any of them still returns exactly what it brought.
+        // so unmerging any of them still returns exactly what it brought. Their names move
+        // too: each deeper entity's own contributedAliases lived on the loser's alias list
+        // (stripped below), and moving on without also giving them to the winner would leave
+        // them resolving to nothing once the loser is gone from view. contributedAliases
+        // itself is left untouched, so unmerging one deeper entity alone still removes only
+        // what it originally contributed.
         for entity in deeper {
             entity.mergedIntoID = winner.id
+            for surface in entity.contributedAliases {
+                let key = EntityNormalizer.key(for: surface, kind: winner.kind)
+                guard !key.isEmpty, !existing.contains(key) else { continue }
+                winner.aliases.append(surface)
+                existing.insert(key)
+            }
         }
         // Their names move with them, so the loser does not keep answering to a name it is
         // no longer the owner of once it is unmerged.
