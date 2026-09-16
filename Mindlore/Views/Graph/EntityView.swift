@@ -66,6 +66,7 @@ private struct EntityPage: View {
     @State private var repointing: MentionRef?
     @State private var previewingRow: EntityPagePresentation.EntryRow?
     @State private var coOccurring: [EntityPagePresentation.CoOccurrenceRow] = []
+    @State private var localGraphRoute: LocalGraphRoute?
 
     init(id: UUID, showsLoser: Bool) {
         self.id = id
@@ -117,6 +118,9 @@ private struct EntityPage: View {
             }
             .sheet(item: $previewingRow) { row in
                 EntryPreview(entryID: row.id)
+            }
+            .sheet(item: $localGraphRoute) { route in
+                LocalGraphView(subjectID: route.id)
             }
             .sheet(isPresented: $renaming) {
                 RenameEntitySheet(initial: entity.name, kind: entity.kind, defaultsToKeepingOldName: hasVoiceSourcedLink) { name, keepOldName in
@@ -272,6 +276,8 @@ private struct EntityPage: View {
 
     private func actionsSection(_ entity: Entity) -> some View {
         Section {
+            Button("Graph") { localGraphRoute = LocalGraphRoute(id: id) }
+                .accessibilityIdentifier("entityGraph")
             Button("Merge into…") { merging = true }
                 .accessibilityIdentifier("entityMergeInto")
             Button(entity.hidden ? "Unhide" : "Hide") {

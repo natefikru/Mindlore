@@ -1369,7 +1369,7 @@ Phase 8):
       drag/magnify/tap gestures, the labelled subset, the selection ring, `EntityKind.color` fill,
       subject anchoring support (a flag or parameter for "this id is anchored, draw it distinctly").
       No unit test; confirms it compiles and the existing suite stays green.
-- [ ] 7.4 `LocalGraphView`, `LocalGraphRoute`, the entity page's "Graph" button and `.sheet(item:)`,
+- [x] 7.4 `LocalGraphView`, `LocalGraphRoute`, the entity page's "Graph" button and `.sheet(item:)`,
       the sheet's own `NavigationStack` with its own `entityRouteReplacer` installed (so a merge made
       from inside the sheet redirects that stack's own `path`, matching what `ConnectionsView.swift:151`
       already does for the main stack), the depth toggle. `graph.rendered` logged once per sheet
