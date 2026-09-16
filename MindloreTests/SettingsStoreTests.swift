@@ -134,6 +134,20 @@ struct SettingsStoreTests {
         #expect(relaunched.automationStartedAt == Date(timeIntervalSince1970: 1_000))
     }
 
+    @Test func titleGeneratorDefaultsToTheProviderOnceAIIsSetUp() {
+        let store = FakeKeyValueStore()
+        let settings = SettingsStore(store: store, diagnostics: .disabled, onDeviceTitlesAvailable: { true })
+        #expect(settings.titleGenerator == .onDevice)
+
+        settings.providerAccounts = [.openAI()]
+        settings.aiEnabled = true
+        #expect(settings.titleGenerator == .openAI)
+
+        // Turning AI off hands titles back to the phone rather than stopping them.
+        settings.aiEnabled = false
+        #expect(settings.titleGenerator == .onDevice)
+    }
+
     @Test func titleGeneratorDefaultFollowsOnDeviceAvailabilityUntilChosen() {
         let store = FakeKeyValueStore()
         #expect(SettingsStore(store: store, onDeviceTitlesAvailable: { true }).titleGenerator == .onDevice)

@@ -12,6 +12,8 @@ final class EntryInsights {
     var summary: String?
     var primaryMoodRaw: String?
     var secondaryMoodsRaw: [String] = []
+    // Set when the user picks the moods themselves, so the screen can say so and a rerun can warn.
+    var moodsEditedByUser: Bool = false
     var themes: [String] = []
     var tags: [String] = []
     var mentionsData: Data?
@@ -32,6 +34,12 @@ final class EntryInsights {
 
     var secondaryMoods: [Mood] {
         secondaryMoodsRaw.compactMap(Mood.init(rawValue:))
+    }
+
+    func setMoods(primary: Mood?, secondary: [Mood], editedByUser: Bool = true) {
+        primaryMoodRaw = primary?.rawValue
+        secondaryMoodsRaw = Array(secondary.filter { $0 != primary }.prefix(2)).map(\.rawValue)
+        moodsEditedByUser = editedByUser
     }
 
     var mentions: [Mention] {

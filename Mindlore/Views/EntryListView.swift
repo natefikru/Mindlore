@@ -37,12 +37,12 @@ struct EntryListView: View {
                         Button {
                             pageOrder = .existing(entry)
                         } label: {
-                            EntryRow(entry: entry)
+                            EntryRow(entry: entry, isAnalyzing: isAnalyzing(entry))
                         }
                         .foregroundStyle(.primary)
                     } else {
                         NavigationLink(value: entry) {
-                            EntryRow(entry: entry)
+                            EntryRow(entry: entry, isAnalyzing: isAnalyzing(entry))
                         }
                         .contextMenu {
                             Button("Insights", systemImage: "sparkles") { insightsEntry = entry }
@@ -116,6 +116,11 @@ struct EntryListView: View {
             .accessibilityIdentifier("newVoiceEntryButton")
     }
 
+    // AI work the user should be able to see from the list, without opening the entry.
+    private func isAnalyzing(_ entry: Entry) -> Bool {
+        insightsCoordinator.isRunning(entry) || entry.insightsPending || entry.titlePending
+    }
+
     private func delete(at offsets: IndexSet) {
         for index in offsets {
             DiagnosticsLog.shared.record("entry.deleted", ["id": .id(entries[index].id), "reason": "swipe"])
@@ -127,6 +132,7 @@ struct EntryListView: View {
 
 private struct EntryRow: View {
     let entry: Entry
+    var isAnalyzing = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
@@ -150,7 +156,16 @@ private struct EntryRow: View {
                         .padding(.vertical, 2)
                         .background(.quaternary, in: Capsule())
                 }
-                if let insights = entry.insights {
+                if isAnalyzing {
+                    Label {
+                        Text("Analyzing")
+                    } icon: {
+                        ProgressView().controlSize(.mini)
+                    }
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .accessibilityIdentifier("analyzingBadge")
+                } else if let insights = entry.insights {
                     Image(systemName: "sparkles")
                         .font(.caption2)
                         .foregroundStyle(insights.isCurrent(for: entry) ? Color.secondary : Color.orange)

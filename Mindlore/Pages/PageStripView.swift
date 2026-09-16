@@ -39,22 +39,33 @@ struct PageStripView: View {
 }
 
 // Full pages, swipeable and zoomable. Images are decoded at screen-friendly size off the main thread.
+// Takes plain image data so it works for saved pages and for ones only just scanned.
 struct PageViewer: View {
-    let pages: [EntryPage]
+    let images: [Data?]
     @State var selection: Int
     @Environment(\.dismiss) private var dismiss
+
+    init(pages: [EntryPage], selection: Int) {
+        images = pages.map(\.imageData)
+        _selection = State(initialValue: selection)
+    }
+
+    init(images: [Data?], selection: Int) {
+        self.images = images
+        _selection = State(initialValue: selection)
+    }
 
     var body: some View {
         NavigationStack {
             TabView(selection: $selection) {
-                ForEach(Array(pages.enumerated()), id: \.element.persistentModelID) { position, page in
-                    ZoomablePage(imageData: page.imageData)
+                ForEach(Array(images.enumerated()), id: \.offset) { position, image in
+                    ZoomablePage(imageData: image)
                         .tag(position)
                 }
             }
             .tabViewStyle(.page(indexDisplayMode: .automatic))
             .background(Color.black)
-            .navigationTitle("Page \(selection + 1) of \(pages.count)")
+            .navigationTitle("Page \(selection + 1) of \(images.count)")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
@@ -65,7 +76,7 @@ struct PageViewer: View {
     }
 }
 
-private struct ZoomablePage: View {
+struct ZoomablePage: View {
     let imageData: Data?
     @State private var image: UIImage?
     @State private var scale: CGFloat = 1

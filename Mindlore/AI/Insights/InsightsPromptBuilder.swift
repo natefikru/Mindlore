@@ -61,22 +61,23 @@ nonisolated enum InsightsPromptBuilder {
         var guidance: [String] = []
 
         if sections.summary {
-            properties.append(.init("summary", .string(description: "One or two sentences on what the entry is actually about. Null if there is nothing to summarize.", nullable: true)))
+            properties.append(.init("summary", .string(description: "One or two sentences on what the entry is about, however short the entry is. Null only when the entry has no content at all.", nullable: true)))
         }
         if sections.moods {
             let moods = Mood.allCases.map(\.rawValue)
-            properties.append(.init("primaryMood", .enumeration(moods, description: "The strongest mood the writer expresses. Null if the entry carries no emotional content.", nullable: true)))
-            properties.append(.init("secondaryMoods", .array(.enumeration(moods), description: "Up to \(maxSecondaryMoods) other moods clearly present. Empty if none.")))
+            // Always answered: every entry gets a mood, and neutral covers the ones that carry none.
+            properties.append(.init("primaryMood", .enumeration(moods, description: "The strongest mood the writer expresses, including a quiet one. Use neutral when the entry carries no clear feeling, such as a list or a note to self.")))
+            properties.append(.init("secondaryMoods", .array(.enumeration(moods), description: "Up to \(maxSecondaryMoods) other moods also present. Empty if the entry carries only one mood or none.")))
             let vocabulary = MoodCategory.allCases.map { category in
                 "\(category.name): " + Mood.allCases.filter { $0.category == category }.map { "\($0.rawValue) (\($0.meaning))" }.joined(separator: ", ")
             }.joined(separator: "\n")
             guidance.append("Moods come only from this list. Leave moods empty rather than guess.\n\(vocabulary)")
         }
         if sections.themes {
-            properties.append(.init("themes", .array(.string(), description: "Two to four short phrases naming what the entry is about. Empty if none.")))
+            properties.append(.init("themes", .array(.string(), description: "One to four short phrases naming what the entry is about. A short entry still has at least one.")))
         }
         if sections.tags {
-            properties.append(.init("tags", .array(.string(), description: "Up to \(maxTags) short lowercase labels for grouping entries, like work or family. Empty if none.")))
+            properties.append(.init("tags", .array(.string(), description: "One to \(maxTags) short lowercase labels for grouping entries with others, like work or family.")))
             let tags = Array(existingTags.prefix(maxExistingTags))
             if !tags.isEmpty {
                 guidance.append("Tags already used in this journal; reuse one when it fits instead of inventing a near-duplicate: \(tags.joined(separator: ", ")).")
@@ -92,13 +93,16 @@ nonisolated enum InsightsPromptBuilder {
             properties.append(.init("openThreads", .array(.string(), description: "Unresolved things the writer may want to come back to. Empty if none.")))
         }
 
+        // Speech-to-text and handwriting both produce punctuation worth fixing; typed text is the
+        // user's own keystrokes and is never rewritten.
         var skippedReason: String?
-        let asksForCleanedText = sections.cleanedText && source == .voice && text.count <= maxCleanedTextCharacters
-        if sections.cleanedText && source == .voice && !asksForCleanedText {
+        let canCleanUp = sections.cleanedText && (source == .voice || source == .photo)
+        let asksForCleanedText = canCleanUp && text.count <= maxCleanedTextCharacters
+        if canCleanUp && !asksForCleanedText {
             skippedReason = "tooLong"
         }
         if asksForCleanedText {
-            properties.append(.init("cleanedText", .string(description: "The entry with punctuation, capitalization, paragraph breaks, and obvious speech-to-text mistakes fixed. Keep the writer's words, order, and meaning; do not summarize, shorten, or add anything. Null if it needs no changes.", nullable: true)))
+            properties.append(.init("cleanedText", .string(description: "The entry with punctuation, capitalization, paragraph breaks, and obvious transcription mistakes fixed. Keep the writer's words, order, and meaning; do not summarize, shorten, or add anything. Null if it needs no changes.", nullable: true)))
         }
 
         let asksForWrittenDate = sections.suggestEntryDates && source == .typed
@@ -118,8 +122,11 @@ nonisolated enum InsightsPromptBuilder {
         var system = """
         You organize a personal journal entry for the person who wrote it. Be direct and concise. \
         Observe and organize only: do not give advice, reassurance, encouragement, or therapy-style reflection, \
-        and do not use diagnostic language. Do not restate the entry back. Use the writer's language. \
-        Leave any field empty when the entry gives nothing for it.
+        and do not use diagnostic language. Do not restate the entry back. Use the writer's language.
+
+        Fill in every field the entry supports, however short it is: a one-line entry still has a summary, \
+        usually a mood, and often a theme or a tag. Leave a field empty only when the entry genuinely \
+        contains nothing for it, such as no named people for mentions.
         """
         if !guidance.isEmpty {
             system += "\n\n" + guidance.joined(separator: "\n\n")

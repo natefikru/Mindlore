@@ -25,6 +25,7 @@ final class PageTranscriptionCoordinator {
 
     @ObservationIgnored private let resolve: () -> Result<Transcription, AIJobFailure>
     @ObservationIgnored private let suggestEntryDates: () -> Bool
+    @ObservationIgnored private let autoApplyEntryDate: () -> Bool
     @ObservationIgnored private let save: (ModelContext) throws -> Void
     @ObservationIgnored private let diagnostics: DiagnosticsLog
     @ObservationIgnored private let beginBackgroundTask: (String) -> () -> Void
@@ -36,6 +37,7 @@ final class PageTranscriptionCoordinator {
     init(
         resolve: @escaping () -> Result<Transcription, AIJobFailure>,
         suggestEntryDates: @escaping () -> Bool = { true },
+        autoApplyEntryDate: @escaping () -> Bool = { false },
         save: @escaping (ModelContext) throws -> Void = { try $0.saveStampingEntries() },
         diagnostics: DiagnosticsLog = .shared,
         beginBackgroundTask: @escaping (String) -> () -> Void = TranscriptionCoordinator.systemBackgroundTask,
@@ -43,6 +45,7 @@ final class PageTranscriptionCoordinator {
     ) {
         self.resolve = resolve
         self.suggestEntryDates = suggestEntryDates
+        self.autoApplyEntryDate = autoApplyEntryDate
         self.save = save
         self.diagnostics = diagnostics
         self.beginBackgroundTask = beginBackgroundTask
@@ -200,8 +203,12 @@ final class PageTranscriptionCoordinator {
         let applied = finished.applyGeneratedText(finished.joinedPageText, generatedBy: transcription.label)
         if applied {
             finished.textReviewPending = true
-            if suggestEntryDates(), let written = finished.sortedPages.compactMap(\.writtenDate).first {
-                if finished.storeSuggestedEntryDate(written) {
+            if suggestEntryDates(), let written = finished.sortedPages.compactMap(\.writtenDate).first,
+               finished.storeSuggestedEntryDate(written) {
+                if autoApplyEntryDate() {
+                    finished.acceptSuggestedEntryDate()
+                    diagnostics.record("entryDate.changed", ["id": .id(entryID), "reason": "auto", "source": "page"])
+                } else {
                     diagnostics.record("entryDate.suggested", ["id": .id(entryID), "source": "page"])
                 }
             }

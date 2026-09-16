@@ -23,6 +23,7 @@ struct PageOrderView: View {
     @State private var notice: String?
     @State private var removalIndex: Int?
     @State private var confirmingRestart = false
+    @State private var previewingPage: Int?
     private let startWithCamera: Bool
     private let onConfirmed: (Entry) -> Void
 
@@ -47,6 +48,19 @@ struct PageOrderView: View {
         return (entry?.sortedPages ?? []).map { Row(id: $0.persistentModelID, thumbnailData: $0.thumbnailData, pixelWidth: $0.pixelWidth, origin: $0.origin) }
     }
 
+    // Full-size images in the same order as the rows, for the preview.
+    private var fullImages: [Data?] {
+        if let draft {
+            return draft.map { item in
+                switch item.content {
+                case .existing(let page): page.imageData
+                case .new(let processed, _): processed.imageData
+                }
+            }
+        }
+        return (entry?.sortedPages ?? []).map(\.imageData)
+    }
+
     private var remainingRoom: Int { Entry.maxPages - rows.count }
     private var aiUsable: Bool { AIServices.pagesUsable(settings: settings, accounts: accounts) }
 
@@ -60,9 +74,14 @@ struct PageOrderView: View {
                 }
                 Section {
                     ForEach(Array(rows.enumerated()), id: \.element.id) { position, row in
-                        PageRow(number: position + 1, thumbnailData: row.thumbnailData, pixelWidth: row.pixelWidth, origin: row.origin) {
-                            removalIndex = position
-                        }
+                        PageRow(
+                            number: position + 1,
+                            thumbnailData: row.thumbnailData,
+                            pixelWidth: row.pixelWidth,
+                            origin: row.origin,
+                            onPreview: { previewingPage = position },
+                            onRemove: { removalIndex = position }
+                        )
                     }
                     .onMove(perform: move)
                 } footer: {
@@ -102,6 +121,9 @@ struct PageOrderView: View {
                         .disabled(rows.isEmpty || processing)
                         .accessibilityIdentifier("confirmPagesButton")
                 }
+            }
+            .fullScreenCover(item: Binding(get: { previewingPage.map(PagePreviewSelection.init) }, set: { previewingPage = $0?.index })) { selection in
+                PageViewer(images: fullImages, selection: selection.index)
             }
             .fullScreenCover(isPresented: $showingCamera) {
                 DocumentCameraView(
@@ -333,24 +355,34 @@ struct PageOrderView: View {
     }
 }
 
+private struct PagePreviewSelection: Identifiable {
+    let index: Int
+    var id: Int { index }
+}
+
 private struct PageRow: View {
     let number: Int
     let thumbnailData: Data?
     let pixelWidth: Int
     let origin: PageOrigin
+    let onPreview: () -> Void
     let onRemove: () -> Void
 
     var body: some View {
         HStack(spacing: 12) {
-            Group {
-                if let thumbnailData, let image = UIImage(data: thumbnailData) {
-                    Image(uiImage: image).resizable().scaledToFill()
-                } else {
-                    Color.secondary.opacity(0.2)
+            Button(action: onPreview) {
+                Group {
+                    if let thumbnailData, let image = UIImage(data: thumbnailData) {
+                        Image(uiImage: image).resizable().scaledToFill()
+                    } else {
+                        Color.secondary.opacity(0.2)
+                    }
                 }
+                .frame(width: 48, height: 64)
+                .clipShape(RoundedRectangle(cornerRadius: 4))
             }
-            .frame(width: 48, height: 64)
-            .clipShape(RoundedRectangle(cornerRadius: 4))
+            .buttonStyle(.plain)
+            .accessibilityLabel("Preview page \(number)")
             VStack(alignment: .leading) {
                 Text("Page \(number)")
                 Text(origin == .camera ? "Scanned" : "From Photos")
@@ -358,6 +390,10 @@ private struct PageRow: View {
                     .foregroundStyle(.secondary)
             }
             Spacer()
+            Button("Preview page \(number)", systemImage: "eye", action: onPreview)
+                .labelStyle(.iconOnly)
+                .buttonStyle(.borderless)
+                .accessibilityIdentifier("previewPage-\(number)")
             Button("Remove page \(number)", systemImage: "trash", role: .destructive, action: onRemove)
                 .labelStyle(.iconOnly)
                 .buttonStyle(.borderless)

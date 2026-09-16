@@ -28,6 +28,7 @@ final class SettingsStore {
         static let insightCleanedText = "insightCleanedText"
         static let autoApplyCleanedText = "autoApplyCleanedText"
         static let suggestEntryDates = "suggestEntryDates"
+        static let autoApplySuggestedEntryDate = "autoApplySuggestedEntryDate"
         static let customInsightPrompts = "customInsightPrompts"
     }
 
@@ -91,11 +92,16 @@ final class SettingsStore {
         didSet { write(textModel, Key.textModel, logged: .string(textModel)) }
     }
 
-    // nil until the user chooses; the default depends on whether this phone can run on-device titles.
+    // nil until the user chooses. With AI set up, titles come from the provider like the rest of the
+    // AI work; otherwise the free on-device model writes them, and failing that nothing does.
     private var storedTitleGenerator: TitleGenerator?
 
     var titleGenerator: TitleGenerator {
-        get { storedTitleGenerator ?? (onDeviceTitlesAvailable() ? .onDevice : .off) }
+        get {
+            if let storedTitleGenerator { return storedTitleGenerator }
+            if aiEnabled && !providerAccounts.isEmpty { return .openAI }
+            return onDeviceTitlesAvailable() ? .onDevice : .off
+        }
         set {
             storedTitleGenerator = newValue
             write(newValue.rawValue, Key.titleGenerator, logged: .string(newValue.rawValue))
@@ -115,6 +121,7 @@ final class SettingsStore {
     var insightCleanedText: Bool { didSet { write(insightCleanedText, Key.insightCleanedText, logged: .bool(insightCleanedText)) } }
     var autoApplyCleanedText: Bool { didSet { write(autoApplyCleanedText, Key.autoApplyCleanedText, logged: .bool(autoApplyCleanedText)) } }
     var suggestEntryDates: Bool { didSet { write(suggestEntryDates, Key.suggestEntryDates, logged: .bool(suggestEntryDates)) } }
+    var autoApplySuggestedEntryDate: Bool { didSet { write(autoApplySuggestedEntryDate, Key.autoApplySuggestedEntryDate, logged: .bool(autoApplySuggestedEntryDate)) } }
 
     // Prompt names and instructions are the user's own words, so only the change is logged.
     var customInsightPrompts: [CustomInsightPrompt] {
@@ -164,6 +171,7 @@ final class SettingsStore {
         insightCleanedText = bool(Key.insightCleanedText, true)
         autoApplyCleanedText = bool(Key.autoApplyCleanedText, false)
         suggestEntryDates = bool(Key.suggestEntryDates, true)
+        autoApplySuggestedEntryDate = bool(Key.autoApplySuggestedEntryDate, false)
         customInsightPrompts = json(Key.customInsightPrompts, [])
     }
 

@@ -42,10 +42,11 @@ final class PageOrderUITests: XCTestCase {
         unconfirmed.tap()
         XCTAssertTrue(app.descendants(matching: .any)["pageRow-1000"].waitForExistence(timeout: 5))
 
-        // Move the third scanned page to the top with its reorder handle.
-        let third = app.buttons["Reorder Page 3"]
-        XCTAssertTrue(third.waitForExistence(timeout: 5))
-        third.press(forDuration: 0.6, thenDragTo: app.buttons["Reorder Page 1"])
+        // Move the third scanned page to the top with its reorder handle, top to bottom on screen.
+        let handles = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Reorder")).allElementsBoundByIndex
+            .sorted { $0.frame.minY < $1.frame.minY }
+        XCTAssertGreaterThanOrEqual(handles.count, 5)
+        handles[2].press(forDuration: 0.6, thenDragTo: handles[0])
 
         // Remove the last page (one of the library pages).
         app.buttons["Remove page 5"].tap()

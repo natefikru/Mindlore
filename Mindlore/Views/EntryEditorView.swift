@@ -21,24 +21,35 @@ struct EntryEditorView: View {
     @State private var confirmingRevert = false
     // Set by Done, so the entry can say when its insights are ready without interrupting.
     @State private var watchingForInsights = false
-    @FocusState private var editorFocused: Bool
+    // Not @FocusState: the text view is a UITextView so it can grow with its content, and it
+    // reports focus back through this flag.
+    @State private var editorFocused = false
+
+    static let fallbackNoticeSeconds = 8.0
 
     init(entry: Entry?) {
         _entry = State(initialValue: entry)
     }
 
     var body: some View {
-        TextEditor(text: textBinding)
-            .focused($editorFocused)
-            .padding(.horizontal)
-            .accessibilityIdentifier("entryEditor")
-            // Everything above the text sits in a top inset rather than a stack, so the text view keeps
-            // its full height and a tap in the empty space below short text puts the cursor at the end.
-            .safeAreaInset(edge: .top, spacing: 0) {
-                header
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(.background)
+        GeometryReader { proxy in
+            ScrollView {
+                VStack(alignment: .leading, spacing: 0) {
+                    header
+                    // The text view grows with its text and never ends shorter than the screen, so the
+                    // whole entry scrolls as one and a tap below short text still lands in the text.
+                    GrowingTextEditor(
+                        text: textBinding,
+                        minHeight: max(240, proxy.size.height - 160),
+                        isFocused: editorFocused,
+                        onFocusChange: { editorFocused = $0 }
+                    )
+                    .padding(.horizontal)
+                    .accessibilityIdentifier("entryEditor")
+                }
             }
+            .scrollDismissesKeyboard(.interactively)
+        }
         .navigationTitle(title)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
@@ -154,7 +165,7 @@ struct EntryEditorView: View {
                     .padding(.horizontal)
                     .padding(.top, 8)
             }
-            if let entry, watchingForInsights {
+            if let entry, watchingForInsights || insightsCoordinator.isRunning(entry) || entry.insightsPending {
                 insightsReadyLine(for: entry)
                     .padding(.horizontal)
                     .padding(.top, 8)
@@ -176,6 +187,12 @@ struct EntryEditorView: View {
                 fallbackNotice(for: entry, reason: AIJobFailure(raw: reason))
                     .padding(.horizontal)
                     .padding(.top, 8)
+                    .task(id: reason) {
+                        try? await Task.sleep(for: .seconds(Self.fallbackNoticeSeconds))
+                        guard !Task.isCancelled, entry.textFallbackReasonRaw == reason else { return }
+                        entry.textFallbackReasonRaw = nil
+                        saver.noteChange()
+                    }
             }
             if let entry, entry.awaitingText, entry.source != .photo {
                 transcriptionStatus(for: entry)
@@ -305,7 +322,11 @@ struct EntryEditorView: View {
                 Label { Text("Finding insights…") } icon: { ProgressView().controlSize(.small) }
                     .font(.footnote)
                     .foregroundStyle(.secondary)
-            } else if entry.insights?.isCurrent(for: entry) == true {
+            } else if entry.insightsPending {
+                Label { Text("Insights queued…") } icon: { Image(systemName: "sparkles") }
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            } else if entry.insights?.isCurrent(for: entry) == true, watchingForInsights {
                 Button {
                     showingInsights = true
                     watchingForInsights = false
@@ -438,6 +459,7 @@ struct EntryEditorView: View {
         }
     }
 
+    // The fallback notice is information, not a decision, so it clears itself.
     private func fallbackNotice(for entry: Entry, reason: AIJobFailure) -> some View {
         HStack(alignment: .firstTextBaseline) {
             Label("Transcribed on this iPhone. \(reason.userMessage)", systemImage: "iphone")

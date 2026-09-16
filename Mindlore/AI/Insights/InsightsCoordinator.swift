@@ -16,6 +16,7 @@ final class InsightsCoordinator {
     @ObservationIgnored private let resolve: () -> Result<Generator, AIJobFailure>
     @ObservationIgnored private let sections: () -> InsightSections
     @ObservationIgnored private let autoApplyCleanedText: () -> Bool
+    @ObservationIgnored private let autoApplyEntryDate: () -> Bool
     @ObservationIgnored private let presence: EditorPresence
     @ObservationIgnored private let save: (ModelContext, Set<PersistentIdentifier>) throws -> Void
     @ObservationIgnored private let diagnostics: DiagnosticsLog
@@ -29,6 +30,7 @@ final class InsightsCoordinator {
         resolve: @escaping () -> Result<Generator, AIJobFailure>,
         sections: @escaping () -> InsightSections,
         autoApplyCleanedText: @escaping () -> Bool,
+        autoApplyEntryDate: @escaping () -> Bool = { false },
         presence: EditorPresence,
         save: @escaping (ModelContext, Set<PersistentIdentifier>) throws -> Void = { try $0.saveStampingEntries(except: $1) },
         diagnostics: DiagnosticsLog = .shared,
@@ -37,6 +39,7 @@ final class InsightsCoordinator {
         self.resolve = resolve
         self.sections = sections
         self.autoApplyCleanedText = autoApplyCleanedText
+        self.autoApplyEntryDate = autoApplyEntryDate
         self.presence = presence
         self.save = save
         self.diagnostics = diagnostics
@@ -84,6 +87,14 @@ final class InsightsCoordinator {
         manualRuns.insert(entry.id)
         try? save(context, [entry.persistentModelID])
         diagnostics.record("insights.requested", ["id": .id(entry.id), "trigger": "runAI"])
+        await processQueue(context: context)
+    }
+
+    // Work that stopped because the phone was offline picks up as soon as the network is back,
+    // without waiting for the next launch. Stored failures still gate what may run.
+    func networkBecameAvailable(context: ModelContext) async {
+        guard !failedThisSession.isEmpty else { return }
+        failedThisSession = []
         await processQueue(context: context)
     }
 
@@ -161,8 +172,7 @@ final class InsightsCoordinator {
         insights.modelUsed = generator.label
         insights.sourceTextHash = analyzedHash
         insights.summary = result.summary
-        insights.primaryMoodRaw = result.primaryMood?.rawValue
-        insights.secondaryMoodsRaw = result.secondaryMoods.map(\.rawValue)
+        insights.setMoods(primary: result.primaryMood, secondary: result.secondaryMoods, editedByUser: false)
         insights.themes = result.themes
         insights.tags = result.tags
         insights.mentions = result.mentions
@@ -176,9 +186,15 @@ final class InsightsCoordinator {
         let isCurrent = TextHash.of(current.text) == analyzedHash
         var changedEntry = false
         if isCurrent {
-            // A suggestion only offers a date; it isn't an edit until the user accepts it.
+            // A suggestion only offers a date; it isn't an edit until accepted, by the user or by the setting.
             if let writtenDate = result.writtenDate, current.storeSuggestedEntryDate(writtenDate, calendar: calendar) {
-                diagnostics.record("entryDate.suggested", ["id": .id(entryID), "source": "insights"])
+                if autoApplyEntryDate() {
+                    current.acceptSuggestedEntryDate(calendar: calendar)
+                    changedEntry = true
+                    diagnostics.record("entryDate.changed", ["id": .id(entryID), "reason": "auto", "source": "insights"])
+                } else {
+                    diagnostics.record("entryDate.suggested", ["id": .id(entryID), "source": "insights"])
+                }
             }
             if let cleaned = result.cleanedText, autoApplyCleanedText(), !presence.isOpen(entryID) {
                 if current.applyCleanedText(cleaned) {

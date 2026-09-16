@@ -151,14 +151,14 @@ extension Entry {
     }
 }
 
-// MARK: - Cleaned-up text (voice entries)
+// MARK: - Cleaned-up text (transcribed entries: voice and pages)
 
 extension Entry {
     // Cleanup only replaces the exact text it was made from, so it can never overwrite newer edits.
     // The first pre-cleanup text is kept for "Revert to original", however many cleanups follow.
     @discardableResult
     func applyCleanedText(_ cleaned: String) -> Bool {
-        guard source == .voice, let insights, !cleaned.isEmpty, cleaned != text,
+        guard source == .voice || source == .photo, let insights, !cleaned.isEmpty, cleaned != text,
               TextHash.of(text) == insights.sourceTextHash else { return false }
         if originalText == nil {
             originalText = text
@@ -176,7 +176,7 @@ extension Entry {
 
     // A cleanup is waiting when the insights hold one for exactly this text and it isn't applied yet.
     var pendingCleanedText: String? {
-        guard source == .voice, let cleaned = insights?.cleanedText, !cleaned.isEmpty, cleaned != text,
+        guard source == .voice || source == .photo, let cleaned = insights?.cleanedText, !cleaned.isEmpty, cleaned != text,
               TextHash.of(text) == insights?.sourceTextHash else { return nil }
         return cleaned
     }

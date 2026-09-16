@@ -34,6 +34,7 @@ struct RootView: View {
             resolve: { AIServices.insightsGenerator(settings: settings, accounts: accounts) },
             sections: { AIServices.insightSections(settings) },
             autoApplyCleanedText: { settings.autoApplyCleanedText },
+            autoApplyEntryDate: { settings.autoApplySuggestedEntryDate },
             presence: presence
         )
 
@@ -55,7 +56,8 @@ struct RootView: View {
 
         let pageTranscription = PageTranscriptionCoordinator(
             resolve: { AIServices.pageTranscriber(settings: settings, accounts: accounts) },
-            suggestEntryDates: { settings.suggestEntryDates }
+            suggestEntryDates: { settings.suggestEntryDates },
+            autoApplyEntryDate: { settings.autoApplySuggestedEntryDate }
         )
 
         _presence = State(initialValue: presence)
@@ -108,6 +110,10 @@ struct RootView: View {
                 guard connected else { return }
                 Task { await transcription.networkBecameAvailable(context: context) }
                 Task { await pageTranscription.networkBecameAvailable(context: context) }
+                Task {
+                    await titles.networkBecameAvailable(context: context)
+                    await insights.networkBecameAvailable(context: context)
+                }
             }
     }
 }

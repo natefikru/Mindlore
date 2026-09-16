@@ -261,11 +261,11 @@ var insights: EntryInsights?
 
 ## Mood vocabulary
 
-Locked 2026-09-15 (owner asked Claude to write it). Eight categories, 43 moods. Changing a mood after insights exist means re-running AI on those entries, so additions are cheap and renames or removals are not.
+Locked 2026-09-15 (owner asked Claude to write it). Eight categories, 44 moods. `neutral` was added during the device smoke test, when the owner asked that every entry get a mood. Changing a mood after insights exist means re-running AI on those entries, so additions are cheap and renames or removals are not.
 
 How it works:
 - Each category has a fixed `valence` (-1, 0, +1) and `energy` (low, medium, high), so trend charts can plot categories without per-mood tuning.
-- An entry gets one primary mood and up to two secondary moods, or no mood at all when the text carries no emotional content (a shopping list, logistics). The model is told to leave moods empty rather than guess.
+- Every analyzed entry gets a primary mood: the field is required, and `neutral` covers entries that carry no feeling (a shopping list, logistics). Up to two secondary moods are optional.
 - Raw values are the camelCase names below (`burnedOut`). The category is derived from the mood, never stored.
 - Descriptions go into the schema so the model picks consistently, and into the insights view so the user sees what a mood means.
 
@@ -274,7 +274,7 @@ How it works:
 | **Joyful** | +1 / high | **joyful**: happy, light, glad · **excited**: eager, looking forward to something · **energized**: motivated, ready to act · **proud**: satisfied with something done · **confident**: sure of yourself or a decision · **inspired**: struck by an idea or possibility |
 | **Calm** | +1 / low | **content**: things feel fine as they are · **calm**: settled, unhurried · **grateful**: thankful for someone or something · **relieved**: a worry has lifted · **hopeful**: expecting things to get better |
 | **Connected** | +1 / medium | **loved**: cared for by someone · **connected**: close to the people around you · **supported**: someone has your back · **compassionate**: feeling for someone else |
-| **Reflective** | 0 / medium | **reflective**: thinking things over · **curious**: wanting to understand something · **nostalgic**: drawn back to the past · **uncertain**: unsure what to think or do · **conflicted**: pulled in two directions |
+| **Reflective** | 0 / medium | **reflective**: thinking things over · **curious**: wanting to understand something · **nostalgic**: drawn back to the past · **uncertain**: unsure what to think or do · **conflicted**: pulled in two directions · **neutral**: no strong feeling either way |
 | **Anxious** | -1 / high | **anxious**: worried about what might happen · **stressed**: under pressure · **overwhelmed**: too much at once · **restless**: unable to settle · **afraid**: scared or threatened · **insecure**: doubting yourself or your place |
 | **Angry** | -1 / high | **frustrated**: blocked or thwarted · **irritated**: annoyed by small things · **angry**: strongly upset at someone or something · **resentful**: holding onto a grievance · **jealous**: wanting what someone else has |
 | **Low** | -1 / low | **sad**: down, sorrowful · **lonely**: missing connection · **disappointed**: let down by someone or something · **hurt**: emotionally wounded · **guilty**: regret over something you did · **ashamed**: feeling bad about who you are · **hopeless**: unable to see things improving |
@@ -505,15 +505,45 @@ The automatic pass currently fires the first time a typed entry's editor closes,
 - Tests: presentation states and button labels, the word diff, and a UI test that finishes an entry, reads its insights, edits it, updates them, and deletes them. It passes against real OpenAI and against the stub.
 
 ### Phase 12: Privacy tests, review, device smoke test
+
+**Device smoke test, session 1 (2026-09-15, iPhone 17 Pro). Passed:**
+- Upgrade over the owner's real store: 9 entries intact, `store.entryDatesRepaired count=9` once, nothing on later launches.
+- Key setup: `ai.keySaved`, `ai.connectionTested ok=true models=132`, no key material in the log.
+- Voice through OpenAI: `gpt-transcribe`, 18.9 s recording, 2.0 s request, 130 characters.
+- Airplane mode: `ai.offline` in 46 ms, fell back to Apple in 0.4 s, notice shown.
+- Launch sweep picked up the entry whose insights failed while offline.
+- Titles on-device (`apple:foundation`, 2.3 s), insights automatic after the editor closed.
+- Journal pages: 4 scanned, 1 removed, 3 transcribed on `gpt-5.6-terra` (about 3,270 input and 350 to 740 output tokens per page, 5 to 9 s each, ~580 KB per upload, ~800 KB stored). Owner rated the transcription about 98% accurate, missing only unusual punctuation. A date written on a page was offered and accepted, moving the entry back 4 days. Approve fired the pass (`moment=approved`), and insights returned 8 mentions and 7 tags.
+- Cleanup on page text: reviewed in the compare screen and applied.
+- Moods edited by hand; page previews and whole-entry scrolling confirmed after the fixes below.
+
+**Found and fixed during the session:**
+- Insights came back nearly empty for short entries (1 of 7 sections): the prompt told the model to leave fields empty, so it did. Now it fills what the entry supports, and the same entry returned 6 to 7 sections.
+- No sign that anything was running: added an "Analyzing" badge in the list and a status line in the editor whenever a run is queued or in flight.
+- Titles and insights only retried after a relaunch: they now resume when the network returns, like transcription and pages.
+- The "Transcribed on this iPhone" notice needed a tap: it clears itself after 8 seconds.
+- No way to see a page before confirming: added per-page previews on the page screen.
+- Only the text scrolled: the entry is now one scroll view (custom growing text view), so the title, player, and page thumbnails scroll with it.
+- Every entry now gets a mood: added `neutral` and made the primary mood required.
+- Moods are editable from the insights sheet.
+- Cleanup now covers photo entries too, not just voice; typed entries are still never rewritten.
+- New setting: use the suggested entry date automatically (off by default), alongside the existing automatic cleanup setting.
+- Titles now default to the provider once AI is set up, falling back to the on-device model.
+
+**Device smoke test, session 2 (owner to run when convenient):**
+- [ ] Bad key: replace the key with a bad one, record 10 s. Expect `ai.invalidKey`, fallback to the phone, and no re-upload after a relaunch. Restore the real key.
+- [ ] Pages offline: airplane mode, photograph 1 page, confirm. Expect one `ai.offline`, no repeats, and the transcription finishing on its own when airplane mode goes off with the app open (tests tonight's network-resume fix).
+- [ ] Edit pages and restart: remove a page from the 3-page entry, confirm the warning, expect `pages.restarted` and a fresh transcription needing approval again.
+- [ ] Typing over a transcription in flight: the typed text wins, then "Replace with page transcription" restores the page text.
+- [ ] Force-quit during insights: tap Done and swipe the app away; the run completes after relaunch with one attempt counted.
+- [ ] Lock the phone for a minute, unlock, record: cloud transcription still works (Keychain readable after first unlock).
+- [ ] Optional: a 25-minute recording, to see chunked uploads on a device.
+- [ ] Optional: 5 pages in one entry, for memory and stored size at the owner's realistic maximum.
+
+**Still to do, no phone needed:**
 - [ ] `DiagnosticsPrivacyTests` extended: sentinel as entry text, title, tag, mention name, custom prompt name and instructions, generated text, page transcription, API key, inside a fake error response body, and inside a `DecodingError`; none may reach the log.
 - [ ] Sub-agent code review over the PR diff, fixes in separate commits.
-- [ ] Device smoke steps added to `tasks/smoke-test.md` and run:
-  - Install over the previous build: entries intact and dated by their original days.
-  - Voice: cloud transcription online; airplane mode falls back to Apple with the notice; bad key falls back and shows the error; relaunch with a bad key doesn't re-upload (count `ai.request`); 25+ minute recording chunks and transcribes; cleanup auto-apply on, then revert.
-  - Photo: photograph three real journal pages, reorder, confirm, transcribe, compare against the pages, correct, approve, title and insights run; import pages from Photos; airplane mode on confirm, entry waits without using attempts and finishes on its own when airplane mode goes off while the app stays open; Edit pages then Cancel keeps the text; Edit pages with a reorder shows the warning and restarts; type into an entry mid-transcription, then "Replace with page transcription"; a dated page suggests its date; measure stored bytes per page on a real journal; a 5-page scan (the owner's realistic maximum) stays responsive. The 20-page cap stays in code as a guard, but memory above 5 pages is unverified on a device.
-  - Dates: backdate a typed entry, list order updates, "Added" label shows; paste a dated entry and get a suggestion.
-  - Titles and insights: on-device title offline; title-only entry survives close; insights run once, and editing and closing again makes no second request; Run AI on an entry from before AI was on; force-quit during insights, relaunch, the run completes and counts one attempt; key survives relaunch.
-- [ ] Update `CLAUDE.md`: AI layer architecture, job state rules, photo entry flow, entry dates, how to add a provider, test fakes.
+- [ ] Update `CLAUDE.md`: AI layer architecture, job state rules, photo entry flow, entry dates, drafts, how to add a provider, test fakes.
 - [ ] PR description; mark ready.
 
 ## Test plan

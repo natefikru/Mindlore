@@ -15,6 +15,7 @@ struct EntryInsightsView: View {
     @Environment(AIPassTrigger.self) private var aiPass
     @State private var confirmingRun = false
     @State private var confirmingDelete = false
+    @State private var editingMoods = false
 
     private var insights: EntryInsights? { entry.insights }
 
@@ -65,11 +66,22 @@ struct EntryInsightsView: View {
                     .accessibilityIdentifier("insightsMenuButton")
                 }
             }
+            .sheet(isPresented: $editingMoods) {
+                if let insights {
+                    MoodPickerView(insights: insights) {
+                        saver.noteChange()
+                        saver.flush()
+                        DiagnosticsLog.shared.record("insights.moodsEdited", ["id": .id(entry.id)])
+                    }
+                }
+            }
             .confirmationDialog("Generate again?", isPresented: $confirmingRun, titleVisibility: .visible) {
                 Button("Generate again") { run() }
                     .accessibilityIdentifier("confirmGenerateAgainButton")
             } message: {
-                Text("This sends the entry to OpenAI again and uses your credit.")
+                Text(insights?.moodsEditedByUser == true
+                     ? "This sends the entry to OpenAI again, uses your credit, and replaces the moods you set."
+                     : "This sends the entry to OpenAI again and uses your credit.")
             }
             .confirmationDialog("Delete these insights?", isPresented: $confirmingDelete, titleVisibility: .visible) {
                 Button("Delete insights", role: .destructive) { deleteInsights() }
@@ -139,8 +151,10 @@ struct EntryInsightsView: View {
             }
         }
         if insights.primaryMood != nil || !insights.secondaryMoods.isEmpty {
-            InsightCard(title: "Moods") {
+            InsightCard(title: "Moods", caption: insights.moodsEditedByUser ? "You set these." : nil) {
                 MoodRows(primary: insights.primaryMood, secondary: insights.secondaryMoods)
+                Button("Edit moods", systemImage: "pencil") { editingMoods = true }
+                    .accessibilityIdentifier("editMoodsButton")
             }
         }
         if !insights.themes.isEmpty {
@@ -257,7 +271,7 @@ struct WhatWasSentView: View {
         if settings.insightTags { names.append("Tags") }
         if settings.insightMentions { names.append("Mentioned") }
         if settings.insightOpenThreads { names.append("Loose ends") }
-        if settings.insightCleanedText && source == .voice { names.append("Cleaned-up text") }
+        if settings.insightCleanedText && (source == .voice || source == .photo) { names.append("Cleaned-up text") }
         if settings.suggestEntryDates && source == .typed { names.append("Written date") }
         names.append(contentsOf: settings.customInsightPrompts.filter(\.enabled).map(\.name))
         return names

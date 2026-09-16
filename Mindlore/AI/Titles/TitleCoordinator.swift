@@ -72,6 +72,14 @@ final class TitleCoordinator {
         await processQueue(context: context)
     }
 
+    // Work that stopped because the phone was offline picks up as soon as the network is back,
+    // without waiting for the next launch. Stored failures still gate what may run.
+    func networkBecameAvailable(context: ModelContext) async {
+        guard !failedThisSession.isEmpty else { return }
+        failedThisSession = []
+        await processQueue(context: context)
+    }
+
     private func generate(_ id: PersistentIdentifier, context: ModelContext) async {
         guard let entry = Self.fetch(id, in: context), entry.titlePending else { return }
         let entryID = entry.id

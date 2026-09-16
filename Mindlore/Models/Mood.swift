@@ -33,7 +33,7 @@ nonisolated enum Mood: String, CaseIterable, Codable, Sendable {
     case joyful, excited, energized, proud, confident, inspired
     case content, calm, grateful, relieved, hopeful
     case loved, connected, supported, compassionate
-    case reflective, curious, nostalgic, uncertain, conflicted
+    case reflective, curious, nostalgic, uncertain, conflicted, neutral
     case anxious, stressed, overwhelmed, restless, afraid, insecure
     case frustrated, irritated, angry, resentful, jealous
     case sad, lonely, disappointed, hurt, guilty, ashamed, hopeless
@@ -44,7 +44,7 @@ nonisolated enum Mood: String, CaseIterable, Codable, Sendable {
         case .joyful, .excited, .energized, .proud, .confident, .inspired: .joyful
         case .content, .calm, .grateful, .relieved, .hopeful: .calm
         case .loved, .connected, .supported, .compassionate: .connected
-        case .reflective, .curious, .nostalgic, .uncertain, .conflicted: .reflective
+        case .reflective, .curious, .nostalgic, .uncertain, .conflicted, .neutral: .reflective
         case .anxious, .stressed, .overwhelmed, .restless, .afraid, .insecure: .anxious
         case .frustrated, .irritated, .angry, .resentful, .jealous: .angry
         case .sad, .lonely, .disappointed, .hurt, .guilty, .ashamed, .hopeless: .low
@@ -78,6 +78,7 @@ nonisolated enum Mood: String, CaseIterable, Codable, Sendable {
         case .nostalgic: "drawn back to the past"
         case .uncertain: "unsure what to think or do"
         case .conflicted: "pulled in two directions"
+        case .neutral: "no strong feeling either way"
         case .anxious: "worried about what might happen"
         case .stressed: "under pressure"
         case .overwhelmed: "too much at once"

@@ -172,27 +172,35 @@ struct InsightsSettingsView: View {
             }
 
             Section {
-                Toggle("Clean up voice transcriptions", isOn: $settings.insightCleanedText)
+                Toggle("Clean up transcriptions", isOn: $settings.insightCleanedText)
                     .accessibilityIdentifier("insightCleanedTextToggle")
                 if settings.insightCleanedText {
                     Toggle("Use the cleaned-up version automatically", isOn: $settings.autoApplyCleanedText)
                         .accessibilityIdentifier("autoApplyCleanedTextToggle")
                 }
             } header: {
-                Text("Voice entries")
+                Text("Transcribed entries")
             } footer: {
                 Text(settings.insightCleanedText
                      ? (settings.autoApplyCleanedText
-                        ? "The cleaned-up text replaces the entry's text on its own. Your original is kept, and you can always revert."
+                        ? "The cleaned-up text replaces a transcribed entry's text on its own. Your original is kept, and you can always revert."
                         : "The cleaned-up text is offered in the entry's insights, and replaces the text only when you tap it.")
-                     : "Only voice entries are cleaned up. Your typed words and approved page text are never rewritten.")
+                     : "Only transcribed entries are cleaned up, from recordings or journal pages. Your typed words are never rewritten.")
             }
 
             Section {
                 Toggle("Suggest entry dates", isOn: $settings.suggestEntryDates)
                     .accessibilityIdentifier("suggestEntryDatesToggle")
+                if settings.suggestEntryDates {
+                    Toggle("Use the suggested date automatically", isOn: $settings.autoApplySuggestedEntryDate)
+                        .accessibilityIdentifier("autoApplyEntryDateToggle")
+                }
             } footer: {
-                Text("When a journal page or a pasted entry states the date it was written, Mindlore offers it as the entry's date. You confirm it.")
+                Text(settings.suggestEntryDates
+                     ? (settings.autoApplySuggestedEntryDate
+                        ? "A date found on a journal page or in a pasted entry becomes the entry's date on its own. You can still change it from the entry."
+                        : "When a journal page or a pasted entry states the date it was written, Mindlore offers it as the entry's date. You confirm it.")
+                     : "Entries keep the date they were added.")
             }
 
             Section {

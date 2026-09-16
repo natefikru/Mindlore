@@ -10,7 +10,7 @@ struct MoodTests {
             "joyful", "excited", "energized", "proud", "confident", "inspired",
             "content", "calm", "grateful", "relieved", "hopeful",
             "loved", "connected", "supported", "compassionate",
-            "reflective", "curious", "nostalgic", "uncertain", "conflicted",
+            "reflective", "curious", "nostalgic", "uncertain", "conflicted", "neutral",
             "anxious", "stressed", "overwhelmed", "restless", "afraid", "insecure",
             "frustrated", "irritated", "angry", "resentful", "jealous",
             "sad", "lonely", "disappointed", "hurt", "guilty", "ashamed", "hopeless",
@@ -20,11 +20,12 @@ struct MoodTests {
     }
 
     @Test func categoriesCarryValenceAndEnergy() {
-        #expect(Mood.allCases.count == 43)
+        #expect(Mood.allCases.count == 44)
         #expect(MoodCategory.allCases.count == 8)
         #expect(Mood.anxious.category == .anxious && MoodCategory.anxious.valence == -1 && MoodCategory.anxious.energy == .high)
         #expect(Mood.grateful.category == .calm && MoodCategory.calm.valence == 1 && MoodCategory.calm.energy == .low)
         #expect(Mood.reflective.category.valence == 0)
+        #expect(Mood.neutral.category == .reflective && Mood.neutral.meaning == "no strong feeling either way")
         #expect(Mood.burnedOut.name == "burned out")
         #expect(Mood.allCases.allSatisfy { !$0.meaning.isEmpty })
     }
@@ -42,11 +43,14 @@ struct InsightsPromptBuilderTests {
         let properties = try schemaProperties(plan)
 
         #expect(Set(properties.keys) == ["summary", "primaryMood", "secondaryMoods", "themes", "tags", "mentions", "openThreads", "cleanedText"])
-        #expect((properties["primaryMood"]?["enum"] as? [Any])?.count == Mood.allCases.count + 1)
+        // Not nullable: every entry gets a mood, with neutral as the fallback.
+        #expect((properties["primaryMood"]?["enum"] as? [Any])?.count == Mood.allCases.count)
+        #expect(properties["primaryMood"]?["type"] as? String == "string")
         #expect(plan.asksForCleanedText && !plan.asksForWrittenDate)
         #expect(plan.request.schemaName == "journal_insights")
         #expect(plan.request.user == "I walked to the river.")
         #expect(plan.request.system.contains("do not give advice"))
+        #expect(plan.request.system.contains("Fill in every field the entry supports"))
         #expect(plan.request.system.contains("burnedOut (worn down over a long stretch)"))
         #expect(plan.request.system.contains("work, family"))
     }
@@ -56,9 +60,11 @@ struct InsightsPromptBuilderTests {
         #expect(typed["writtenDate"] != nil)
         #expect(typed["cleanedText"] == nil)
 
+        // Pages are transcribed too, so they get cleanup; they never get a written date, which comes
+        // from the page itself during page transcription.
         let photo = try schemaProperties(InsightsPromptBuilder.plan(text: "x", source: .photo, sections: InsightSections(), existingTags: [], model: "m"))
         #expect(photo["writtenDate"] == nil)
-        #expect(photo["cleanedText"] == nil)
+        #expect(photo["cleanedText"] != nil)
 
         var noDates = InsightSections()
         noDates.suggestEntryDates = false
@@ -153,6 +159,7 @@ final class InsightsHarness {
     let generator = FakeTextGenerator()
     var sections = InsightSections()
     var autoApply = false
+    var autoApplyDate = false
     var unavailable: AIJobFailure?
     private(set) var coordinator: InsightsCoordinator!
 
@@ -171,6 +178,7 @@ final class InsightsHarness {
             },
             sections: { [unowned self] in self.sections },
             autoApplyCleanedText: { [unowned self] in self.autoApply },
+            autoApplyEntryDate: { [unowned self] in self.autoApplyDate },
             presence: presence,
             diagnostics: .disabled,
             calendar: { var calendar = Calendar(identifier: .gregorian); calendar.timeZone = TimeZone(identifier: "UTC")!; return calendar }()
@@ -418,9 +426,11 @@ struct CleanupTests {
         let typed = voiceEntry(with: "Raw words.", in: container.mainContext)
         typed.source = .typed
         #expect(!typed.applyCleanedText("Raw words."))
-        typed.source = .photo
-        #expect(!typed.applyCleanedText("Raw words."))
         #expect(typed.originalText == nil)
+
+        // Pages are transcribed, so they can be cleaned up like recordings.
+        typed.source = .photo
+        #expect(typed.applyCleanedText("Raw words."))
     }
 }
 
@@ -477,5 +487,103 @@ struct AutomaticInsightsTriggerTests {
             settings[keyPath: keyPath] = false
         }
         #expect(!AIServices.automaticInsightsUsable(settings: settings, accounts: accounts))
+    }
+}
+
+@MainActor
+struct MoodEditingTests {
+    @Test func settingMoodsByHandIsMarkedAndKeepsAtMostTwoOthers() throws {
+        let container = try ModelContainerFactory.make(.inMemory)
+        let insights = EntryInsights()
+        container.mainContext.insert(insights)
+        insights.setMoods(primary: .calm, secondary: [.grateful], editedByUser: false)
+        #expect(!insights.moodsEditedByUser)
+
+        insights.setMoods(primary: .anxious, secondary: [.tired, .anxious, .lonely, .numb])
+
+        #expect(insights.primaryMood == .anxious)
+        #expect(insights.secondaryMoods == [.tired, .lonely])
+        #expect(insights.moodsEditedByUser)
+    }
+
+    @Test func aNewRunReplacesEditedMoodsAndClearsTheMark() async throws {
+        let harness = try InsightsHarness()
+        let entry = try harness.entry("text", source: .voice)
+        harness.generator.results = [.success(InsightsHarness.fullResponse)]
+        await harness.coordinator.processQueue(context: harness.context)
+        entry.insights?.setMoods(primary: .angry, secondary: [])
+        #expect(entry.insights?.moodsEditedByUser == true)
+
+        harness.generator.results = [.success(InsightsHarness.fullResponse)]
+        await harness.coordinator.runAI(for: entry, context: harness.context)
+
+        #expect(entry.insights?.primaryMood == .calm)
+        #expect(entry.insights?.moodsEditedByUser == false)
+    }
+}
+
+@MainActor
+struct InsightsNetworkRecoveryTests {
+    @Test func insightsThatFailedOfflineRunAgainWhenTheNetworkReturns() async throws {
+        let harness = try InsightsHarness()
+        let entry = try harness.entry("text")
+        harness.generator.results = [.failure(AIError.offline(.notConnectedToInternet))]
+
+        await harness.coordinator.processQueue(context: harness.context)
+        #expect(entry.insightsPending)
+        #expect(entry.insightsAttempts == 0)
+
+        // Still offline: the same session doesn't keep trying.
+        await harness.coordinator.processQueue(context: harness.context)
+        #expect(harness.generator.requests.count == 1)
+
+        harness.generator.results = [.success(InsightsHarness.fullResponse)]
+        await harness.coordinator.networkBecameAvailable(context: harness.context)
+
+        #expect(entry.insights?.summary == "A river walk.")
+        #expect(!entry.insightsPending)
+    }
+
+    @Test func aPermanentFailureStaysPutWhenTheNetworkReturns() async throws {
+        let harness = try InsightsHarness()
+        let entry = try harness.entry("text")
+        harness.generator.results = [.failure(AIError.invalidKey)]
+
+        await harness.coordinator.processQueue(context: harness.context)
+        harness.generator.results = [.success(InsightsHarness.fullResponse)]
+        await harness.coordinator.networkBecameAvailable(context: harness.context)
+
+        #expect(harness.generator.requests.count == 1)
+        #expect(entry.insights == nil)
+        #expect(entry.insightsFailureRaw == "ai.invalidKey")
+    }
+}
+
+@MainActor
+struct AutomaticEntryDateTests {
+    @Test func theSuggestedDateIsAppliedWhenTheSettingIsOn() async throws {
+        let harness = try InsightsHarness()
+        harness.autoApplyDate = true
+        let entry = try harness.entry("March 3, 2025. Dear diary.")
+        harness.generator.results = [.success(InsightsHarness.fullResponse)]
+
+        await harness.coordinator.processQueue(context: harness.context)
+
+        #expect(entry.suggestedEntryDate == nil)
+        #expect(entry.entryDateIsDayOnly)
+        var utc = Calendar(identifier: .gregorian)
+        utc.timeZone = TimeZone(identifier: "UTC")!
+        #expect(utc.dateComponents([.year, .month, .day], from: entry.entryDate) == DateComponents(year: 2025, month: 3, day: 3))
+    }
+
+    @Test func withTheSettingOffTheDateOnlyWaitsAsASuggestion() async throws {
+        let harness = try InsightsHarness()
+        let entry = try harness.entry("March 3, 2025. Dear diary.")
+        harness.generator.results = [.success(InsightsHarness.fullResponse)]
+
+        await harness.coordinator.processQueue(context: harness.context)
+
+        #expect(entry.suggestedEntryDate != nil)
+        #expect(!entry.entryDateIsDayOnly)
     }
 }
