@@ -43,6 +43,44 @@ struct GraphEditorTests {
         #expect(loser.name == "Sarah K", "nothing is applied until the user decides")
     }
 
+    // "A different person also called {name}": the user pushes the rename through on purpose,
+    // and the pair is marked not-the-same so the Review list doesn't immediately re-suggest
+    // merging back the exact split the user just made (5c.3).
+    @Test func aForcedRenameAppliesAndKeepsBothEntitiesLiveAndSeparate() throws {
+        let (loser, winner) = try twoPeople()
+
+        #expect(editor.rename(loser, to: "Sarah Kim", force: true, in: harness.context) == .applied)
+
+        #expect(loser.name == "Sarah Kim")
+        #expect(loser.key == winner.key)
+        #expect(!loser.isMerged)
+        #expect(loser.notSameAs.contains(winner.id))
+        #expect(winner.notSameAs.contains(loser.id))
+
+        let candidates = [loser, winner].map {
+            EntityMatcher.Candidate(id: $0.id, key: $0.key, kind: $0.kind, linkCount: $0.linkCount, notSameAs: $0.notSameAs)
+        }
+        #expect(EntityMatcher.suggestions(among: candidates).isEmpty, "forcing the collision should not immediately re-suggest the merge")
+    }
+
+    @Test func aForcedAliasAppliesAndKeepsBothEntitiesLiveAndSeparate() throws {
+        let (loser, winner) = try twoPeople()
+
+        #expect(editor.addAlias("Sarah Kim", to: loser, force: true, in: harness.context) == .applied)
+
+        #expect(loser.aliases == ["Sarah Kim"])
+        #expect(loser.notSameAs.contains(winner.id))
+        #expect(winner.notSameAs.contains(loser.id))
+    }
+
+    @Test func withoutForceACollisionIsUnchanged() throws {
+        let (loser, winner) = try twoPeople()
+
+        #expect(editor.rename(loser, to: "Sarah Kim", in: harness.context) == .collides(with: winner.id))
+        #expect(loser.notSameAs.isEmpty)
+        #expect(winner.notSameAs.isEmpty)
+    }
+
     @Test func renamingOntoAnAliasCollidesToo() throws {
         let (loser, winner) = try twoPeople()
         #expect(editor.addAlias("my sister", to: winner, in: harness.context) == .applied)

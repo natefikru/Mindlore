@@ -62,6 +62,7 @@ private struct EntityPage: View {
     @State private var draftText = ""
     @State private var merging = false
     @State private var collision: UUID?
+    @State private var collidingEdit: ((Bool) -> GraphEditor.EditOutcome)?
     @State private var repointing: MentionRef?
     @State private var previewingRow: EntityPagePresentation.EntryRow?
 
@@ -114,22 +115,30 @@ private struct EntityPage: View {
             }
             .sheet(isPresented: $renaming) {
                 RenameEntitySheet(initial: entity.name, defaultsToKeepingOldName: hasVoiceSourcedLink) { name, keepOldName in
-                    apply { graph.rename(id, to: name, keepingOldNameAsAlias: keepOldName, in: modelContext) }
+                    applyForcible { force in graph.rename(id, to: name, keepingOldNameAsAlias: keepOldName, force: force, in: modelContext) }
                 }
             }
             .alert("Add another name", isPresented: $addingAlias) {
                 TextField("Name", text: $draftText)
                     .accessibilityIdentifier("entityAliasField")
-                Button("Add") { apply { graph.addAlias(draftText, to: id, in: modelContext) } }
+                Button("Add") { applyForcible { force in graph.addAlias(draftText, to: id, force: force, in: modelContext) } }
                 Button("Cancel", role: .cancel) {}
             } message: {
                 Text("Future mentions of this name will link here.")
             }
-            .alert(collisionTitle, isPresented: Binding(get: { collision != nil }, set: { if !$0 { collision = nil } })) {
+            .alert(collisionTitle, isPresented: Binding(get: { collision != nil }, set: { if !$0 { collision = nil; collidingEdit = nil } })) {
                 Button("Merge") {
                     if let collision { merge(into: collision) }
+                    collidingEdit = nil
                 }
-                Button("Cancel", role: .cancel) {}
+                if collidingEdit != nil {
+                    Button("No, someone else") {
+                        _ = collidingEdit?(true)
+                        collision = nil
+                        collidingEdit = nil
+                    }
+                }
+                Button("Cancel", role: .cancel) { collidingEdit = nil }
             } message: {
                 Text("Merge them? Everything that mentions this will link there, and you can undo it from that page.")
             }
@@ -143,6 +152,19 @@ private struct EntityPage: View {
         saver.flush()
         if case .collides(let other) = edit() {
             collision = other
+            collidingEdit = nil
+        }
+    }
+
+    // Rename and alias edits alone can be forced through a collision (5c.3); `edit` is asked with
+    // `force: false` first, and a collision keeps the closure around so the alert's "No, someone
+    // else" can replay it with `force: true`. `setKind`'s collision is a different, rarer shape
+    // (out of scope here) and stays on plain `apply`, so it never offers to force one.
+    private func applyForcible(_ edit: @escaping (Bool) -> GraphEditor.EditOutcome) {
+        saver.flush()
+        if case .collides(let other) = edit(false) {
+            collision = other
+            collidingEdit = edit
         }
     }
 

@@ -25,14 +25,18 @@ struct GraphEditor {
     // MARK: - Editing one entity
 
     // `keepingOldNameAsAlias` skips the collision check for the old name: it already belonged to
-    // this entity, so nothing else can be answering to it.
+    // this entity, so nothing else can be answering to it. `force` pushes the edit through a
+    // collision with something else on purpose ("a different person also called {name}"), and
+    // marks the two `notSameAs` so the Review list doesn't immediately re-suggest merging them.
     @discardableResult
-    func rename(_ entity: Entity, to name: String, keepingOldNameAsAlias: Bool = false, in context: ModelContext) -> EditOutcome {
+    func rename(_ entity: Entity, to name: String, keepingOldNameAsAlias: Bool = false, force: Bool = false, in context: ModelContext) -> EditOutcome {
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return .applied }
         let key = EntityNormalizer.key(for: trimmed, kind: entity.kind)
         if let clash = entityAnswering(to: key, kind: entity.kind, excluding: entity, in: context) {
-            return .collides(with: clash.id)
+            guard force else { return .collides(with: clash.id) }
+            markNotSame(entity, as: clash)
+            diagnostics.record("graph.collisionForced", ["id": .id(entity.id), "other": .id(clash.id)])
         }
         let oldName = entity.name
         entity.name = trimmed
@@ -78,7 +82,7 @@ struct GraphEditor {
     }
 
     @discardableResult
-    func addAlias(_ alias: String, to entity: Entity, in context: ModelContext) -> EditOutcome {
+    func addAlias(_ alias: String, to entity: Entity, force: Bool = false, in context: ModelContext) -> EditOutcome {
         let trimmed = alias.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return .applied }
         let key = EntityNormalizer.key(for: trimmed, kind: entity.kind)
@@ -86,7 +90,9 @@ struct GraphEditor {
         // Already answers to it, under this spelling or another.
         guard !keys(of: entity).contains(key) else { return .applied }
         if let clash = entityAnswering(to: key, kind: entity.kind, excluding: entity, in: context) {
-            return .collides(with: clash.id)
+            guard force else { return .collides(with: clash.id) }
+            markNotSame(entity, as: clash)
+            diagnostics.record("graph.collisionForced", ["id": .id(entity.id), "other": .id(clash.id)])
         }
         entity.aliases.append(trimmed)
         claim(entity)

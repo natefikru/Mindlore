@@ -52,8 +52,8 @@ final class GraphServices {
     }
 
     @discardableResult
-    func rename(_ entityID: UUID, to name: String, keepingOldNameAsAlias: Bool = false, in context: ModelContext) -> GraphEditor.EditOutcome {
-        edit(entityID, in: context) { editor.rename($0, to: name, keepingOldNameAsAlias: keepingOldNameAsAlias, in: context) }
+    func rename(_ entityID: UUID, to name: String, keepingOldNameAsAlias: Bool = false, force: Bool = false, in context: ModelContext) -> GraphEditor.EditOutcome {
+        edit(entityID, in: context) { editor.rename($0, to: name, keepingOldNameAsAlias: keepingOldNameAsAlias, force: force, in: context) }
     }
 
     @discardableResult
@@ -62,8 +62,8 @@ final class GraphServices {
     }
 
     @discardableResult
-    func addAlias(_ alias: String, to entityID: UUID, in context: ModelContext) -> GraphEditor.EditOutcome {
-        edit(entityID, in: context) { editor.addAlias(alias, to: $0, in: context) }
+    func addAlias(_ alias: String, to entityID: UUID, force: Bool = false, in context: ModelContext) -> GraphEditor.EditOutcome {
+        edit(entityID, in: context) { editor.addAlias(alias, to: $0, force: force, in: context) }
     }
 
     func removeAlias(_ alias: String, from entityID: UUID, in context: ModelContext) {

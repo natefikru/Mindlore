@@ -794,7 +794,7 @@ transcription-hint bullet waits on an owner call about scope.
       exactly as `rename` does today; `hasVoiceSourcedLink` is true with a voice entry among the
       links and false for typed-only or none; a rename that collides never touches the alias,
       flag or not.
-- [ ] 5c.3 "A different person also called {name}." Every collision `rename` and `addAlias` raise
+- [x] 5c.3 "A different person also called {name}." Every collision `rename` and `addAlias` raise
       today (`GraphEditor.swift:31-32,79-80`, surfaced as `EditOutcome.collides(with:)`) stops the
       edit outright. Both gain `force: Bool = false`, skipping `entityAnswering` when true and
       applying the edit anyway; `setKind`'s collision is untouched, a kind change colliding is a
@@ -802,8 +802,8 @@ transcription-hint bullet waits on an owner call about scope.
       (`EntityView.swift:129-136`) gets a third button, "No, someone else," which replays the same
       edit with `force: true`; `apply`'s closure needs to be kept around for this instead of
       discarded once it collides, e.g. `@State var collidingEdit: ((Bool) -> EditOutcome)?` set
-      alongside `collision`. Forcing also calls the existing `markNotSame(_:_:in:)`
-      (`GraphEditor.swift:114-120`) between the two entities in the same edit: without it,
+      alongside `collision`. Forcing also calls the existing `markNotSame(_:as:)`
+      (`GraphEditor.swift:121-127`) between the two entities in the same edit: without it,
       `EntityMatcher.score` (`EntityMatcher.swift:56-68`) gives identical keys 1.0, and the Review
       list's next refresh would immediately re-suggest merging the exact pair the user just said
       were different, undoing the point of forcing. `graph.collisionForced` event (id, other id)
@@ -814,6 +814,10 @@ transcription-hint bullet waits on an owner call about scope.
       a forced alias likewise; both entities end up in each other's `notSameAs` and don't appear in
       `EntityMatcher.suggestions` afterward; the unforced path is unchanged; `collisionForced` logs
       ids only.
+      (Built: `apply` stayed as-is for `setKind`, which cannot be forced; a second helper,
+      `applyForcible`, is what `RenameEntitySheet` and the alias alert call, so `setKind`'s
+      collision closure never populates `collidingEdit` and "No, someone else" never appears for a
+      kind collision, which the spec's text implied but didn't spell out as a second function.)
 - [ ] 5c.4 The resolver asks instead of silently choosing, when a shared key ties.
       `EntityResolver.resolve`'s exact-match band (`EntityResolver.swift:42-49`) already tolerates
       more than one live match (its own comment: "two live entities can share a key after a rename
