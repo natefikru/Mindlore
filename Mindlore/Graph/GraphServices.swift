@@ -96,6 +96,14 @@ final class GraphServices {
         revision += 1
     }
 
+    // The Review list's "Not the same": takes two entities out of each other's suggestions for
+    // good, since `EntityMatcher` would otherwise keep finding the same pair.
+    func markNotSame(_ oneID: UUID, _ otherID: UUID, in context: ModelContext) {
+        guard let one = editor.entity(withID: oneID, in: context), let other = editor.entity(withID: otherID, in: context) else { return }
+        editor.markNotSame(one, as: other)
+        save(context)
+    }
+
     // "This is someone else", for one mention. The mention is found again by what it says,
     // because Generate again may have replaced the link since the sheet opened.
     enum RepointTarget: Equatable {

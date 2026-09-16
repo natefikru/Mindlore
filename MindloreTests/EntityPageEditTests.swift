@@ -131,6 +131,23 @@ struct EntityPageEditTests {
         #expect(!winner.hidden)
     }
 
+    // The Review list's "Not the same": the pair stops showing up as a suggestion.
+    @Test func markNotSameRemovesThePairFromSuggestions() throws {
+        try harness.entry("Sarah K called.", mentions: [("Sarah K", .person)])
+        try harness.entry("Sarah Kim called.", mentions: [("Sarah Kim", .person)])
+        let a = try harness.entity("Sarah K")
+        let b = try harness.entity("Sarah Kim")
+        #expect(services.editor.suggestions(in: context).contains { Set([$0.a, $0.b]) == Set([a.id, b.id]) })
+
+        services.markNotSame(a.id, b.id, in: context)
+
+        #expect(a.notSameAs == [b.id])
+        #expect(b.notSameAs == [a.id])
+        #expect(!context.hasChanges)
+        #expect(services.revision == 1)
+        #expect(!services.editor.suggestions(in: context).contains { Set([$0.a, $0.b]) == Set([a.id, b.id]) })
+    }
+
     @Test func likelySameScoresOneEntityAgainstTheRest() {
         func candidate(_ key: String, _ kind: EntityKind = .person, notSame: [UUID] = []) -> EntityMatcher.Candidate {
             .init(id: UUID(), key: key, kind: kind, linkCount: 1, notSameAs: notSame)
