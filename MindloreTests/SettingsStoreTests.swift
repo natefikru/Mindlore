@@ -180,6 +180,31 @@ struct SettingsStoreTests {
         #expect(fallback.speechEngine == .cloud)
     }
 
+    // Apple's live transcription is free, private, and shows text as you talk, so it leads on any
+    // phone that can run it. Phones that can't start on OpenAI instead of on something broken.
+    @Test func speechDefaultsToLiveWhereThePhoneSupportsIt() {
+        #expect(SettingsStore(store: FakeKeyValueStore(), onDeviceSpeechAvailable: { true }).speechEngine == .onDeviceLive)
+        #expect(SettingsStore(store: FakeKeyValueStore(), onDeviceSpeechAvailable: { false }).speechEngine == .cloud)
+    }
+
+    @Test func aStoredSpeechChoiceBeatsWhatTheDeviceCanDo() {
+        let store = FakeKeyValueStore()
+        let settings = SettingsStore(store: store, onDeviceSpeechAvailable: { true })
+        settings.speechEngine = .cloud
+
+        #expect(SettingsStore(store: store, onDeviceSpeechAvailable: { true }).speechEngine == .cloud)
+
+        let onDevice = SettingsStore(store: store, onDeviceSpeechAvailable: { false })
+        onDevice.speechEngine = .onDevice
+        #expect(SettingsStore(store: store, onDeviceSpeechAvailable: { false }).speechEngine == .onDevice)
+    }
+
+    @Test func onlyLiveStartsASession() {
+        #expect(SpeechEngine.onDeviceLive.wantsLiveSession)
+        #expect(SpeechEngine.onDevice.wantsLiveSession == false)
+        #expect(SpeechEngine.cloud.wantsLiveSession == false)
+    }
+
     @Test func promptAndAccountChangesAreLoggedWithoutTheirContents() throws {
         let file = DiagnosticsFile()
         let settings = SettingsStore(store: FakeKeyValueStore(), diagnostics: DiagnosticsLog(fileURL: file.url))

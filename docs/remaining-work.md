@@ -30,6 +30,40 @@ These steps are still unrun. `tasks/smoke-test.md` has the expected events for e
 - [ ] **Optional: a 25-minute recording**, to watch chunked uploads on a device.
 - [ ] **Optional: five pages in one entry**, for memory and stored size at a realistic maximum.
 
+## Device smoke test, live transcription
+
+Session 1 (2026-09-16, iPhone 17 Pro, runs `live-01` to `live-04`) passed live text while talking,
+the last word surviving an immediate Done (text and audio), the fallback when Siri interrupts,
+This iPhone and OpenAI never starting a live session, locking the phone mid-recording (live text
+kept running while locked and covered all 27.6 s), and a force-quit mid-recording (recovered on
+relaunch with its audio). It found that resuming after Siri failed on the first tap; that was fixed
+and passed on the device. `tasks/transcription-tiers.md` has the details.
+
+Still unrun. `tasks/smoke-test.md` steps 23 and 27 have the expected events.
+
+- [ ] **First-run model download.** Needs a phone that has never used on-device speech. Recording
+      should start without waiting, `live.assets` should show the download, and the entry should get
+      its text after Done instead. The next recording is live.
+- [ ] **Headphones or AirPods mid-recording.** `AVAudioEngine` stops itself on a route change, which
+      is now handled but has never been seen on a device. Expect `recorder.routeChanged`,
+      `recorder.engineRestarted`, the timer still counting, and the live text discarded.
+- [ ] **Optional: a 25-minute recording with OpenAI picked.** Memory should stay flat, since nothing
+      reads the live buffers.
+
+## Small follow-ups
+
+Asked for during the live transcription smoke test, built in the editor follow-ups PR. Both still
+need a look on the device.
+
+- [x] **The Insights button generates.** Automatic insights still run when an entry closes. Tapping
+      Insights on an entry that has none starts them right away and shows progress. Regenerating,
+      retrying, and finishing a draft still wait for a tap. Building this exposed a double charge:
+      a manual run didn't use up the entry's automatic pass, so closing the entry afterwards paid for
+      the same analysis again. Run AI now counts as the pass.
+- [x] **Seeking in recordings.** 10-second back and forward buttons, a scrubber, and the elapsed time.
+- [ ] **Device check.** Tap Insights on an entry without insights, then close it: exactly one
+      `insights.started`. Skip and scrub a recording, including near both ends.
+
 ## Deferred from the pre-merge code review (2026-09-15)
 
 Taken before merge: main-actor network/audio/image work moved off with `@concurrent`; a cancelled

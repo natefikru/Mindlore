@@ -590,6 +590,18 @@ struct TranscriberRouterTests {
         #expect(try makeRouter(engine: .onDevice).route(for: newEntry, manualRetry: false).cloud == nil)
     }
 
+    // A live recording that couldn't run live, or dropped partway, falls back to the phone rather
+    // than to OpenAI. Picking an on-device engine means audio never leaves the device, and the
+    // batch tier behind tier 1 has to honour that too.
+    @Test func aLiveRecordingFallsBackToThePhoneNeverToTheCloud() throws {
+        let route = try makeRouter(engine: .onDeviceLive).route(for: newEntry, manualRetry: false)
+        #expect(route.cloud == nil)
+        #expect(route.onDeviceLabel == "apple")
+
+        // Even a manual retry, which normally sends an old recording to the cloud, stays on-device.
+        #expect(try makeRouter(engine: .onDeviceLive).route(for: oldEntry, manualRetry: true).cloud == nil)
+    }
+
     @Test func recordingsFromBeforeAIWasOnGoToTheCloudOnlyOnRetry() throws {
         let router = try makeRouter()
         #expect(router.route(for: oldEntry, manualRetry: false).cloud == nil)

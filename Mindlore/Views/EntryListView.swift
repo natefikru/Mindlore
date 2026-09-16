@@ -84,7 +84,7 @@ struct EntryListView: View {
                 // Voice sits outermost, in the easiest-to-reach position.
                 ToolbarItemGroup(placement: .topBarTrailing) {
                     if DocumentCameraView.isSupported || FakePages.isEnabled {
-                        Button("Photograph Pages", systemImage: "doc.viewfinder") { pageOrder = .new }
+                        Button("Photograph Pages", systemImage: "camera") { pageOrder = .new }
                             .accessibilityIdentifier("newPhotoEntryButton")
                     }
                     newTypedEntryButton
@@ -106,9 +106,9 @@ struct EntryListView: View {
             .fullScreenCover(item: $pageOrder) { target in
                 switch target {
                 case .new:
-                    PageOrderView(entry: nil, startWithCamera: true) { entry in path.append(entry) }
+                    PageOrderView(entry: nil) { entry in path.append(entry) }
                 case .existing(let entry):
-                    PageOrderView(entry: entry, startWithCamera: false) { entry in path.append(entry) }
+                    PageOrderView(entry: entry) { entry in path.append(entry) }
                 }
             }
         }

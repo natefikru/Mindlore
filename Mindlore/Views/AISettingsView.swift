@@ -59,7 +59,7 @@ struct AISettingsView: View {
 
             Section {
                 NavigationLink { SpeechSettingsView() } label: {
-                    LabeledContent("Speech to text", value: settings.speechEngine == .cloud ? "OpenAI" : "This iPhone")
+                    LabeledContent("Speech to text", value: SpeechEngineLabel.short(settings.speechEngine))
                 }
                 .accessibilityIdentifier("speechSettingsLink")
                 NavigationLink { PageSettingsView() } label: {

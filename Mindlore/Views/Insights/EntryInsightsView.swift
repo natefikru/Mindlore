@@ -6,6 +6,8 @@ import SwiftUI
 // editor, where they can see what changes.
 struct EntryInsightsView: View {
     let entry: Entry
+    // Set when the entry's own Insights button opened this, so a first run needs no second tap.
+    var runsWhenOpened = false
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
     @Environment(EntrySaver.self) private var saver
@@ -22,6 +24,7 @@ struct EntryInsightsView: View {
     @State private var path: [EntityRoute] = []
     @State private var chips = EntityChipIndex.empty
     @State private var repointing: Repointing?
+    @State private var startedOnOpen = false
 
     private struct Repointing: Identifiable {
         let mention: MentionRef
@@ -32,7 +35,11 @@ struct EntryInsightsView: View {
     private var insights: EntryInsights? { entry.insights }
 
     private var state: InsightsPresentation.State {
-        InsightsPresentation.state(.init(
+        InsightsPresentation.state(inputs)
+    }
+
+    private var inputs: InsightsPresentation.Inputs {
+        .init(
             isDraft: entry.isDraft,
             awaitingText: entry.awaitingText,
             textReviewPending: entry.textReviewPending,
@@ -44,7 +51,7 @@ struct EntryInsightsView: View {
             failure: AIJobPolicy.failure(.insights, entry),
             aiEnabled: settings.aiEnabled,
             hasKey: accounts.hasUsableKey && accounts.settingsAccount(for: .text) != nil
-        ))
+        )
     }
 
     var body: some View {
@@ -83,6 +90,11 @@ struct EntryInsightsView: View {
             }
             .task(id: ChipsKey(generatedAt: insights?.generatedAt, revision: graph.revision)) {
                 chips = graph.chipIndex(for: entry.id, in: modelContext)
+            }
+            .task {
+                guard runsWhenOpened, !startedOnOpen, InsightsPresentation.runsWhenOpened(inputs) else { return }
+                startedOnOpen = true
+                run()
             }
             .sheet(item: $repointing) { item in
                 RepointView(mention: item.mention, currentEntityID: item.entityID)

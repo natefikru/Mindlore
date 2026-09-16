@@ -67,7 +67,7 @@ struct EntryEditorView: View {
         .toolbar {
             if let entry {
                 ToolbarItemGroup(placement: .topBarTrailing) {
-                    if entry.isDraft {
+                    if AIPassTrigger.offersDone(entry, automationStartedAt: settings.automationStartedAt) {
                         Button("Done") { finish(entry) }
                             .fontWeight(.semibold)
                             .accessibilityIdentifier("finishEntryButton")
@@ -106,7 +106,7 @@ struct EntryEditorView: View {
         }
         .fullScreenCover(isPresented: $editingPages) {
             if let entry {
-                PageOrderView(entry: entry, startWithCamera: false) { _ in }
+                PageOrderView(entry: entry) { _ in }
             }
         }
         .fullScreenCover(item: Binding(get: { viewingPage.map(PageSelection.init) }, set: { viewingPage = $0?.index })) { selection in
@@ -127,7 +127,7 @@ struct EntryEditorView: View {
         }
         .sheet(isPresented: $showingInsights) {
             if let entry {
-                EntryInsightsView(entry: entry)
+                EntryInsightsView(entry: entry, runsWhenOpened: true)
             }
         }
         .sheet(isPresented: $reviewingCleanup) {
@@ -378,13 +378,14 @@ struct EntryEditorView: View {
 
     // Done: the entry is finished, so its automatic pass runs now. Leaving without Done keeps a draft.
     private func finish(_ entry: Entry) {
-        guard entry.finishDraft() else { return }
+        // A draft becomes finished; anything else Done is offered on already is, and only needs its pass.
+        let wasDraft = entry.finishDraft()
         editorFocused = false
         UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
-        aiPass.fire(for: entry, at: .finished)
+        guard aiPass.fire(for: entry, at: .finished) || wasDraft else { return }
         saver.noteChange()
         saver.flush()
-        DiagnosticsLog.shared.record("entry.finished", ["id": .id(entry.id)])
+        DiagnosticsLog.shared.record("entry.finished", ["id": .id(entry.id), "source": .string(entry.source.rawValue), "wasDraft": .bool(wasDraft)])
         watchingForInsights = settings.insightsTrigger == .automatic && AIServices.automaticInsightsUsable(settings: settings, accounts: accounts)
         aiPass.onFlagged?()
     }

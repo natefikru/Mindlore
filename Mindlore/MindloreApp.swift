@@ -5,6 +5,7 @@
 //  Created by Nate Fikru on 9/15/26.
 //
 
+import Speech
 import SwiftUI
 import SwiftData
 
@@ -42,7 +43,11 @@ struct MindloreApp: App {
         case (.some(let name), nil): KeychainSecretStore(service: "\(KeychainSecretStore.productionService).uitest.\(name)")
         }
         let http: any HTTPClient = uiTesting && arguments.contains(UITestingHTTPClient.launchArgument) ? UITestingHTTPClient() : URLSessionHTTPClient()
-        let settingsStore = SettingsStore(store: defaults, onDeviceTitlesAvailable: { !uiTesting && FoundationModelsAvailability.isAvailable })
+        let settingsStore = SettingsStore(
+            store: defaults,
+            onDeviceTitlesAvailable: { !uiTesting && FoundationModelsAvailability.isAvailable },
+            onDeviceSpeechAvailable: { !uiTesting && SpeechTranscriber.isAvailable }
+        )
         settingsStore.recordAutomationStartIfNeeded()
         let accountStore = ProviderAccountStore(settings: settingsStore, secrets: secrets, http: http)
         // UI tests that need AI start with it on and the stub's key saved, instead of typing it each time.

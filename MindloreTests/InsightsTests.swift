@@ -469,6 +469,20 @@ struct AutomaticInsightsTriggerTests {
         #expect(!entry.insightsPending)
     }
 
+    // Generating from the entry screen and then leaving it must not pay for a second analysis.
+    @Test func aManualRunUsesUpTheEntrysAutomaticPass() async throws {
+        let harness = try InsightsHarness()
+        let entry = try harness.entry("a walk by the river", pending: false)
+        harness.generator.results = [.success(#"{"summary":"First"}"#)]
+        await harness.coordinator.runAI(for: entry, context: harness.context)
+        #expect(entry.insights?.summary == "First")
+
+        #expect(!trigger(insights: true).fire(for: entry, at: .editorClosed))
+        #expect(!entry.insightsPending)
+        await harness.coordinator.processQueue(context: harness.context)
+        #expect(harness.generator.requests.count == 1)
+    }
+
     @Test func manualModeOrNoKeyNeverFlags() throws {
         let container = try ModelContainerFactory.make(.inMemory)
         let entry = Entry(createdAt: Date(timeIntervalSince1970: 5_000), text: "text")

@@ -29,7 +29,14 @@ final class PageOrderUITests: XCTestCase {
         XCTAssertTrue(newPhotos.waitForExistence(timeout: 5))
         newPhotos.tap()
 
+        // Nothing opens by itself: the screen waits with both ways to add pages.
+        let scan = app.buttons["scanPagesButton"]
+        XCTAssertTrue(scan.waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["addFromPhotosButton"].exists)
+        XCTAssertFalse(app.descendants(matching: .any)["pageRow-1000"].exists)
+
         // The fake scan adds three pages, widths 1000, 1010, 1020.
+        scan.tap()
         XCTAssertTrue(app.descendants(matching: .any)["pageRow-1000"].waitForExistence(timeout: 10))
         app.buttons["addFromPhotosButton"].tap()
         XCTAssertTrue(app.descendants(matching: .any)["pageRow-2310"].waitForExistence(timeout: 10))
