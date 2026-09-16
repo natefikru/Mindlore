@@ -107,13 +107,19 @@ struct RecordingView: View {
                     .foregroundStyle(recorder.state == .recording ? Color.primary : Color.white)
             }
             .accessibilityLabel(recorder.state == .recording ? "Pause" : "Resume")
-            .disabled(recorder.state == .idle)
+            .disabled(recorder.state == .idle || recorder.isResuming)
             .padding(.bottom, 48)
         }
     }
 
     private var statusText: String {
-        switch recorder.state {
+        if recorder.isResuming {
+            return "Resuming…"
+        }
+        if recorder.resumeFailed {
+            return "The microphone isn't free yet. Tap again in a moment."
+        }
+        return switch recorder.state {
         case .idle: "Starting…"
         case .recording: "Recording"
         case .paused: "Paused"
@@ -182,7 +188,11 @@ struct RecordingView: View {
     }
 
     private func togglePause() {
-        if recorder.state == .recording { recorder.pause() } else { recorder.resume() }
+        if recorder.state == .recording {
+            recorder.pause()
+        } else {
+            Task { await recorder.resume() }
+        }
     }
 
     private func finish() {

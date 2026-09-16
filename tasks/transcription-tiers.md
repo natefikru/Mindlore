@@ -66,7 +66,7 @@ Gotcha from the spec worth repeating: the input node's format (usually 48 kHz) w
 ### 7. Verify
 - [x] Full unit suite, parallel testing off: 332 passed.
 - [x] UI tests for the screens that changed: `AIConfigurationUITests` (now also checks the picker offers three options), `AISettingsUITests`, and `EntryDateUITests` as a control. All pass on a dedicated simulator. No UI test drives the recording screen, before or after this branch.
-- [ ] Device smoke via `scripts/device/deploy.sh` and `launch.sh`. The simulator cannot run `SpeechTranscriber`, so tier 1 is only provable on the iPhone.
+- [x] Device smoke, session 1 (2026-09-16, iPhone 17 Pro). See the review below. First-run download and headphones are still unrun (`docs/remaining-work.md`).
 
 ## Review
 
@@ -106,6 +106,41 @@ file holds.
 crash report, and passed on `main`. It looked like this branch broke app launch. It didn't: another
 worktree was running its own UI tests on the same `iPhone 17` simulator, and both runs install and
 terminate the same bundle ID. On a simulator of its own the test passes.
+
+### On the device
+
+Runs `live-01` to `live-04` on an iPhone 17 Pro.
+
+| Check | Result |
+|---|---|
+| Picker offers three options, choice persists | pass |
+| Text while talking | pass: live started 90 ms after recording, 48 kHz mic converted to 16 kHz |
+| Last word after an immediate Done | pass in text and audio; the drain recovered 50 ms on one recording |
+| Siri interruption | live text discarded, file transcribed on-device in 0.3 s |
+| Resume after Siri | **failed on first tap**, fixed, passes with one tap |
+| This iPhone, OpenAI | never started a live session; OpenAI returned text in 2.2 s |
+| Lock mid-recording | whole recording kept; live text kept running while locked |
+| Force-quit mid-recording | recovered on relaunch with 22.4 s of audio, transcribed |
+
+**Resume after an interruption needed two taps.** iOS posts the interruption's end several seconds
+before it lets the app reactivate its audio session. `setActive(true)` threw `!pla` 1.5 s after
+Siri's end notice and succeeded 5.2 s after it, on two separate runs. The old code swallowed that
+error with `try?`, so the engine then failed with a generic `'what'` and the tap looked dead. Resume
+now retries for up to 8 seconds, showing "Resuming…", logs one `recorder.resumeFailed` with the
+stage if it gives up, and rebuilds the tap for the input's current format, since Siri and calls can
+change it. Measured on the device: one tap, 14 attempts, resumed.
+
+**Route changes would have stopped recording silently.** `AVAudioRecorder` carried on through
+headphones connecting; `AVAudioEngine` stops itself and posts `AVAudioEngineConfigurationChange`.
+Nothing listened for it, so the timer would freeze with the screen still saying Recording. Found by
+reading the code after the resume bug, not on the device; the handler restarts the engine and marks
+the gap, and it has not yet been seen running on a phone.
+
+**`recorder.stopped` reported the length before the drain,** so it disagreed with `ingest.completed`
+by up to 50 ms. It now reads the length after the file is closed.
+
+Two follow-ups came out of the session and are tracked in `docs/remaining-work.md`: the Insights
+button should generate, and the player needs 10-second skips and a scrubber.
 
 ### Not done
 

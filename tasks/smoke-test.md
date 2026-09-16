@@ -197,10 +197,17 @@ Expect: `live.availability reason=assetNotInstalled`, the recording starting any
 
 Start recording, have someone call you, decline, resume, tap Done.
 
-Expect: `recorder.interrupted`, `recorder.audioGap reason=interrupted`, `live.dropped
-reason=interrupted`, `recorder.resumed from=interrupted`, then `live.finished healthy=false
-used=false`, `ingest.completed liveText=false`, and the entry transcribed from the file instead.
-The audio must cover everything except the call itself.
+Tap resume once, as soon as the call or Siri is gone. The screen shows "Resuming…" until the
+system gives the microphone back, which took about 5 seconds after Siri on an iPhone 17 Pro.
+
+Expect: `recorder.audioGap reason=interrupted`, `recorder.interrupted`, `live.dropped
+reason=interrupted`, `recorder.interruptionEnded`, then `recorder.engineRestarted` with an
+`attempts` count and `recorder.resumed from=interrupted`, all from one tap. Then `live.finished
+healthy=false used=false`, `ingest.completed liveText=false`, and the entry transcribed from the file
+instead. The audio must cover everything except the interruption itself.
+
+Failure signs: `recorder.resumeFailed` (its `stage` says whether the session or the engine refused)
+or a second tap being needed.
 
 ### 25. Picking This iPhone turns live off
 
@@ -223,5 +230,9 @@ AVAudioEngine writes the file instead of AVAudioRecorder.
 
 Expect exactly what those steps expected before: `seconds` covering the whole recording including
 locked time, `recovery.moved count=1` after a force-quit with the audio intact, and no
-`recorder.audioGap`. A long recording should hold steady memory, since buffers are written and
+`recorder.audioGap`. Live text keeps running while the phone is locked.
+
+Then connect headphones or AirPods mid-recording. Expect `recorder.routeChanged`,
+`recorder.audioGap reason=routeChanged`, `recorder.engineRestarted`, and the timer still counting.
+If the restart fails, `recorder.routeRestartFailed` and the screen asks for a tap, as after a call. A long recording should hold steady memory, since buffers are written and
 released rather than accumulated.
