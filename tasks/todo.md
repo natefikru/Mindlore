@@ -124,7 +124,9 @@ entities without relationship gymnastics.
 A re-points B's links to A, sets `originalEntityID` on each moved link only if it is still nil (so a
 link remembers where it was born, not its last stop), records on B exactly which aliases A did not
 already have (`contributedAliases`), unions B's name and aliases into A's aliases, and sets
-`B.mergedIntoID = A.id` with `mergedAt`. B stays in the store, hidden from every list. When A is later
+`B.mergedIntoID = A.id` with `mergedAt`. B stays in the store and leaves every list through
+`isBrowsable` (`!hidden && !isMerged`); merging never writes `hidden`, or unmerge could not tell a
+loser the user had hidden beforehand from one it had not. When A is later
 merged into C, every entity whose `mergedIntoID == A.id` is rewritten to C, so `mergedIntoID` is
 always one hop from a live root and unmerge of X restores exactly the links with
 `originalEntityID == X.id` and removes exactly X's `contributedAliases`. Merge refuses self-merge,
@@ -168,7 +170,8 @@ link and the display name stays what the user chose; only keys are compared.
 
 **The automatic band is narrow.** In order, for each extracted value:
 1. Exact key match against the name or an alias of a live, same-kind entity (or kind `other`, which
-   is upgraded to the mention's kind if the entity is unconfirmed): link. Hidden entities count
+   is upgraded to the mention's kind if `kindEditedByUser` is false; `confirmedByUser` is too
+   coarse, since writing a bio would otherwise freeze the kind): link. Hidden entities count
    here, so a hidden thing stays hidden instead of coming back under a new ID. If several live
    entities match exactly (possible after a user rename or alias collided; see below), prefer the
    confirmed one, then the highest `linkCount`, and record `graph.ambiguous`.
@@ -298,7 +301,8 @@ sentinel as an entity name, alias, bio, surface text, and inside a merge.
     var kindRaw: String = EntityKind.other.rawValue
     var aliases: [String] = []            // surface forms; keys computed in memory
     var bio: String?
-    var bioWasGenerated: Bool = false     // AI may rewrite only while true; a user edit clears it
+    var bioWasGenerated: Bool = false
+    var kindEditedByUser: Bool = false    // an untouched kind can still be upgraded     // AI may rewrite only while true; a user edit clears it
     var confirmedByUser: Bool = false     // any manual edit, merge, hide, or alias
     var hidden: Bool = false
     var mergedIntoID: UUID?               // always one hop from a live root
@@ -324,8 +328,11 @@ nonisolated enum EntityKind: String, CaseIterable, Codable, Sendable {
     var sourceRaw: String = EntityLinkSource.ai.rawValue   // ai | user
     var inferred: Bool = false            // linked by the first-name rule, not an exact match
     var originalEntityID: UUID?           // set by the first merge that moved this link, never overwritten
-    var createdAt: Date = Date.now
 }
+
+// Three ways a link changes hands, so a merge and a user re-point can never be confused:
+// moveForMerge(to:) records the birthplace once, restore(to:) is unmerge, repoint(to:) is
+// the user and clears the birthplace because it is a new birth.
 
 // Entry gains:
 @Relationship(deleteRule: .cascade, inverse: \EntityLink.entry) var entityLinks: [EntityLink]? = []
