@@ -587,7 +587,11 @@ fallback.
       unhides it in `GraphEditor.merge`; a merge made from a page swaps the route through an
       `entityRouteReplacer` environment value set on the sheet's stack; a merged entity's own
       page shows "Merged into X" with Undo; guessed entry rows open `RepointView`.)
-- [ ] 5a.5 `EntityChipIndex`, tappable chips, per-name mention chips, navigation from the sheet.
+- [x] 5a.5 `EntityChipIndex`, tappable chips, per-name mention chips, navigation from the sheet.
+      (Built: `GraphServices.chipIndex(for:in:)` builds the index so it is tested against real
+      links; tags and names use `EntityChips`, themes become navigation rows; the Tags and
+      Mentioned cards lost their card-wide Copy, and each chip's menu has Open, Copy, and for
+      names "This is someone else".)
 - [ ] 5a.6 UI test, sub-agent review of 5a, fixes, simulator screenshots of each screen state.
 
 **Tests**:

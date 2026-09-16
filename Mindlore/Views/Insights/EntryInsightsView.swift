@@ -20,6 +20,14 @@ struct EntryInsightsView: View {
     @State private var editingMoods = false
     // Entity pages pushed from the chips, by value, so a page can be replaced or dropped.
     @State private var path: [EntityRoute] = []
+    @State private var chips = EntityChipIndex.empty
+    @State private var repointing: Repointing?
+
+    private struct Repointing: Identifiable {
+        let mention: MentionRef
+        let entityID: UUID
+        var id: MentionRef { mention }
+    }
 
     private var insights: EntryInsights? { entry.insights }
 
@@ -72,6 +80,12 @@ struct EntryInsightsView: View {
                     }
                     .accessibilityIdentifier("insightsMenuButton")
                 }
+            }
+            .task(id: ChipsKey(generatedAt: insights?.generatedAt, revision: graph.revision)) {
+                chips = graph.chipIndex(for: entry.id, in: modelContext)
+            }
+            .sheet(item: $repointing) { item in
+                RepointView(mention: item.mention, currentEntityID: item.entityID)
             }
             .sheet(isPresented: $editingMoods) {
                 if let insights {
@@ -170,17 +184,27 @@ struct EntryInsightsView: View {
         }
         if !insights.themes.isEmpty {
             InsightCard(title: "Themes", caption: "What this entry is about.", copyText: insights.themes.joined(separator: "\n")) {
-                ForEach(insights.themes, id: \.self) { Text($0) }
+                ForEach(insights.themes, id: \.self) { theme in
+                    if let chip = chips.chip(for: theme, kind: .theme) {
+                        NavigationLink(value: EntityRoute(id: chip.entityID)) { Text(theme) }
+                            .accessibilityIdentifier("entityChip-theme-\(theme)")
+                    } else {
+                        Text(theme)
+                    }
+                }
             }
         }
+        // Chip cards have no card-wide Copy: each chip has its own menu.
         if !insights.tags.isEmpty {
-            InsightCard(title: "Tags", caption: "Labels for grouping entries.", copyText: insights.tags.joined(separator: ", ")) {
-                WrappingChips(items: insights.tags)
+            InsightCard(title: "Tags", caption: "Labels for grouping entries.") {
+                EntityChips(values: insights.tags, kind: .tag, index: chips, open: openEntity)
             }
         }
         if !insights.mentions.isEmpty {
-            InsightCard(title: "Mentioned", copyText: insights.mentions.map(\.name).joined(separator: ", ")) {
-                MentionGroups(mentions: insights.mentions)
+            InsightCard(title: "Mentioned") {
+                MentionGroups(mentions: insights.mentions, entryID: entry.id, index: chips, open: openEntity) { mention, entityID in
+                    repointing = Repointing(mention: mention, entityID: entityID)
+                }
             }
         }
         if !insights.openThreads.isEmpty {
@@ -203,6 +227,15 @@ struct EntryInsightsView: View {
                     .foregroundStyle(.secondary)
             }
         }
+    }
+
+    private struct ChipsKey: Equatable {
+        let generatedAt: Date?
+        let revision: Int
+    }
+
+    private func openEntity(_ id: UUID) {
+        path.append(EntityRoute(id: id))
     }
 
     // Stored labels carry the provider ("openai:gpt-5.6-luna"); the screen only needs the model.

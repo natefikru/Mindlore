@@ -155,6 +155,22 @@ final class GraphServices {
         revision += 1
     }
 
+    // MARK: - Chips
+
+    // This entry's links by id, one fetch filtered in memory, never through the relationship.
+    func chipIndex(for entryID: UUID, in context: ModelContext) -> EntityChipIndex {
+        let links = indexer.allLinks(in: context).filter { $0.entryID == entryID }
+        let entityIDs = Set(links.compactMap(\.entityID))
+        guard !entityIDs.isEmpty else { return .empty }
+        let hidden = Set(((try? context.fetch(FetchDescriptor<Entity>(predicate: #Predicate { entityIDs.contains($0.id) }))) ?? [])
+            .filter(\.hidden).map(\.id))
+        return EntityChipIndex(links: links.compactMap { link in
+            link.entityID.map {
+                .init(surface: link.surface, kind: link.kind, entityID: $0, inferred: link.inferred, entityHidden: hidden.contains($0))
+            }
+        })
+    }
+
     // MARK: - Bios
 
     // An entity page appeared. Drafts once, for the kinds that are named word for word, while

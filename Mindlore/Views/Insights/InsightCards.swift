@@ -192,22 +192,90 @@ struct FlowLayout: Layout {
     }
 }
 
+// Names grouped by kind, each one its own chip so it can be opened.
 struct MentionGroups: View {
     let mentions: [Mention]
+    let entryID: UUID
+    let index: EntityChipIndex
+    let open: (UUID) -> Void
+    let repoint: (MentionRef, UUID) -> Void
 
     var body: some View {
         ForEach(MentionKind.allCases, id: \.self) { kind in
             let named = mentions.filter { $0.kind == kind }.map(\.name)
             if !named.isEmpty {
-                VStack(alignment: .leading, spacing: 4) {
+                VStack(alignment: .leading, spacing: 6) {
                     Label(kind.heading, systemImage: kind.symbol)
                         .font(.caption)
                         .foregroundStyle(.secondary)
-                    Text(named.joined(separator: ", "))
-                        .fixedSize(horizontal: false, vertical: true)
+                    EntityChips(
+                        values: named,
+                        kind: EntityKind(kind),
+                        index: index,
+                        open: open,
+                        repoint: { value, entityID in
+                            repoint(MentionRef(entryID: entryID, surface: value, kind: EntityKind(kind)), entityID)
+                        }
+                    )
                 }
-                .accessibilityElement(children: .combine)
             }
         }
+    }
+}
+
+// Values that open their entity's page. Several share one Form row, so each is its own
+// borderless button; a row-level tap would otherwise fire all of them.
+struct EntityChips: View {
+    let values: [String]
+    let kind: EntityKind
+    let index: EntityChipIndex
+    let open: (UUID) -> Void
+    // Offered for names only: "this is someone else".
+    var repoint: ((String, UUID) -> Void)?
+
+    var body: some View {
+        FlowLayout(spacing: 6) {
+            ForEach(values, id: \.self) { value in
+                if let chip = index.chip(for: value, kind: kind) {
+                    Button { open(chip.entityID) } label: {
+                        chipLabel(value, guessed: chip.guessed)
+                    }
+                    .buttonStyle(.borderless)
+                    .contentShape(.contextMenuPreview, Capsule())
+                    .contextMenu {
+                        Button("Open", systemImage: "arrow.right.circle") { open(chip.entityID) }
+                        if let repoint {
+                            Button("This is someone else", systemImage: "person.crop.circle.badge.questionmark") {
+                                repoint(value, chip.entityID)
+                            }
+                        }
+                        Button("Copy", systemImage: "doc.on.doc") { UIPasteboard.general.string = value }
+                    }
+                    .accessibilityLabel(chip.guessed ? "\(value), guessed" : value)
+                    .accessibilityHint("Opens its page")
+                    .accessibilityIdentifier("entityChip-\(kind.rawValue)-\(value)")
+                } else {
+                    chipLabel(value, guessed: false)
+                        .foregroundStyle(.primary)
+                        .contextMenu {
+                            Button("Copy", systemImage: "doc.on.doc") { UIPasteboard.general.string = value }
+                        }
+                }
+            }
+        }
+    }
+
+    private func chipLabel(_ value: String, guessed: Bool) -> some View {
+        Text(value)
+            .font(.subheadline)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 5)
+            .background(.quaternary, in: Capsule())
+            .overlay {
+                if guessed {
+                    Capsule().strokeBorder(style: StrokeStyle(lineWidth: 1, dash: [3, 2]))
+                        .foregroundStyle(.secondary)
+                }
+            }
     }
 }
