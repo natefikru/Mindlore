@@ -1399,7 +1399,7 @@ judgement per Phase 8, not a Phase 7 one).
       responsive (per-frame draw stays smooth by eye at 300 nodes; `graph.rendered`'s
       `settleMilliseconds` is a separate figure, how long the layout took to stop moving, not a
       per-frame budget, and is only recorded for reference); the time scrubber.
-- [ ] `CLAUDE.md`: Graph section (models, resolution rules, indexer hooks, how views query from the
+- [x] `CLAUDE.md`: Graph section (models, resolution rules, indexer hooks, how views query from the
       link side). `docs/remaining-work.md`: next projects updated.
 - [ ] PR description; mark ready.
 
