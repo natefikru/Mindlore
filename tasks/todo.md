@@ -1377,7 +1377,7 @@ Phase 8):
 - [x] 7.5 `GlobalGraphView`, the Connections toolbar button, kind-toggle row, minimum-count control,
       time scrubber, pushed onto `ConnectionsView`'s existing stack. `graph.rendered` logged once per
       appearance and once per control change that rebuilds the simulation.
-- [ ] 7.6 Sub-agent review of the whole phase; fix what it finds.
+- [x] 7.6 Sub-agent review of the whole phase; fix what it finds.
 
 **Not in scope, this phase:** incremental/live updates to a running simulation when the underlying
 graph changes mid-view (a control change or navigating back and re-opening always rebuilds fresh);
@@ -1486,6 +1486,39 @@ the phone.
 - Search across entry text (synthesis PR)
 
 ## Review log
+
+Phase 7 build (sub-agent review of `d06f3f4..c0f2ceb`, 2026-09-16, verdict "approve with fixes";
+7 findings, all folded in). Confirmed sound: the repulsion, spring, gravity, and collision
+formulas, the zero-distance fallback, the alpha schedule, and pin/anchor clamp-before-forces
+ordering all match the spec (the repulsion sign is applied as a documented, equivalent positive
+push-apart rather than the spec's literal negative-charge convention); `localGraph`/`globalGraph`'s
+browsable resolution, depth filtering, and kind/minimum-count/asOf handling; `LocalGraphView`'s own
+`entityRouteReplacer`; `ConnectionsPathItem` correctly letting `GlobalGraphView` inherit
+Connections' replacer for free; no `Task` leaks; 614 tests green.
+
+1. The local graph's anchored subject was draggable: a drag's hit-test didn't exclude
+   `anchoredID`, so dragging it moved its anchor point permanently through `GraphSimulation.pin`,
+   which had no guard against an already-anchored index either. Fixed both: a hit on the anchored
+   node now falls through to a pan, and `pin` ignores an anchored id as a second line of defense.
+2. `globalGraph`'s standalone-node clause reads `Entity.linkCount`, a persisted, all-time count,
+   so scrubbing `asOf` before an entity's every mention still shows it as a dot once its lifetime
+   count clears `minimumLinkCount`; only edges are actually date-scoped. Documented in code as a
+   known limitation (fixing it costs a second pass over every link per scrub) and locked in with a
+   test, rather than silently changing spec-directed behaviour without the owner's say-so.
+3. `ConnectionsView`'s route replacer reimplemented `EntityPagePresentation.replacing`'s
+   lastIndex-and-replace logic inline for the wrapped path type; commented why it isn't shared
+   (that helper only knows `[EntityRoute]`, and `.globalGraph` entries must pass through untouched).
+4. `LocalGraphView` and `GlobalGraphView` rebuilt on control change through two different idioms
+   (`onAppear`/`onChange` versus `.task(id:)`); both now use `.task(id:)`.
+5. The single-edge spring test tolerated 50% error against the target distance, loose enough
+   that a meaningfully wrong spring constant would still pass; tightened to 10% against the
+   measured ~3-5% actual deviation.
+6. Added a test locking in the compound case the spec's own test sentence names: an entry after
+   `asOf` contributing neither its edge nor, since that was the partner's only link, the partner's
+   node either.
+7. Mutating `@State` from inside the `Canvas` draw closure (the labelled-subset cache) is
+   unusual but fires at most once per simulation's lifetime; left as is per the review's own note,
+   watched for on the device pass in Phase 8 rather than chased further here.
 
 Phase 6 build (sub-agent review of `544f861..HEAD`, 2026-09-16, verdict: no findings). Checked the
 decay formula, the per-entry dedupe before pairing, `Edge` canonicalization and weight accumulation,

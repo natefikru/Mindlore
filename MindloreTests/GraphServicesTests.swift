@@ -360,6 +360,42 @@ struct GraphServicesTests {
         #expect(!data.edges.contains { $0.a == ana.id || $0.b == ana.id })
     }
 
+    // The compound case the spec's own test sentence describes: an entry after asOf contributes
+    // neither its edge nor, since that was the partner's only link, the partner's node either.
+    @Test func globalGraphAtAsOfExcludesTheNodeWhoseOnlyLinkWasAfterIt() throws {
+        let cutoff = Date(timeIntervalSince1970: 10_000)
+        try harness.entry(entryDate: cutoff.addingTimeInterval(-1), mentions: [("Sarah", .person), ("Tom", .person)])
+        try harness.entry(entryDate: cutoff.addingTimeInterval(-1), mentions: [("Sarah", .person), ("Tom", .person)])
+        try harness.entry(entryDate: cutoff.addingTimeInterval(1), mentions: [("Sarah", .person), ("Ana", .person)])
+        harness.indexer.sweep(in: harness.context)
+        let sarah = try harness.entity("Sarah")
+        let tom = try harness.entity("Tom")
+        let ana = try harness.entity("Ana")
+
+        let data = services.globalGraph(asOf: cutoff, kinds: nil, minimumLinkCount: 2, in: harness.context)
+
+        #expect(Set(data.nodes.map(\.id)) == [sarah.id, tom.id])
+        #expect(!data.nodes.map(\.id).contains(ana.id))
+    }
+
+    // Known limitation, locked in rather than left to surprise someone on a device: the
+    // standalone-node clause reads Entity.linkCount, a persisted, all-time count, so scrubbing
+    // asOf before every one of an entity's mentions still shows it as a dot once its lifetime
+    // count clears minimumLinkCount. asOf only ever removes edges, never this count.
+    @Test func globalGraphStandaloneNodeIgnoresAsOfScrubbing() throws {
+        let cutoff = Date(timeIntervalSince1970: 10_000)
+        try harness.entry(entryDate: cutoff.addingTimeInterval(1), mentions: [("Sarah", .person)])
+        try harness.entry(entryDate: cutoff.addingTimeInterval(2), mentions: [("Sarah", .person)])
+        harness.indexer.sweep(in: harness.context)
+        let sarah = try harness.entity("Sarah")
+        #expect(sarah.linkCount == 2)
+
+        let data = services.globalGraph(asOf: cutoff, kinds: nil, minimumLinkCount: 2, in: harness.context)
+
+        #expect(data.nodes.map(\.id) == [sarah.id])
+        #expect(data.edges.isEmpty)
+    }
+
     @Test func globalGraphKeepsAnIsolatedNodeAboveThresholdWithNoSurvivingEdge() throws {
         try harness.entry(mentions: [("Sarah", .person)])
         try harness.entry(mentions: [("Sarah", .person)])

@@ -171,6 +171,9 @@ struct ConnectionsView: View {
                     .accessibilityIdentifier("connectionsGraph")
                 }
             }
+            // Mirrors EntityPagePresentation.replacing's lastIndex-and-replace semantics, inline
+            // over the wrapped path type: that helper only knows [EntityRoute], and .globalGraph
+            // entries in this path must pass through untouched.
             .environment(\.entityRouteReplacer, EntityRouteReplacer { loser, winner in
                 if let index = path.lastIndex(where: { if case .entity(let route) = $0 { return route.id == loser } else { return false } }) {
                     path[index] = .entity(EntityRoute(id: winner))

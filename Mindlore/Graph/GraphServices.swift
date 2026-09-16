@@ -301,6 +301,13 @@ final class GraphServices {
         let nodeMap = Dictionary(uniqueKeysWithValues: browsable.map { ($0.id, EntityGraph.Node(kind: $0.kind, linkCount: $0.linkCount)) })
         let filteredEdges = EntityGraph.filtered(edges: edges, nodes: nodeMap, kinds: kinds, minimumLinkCount: minimumLinkCount)
 
+        // The standalone check reads Entity.linkCount, a persisted, all-time count, the same
+        // field the edges' own node map above uses: asOf only ever excludes an edge (build's own
+        // date filter), never this count. An entity whose lifetime mentions already clear
+        // minimumLinkCount still shows as a dot at any asOf, even one before all of them
+        // happened; scrubbing further back can only ever remove edges, never a standalone node
+        // that way. Recomputing an asOf-scoped count here would fix that, at the cost of a second
+        // pass over every link per scrub; not done without a product call on whether it matters.
         let edgeNodeIDs = Set(filteredEdges.flatMap { [$0.a, $0.b] })
         let standaloneIDs = Set(browsable
             .filter { $0.linkCount >= minimumLinkCount && (kinds?.contains($0.kind) ?? true) }

@@ -131,12 +131,15 @@ struct GraphCanvasView: View {
     // MARK: - Gestures
 
     // A hit at the drag's start pins that node for the rest of the drag, sticky after release; a
-    // miss pans the canvas instead.
+    // miss pans the canvas instead. A hit on the anchored subject is treated as a miss too: it
+    // never responds to drag, since dragging it would otherwise move the one point the view
+    // promises stays still.
     private func dragGesture(center: CGPoint) -> some Gesture {
         DragGesture(minimumDistance: 2, coordinateSpace: .local)
             .onChanged { value in
                 if dragTarget == nil {
-                    dragTarget = hitTest(value.startLocation, center: center).map(DragTarget.node) ?? .canvas
+                    let hit = hitTest(value.startLocation, center: center)
+                    dragTarget = (hit != nil && hit != anchoredID) ? .node(hit!) : .canvas
                 }
                 switch dragTarget {
                 case .node(let id):

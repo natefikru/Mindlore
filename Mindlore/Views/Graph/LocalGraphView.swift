@@ -53,8 +53,7 @@ struct LocalGraphView: View {
             .environment(\.entityRouteReplacer, EntityRouteReplacer { loser, winner in
                 path = EntityPagePresentation.replacing(loser, with: winner, in: path)
             })
-            .onAppear { rebuild() }
-            .onChange(of: depth) { rebuild() }
+            .task(id: depth) { rebuild() }
             .onDisappear { settleTask?.cancel() }
         }
     }

@@ -211,7 +211,7 @@ struct GraphSimulationTests {
             let dx = a.x - b.x, dy = a.y - b.y
             let distance = (dx * dx + dy * dy).squareRoot()
             let target = GraphSimulation.targetDistance(weight: weight)
-            #expect(abs(distance - target) < target * 0.5)
+            #expect(abs(distance - target) < target * 0.1)
         }
     }
 

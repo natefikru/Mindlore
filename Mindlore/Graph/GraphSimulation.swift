@@ -85,9 +85,11 @@ nonisolated final class GraphSimulation {
         edges
     }
 
-    // Sticky: stays pinned until unpin.
+    // Sticky: stays pinned until unpin. An anchored node ignores this too, the same as unpin: its
+    // point is permanent, and a caller (a drag gesture that hit-tested the wrong node) must not be
+    // able to move it through this API either.
     func pin(_ id: UUID, at point: SIMD2<Double>) {
-        guard let index = indexByID[id] else { return }
+        guard let index = indexByID[id], !anchored[index] else { return }
         pinned[index] = true
         pinPoints[index] = point
     }
