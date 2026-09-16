@@ -63,6 +63,69 @@ The project uses file-system synchronized groups, so new files under `Mindlore/`
 
 **Insights** (`Mindlore/AI/Insights/`). One structured request per entry, with a field per enabled section (`InsightsPromptBuilder`), parsed tolerantly: unknown moods and mention kinds are dropped, tags normalized, lists capped. Cleaned-up text is offered for transcribed entries (voice and pages, never typed), applies only to the exact text it was made from, and keeps `Entry.originalText` plus `cleanupAppliedHash` so revert survives regenerating or deleting insights.
 
+**Graph** (`Mindlore/Graph/`, `Mindlore/Views/Graph/`). Turns the mentions, tags, and themes
+`EntryInsights` already stores into entities people, places, organizations, projects, events, tags,
+and themes can share, resolve to, merge into, and see co-occurrence and a force-directed picture
+of. `Entity` is the persisted node (name, `kindRaw`, `aliases`, `bio*`, `hidden`, `mergedIntoID`,
+denormalized `linkCount`/`firstLinkedAt`/`lastLinkedAt` that `GraphIndexer.recount` owns); every
+stored property is optional or defaulted and nothing is `@Attribute(.unique)`, the same CloudKit
+rule as `Entry`, and `CloudKitSchemaRulesTests` checks both models. `EntityLink` is the only stored
+edge (one entry mentions one entity); its `entity`/`entry` relationships exist solely for
+SwiftData's cascade and nullify rules; nothing reads them; `entityID`/`entryID` are the truth, and
+every view and service resolves an entity by fetching its id, never by walking the relationship.
+
+- **Normalizer, resolver, indexer.** `EntityNormalizer` derives the matching `key` from a name and
+  kind. `EntityResolver` decides, per mention, whether it lands on an existing entity, ties between
+  several (recorded in `unsureAmong`, surfaced by Connections' "Which one?"), or creates one.
+  `GraphIndexer` is the only thing that writes `EntityLink`s: `index(_:in:)` runs after an entry's
+  insights are written, `recount(in:)` denormalizes `linkCount`/`firstLinkedAt`/`lastLinkedAt` and
+  prunes an unconfirmed entity down to zero links, and `sweep(in:)` is the launch/upgrade pass over
+  every entry `graphIndexedAt` doesn't yet cover. A counting pass never deletes on a transient nil;
+  see `tasks/lessons.md`.
+- **Editing, merge, matching.** `GraphEditor` is the only thing that changes an `Entity` afterwards:
+  rename, kind, alias, hide, merge/unmerge, repoint a single mention (`EntityLink.repoint`), and
+  "not the same" for the review list. A merge points the loser's id at the winner
+  (`mergedIntoID`) rather than deleting it, so old references still resolve; unmerge reverses
+  exactly the aliases and links that merge moved. `EntityMatcher` scores likely-duplicate pairs for
+  Connections' review list. Resolving a merged or hidden entity to what a screen should actually
+  show is the same shape everywhere: fetch every `Entity` once, build an in-memory
+  `[UUID: Entity]`, and walk `mergedIntoID` with a cycle guard (`root(of:)` in `GraphEditor`,
+  repeated inline wherever a read-only query needs the same resolution without a full editor,
+  e.g. `GraphServices.mentionedWith`/`resolvedLinks`) rather than re-fetching per id.
+- **`GraphServices`** is the one shared graph object (`RootView` builds it, `.environment(graph)`),
+  parallel to `EntrySaver` for persistence: every edit method flushes the saver first, saves through
+  `context.saveStampingEntries()`, and bumps `revision`, which every graph-reading view keys a
+  `.task(id:)` refresh off rather than a plain computed property. It also fronts the read-only
+  queries no single model owns: `chipIndex` (an entry's links, for the editor's chips),
+  `unsureLinks`/`repoint` (5c.4's "Which one?"), `mentionedWith` (one entity's co-occurring
+  partners), and `localGraph`/`globalGraph` (below).
+- **Co-occurrence and the picture.** `EntityGraph` (no SwiftData import, `nonisolated`) turns a
+  caller-resolved `[LinkInput]` into weighted `Edge`s: two entities sharing an entry get an edge,
+  weighted by a 90-day half-life so a recent shared entry counts for more (`EntityGraph.build`),
+  with `neighbourhood(of:in:depth:)` and `filtered(edges:nodes:kinds:minimumLinkCount:)` for the
+  local and global graph's node sets. `GraphSimulation` (also `nonisolated`, a plain class, not
+  `@Observable`, since the canvas ticks it every frame from inside its own draw closure) is the
+  force layout: phyllotaxis initial placement, many-body repulsion, link springs, centre gravity,
+  and collision, each with a deterministic zero-distance fallback; sticky `pin`/`unpin` for a
+  user's drag, a permanent `anchor` for a local graph's centred subject. `GraphCanvasView` is the
+  shared `Canvas`/`TimelineView` drawing surface both `LocalGraphView` (a sheet from the entity
+  page, its own `NavigationStack` and `entityRouteReplacer`) and `GlobalGraphView` (pushed onto
+  Connections' own stack via `ConnectionsPathItem`, inheriting its replacer) embed. `graph.rendered`
+  logs node/edge counts and actual settle time once per appearance, never per frame.
+- **Navigation.** `EntityRoute` carries an id, never an `Entity`, so a merge or prune while a page
+  is on the stack doesn't invalidate what's pushed; `EntityView` resolves it fresh
+  (`EntityPagePresentation.resolve`). A screen that owns its own `NavigationStack` over entity pages
+  (`ConnectionsView`, `EntryInsightsView`'s chips, `LocalGraphView`) must set
+  `.environment(\.entityRouteReplacer, ...)` itself, or a merge made from inside it leaves a stale
+  loser id on that stack's own path instead of redirecting to the winner; a view pushed into an
+  existing stack (`GlobalGraphView` into Connections', `EntityView` itself) inherits the enclosing
+  stack's replacer for free.
+- **Diagnostics and privacy.** Every graph event (`graph.indexed`, `graph.merged`, `graph.rendered`,
+  etc.) carries only ids, counts, and durations, never a name, alias, bio, or surface string;
+  `DiagnosticsPrivacyTests`/`AIDiagnosticsPrivacyTests` run real graph components, including a
+  local/global graph render, against a sentinel string used as every one of those fields and assert
+  it never reaches the log.
+
 **Entry dates.** `createdAt` is when the entry reached the app and drives every automation rule. `entryDate` is where it belongs in the journal, editable; a picked day is noon with `entryDateIsDayOnly`, and `EntryDateRepair` fixes any entry whose untouched date drifted.
 
 **Settings** (`Mindlore/Settings/`). `SettingsStore` reads through a `KeyValueStore` protocol using `object(forKey:)`, so a missing value means "use the default" rather than `false`. `PrivacyInfo.xcprivacy` declares the UserDefaults reason.

@@ -102,8 +102,12 @@ Left for later, each with its reason:
 
 1. **iCloud sync.** Planned in `tasks/archive/v1-capture-storage.md`, blocked on the paid Apple
    Developer Program. Includes the entry safety copy, recovery, and the cross-device transcription rule.
-2. **The knowledge graph.** Turn the tags and mentions already stored on every entry into entities with
-   user-written bios, resolve "Sarah" and "my sister" to one person, and feed that back into analysis.
-   This is the product's actual differentiator (`docs/mindlore-build-plan.md`, Phase 2).
+2. **The knowledge graph: merge and observe.** Built on `feature/knowledge-graph` — entities with
+   user-written bios, resolving "Sarah" and "my sister" to one person, merge/hide, co-occurrence, and
+   a force-directed local and global picture (`tasks/todo.md`, Phases 1-7). Phase 8 is the last gate
+   before merge: the extended privacy test, a full-branch code review, the device smoke steps below,
+   and this file's own update once it lands. Feeding the graph back into AI analysis (bios and
+   co-occurrence informing insights, the product's actual differentiator per
+   `docs/mindlore-build-plan.md` Phase 2) is the layer after that.
 3. **Synthesis.** Daily, weekly, and monthly summaries, mood trends over time, and search.
-4. **Import and visualization.** Text import, backfilling old journals, then the graph view.
+4. **Import.** Text import and backfilling old journals.
