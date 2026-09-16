@@ -80,6 +80,28 @@ struct RecordingIngestorTests {
         #expect(try harness.entries().count == 1)
     }
 
+    // Tier 1 already produced the text, so the entry arrives finished and nothing queues it again.
+    @Test func liveTextMakesTheEntryFinishedOnArrival() async throws {
+        let harness = try IngestHarness()
+        let file = try harness.finishedFile(seconds: 1.0)
+
+        let entry = try #require(await harness.ingestor.ingest(file, context: harness.context, liveText: "  spoken while recording  "))
+
+        #expect(entry.text == "spoken while recording")
+        #expect(entry.awaitingText == false)
+        #expect(entry.textWasGenerated)
+        #expect(entry.textGeneratedBy == RecordingIngestor.liveGeneratedBy)
+        #expect(entry.audioData != nil)
+    }
+
+    // An unhealthy or silent session hands back nothing, and the entry waits for the batch pass
+    // exactly as it did before tier 1 existed.
+    @Test func missingLiveTextLeavesTheEntryWaitingForText() async throws {
+        let harness = try IngestHarness()
+        #expect(try await harness.ingestor.ingest(harness.finishedFile(seconds: 1.0), context: harness.context)?.awaitingText == true)
+        #expect(try await harness.ingestor.ingest(harness.finishedFile(seconds: 1.0), context: harness.context, liveText: "   ")?.awaitingText == true)
+    }
+
     @Test func convertedAudioIsPlayable() async throws {
         let harness = try IngestHarness()
         let entry = try #require(await harness.ingestor.ingest(try harness.finishedFile(seconds: 0.5), context: harness.context))

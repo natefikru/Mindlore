@@ -30,6 +30,36 @@ These steps are still unrun. `tasks/smoke-test.md` has the expected events for e
 - [ ] **Optional: a 25-minute recording**, to watch chunked uploads on a device.
 - [ ] **Optional: five pages in one entry**, for memory and stored size at a realistic maximum.
 
+## Device smoke test, live transcription
+
+Live transcription (Settings, Speech to Text, Live) has never run: the simulator can't load Apple's
+speech models, so unit tests only cover what surrounds it. These steps are the only proof it works.
+`tasks/smoke-test.md` steps 22 to 27 have the expected events for each, and the plan with its
+decisions and review is `tasks/transcription-tiers.md` (archive it once these pass).
+
+- [ ] **Text while talking.** On a fresh install, confirm the picker offers Live, This iPhone, and
+      OpenAI with Live selected. Record 30 seconds. Text should appear within about a second, the
+      dimmed tail rewriting itself and turning solid as it commits. The entry opens with its text
+      already there, and no `transcription.started` appears for it. If `framesFed` climbs but no text
+      shows, the audio format conversion is wrong.
+- [ ] **The last word survives.** End a recording mid-sentence on a distinct word and tap Done
+      straight away. The word should be in both the playback and the text. This checks the
+      converter drain that fixed clipped endings.
+- [ ] **First-run model download.** On a phone that has never used on-device speech, record right
+      away. Recording starts without waiting, `live.assets` shows the download, and the entry gets its
+      text after Done instead. The next recording is live.
+- [ ] **A call mid-recording.** Take a call while recording, decline, resume, tap Done. The live text
+      is discarded (`live.finished used=false`), the entry is transcribed from the file, and the audio
+      covers everything except the call.
+- [ ] **This iPhone turns live off.** Pick This iPhone and record. Nothing on screen while talking,
+      then `transcription.started engine=apple` after Done.
+- [ ] **OpenAI never starts a live session.** Pick OpenAI and record. `live.availability
+      reason=notChosen`, then the normal cloud sequence.
+- [ ] **The rewritten recorder still never loses audio.** `AVAudioEngine` now writes the file that
+      `AVAudioRecorder` used to, so repeat the v1 checks: lock mid-recording (the locked time is in the
+      recording), force-quit mid-recording (recovered on relaunch, audio intact), and a 25-minute
+      recording with OpenAI picked (memory stays flat, since nothing is reading the live buffers).
+
 ## Deferred from the pre-merge code review (2026-09-15)
 
 Taken before merge: main-actor network/audio/image work moved off with `@concurrent`; a cancelled

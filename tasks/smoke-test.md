@@ -158,3 +158,70 @@ Expect: the run completes after launch, `insightsAttempts` reaches 1, and there 
 Lock the phone, wait a minute, unlock, record an entry.
 
 Expect: cloud transcription still works, so the key was readable after first unlock.
+
+## Live transcription steps (added for the transcription tiers PR)
+
+Tier 1 cannot be exercised anywhere but a real iPhone, so every step below is the only evidence
+these paths work at all. `live.*` events carry counts, locales, and reasons, never spoken words.
+
+### 22. Live text while talking
+
+Settings, Speech to Text: confirm the picker shows Live, This iPhone, OpenAI, and that Live is
+already selected on a fresh install. Record, and watch the screen while speaking for 30 seconds.
+
+Expect: `live.availability available=true reason=none`, `live.started` with a `sampleRate` (16000 on
+current hardware), text appearing within a second of speaking, the dimmed tail being rewritten as
+you talk and turning solid as it commits, then `live.finished healthy=true used=true` with
+`characters` above 0, and `ingest.completed liveText=true`.
+
+The entry opens with its text already in place. There must be no `transcription.started` for that
+id, because the text already arrived.
+
+Failure signs: `live.availability` with a `reason`, `live.dropped`, `live.finished used=false`, or
+text that never appears while `framesFed` climbs (the format conversion is wrong).
+
+Then record once more, ending mid-sentence on a distinct word, and tap Done immediately. That word
+must be audible at the end of playback and present at the end of the text. The resampler holds back
+the last fraction of a second until it's drained; if the word is missing from either, the drain in
+`RecordingWriter.finish()` or the live session's `finish()` isn't running.
+
+### 23. First run downloads the model without blocking
+
+On a phone that has never run on-device speech, or after deleting the app, record immediately.
+
+Expect: `live.availability reason=assetNotInstalled`, the recording starting anyway with no delay,
+`live.assets status=downloading` then `installed`, and the entry getting text from the batch path
+(`transcription.started` then `transcription.completed`). The next recording is live.
+
+### 24. A call mid-recording gives up live text, not the recording
+
+Start recording, have someone call you, decline, resume, tap Done.
+
+Expect: `recorder.interrupted`, `recorder.audioGap reason=interrupted`, `live.dropped
+reason=interrupted`, `recorder.resumed from=interrupted`, then `live.finished healthy=false
+used=false`, `ingest.completed liveText=false`, and the entry transcribed from the file instead.
+The audio must cover everything except the call itself.
+
+### 25. Picking This iPhone turns live off
+
+Settings, Speech to Text, This iPhone. Record.
+
+Expect: `live.availability available=false reason=notChosen`, no text on screen while speaking,
+`transcription.started` with `engine=apple` after Done, and `transcription.completed`.
+
+### 26. Picking OpenAI still never runs a session
+
+Settings, Speech to Text, OpenAI. Record.
+
+Expect: `live.availability reason=notChosen`, then the step 10 cloud sequence. Nothing on screen
+while talking.
+
+### 27. The rewritten recorder still never loses audio
+
+Repeat steps 4, 5, and 13 (lock mid-recording, kill mid-recording, a 25-minute recording) now that
+AVAudioEngine writes the file instead of AVAudioRecorder.
+
+Expect exactly what those steps expected before: `seconds` covering the whole recording including
+locked time, `recovery.moved count=1` after a force-quit with the audio intact, and no
+`recorder.audioGap`. A long recording should hold steady memory, since buffers are written and
+released rather than accumulated.

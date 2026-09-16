@@ -15,6 +15,9 @@ nonisolated struct PreparedRecording: Sendable {
 // once its entry is safely saved.
 @Observable
 final class RecordingIngestor {
+    // Marks an entry whose text came from the live on-device session rather than a later pass.
+    static let liveGeneratedBy = "apple.live"
+
     @ObservationIgnored private let save: (ModelContext) throws -> Void
     @ObservationIgnored private let diagnostics: DiagnosticsLog
     @ObservationIgnored private var inFlight: Set<URL> = []
@@ -36,7 +39,9 @@ final class RecordingIngestor {
         return entries
     }
 
-    func ingest(_ fileURL: URL, context: ModelContext) async -> Entry? {
+    // `liveText` is text a live transcriber produced while the user was speaking. When it's
+    // there the entry is already finished, so nothing queues it for transcription again.
+    func ingest(_ fileURL: URL, context: ModelContext, liveText: String? = nil) async -> Entry? {
         let file: DiagnosticValue = .string(fileURL.lastPathComponent)
         guard !inFlight.contains(fileURL) else {
             diagnostics.record("ingest.skipped", ["file": file, "reason": "inFlight"])
@@ -66,14 +71,21 @@ final class RecordingIngestor {
             return existing
         }
 
+        let live = liveText?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let hasLiveText = !(live ?? "").isEmpty
         let entry = Entry(
             id: prepared.id,
             createdAt: prepared.createdAt,
             source: .voice,
-            awaitingText: true,
+            text: live ?? "",
+            awaitingText: !hasLiveText,
             audioData: prepared.audioData,
             audioDuration: prepared.duration
         )
+        if hasLiveText {
+            entry.textWasGenerated = true
+            entry.textGeneratedBy = Self.liveGeneratedBy
+        }
         context.insert(entry)
         do {
             try save(context)
@@ -89,6 +101,7 @@ final class RecordingIngestor {
             "sourceBytes": .int(prepared.sourceBytes),
             "audioBytes": .int(prepared.audioData.count),
             "converted": .bool(prepared.duration != nil),
+            "liveText": .bool(hasLiveText),
         ]
         if let duration = prepared.duration { fields["seconds"] = .double(duration) }
         diagnostics.record("ingest.completed", fields)
