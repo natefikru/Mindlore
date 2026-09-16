@@ -1401,7 +1401,8 @@ judgement per Phase 8, not a Phase 7 one).
       per-frame budget, and is only recorded for reference); the time scrubber.
 - [x] `CLAUDE.md`: Graph section (models, resolution rules, indexer hooks, how views query from the
       link side). `docs/remaining-work.md`: next projects updated.
-- [ ] PR description; mark ready.
+- [x] PR description updated with the full phase-by-phase summary and the full-branch review's
+      findings (PR #3); left in draft until the device smoke steps above are actually run.
 
 ## Test plan
 
