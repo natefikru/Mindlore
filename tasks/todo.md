@@ -1390,7 +1390,7 @@ accessibility identifiers the way a `Form` row is, and the picture's correctness
 judgement per Phase 8, not a Phase 7 one).
 
 ### Phase 8: Privacy, review, device, docs
-- [ ] `DiagnosticsPrivacyTests`: sentinel as entity name, alias, bio, surface text, during merge and
+- [x] `DiagnosticsPrivacyTests`: sentinel as entity name, alias, bio, surface text, during merge and
       render.
 - [ ] Sub-agent code review over the PR diff; fixes in separate commits.
 - [ ] Device smoke steps in `tasks/smoke-test.md`: upgrade over real entries and watch the sweep

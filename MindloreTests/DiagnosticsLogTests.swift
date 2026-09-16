@@ -163,7 +163,8 @@ struct DiagnosticsPrivacyTests {
 }
 
 // Every AI path, run against a sentinel string: entry text, title, tags, mention names, custom prompt
-// wording, page text, the API key, a provider error body, and a decoding error. None may reach the log.
+// wording, page text, the API key, a provider error body, and a decoding error. None may reach the
+// log, including during a merge or a local/global graph render over entities named with it.
 @MainActor
 struct AIDiagnosticsPrivacyTests {
     private static let sentinel = DiagnosticsPrivacyTests.sentinel
@@ -276,13 +277,23 @@ struct AIDiagnosticsPrivacyTests {
         _ = graph.vocabulary(in: context)
         graph.sweep(in: context)
 
+        // The picture: local and global graph reads over entities named with the sentinel, and
+        // the render event they both log. graph.rendered only ever carries counts and a duration,
+        // but this proves it, over data that would leak if anything upstream forgot to resolve
+        // to plain ids first.
+        let services = GraphServices(diagnostics: log)
+        let localData = services.localGraph(around: namedID, depth: 2, in: context)
+        services.recordGraphRendered(nodes: localData.nodes.count, edges: localData.edges.count, settleMilliseconds: 12.5)
+        let globalData = services.globalGraph(kinds: nil, minimumLinkCount: 0, in: context)
+        services.recordGraphRendered(nodes: globalData.nodes.count, edges: globalData.edges.count, settleMilliseconds: 34.0)
+
         let contents = file.contents()
         #expect(contents.contains("ai.keySaved"))
         #expect(contents.contains("pages.transcription.completed"))
         #expect(contents.contains("insights.completed"))
         #expect(contents.contains("insights.failed"))
         for event in ["graph.indexed", "graph.entityEdited", "graph.hidden", "graph.suggestionDismissed",
-                      "graph.merged", "graph.unmerged", "graph.repointed"] {
+                      "graph.merged", "graph.unmerged", "graph.repointed", "graph.rendered"] {
             #expect(contents.contains(event), "\(event) was never exercised")
         }
         #expect(contents.contains("title.failed"))
