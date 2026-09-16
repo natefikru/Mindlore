@@ -714,30 +714,163 @@ Everything else the reviewer checked (markNotSame's implementation, saver.flush(
 entry preview, kind filtering on both All and Hidden, Tom not false-matching Sarah, no
 capitalization creeping in, nothing from "Not in scope" leaking in) was already correct.
 
-### Phase 5c: Names that sound alike (owner request, 2026-09-16; not yet specified)
+### Phase 5c: Names that sound alike (owner request, 2026-09-16; specified 2026-09-16)
 
-A dictated "Luis" arrives as "Lewis", a real name the writer has no one by. The writer wants every
-"Lewis" and "luis" to mean their friend Luis, until they add a second, real Lewis; from then on
-AI should pick which one each mention means, and ask when it can't tell.
+A dictated "Luis" arrives as "Lewis," a real name the writer has no one by. The writer wants every
+"Lewis" and "luis" to mean their friend Luis, until they add a second, real Lewis; from then on the
+graph should ask which one a mention means instead of guessing. Five of the sketch's seven bullets
+are specified below as 5c.1-5c.5. Two are out, both explained under "Not in scope, this phase" at
+the end: the AI-disambiguation bullet is blocked on the bios-in-insights privacy review, and the
+transcription-hint bullet waits on an owner call about scope.
 
-- [ ] Rename offers "Keep '{old}' as another name" (on by default for entries from recordings),
-      so a corrected spelling still catches later mentions.
-- [ ] A link records what the entry actually wrote when the model corrected the name, and entity
-      rows and bio excerpts search for that, not the corrected name (today a corrected "Luis"
-      finds no sentence in text that says "Lewis").
-- [ ] "A different person also called {name}": creating an entity that shares a name on purpose.
-      Today a new name something already answers to goes to that entity (5a.4), and the rename
-      and alias checks refuse it as a collision.
-- [ ] Shared names resolve to "unsure" instead of the resolver's silent tie-break: the chip shows
-      it, the Review list (5b) asks "Which {name}?", and the answer is kept for that entry.
-- [ ] AI picks between the candidates first, which needs a line about each one in the insights
-      request. That sends bios or similar out, so it waits for the privacy review listed under
-      "Not in scope" (bios in the insights prompt).
-- [ ] Known names as a hint for transcription: the OpenAI transcriber already takes a `prompt`
-      (`OpenAICompatibleTranscriber.swift:34`, today only the previous chunk's tail); the
-      on-device recognizer's custom vocabulary in iOS 26 needs a spike. A new place names are
-      sent, so the AI settings text and privacy note change with it.
-- [ ] A new, unconfirmed person offers "Spelled right?" on its chip or page.
+**Steps**, each committed and pushed on its own with the unit suite green:
+
+- [ ] 5c.1 Keep what the entry wrote alongside a corrected name, so bio excerpts and entry-row
+      sentences can search for it. `InsightsPromptBuilder.grounded(_:in:)`
+      (`InsightsPromptBuilder.swift:230-238`) already recovers the entry's own wording when the
+      model's name, or a decreasing word-prefix of it, appears literally in the entry text; only
+      when nothing at all matches does it fall through and keep the model's own correction
+      (its own comment: "the model fixed a garbled name... and that is kept, which is what the
+      journal's names are sent for"). That fallback stays exactly as it is for resolution, a
+      corrected "Luis" should still link to the Luis entity, but the fallen-through case needs a
+      second attempt to find what the entry actually printed, for display only. Change `grounded`
+      to return `(surface: String, wasCorrected: Bool)`; when `wasCorrected`,
+      `InsightsPromptBuilder.parse(_:plan:calendar:)` (`InsightsPromptBuilder.swift:242-272`) calls
+      a new `NameMatching.nearestWord(to:in:threshold:)`, which scores every word and two-word
+      phrase of the entry text against the model's name with `EntityMatcher.jaroWinkler` (already
+      internal, not private, nothing to change there) and returns the best match at or above
+      `EntityMatcher.threshold` (0.88), or nil. `Mention` gains `writtenSurface: String?`.
+      `EntityResolver.Value` (`EntityResolver.swift:8-13`) has no field for it and `resolve`
+      doesn't need one, so it stays off `Value`; `GraphIndexer.values(of:)`
+      (`GraphIndexer.swift:382-394`) instead builds a parallel `[Claim: String]` lookup of
+      `writtenSurface` by surface-and-kind, the same pattern `origins` already uses
+      (`GraphIndexer.swift:68`), and `index`'s link creation (`GraphIndexer.swift:110`) reads from
+      it into the new `EntityLink.writtenSurface: String?` field (nil = the surface already is
+      what the entry wrote, the common case), carried through unchanged by merge, repoint, and
+      unmerge (none of `moveForMerge`, `restore`, or `repoint` touch `surface` either, since they
+      reassign who owns a link, not what the entry said). `BioExcerpts.sentences(in:naming:)`
+      (`BioExcerpts.swift:32,50`) and the entity page's entry-row sentence lookup
+      (`EntityPagePresentation.swift:89`) try `link.writtenSurface` before `link.surface`.
+      Test: `grounded` reports `wasCorrected` only on the no-match fallback, never on a full or
+      prefix match; `nearestWord` finds "Lewis" for a corrected "Luis" when the entry says "Lewis,"
+      and returns nil when nothing in the entry scores 0.88 or above (a truly garbled clip, where
+      the model invented a name out of nothing); `BioExcerpts` and the entry row use
+      `writtenSurface` when present, `surface` otherwise; a link from before this ships has a nil
+      `writtenSurface` and behaves as it does today (lightweight migration, one new optional field).
+- [ ] 5c.2 Rename offers "Keep '{old name}' as another name." `GraphEditor.rename(_:to:in:)`
+      (`GraphEditor.swift:27-38`) gains `keepingOldNameAsAlias: Bool = false`; on a successful
+      rename it appends the entity's old `name` to `aliases` in the same edit, skipping
+      `entityAnswering`'s collision check since the old name already belonged to this entity.
+      `GraphServices.rename(_:to:in:)` (`GraphServices.swift:55-57`), the wrapper `EntityView`
+      actually calls, gains the same parameter and forwards it. `EntityView`'s rename alert
+      (`EntityView.swift:114-119`) adds a `Toggle` bound to a new `@State var keepOldName: Bool`,
+      defaulted by a new pure `EntityPagePresentation.hasVoiceSourcedLink(links:entries:) -> Bool`
+      (true when any entry among the linked entries has `source == .voice`). `EntityView.entryRows`
+      (`EntityView.swift:408-429`) already fetches those entries for the entry rows, but as a
+      computed property, not a stored one; sourcing the toggle's default from the header
+      (`EntityView.swift:181-184`, outside `entriesSection`) means either calling that same
+      computed fetch again or lifting it into a stored value the header can also read, not a new
+      kind of query but a second invocation of the existing one unless restructured. Passed through
+      `apply`'s closure to `graph.rename(id, to:, keepingOldNameAsAlias:, in:)`.
+      Test: rename with the flag true adds the alias and it survives a second rename; false behaves
+      exactly as `rename` does today; `hasVoiceSourcedLink` is true with a voice entry among the
+      links and false for typed-only or none; a rename that collides never touches the alias,
+      flag or not.
+- [ ] 5c.3 "A different person also called {name}." Every collision `rename` and `addAlias` raise
+      today (`GraphEditor.swift:31-32,79-80`, surfaced as `EditOutcome.collides(with:)`) stops the
+      edit outright. Both gain `force: Bool = false`, skipping `entityAnswering` when true and
+      applying the edit anyway; `setKind`'s collision is untouched, a kind change colliding is a
+      different, rarer shape, out of scope here. `EntityView`'s collision alert
+      (`EntityView.swift:129-136`) gets a third button, "No, someone else," which replays the same
+      edit with `force: true`; `apply`'s closure needs to be kept around for this instead of
+      discarded once it collides, e.g. `@State var collidingEdit: ((Bool) -> EditOutcome)?` set
+      alongside `collision`. Forcing also calls the existing `markNotSame(_:_:in:)`
+      (`GraphEditor.swift:114-120`) between the two entities in the same edit: without it,
+      `EntityMatcher.score` (`EntityMatcher.swift:56-68`) gives identical keys 1.0, and the Review
+      list's next refresh would immediately re-suggest merging the exact pair the user just said
+      were different, undoing the point of forcing. `graph.collisionForced` event (id, other id)
+      records it happened, no names. Once forced, two live entities intentionally share a key; the
+      resolver ties them together the way it does after any collision today (5c.4, next, is what
+      stops it guessing).
+      Test: a forced rename applies despite the collision and both entities stay separate and live;
+      a forced alias likewise; both entities end up in each other's `notSameAs` and don't appear in
+      `EntityMatcher.suggestions` afterward; the unforced path is unchanged; `collisionForced` logs
+      ids only.
+- [ ] 5c.4 The resolver asks instead of silently choosing, when a shared key ties.
+      `EntityResolver.resolve`'s exact-match band (`EntityResolver.swift:42-49`) already tolerates
+      more than one live match (its own comment: "two live entities can share a key after a rename
+      collision the user pushed through") and always picks with `bestExact`
+      (`EntityResolver.swift:96-101`: confirmed, then `linkCount`, then id, a total order). Leave
+      `resolve` and its three-case `Outcome` untouched, every existing caller and test keeps
+      working, and add a second, pure function beside it, `EntityResolver.tied(_:among:) ->
+      [UUID]`, using the same exact-match filter but returning the full set only when more than one
+      candidate is `confirmedByUser`, or none are: a real tie either way. A single confirmed
+      candidate among unconfirmed others is not tied, a prior decision already broke it, the same
+      case `bestExact` already resolves cleanly today. `GraphIndexer.index`
+      (`GraphIndexer.swift:80-108`) calls `tied` alongside `resolve` for every value and, when
+      non-empty, sets a new `EntityLink.unsureAmong: [UUID]` (default `[]`, added beside
+      `writtenSurface`) to the tied ids on the link it creates or reuses; `graph.ambiguous`
+      (`GraphIndexer.swift:81-83`) keeps firing unchanged, since `tied` fires strictly less often
+      than `isAmbiguous` (a confirmed-versus-unconfirmed pair is ambiguous but not tied).
+      Resolving one link is a repoint: `EntityLink.repoint(to:)` clears `unsureAmong` to `[]`
+      alongside its existing `source = .user` and `inferred = false`, so picking an answer through
+      the existing `RepointView` flow (`GraphEditor.repoint`) resolves it with no new commit path.
+      `GraphServices` gets `unsureLinks(in:) -> [UnsureMention]` (link id, entry id, surface, the
+      tied entities' names), mirroring `editor.suggestions(in:)`'s shape for the Review section; it
+      resolves each id in `unsureAmong` through `editor.root(of:)` before reading a name, and drops
+      an id that no longer points at a live, unhidden entity (merged or hidden after the tie was
+      recorded, before the user answered) rather than showing a stale one, clearing `unsureAmong`
+      down to `[]` (resolved automatically after all) when that leaves one or zero candidates.
+      `RepointView` (`RepointView.swift`) gains a `restrictedTo: Set<UUID>?` init parameter (nil =
+      today's behavior); `choices` (`RepointView.swift:36-42`) filters its `@Query` result down to
+      that set when set, still through the existing `isBrowsable` check, so a stale id is simply
+      absent rather than crashing the picker. `ConnectionsView`'s Review section (5b) gets a second
+      subsection, "Which one?", one row per unsure link ("{surface} could be {a} or {b}"), tapping
+      opens `RepointView(restrictedTo:)` with the (cleaned) tied set. `EntityChipIndex` (5a) already
+      returns `(entity id, inferred)` per chip; extend to `(entity id, inferred, unsure)` so a chip
+      whose link has a non-empty `unsureAmong` gets its own style (a "?" badge, distinct from the
+      dashed "guessed" outline) and "unsure" in its accessibility label, alongside the existing
+      "This is someone else."
+      Test: `tied` returns both ids when two confirmed (or two unconfirmed) entities share a key,
+      empty when one is confirmed and the other isn't, empty for an ordinary single match; indexing
+      a value whose key ties sets `unsureAmong` on the link without stopping it resolving to
+      something (today's `bestExact` pick, unchanged, so nothing regresses while it waits in
+      Review, since `entityID` never changes); repointing an unsure link clears `unsureAmong`;
+      `unsureLinks` drops a tied id that got merged or hidden and resolves the rest through
+      `root(of:)`; `RepointView(restrictedTo:)` only offers the given ids; the chip index marks the
+      right chips unsure; a `ConnectionsView` UI test opens "Which one?," picks one, and the row is
+      gone after the refresh (the same `.task(id:)` pattern 5b's Review section
+      uses).
+- [ ] 5c.5 "Spelled right?" for a brand-new, unconfirmed name. `EntityPagePresentation` gains a
+      pure `showsSpellingPrompt(for:) -> Bool`: true when `!entity.confirmedByUser &&
+      entity.linkCount <= 1` and the kind is one of person, place, organization, project, or event,
+      the same set bio auto-drafting already limits itself to (5a: "tags and themes rarely appear
+      word for word"), since a fresh tag or theme being misspelled isn't the scenario this prompt
+      is for. A first mention nobody has touched yet is the same freshness `RepointView`'s "guessed"
+      state already leans on, just at the entity level instead of the link level. `EntityView`
+      shows a small banner above the header when true, "Spelled right?
+      {name}," with a button opening the existing rename alert pre-filled with the current name
+      selected. No model changes; any edit through the alert, including 5c.2's alias-keeping
+      toggle, clears the prompt the normal way, since it sets `confirmedByUser`.
+      Test: `showsSpellingPrompt` is true for a fresh single-link entity, false once confirmed or
+      once it has a second link; the banner opens the rename alert with the name selected.
+
+Sub-agent review of the whole phase; fix what it finds.
+
+**Not in scope, this phase:**
+- AI choosing between tied candidates, and sending anything about them (bios, excerpts) into the
+  insights request: blocked on the bios-in-insights privacy review already flagged under "Not in
+  scope" above. 5c.4's Review-list "Which one?" is the answer until that review clears.
+- Known names as a transcription hint (owner decision, 2026-09-16: deferred whole, not split).
+  A distinct subsystem, transcription rather than resolution, and the on-device half needs a spike
+  (iOS 26 `SpeechTranscriber`/`DictationTranscriber`, constructed today with only `locale`/`preset`
+  at `SpeechAnalyzerTranscriber.swift:21,30`, expose no vocabulary or contextual-strings hook
+  anything in this codebase currently uses). Bundling only the OpenAI-only half (feeding
+  `GraphIndexer.vocabulary`'s `named` list into `TranscriberRouter`'s existing `prompt`,
+  `OpenAICompatibleTranscriber.swift:15-22,33-35`, alongside the previous chunk's tail) into 5c
+  would ship an on-device/cloud asymmetry this phase doesn't otherwise have and would need its own
+  privacy-note update regardless; simpler to keep 5c scoped to resolution and take the whole bullet,
+  spike included, as its own follow-up phase, the same way Phases 6 and 7 are already split off.
 
 ### Phase 6: Co-occurrence
 - [ ] `Mindlore/Graph/EntityGraph.swift`: `build(links:asOf:halfLife:)` groups links by entry,
