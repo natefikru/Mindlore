@@ -11,6 +11,7 @@ struct EntryListView: View {
     private var entries: [Entry]
     @State private var path: [Entry] = []
     @State private var showingSettings = false
+    @State private var showingConnections = false
     @State private var writingNewEntry = false
     @State private var recording = false
     @State private var pageOrder: PageOrderTarget?
@@ -77,6 +78,9 @@ struct EntryListView: View {
                 ToolbarItem(placement: .topBarLeading) {
                     Button("Settings", systemImage: "gearshape") { showingSettings = true }
                 }
+                ToolbarItem(placement: .topBarLeading) {
+                    Button("Connections", systemImage: "person.2") { showingConnections = true }
+                }
                 // Voice sits outermost, in the easiest-to-reach position.
                 ToolbarItemGroup(placement: .topBarTrailing) {
                     if DocumentCameraView.isSupported || FakePages.isEnabled {
@@ -89,6 +93,9 @@ struct EntryListView: View {
             }
             .sheet(isPresented: $showingSettings) {
                 SettingsView()
+            }
+            .sheet(isPresented: $showingConnections) {
+                ConnectionsView()
             }
             .fullScreenCover(isPresented: $recording) {
                 RecordingView { entry in path.append(entry) }
