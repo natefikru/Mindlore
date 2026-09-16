@@ -1,6 +1,14 @@
 import SwiftData
 import SwiftUI
 
+// A push target on Connections' own stack: an entity page, or the global graph, so tapping a node
+// inside the graph pushes EntityRoute onto the same path a row tap already uses, rather than
+// opening a second stack.
+enum ConnectionsPathItem: Hashable {
+    case entity(EntityRoute)
+    case globalGraph
+}
+
 // Everyone and everything the journal has gathered: browse, search, filter by kind, and resolve
 // likely duplicates. Merge and hide stay on the entity page itself, unchanged from Phase 5a; this
 // screen is how you get there without already knowing a chip to tap.
@@ -17,8 +25,10 @@ struct ConnectionsView: View {
     @State private var unsureMentions: [GraphServices.UnsureMention] = []
     @State private var resolving: GraphServices.UnsureMention?
     @State private var loaded = false
-    // Entity pages pushed from a row, by value, so a merge made from one can replace another.
-    @State private var path: [EntityRoute] = []
+    // Entity pages pushed from a row, by value, so a merge made from one can replace another;
+    // the global graph shares this same path, since it pushes into this stack rather than
+    // opening its own.
+    @State private var path: [ConnectionsPathItem] = []
 
     private struct RefreshKey: Equatable {
         let revision: Int
@@ -84,7 +94,7 @@ struct ConnectionsView: View {
                 }
                 Section("All") {
                     ForEach(visible) { row in
-                        NavigationLink(value: EntityRoute(id: row.id)) {
+                        NavigationLink(value: ConnectionsPathItem.entity(EntityRoute(id: row.id))) {
                             ConnectionRowLabel(row: row)
                         }
                         .accessibilityIdentifier("connectionRow-\(row.name)")
@@ -93,7 +103,7 @@ struct ConnectionsView: View {
                 if !hiddenRows.isEmpty {
                     Section("Hidden") {
                         ForEach(hiddenRows) { row in
-                            NavigationLink(value: EntityRoute(id: row.id)) {
+                            NavigationLink(value: ConnectionsPathItem.entity(EntityRoute(id: row.id))) {
                                 ConnectionRowLabel(row: row)
                             }
                             .accessibilityIdentifier("connectionRow-\(row.name)")
@@ -115,7 +125,12 @@ struct ConnectionsView: View {
             }
             .searchable(text: $search, placement: .navigationBarDrawer(displayMode: .always))
             .task(id: RefreshKey(revision: graph.revision, count: entities.count)) { refresh() }
-            .navigationDestination(for: EntityRoute.self) { EntityView(route: $0) }
+            .navigationDestination(for: ConnectionsPathItem.self) { item in
+                switch item {
+                case .entity(let route): EntityView(route: route)
+                case .globalGraph: GlobalGraphView(path: $path)
+                }
+            }
             .navigationTitle("Connections")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -147,9 +162,19 @@ struct ConnectionsView: View {
                     }
                     .accessibilityIdentifier("connectionsSortPicker")
                 }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        path.append(.globalGraph)
+                    } label: {
+                        Label("Graph", systemImage: "point.3.connected.trianglepath.dotted")
+                    }
+                    .accessibilityIdentifier("connectionsGraph")
+                }
             }
             .environment(\.entityRouteReplacer, EntityRouteReplacer { loser, winner in
-                path = EntityPagePresentation.replacing(loser, with: winner, in: path)
+                if let index = path.lastIndex(where: { if case .entity(let route) = $0 { return route.id == loser } else { return false } }) {
+                    path[index] = .entity(EntityRoute(id: winner))
+                }
             })
         }
     }

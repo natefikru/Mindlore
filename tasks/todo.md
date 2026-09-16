@@ -1374,7 +1374,7 @@ Phase 8):
       from inside the sheet redirects that stack's own `path`, matching what `ConnectionsView.swift:151`
       already does for the main stack), the depth toggle. `graph.rendered` logged once per sheet
       appearance and once per depth change.
-- [ ] 7.5 `GlobalGraphView`, the Connections toolbar button, kind-toggle row, minimum-count control,
+- [x] 7.5 `GlobalGraphView`, the Connections toolbar button, kind-toggle row, minimum-count control,
       time scrubber, pushed onto `ConnectionsView`'s existing stack. `graph.rendered` logged once per
       appearance and once per control change that rebuilds the simulation.
 - [ ] 7.6 Sub-agent review of the whole phase; fix what it finds.
