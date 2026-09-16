@@ -355,7 +355,8 @@ struct EntityPersistenceTests {
         #expect(Set(resolvable.map(\.name)) == ["Sarah Kim", "Bob"])
     }
 
-    // Every graph query filters on the model's own UUID through the relationship.
+    // Every graph query filters on the ids the link carries. The relationships are for
+    // SwiftData's delete rules only; see EntityLink.
     @Test func linksAreQueryableByEntityAndEntry() throws {
         let container = try ModelContainerFactory.make(.inMemory)
         let context = container.mainContext
@@ -372,17 +373,12 @@ struct EntityPersistenceTests {
         _ = linked(tuesday, river, surface: "river", in: context)
         try context.save()
 
-        let sarahID = sarah.id
-        let ofSarah = try context.fetch(FetchDescriptor<EntityLink>(predicate: #Predicate { link in
-            if let entity = link.entity { entity.id == sarahID } else { false }
-        }))
+        let all = try context.fetch(FetchDescriptor<EntityLink>())
+        let ofSarah = all.filter { $0.entityID == sarah.id }
         #expect(ofSarah.count == 1)
         #expect(ofSarah.first?.surface == "Sarah")
 
-        let mondayID = monday.id
-        let ofMonday = try context.fetch(FetchDescriptor<EntityLink>(predicate: #Predicate { link in
-            if let entry = link.entry { entry.id == mondayID } else { false }
-        }))
+        let ofMonday = all.filter { $0.entryID == monday.id }
         #expect(ofMonday.count == 2)
         #expect(Set(ofMonday.map(\.surface)) == ["Sarah", "river"])
 

@@ -44,7 +44,8 @@ struct RootView: View {
             onInsightsWritten: { entry, context in
                 graph.index(entry, in: context)
                 graph.recount(in: context)
-            }
+            },
+            vocabulary: { graph.vocabulary(in: $0) }
         )
 
         // A short delay lets a cancelled back swipe re-open the entry before any job looks at it.

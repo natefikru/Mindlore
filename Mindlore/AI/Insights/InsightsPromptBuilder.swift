@@ -54,11 +54,28 @@ nonisolated enum InsightsPromptBuilder {
     static let maxInputCharacters = 40_000
     static let maxCleanedTextCharacters = 12_000
     static let maxExistingTags = 50
+    static let maxExistingThemes = 50
+    static let maxKnownEntities = 50
     static let maxThemes = 4
     static let maxTags = 8
     static let maxSecondaryMoods = 2
 
-    static func plan(text fullText: String, source: EntrySource, sections: InsightSections, existingTags: [String], model: String) -> InsightsRequestPlan {
+    // What this journal already calls things. Sent so the model reuses the user's own words
+    // instead of inventing a near-duplicate of a tag, theme, or person they already have.
+    nonisolated struct JournalVocabulary: Equatable, Sendable {
+        var tags: [String] = []
+        var themes: [String] = []
+        var named: [KnownEntity] = []
+
+        static let empty = JournalVocabulary()
+    }
+
+    nonisolated struct KnownEntity: Equatable, Sendable {
+        let name: String
+        let kind: EntityKind
+    }
+
+    static func plan(text fullText: String, source: EntrySource, sections: InsightSections, vocabulary: JournalVocabulary = .empty, model: String) -> InsightsRequestPlan {
         let text = String(fullText.prefix(maxInputCharacters))
         var properties: [JSONSchema.Property] = []
         var guidance: [String] = []
@@ -78,10 +95,14 @@ nonisolated enum InsightsPromptBuilder {
         }
         if sections.themes {
             properties.append(.init("themes", .array(.string(), description: "One to four short phrases naming what the entry is about. A short entry still has at least one.")))
+            let themes = Array(vocabulary.themes.prefix(maxExistingThemes))
+            if !themes.isEmpty {
+                guidance.append("Themes already used in this journal; reuse one when it fits instead of inventing a near-duplicate: \(themes.joined(separator: ", ")).")
+            }
         }
         if sections.tags {
             properties.append(.init("tags", .array(.string(), description: "One to \(maxTags) short lowercase labels for grouping entries with others, like work or family.")))
-            let tags = Array(existingTags.prefix(maxExistingTags))
+            let tags = Array(vocabulary.tags.prefix(maxExistingTags))
             if !tags.isEmpty {
                 guidance.append("Tags already used in this journal; reuse one when it fits instead of inventing a near-duplicate: \(tags.joined(separator: ", ")).")
             }
@@ -91,6 +112,11 @@ nonisolated enum InsightsPromptBuilder {
                 .init("name", .string(description: "The name as written.")),
                 .init("kind", .enumeration(MentionKind.allCases.map(\.rawValue))),
             ]), description: "People, places, organizations, projects, events, and other named things in the entry. Empty if none.")))
+            let named = Array(vocabulary.named.prefix(maxKnownEntities))
+            if !named.isEmpty {
+                let listed = named.map { "\($0.name) (\($0.kind.rawValue))" }.joined(separator: ", ")
+                guidance.append("Named things already in this journal; when the entry refers to one of these, use this exact name and kind rather than a variation: \(listed).")
+            }
         }
         if sections.openThreads {
             properties.append(.init("openThreads", .array(.string(), description: "Unresolved things the writer may want to come back to. Empty if none.")))

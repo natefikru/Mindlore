@@ -114,6 +114,24 @@ struct GraphIndexer {
         return stale.count
     }
 
+    // What this journal already calls things, most used first, for the next insights request.
+    // Hidden entities are left out: the user does not want to see them, so the model should
+    // not be steered towards them either. Merged losers are left out because their name is
+    // already an alias of the winner.
+    func vocabulary(in context: ModelContext) -> InsightsPromptBuilder.JournalVocabulary {
+        let browsable = ((try? context.fetch(FetchDescriptor<Entity>(sortBy: [
+            SortDescriptor(\.linkCount, order: .reverse), SortDescriptor(\.createdAt),
+        ]))) ?? []).filter(\.isBrowsable)
+
+        return .init(
+            tags: browsable.filter { $0.kind == .tag }.prefix(InsightsPromptBuilder.maxExistingTags).map(\.name),
+            themes: browsable.filter { $0.kind == .theme }.prefix(InsightsPromptBuilder.maxExistingThemes).map(\.name),
+            named: browsable.filter { $0.kind != .tag && $0.kind != .theme }
+                .prefix(InsightsPromptBuilder.maxKnownEntities)
+                .map { .init(name: $0.name, kind: $0.kind) }
+        )
+    }
+
     // MARK: - Counters
 
     // Recomputes every counter from the links and prunes entities nothing points at any more.

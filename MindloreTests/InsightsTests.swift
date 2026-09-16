@@ -39,7 +39,7 @@ struct InsightsPromptBuilderTests {
     }
 
     @Test func allSectionsForAVoiceEntry() throws {
-        let plan = InsightsPromptBuilder.plan(text: "I walked to the river.", source: .voice, sections: InsightSections(), existingTags: ["work", "family"], model: "gpt-test")
+        let plan = InsightsPromptBuilder.plan(text: "I walked to the river.", source: .voice, sections: InsightSections(), vocabulary: .init(tags: ["work", "family"]), model: "gpt-test")
         let properties = try schemaProperties(plan)
 
         #expect(Set(properties.keys) == ["summary", "primaryMood", "secondaryMoods", "themes", "tags", "mentions", "openThreads", "cleanedText"])
@@ -56,19 +56,19 @@ struct InsightsPromptBuilderTests {
     }
 
     @Test func typedEntriesAskForTheWrittenDateAndNeverCleanup() throws {
-        let typed = try schemaProperties(InsightsPromptBuilder.plan(text: "x", source: .typed, sections: InsightSections(), existingTags: [], model: "m"))
+        let typed = try schemaProperties(InsightsPromptBuilder.plan(text: "x", source: .typed, sections: InsightSections(), vocabulary: .empty, model: "m"))
         #expect(typed["writtenDate"] != nil)
         #expect(typed["cleanedText"] == nil)
 
         // Pages are transcribed too, so they get cleanup; they never get a written date, which comes
         // from the page itself during page transcription.
-        let photo = try schemaProperties(InsightsPromptBuilder.plan(text: "x", source: .photo, sections: InsightSections(), existingTags: [], model: "m"))
+        let photo = try schemaProperties(InsightsPromptBuilder.plan(text: "x", source: .photo, sections: InsightSections(), vocabulary: .empty, model: "m"))
         #expect(photo["writtenDate"] == nil)
         #expect(photo["cleanedText"] != nil)
 
         var noDates = InsightSections()
         noDates.suggestEntryDates = false
-        #expect(try schemaProperties(InsightsPromptBuilder.plan(text: "x", source: .typed, sections: noDates, existingTags: [], model: "m"))["writtenDate"] == nil)
+        #expect(try schemaProperties(InsightsPromptBuilder.plan(text: "x", source: .typed, sections: noDates, vocabulary: .empty, model: "m"))["writtenDate"] == nil)
     }
 
     @Test func disabledSectionsAreLeftOut() throws {
@@ -76,7 +76,7 @@ struct InsightsPromptBuilderTests {
         sections.moods = false
         sections.tags = false
         sections.cleanedText = false
-        let plan = InsightsPromptBuilder.plan(text: "x", source: .voice, sections: sections, existingTags: ["work"], model: "m")
+        let plan = InsightsPromptBuilder.plan(text: "x", source: .voice, sections: sections, vocabulary: .init(tags: ["work"]), model: "m")
         let properties = try schemaProperties(plan)
 
         #expect(Set(properties.keys) == ["summary", "themes", "mentions", "openThreads"])
@@ -86,14 +86,14 @@ struct InsightsPromptBuilderTests {
 
     @Test func longVoiceEntriesSkipCleanupWithAReason() throws {
         let long = String(repeating: "word ", count: 3_000)
-        let plan = InsightsPromptBuilder.plan(text: long, source: .voice, sections: InsightSections(), existingTags: [], model: "m")
+        let plan = InsightsPromptBuilder.plan(text: long, source: .voice, sections: InsightSections(), vocabulary: .empty, model: "m")
         #expect(try schemaProperties(plan)["cleanedText"] == nil)
         #expect(plan.cleanedTextSkippedReason == "tooLong")
     }
 
     @Test func existingTagsAreCappedAtFifty() {
         let tags = (1...80).map { "tag\($0)" }
-        let plan = InsightsPromptBuilder.plan(text: "x", source: .typed, sections: InsightSections(), existingTags: tags, model: "m")
+        let plan = InsightsPromptBuilder.plan(text: "x", source: .typed, sections: InsightSections(), vocabulary: .init(tags: tags), model: "m")
         #expect(plan.request.system.contains("tag50"))
         #expect(!plan.request.system.contains("tag51"))
     }
@@ -104,9 +104,9 @@ struct InsightsPromptBuilderTests {
         let off = CustomInsightPrompt(id: UUID(), name: "Off", instructions: "nope", enabled: false)
         var sections = InsightSections()
         sections.customPrompts = [first, second, off]
-        let before = InsightsPromptBuilder.plan(text: "x", source: .typed, sections: sections, existingTags: [], model: "m")
+        let before = InsightsPromptBuilder.plan(text: "x", source: .typed, sections: sections, vocabulary: .empty, model: "m")
         sections.customPrompts = [second]
-        let after = InsightsPromptBuilder.plan(text: "x", source: .typed, sections: sections, existingTags: [], model: "m")
+        let after = InsightsPromptBuilder.plan(text: "x", source: .typed, sections: sections, vocabulary: .empty, model: "m")
 
         let secondKey = try #require(before.customKeys.first { $0.value.id == second.id }?.key)
         #expect(after.customKeys[secondKey]?.id == second.id)
@@ -119,7 +119,7 @@ struct InsightsPromptBuilderTests {
         let prompt = CustomInsightPrompt(id: UUID(), name: "Gratitude", instructions: "?", enabled: true)
         var sections = InsightSections()
         sections.customPrompts = [prompt]
-        let plan = InsightsPromptBuilder.plan(text: "x", source: .voice, sections: sections, existingTags: [], model: "m")
+        let plan = InsightsPromptBuilder.plan(text: "x", source: .voice, sections: sections, vocabulary: .empty, model: "m")
         let key = try #require(plan.customKeyOrder.first)
         let response = """
         ```json
@@ -145,7 +145,7 @@ struct InsightsPromptBuilderTests {
     }
 
     @Test func nullsLeaveFieldsEmptyAndBadJSONThrows() throws {
-        let plan = InsightsPromptBuilder.plan(text: "x", source: .typed, sections: InsightSections(), existingTags: [], model: "m")
+        let plan = InsightsPromptBuilder.plan(text: "x", source: .typed, sections: InsightSections(), vocabulary: .empty, model: "m")
         let result = try InsightsPromptBuilder.parse(#"{"summary":null,"primaryMood":null,"secondaryMoods":[],"themes":[],"tags":[],"mentions":[],"openThreads":[],"writtenDate":null}"#, plan: plan)
         #expect(result == InsightsResult())
         #expect(throws: AIError.invalidResponse) { try InsightsPromptBuilder.parse("no json", plan: plan) }
@@ -161,6 +161,7 @@ final class InsightsHarness {
     var autoApply = false
     var autoApplyDate = false
     var unavailable: AIJobFailure?
+    var vocabulary = InsightsPromptBuilder.JournalVocabulary.empty
     private(set) var coordinator: InsightsCoordinator!
 
     var context: ModelContext { container.mainContext }
@@ -180,6 +181,7 @@ final class InsightsHarness {
             autoApplyCleanedText: { [unowned self] in self.autoApply },
             autoApplyEntryDate: { [unowned self] in self.autoApplyDate },
             presence: presence,
+            vocabulary: { [unowned self] _ in self.vocabulary },
             diagnostics: .disabled,
             calendar: { var calendar = Calendar(identifier: .gregorian); calendar.timeZone = TimeZone(identifier: "UTC")!; return calendar }()
         )
@@ -592,7 +594,7 @@ struct AutomaticEntryDateTests {
 struct InsightsInputCapTests {
     @Test func aVeryLongEntryIsTruncatedBeforeItIsSent() {
         let long = String(repeating: "word ", count: 20_000)
-        let plan = InsightsPromptBuilder.plan(text: long, source: .typed, sections: InsightSections(), existingTags: [], model: "m")
+        let plan = InsightsPromptBuilder.plan(text: long, source: .typed, sections: InsightSections(), vocabulary: .empty, model: "m")
 
         #expect(plan.request.user.count == InsightsPromptBuilder.maxInputCharacters)
         #expect(long.count > InsightsPromptBuilder.maxInputCharacters)

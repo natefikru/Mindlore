@@ -5,11 +5,13 @@ import SwiftData
 // connections are computed from the entries two entities share, so they can never go stale.
 @Model
 final class EntityLink {
-    // The relationships carry SwiftData's cascade and nullify rules and give the views
-    // something to read. They are not dependable for logic: part-way through an unsaved
-    // batch `entity` can read nil, and a predicate that reaches through it is worse. So
-    // every decision the graph makes compares these ids instead, and the two are only ever
-    // written together, by the methods below.
+    // The relationships exist for one reason: SwiftData's cascade and nullify rules, which
+    // keep links from outliving the entry they belong to. Nothing reads them, not even the
+    // views. `entity` comes back nil often enough after a re-point, even once everything is
+    // saved, that it cannot be trusted to draw a screen with.
+    //
+    // The ids below are the truth. Resolve an entity by fetching it for its id. The two are
+    // only ever written together, by the methods at the bottom of this file.
     var entity: Entity?
     var entry: Entry?
     var entityID: UUID?

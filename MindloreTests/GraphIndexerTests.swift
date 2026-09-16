@@ -303,7 +303,7 @@ struct GraphIndexerTests {
         let links = harness.links(of: entry)
         try #require(links.count == 1)
         #expect(links[0].source == .user)
-        #expect(links[0].entity?.name == "Sarah Lee")
+        #expect(links[0].entityID == someoneElse.id)
     }
 
     @Test func removingInsightsRemovesTheLinksAndTheStamp() throws {

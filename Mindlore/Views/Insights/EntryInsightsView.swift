@@ -242,6 +242,7 @@ struct EntryInsightsView: View {
 struct WhatWasSentView: View {
     let entry: Entry
     let settings: SettingsStore
+    @Environment(\.modelContext) private var modelContext
 
     var body: some View {
         Form {
@@ -252,6 +253,24 @@ struct WhatWasSentView: View {
             }
             Section("Asked for") {
                 ForEach(Self.sections(settings, source: entry.source), id: \.self) { Text($0) }
+            }
+            if settings.insightTags || settings.insightThemes || settings.insightMentions {
+                let vocabulary = GraphIndexer().vocabulary(in: modelContext)
+                Section {
+                    if settings.insightTags, !vocabulary.tags.isEmpty {
+                        LabeledContent("Tags", value: "\(vocabulary.tags.count)")
+                    }
+                    if settings.insightThemes, !vocabulary.themes.isEmpty {
+                        LabeledContent("Themes", value: "\(vocabulary.themes.count)")
+                    }
+                    if settings.insightMentions, !vocabulary.named.isEmpty {
+                        LabeledContent("Names", value: "\(vocabulary.named.count)")
+                    }
+                } header: {
+                    Text("Words this journal already uses")
+                } footer: {
+                    Text("Sent so the wording matches what you already have, instead of a near-duplicate.")
+                }
             }
             Section {
                 Text(entry.text.prefix(300) + (entry.text.count > 300 ? "…" : ""))

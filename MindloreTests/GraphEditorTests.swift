@@ -279,7 +279,7 @@ struct GraphEditorTests {
         editor.repoint(link, to: someoneElse, addingAlias: false, in: harness.context)
         try harness.context.save()
 
-        #expect(link.entity?.name == "Sarah Lee")
+        #expect(link.entityID == someoneElse.id)
         #expect(link.source == .user)
         #expect(sarah.linkCount == 1)
         #expect(someoneElse.linkCount == 1)

@@ -67,7 +67,7 @@ struct OpenAILiveTests {
         var sections = InsightSections()
         sections.customPrompts = [CustomInsightPrompt(id: UUID(), name: "Gratitude", instructions: "What is the writer grateful for?", enabled: true)]
         let text = "so today i met sarah at the coffee place on main street and we talked about the move to denver which im kind of anxious about but also grateful she offered to help i still need to call the landlord"
-        let plan = InsightsPromptBuilder.plan(text: text, source: .voice, sections: sections, existingTags: ["friends", "moving"], model: ProviderDefaults.textModel)
+        let plan = InsightsPromptBuilder.plan(text: text, source: .voice, sections: sections, vocabulary: .init(tags: ["friends", "moving"]), model: ProviderDefaults.textModel)
         let generator = OpenAICompatibleTextGenerator(baseURL: baseURL, apiKey: key, http: http, jsonModeMemory: JSONModeMemory())
 
         let response = try await generator.generate(plan.request)

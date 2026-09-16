@@ -24,6 +24,9 @@ final class InsightsCoordinator {
     // Runs after insights are written and before they are saved, so the graph's links go to
     // disk in the same save and the entry is never stamped for work that isn't an edit.
     @ObservationIgnored private let onInsightsWritten: (Entry, ModelContext) -> Void
+    // What the journal already calls things, sent with the request so the model reuses the
+    // user's own words. Empty until the graph has been built.
+    @ObservationIgnored private let vocabulary: (ModelContext) -> InsightsPromptBuilder.JournalVocabulary
     @ObservationIgnored private let diagnostics: DiagnosticsLog
     @ObservationIgnored private let calendar: Calendar
     @ObservationIgnored private var failedThisSession: Set<UUID> = []
@@ -39,6 +42,7 @@ final class InsightsCoordinator {
         presence: EditorPresence,
         save: @escaping (ModelContext, Set<PersistentIdentifier>) throws -> Void = { try $0.saveStampingEntries(except: $1) },
         onInsightsWritten: @escaping (Entry, ModelContext) -> Void = { _, _ in },
+        vocabulary: @escaping (ModelContext) -> InsightsPromptBuilder.JournalVocabulary = { _ in .empty },
         diagnostics: DiagnosticsLog = .shared,
         calendar: Calendar = .current
     ) {
@@ -49,6 +53,7 @@ final class InsightsCoordinator {
         self.presence = presence
         self.save = save
         self.onInsightsWritten = onInsightsWritten
+        self.vocabulary = vocabulary
         self.diagnostics = diagnostics
         self.calendar = calendar
     }
@@ -134,7 +139,11 @@ final class InsightsCoordinator {
         let analyzedText = entry.text
         let analyzedHash = TextHash.of(analyzedText)
         let revision = entry.contentRevision
-        let plan = InsightsPromptBuilder.plan(text: analyzedText, source: source, sections: sections, existingTags: Self.topTags(in: context), model: generator.model)
+        var vocabulary = self.vocabulary(context)
+        // Before the graph exists there are no tag entities to read, so fall back to counting
+        // the tags on the insights themselves.
+        if vocabulary.tags.isEmpty { vocabulary.tags = Self.topTags(in: context) }
+        let plan = InsightsPromptBuilder.plan(text: analyzedText, source: source, sections: sections, vocabulary: vocabulary, model: generator.model)
 
         AIJobPolicy.recordAttempt(.insights, entry)
         try? save(context, [id])
