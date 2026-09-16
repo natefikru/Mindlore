@@ -282,11 +282,14 @@ struct TitleCoordinatorTests {
         harness.generator.answer(.success("Held Title"))
         await task.value
         #expect(entry.title.isEmpty)
-        #expect(!entry.titlePending)
+        // Still pending on purpose: a force-quit before the entry closes regenerates the title
+        // rather than losing a paid result held only in memory.
+        #expect(entry.titlePending)
 
         harness.presence.close(entry.id)
         await harness.titles.processQueue(context: harness.context)
         #expect(entry.title == "Held Title")
+        #expect(!entry.titlePending)
         #expect(harness.generator.requests.count == 1)
     }
 

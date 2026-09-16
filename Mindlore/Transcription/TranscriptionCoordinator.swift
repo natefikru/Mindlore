@@ -204,16 +204,12 @@ final class TranscriptionCoordinator {
         try FileManager.default.createDirectory(at: chunkDirectory, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: chunkDirectory) }
 
-        // OpenAI can't read CAF, and the chunker needs a file AVFoundation can split.
-        let source: URL
-        if url.pathExtension == "m4a" {
-            source = url
-        } else {
-            source = chunkDirectory.appendingPathComponent("source.m4a")
-            try OpenAICompatibleTranscriber.m4aData(for: url).write(to: source)
-        }
-        let bytes = (try? source.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
-        let duration = (try? AVAudioFile(forReading: source)).map { Double($0.length) / $0.fileFormat.sampleRate } ?? 0
+        // OpenAI can't read CAF, and the chunker needs a file AVFoundation can split. Decoding and
+        // re-encoding an hour of audio must not run on the main actor.
+        let prepared = try await Self.prepareSource(url, in: chunkDirectory)
+        let source = prepared.url
+        let bytes = prepared.bytes
+        let duration = prepared.duration
         let byteTarget = Double(cloud.maxUploadBytes) * 0.9
         // Size limits are converted to seconds so one chunk plan satisfies both.
         let target = bytes > 0 && Double(bytes) > byteTarget && duration > 0
@@ -265,6 +261,20 @@ final class TranscriptionCoordinator {
         }
         // Stored failure names only: provider errors can quote the request.
         diagnostics.record("transcription.failed", ["id": entryID, "error": .string(failure.raw), "permanent": .bool(!failure.isRetryable)])
+    }
+
+    @concurrent
+    nonisolated private static func prepareSource(_ url: URL, in directory: URL) async throws -> (url: URL, bytes: Int, duration: Double) {
+        let source: URL
+        if url.pathExtension == "m4a" {
+            source = url
+        } else {
+            source = directory.appendingPathComponent("source.m4a")
+            try OpenAICompatibleTranscriber.m4aData(for: url).write(to: source)
+        }
+        let bytes = (try? source.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
+        let duration = (try? AVAudioFile(forReading: source)).map { Double($0.length) / $0.fileFormat.sampleRate } ?? 0
+        return (source, bytes, duration)
     }
 
     private static func milliseconds(since start: ContinuousClock.Instant) -> Int {

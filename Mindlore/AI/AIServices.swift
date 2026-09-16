@@ -30,7 +30,7 @@ extension AIServices {
     }
 
     static func pagesUsable(settings: SettingsStore, accounts: ProviderAccountStore) -> Bool {
-        settings.aiEnabled && accounts.resolve(.pages) != nil
+        settings.aiEnabled && accounts.hasUsableKey && accounts.settingsAccount(for: .pages) != nil
     }
 }
 
@@ -58,7 +58,8 @@ extension AIServices {
 
     // Whether the automatic pass should flag insights for an entry right now.
     static func automaticInsightsUsable(settings: SettingsStore, accounts: ProviderAccountStore) -> Bool {
-        settings.aiEnabled && settings.insightsTrigger == .automatic && accounts.resolve(.text) != nil && !insightSections(settings).isEmpty
+        settings.aiEnabled && settings.insightsTrigger == .automatic && accounts.hasUsableKey
+            && accounts.settingsAccount(for: .text) != nil && !insightSections(settings).isEmpty
     }
 }
 

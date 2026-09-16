@@ -22,13 +22,22 @@ nonisolated enum AIError: Error, Equatable, Sendable {
 
     var isRetryable: Bool {
         switch self {
-        case .rateLimited, .serverError, .offline, .network: true
+        case .rateLimited, .serverError, .offline, .network, .cancelled: true
         default: false
         }
     }
 
     var isOffline: Bool {
         if case .offline = self { true } else { false }
+    }
+
+    // Nothing was paid for and nothing was decided: the app gave up, usually because it was
+    // backgrounded mid-request. The attempt is rolled back so the job isn't spent.
+    var wasAbandoned: Bool {
+        switch self {
+        case .offline, .cancelled: true
+        default: false
+        }
     }
 
     // Stored on entries and logged. Stable strings; never includes provider text.

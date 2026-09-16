@@ -62,3 +62,22 @@ nonisolated struct KeychainSecretStore: SecretStore {
         ]
     }
 }
+
+// Used when the app runs under UI tests: a real key handed to the test process never reaches the
+// Keychain, and nothing is left behind when the run ends.
+nonisolated final class InMemorySecretStore: SecretStore, @unchecked Sendable {
+    private let lock = NSLock()
+    private var secrets: [String: String] = [:]
+
+    func read(account: String) throws -> String? {
+        lock.withLock { secrets[account] }
+    }
+
+    func write(_ secret: String, account: String) throws {
+        lock.withLock { secrets[account] = secret }
+    }
+
+    func delete(account: String) throws {
+        _ = lock.withLock { secrets.removeValue(forKey: account) }
+    }
+}

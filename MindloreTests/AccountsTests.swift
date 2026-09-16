@@ -87,6 +87,17 @@ struct ProviderAccountStoreTests {
         #expect(accounts.resolve(.text) == nil)
     }
 
+    @Test func theCachedKeyStateFollowsSavingAndRemoving() throws {
+        let (_, accounts, _) = makeStores()
+        #expect(!accounts.hasUsableKey)
+
+        let account = try accounts.saveOpenAIKey("sk-1")
+        #expect(accounts.hasUsableKey)
+
+        try accounts.remove(account)
+        #expect(!accounts.hasUsableKey)
+    }
+
     @Test func noKeyResolvesToNothing() {
         let (settings, accounts, _) = makeStores()
         let account = ProviderAccount.openAI()

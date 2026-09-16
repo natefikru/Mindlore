@@ -50,13 +50,16 @@ nonisolated struct InsightsResult: Equatable, Sendable {
 // Builds one structured request per entry with a field for each enabled section. Every field may be
 // empty, so the model reports nothing rather than inventing content.
 nonisolated enum InsightsPromptBuilder {
+    // A pasted book chapter shouldn't become one enormous paid request.
+    static let maxInputCharacters = 40_000
     static let maxCleanedTextCharacters = 12_000
     static let maxExistingTags = 50
     static let maxThemes = 4
     static let maxTags = 8
     static let maxSecondaryMoods = 2
 
-    static func plan(text: String, source: EntrySource, sections: InsightSections, existingTags: [String], model: String) -> InsightsRequestPlan {
+    static func plan(text fullText: String, source: EntrySource, sections: InsightSections, existingTags: [String], model: String) -> InsightsRequestPlan {
+        let text = String(fullText.prefix(maxInputCharacters))
         var properties: [JSONSchema.Property] = []
         var guidance: [String] = []
 

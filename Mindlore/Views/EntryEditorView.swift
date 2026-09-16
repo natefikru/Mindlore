@@ -21,6 +21,8 @@ struct EntryEditorView: View {
     @State private var confirmingRevert = false
     // Set by Done, so the entry can say when its insights are ready without interrupting.
     @State private var watchingForInsights = false
+    // Hides the cleanup offer without discarding it: it stays in the entry's insights.
+    @State private var cleanupDismissed = false
     // Not @FocusState: the text view is a UITextView so it can grow with its content, and it
     // reports focus back through this flag.
     @State private var editorFocused = false
@@ -70,7 +72,7 @@ struct EntryEditorView: View {
                     .accessibilityIdentifier("insightsButton")
                     if entry.originalText != nil {
                         Menu {
-                            Button("View original text", systemImage: "arrow.uturn.backward") {
+                            Button("Use original text", systemImage: "arrow.uturn.backward") {
                                 if entry.textChangedSinceCleanup {
                                     confirmingRevert = true
                                 } else {
@@ -119,7 +121,7 @@ struct EntryEditorView: View {
             }
         }
         .sheet(isPresented: $reviewingCleanup) {
-            if let entry, let cleaned = entry.pendingCleanedText {
+            if let entry, let cleaned = entry.pendingCleanedText, !cleanupDismissed {
                 CleanupReviewView(entry: entry, cleaned: cleaned) { applyCleanup(entry, cleaned: cleaned) }
             }
         }
@@ -142,7 +144,12 @@ struct EntryEditorView: View {
                 editorFocused = true
             }
         }
-        .onDisappear(perform: close)
+        // A full-screen cover removes the presenting view, which would otherwise run the editor's
+        // close rules (delete-if-blank, discard audio, fire the AI pass) while the entry is still open.
+        .onDisappear {
+            guard !isPresentingOverEditor else { return }
+            close()
+        }
     }
 
     @ViewBuilder
@@ -160,7 +167,7 @@ struct EntryEditorView: View {
                     .padding(.horizontal)
                     .padding(.top, 8)
             }
-            if let entry, let cleaned = entry.pendingCleanedText {
+            if let entry, let cleaned = entry.pendingCleanedText, !cleanupDismissed {
                 cleanupBanner(for: entry, cleaned: cleaned)
                     .padding(.horizontal)
                     .padding(.top, 8)
@@ -277,6 +284,10 @@ struct EntryEditorView: View {
         }
     }
 
+    private var isPresentingOverEditor: Bool {
+        editingPages || viewingPage != nil || showingInsights || reviewingCleanup || editingDate
+    }
+
     private func insightsState(for entry: Entry) -> InsightsPresentation.State {
         InsightsPresentation.state(.init(
             isDraft: entry.isDraft,
@@ -289,7 +300,7 @@ struct EntryEditorView: View {
             running: insightsCoordinator.isRunning(entry),
             failure: AIJobPolicy.failure(.insights, entry),
             aiEnabled: settings.aiEnabled,
-            hasKey: accounts.resolve(.text) != nil
+            hasKey: accounts.hasUsableKey && accounts.settingsAccount(for: .text) != nil
         ))
     }
 
@@ -307,9 +318,8 @@ struct EntryEditorView: View {
             Spacer()
             Button("Review") { reviewingCleanup = true }
                 .accessibilityIdentifier("reviewCleanupButton")
-            Button("Dismiss", role: .cancel) {
-                entry.insights?.cleanedText = nil
-                saver.noteChange()
+            Button("Not now", role: .cancel) {
+                cleanupDismissed = true
                 DiagnosticsLog.shared.record("cleanup.dismissed", ["id": .id(entry.id)])
             }
         }

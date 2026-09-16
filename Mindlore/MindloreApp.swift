@@ -32,7 +32,8 @@ struct MindloreApp: App {
         let uiTesting = arguments.contains(StoreLocation.uiTestingArgument)
         let testStoreName = uiTesting ? ProcessInfo.processInfo.environment[StoreLocation.uiTestStoreNameKey] : nil
         let defaults = testStoreName.flatMap { UserDefaults(suiteName: "uitest-\($0)") } ?? .standard
-        let secrets = KeychainSecretStore(service: testStoreName.map { "\(KeychainSecretStore.productionService).uitest.\($0)" } ?? KeychainSecretStore.productionService)
+        // UI test keys stay in memory: a real key passed to a test run never touches the Keychain.
+        let secrets: any SecretStore = testStoreName == nil ? KeychainSecretStore() : InMemorySecretStore()
         let http: any HTTPClient = uiTesting && arguments.contains(UITestingHTTPClient.launchArgument) ? UITestingHTTPClient() : URLSessionHTTPClient()
         let settingsStore = SettingsStore(store: defaults, onDeviceTitlesAvailable: { !uiTesting && FoundationModelsAvailability.isAvailable })
         settingsStore.recordAutomationStartIfNeeded()

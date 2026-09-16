@@ -154,3 +154,27 @@ struct AudioChunkerTests {
         }
     }
 }
+
+@MainActor
+struct AbandonedRequestTests {
+    @Test func aCancelledRequestDoesNotSpendAnAttemptOrEndTheJob() {
+        let entry = Entry(text: "text")
+        entry.insightsPending = true
+        AIJobPolicy.recordAttempt(.insights, entry)
+        AIJobPolicy.recordFailure(.insights, entry, AIJobFailure(.cancelled))
+
+        // Backgrounding mid-request must not cost the entry its one automatic run.
+        #expect(entry.insightsAttempts == 0)
+        #expect(entry.insightsPending)
+        #expect(AIJobPolicy.canRunAutomatically(.insights, entry))
+    }
+
+    @Test func offlineAndCancelledAreTheAbandonedCases() {
+        #expect(AIError.offline(.notConnectedToInternet).wasAbandoned)
+        #expect(AIError.cancelled.wasAbandoned)
+        #expect(AIError.cancelled.isRetryable)
+        #expect(!AIError.network(.timedOut).wasAbandoned)
+        #expect(!AIError.invalidKey.wasAbandoned)
+        #expect(AIJobFailure(.cancelled).wasAbandoned)
+    }
+}

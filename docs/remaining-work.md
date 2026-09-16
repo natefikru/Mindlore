@@ -30,6 +30,32 @@ These steps are still unrun. `tasks/smoke-test.md` has the expected events for e
 - [ ] **Optional: a 25-minute recording**, to watch chunked uploads on a device.
 - [ ] **Optional: five pages in one entry**, for memory and stored size at a realistic maximum.
 
+## Deferred from the pre-merge code review (2026-09-15)
+
+Taken before merge: main-actor network/audio/image work moved off with `@concurrent`; a cancelled
+request now rolls back instead of ending a job; the text view is safe during keyboard composition; the
+editor's close rules no longer fire when a cover opens over it; titles and insights pause while offline
+and have a Run AI path; a held title stays pending until applied; UI test keys never reach the Keychain;
+insights input is capped; the key check is cached; dismissing a cleanup no longer discards it.
+
+Left for later, each with its reason:
+
+- [ ] **Voice chunks aren't saved as they finish.** A failure on chunk 9 of 10 re-uploads all nine next
+      time, up to the 3-attempt cap. Pages already save per page; voice should do the same. Costs money
+      only on long recordings that fail mid-way.
+- [ ] **`retryAfter` from a 429 is parsed and ignored.** The next attempt waits for a scene change or
+      launch rather than the time the provider asked for.
+- [ ] **A Keychain error reads as "no key".** `ProviderAccountStore` swallows the status, so a locked or
+      broken keychain looks like an unconfigured account instead of an error worth showing.
+- [ ] **Cancelling "Edit pages" discards pages added during that edit** without asking. Pages already on
+      the entry are untouched.
+- [ ] **Diff and thumbnail work happens in view bodies** (`CleanupReviewView`, `PageStripView`,
+      `PageOrderView`): fine at today's sizes, worth caching if entries or page counts grow.
+- [ ] **Turning every insight section off** lets Run AI send a request with an empty schema, which the
+      provider rejects. Should be blocked in the UI.
+- [ ] **Test harness fakes hang rather than fail** when a coordinator stops calling them; the unit test
+      command's per-test time allowance is what stops a full stall.
+
 ## Known limits
 
 - Memory and storage above five pages per entry are unverified on a device; the 20-page cap is a guard.

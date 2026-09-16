@@ -7,7 +7,7 @@ import Testing
 // Talks to the real OpenAI API. Skipped unless MINDLORE_OPENAI_KEY is set for the test run
 // (TEST_RUNNER_MINDLORE_OPENAI_KEY when running through xcodebuild). Never runs in the normal loop.
 @MainActor
-@Suite(.enabled(if: ProcessInfo.processInfo.environment["MINDLORE_OPENAI_KEY"] != nil))
+@Suite(.enabled(if: ProcessInfo.processInfo.environment["MINDLORE_OPENAI_KEY"]?.isEmpty == false))
 struct OpenAILiveTests {
     private let baseURL = URL(string: "https://api.openai.com/v1")!
     private var key: String { ProcessInfo.processInfo.environment["MINDLORE_OPENAI_KEY"] ?? "" }

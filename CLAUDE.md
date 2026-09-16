@@ -23,7 +23,8 @@ xcodebuild -project Mindlore.xcodeproj -scheme Mindlore -destination 'platform=i
   -only-testing:MindloreTests -parallel-testing-enabled NO -test-timeouts-enabled YES -default-test-execution-time-allowance 60
 
 # Everything, including UI tests (several minutes)
-xcodebuild -project Mindlore.xcodeproj -scheme Mindlore -destination 'platform=iOS Simulator,name=iPhone 17' test -parallel-testing-enabled NO
+xcodebuild -project Mindlore.xcodeproj -scheme Mindlore -destination 'platform=iOS Simulator,name=iPhone 17' test \
+  -parallel-testing-enabled NO -test-timeouts-enabled YES -default-test-execution-time-allowance 120
 
 # A single Swift Testing test. The trailing () is required; without it xcodebuild runs 0 tests and still reports success.
 xcodebuild -project Mindlore.xcodeproj -scheme Mindlore -destination 'platform=iOS Simulator,name=iPhone 17' test \

@@ -18,6 +18,7 @@ nonisolated struct OpenAICompatibleTextGenerator: TextGenerator {
         self.jsonModeMemory = jsonModeMemory
     }
 
+    @concurrent
     func generate(_ request: TextRequest) async throws -> TextResult {
         let key = "\(baseURL.absoluteString)|\(request.model)"
         let useJSONMode = request.schema != nil && jsonModeMemory.contains(key)
@@ -29,6 +30,7 @@ nonisolated struct OpenAICompatibleTextGenerator: TextGenerator {
         return try decode(response)
     }
 
+    @concurrent
     private func send(_ request: TextRequest, jsonMode: Bool) async throws -> HTTPResponse {
         var urlRequest = URLRequest(url: baseURL.appendingPathComponent("chat/completions"))
         urlRequest.httpMethod = "POST"

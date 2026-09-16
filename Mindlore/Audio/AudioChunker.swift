@@ -62,6 +62,7 @@ nonisolated enum AudioChunker {
     }
 
     // Returns the source as a single chunk when it's short enough.
+    @concurrent
     static func split(_ url: URL, targetSeconds: Double, searchSeconds: Double, outputDirectory: URL) async throws -> [Chunk] {
         let (levels, duration) = try levels(of: url)
         let cuts = boundaries(levels: levels, duration: duration, targetSeconds: targetSeconds, searchSeconds: searchSeconds)

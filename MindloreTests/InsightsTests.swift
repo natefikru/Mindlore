@@ -587,3 +587,14 @@ struct AutomaticEntryDateTests {
         #expect(!entry.entryDateIsDayOnly)
     }
 }
+
+@MainActor
+struct InsightsInputCapTests {
+    @Test func aVeryLongEntryIsTruncatedBeforeItIsSent() {
+        let long = String(repeating: "word ", count: 20_000)
+        let plan = InsightsPromptBuilder.plan(text: long, source: .typed, sections: InsightSections(), existingTags: [], model: "m")
+
+        #expect(plan.request.user.count == InsightsPromptBuilder.maxInputCharacters)
+        #expect(long.count > InsightsPromptBuilder.maxInputCharacters)
+    }
+}

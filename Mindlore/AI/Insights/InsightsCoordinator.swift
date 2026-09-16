@@ -12,6 +12,8 @@ final class InsightsCoordinator {
     }
 
     private(set) var running: Set<UUID> = []
+    // Set by an offline failure so a queue of entries doesn't fire one doomed request each.
+    private(set) var pausedForOffline = false
 
     @ObservationIgnored private let resolve: () -> Result<Generator, AIJobFailure>
     @ObservationIgnored private let sections: () -> InsightSections
@@ -73,7 +75,7 @@ final class InsightsCoordinator {
                 // Insights may run while the entry is open: they never change its text, and a finished
                 // entry's text is final by the user's choice. Cleanup still waits for the entry to close.
                 guard manual || !failedThisSession.contains(entry.id) else { continue }
-                guard manual || AIJobPolicy.canRunAutomatically(.insights, entry) else { continue }
+                guard manual || (AIJobPolicy.canRunAutomatically(.insights, entry) && !pausedForOffline) else { continue }
                 await generate(entry.persistentModelID, context: context)
             }
         } while needsAnotherPass
@@ -93,7 +95,8 @@ final class InsightsCoordinator {
     // Work that stopped because the phone was offline picks up as soon as the network is back,
     // without waiting for the next launch. Stored failures still gate what may run.
     func networkBecameAvailable(context: ModelContext) async {
-        guard !failedThisSession.isEmpty else { return }
+        guard pausedForOffline || !failedThisSession.isEmpty else { return }
+        pausedForOffline = false
         failedThisSession = []
         await processQueue(context: context)
     }
@@ -148,6 +151,10 @@ final class InsightsCoordinator {
             result = try InsightsPromptBuilder.parse(usage.text, plan: plan, calendar: calendar)
         } catch {
             let failure = AIJobFailure(any: error)
+            if failure.isOffline {
+                if !pausedForOffline { diagnostics.record("ai.offline", ["capability": "insights"]) }
+                pausedForOffline = true
+            }
             if let current = Self.fetch(id, in: context) {
                 AIJobPolicy.recordFailure(.insights, current, failure)
                 try? save(context, [id])

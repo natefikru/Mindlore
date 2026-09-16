@@ -19,6 +19,8 @@ final class TitleCoordinator {
     """
 
     private(set) var running: Set<UUID> = []
+    // Set by an offline failure so a queue of entries doesn't fire one doomed request each.
+    private(set) var pausedForOffline = false
 
     @ObservationIgnored private let resolve: () -> Result<Generator, AIJobFailure>
     @ObservationIgnored private let presence: EditorPresence
@@ -57,7 +59,7 @@ final class TitleCoordinator {
             let descriptor = FetchDescriptor<Entry>(predicate: #Predicate { $0.titlePending }, sortBy: [SortDescriptor(\.createdAt)])
             for entry in (try? context.fetch(descriptor)) ?? [] {
                 guard !failedThisSession.contains(entry.id), !presence.isOpen(entry.id) else { continue }
-                guard AIJobPolicy.canRunAutomatically(.title, entry) else { continue }
+                guard AIJobPolicy.canRunAutomatically(.title, entry), !pausedForOffline else { continue }
                 await generate(entry.persistentModelID, context: context)
             }
         } while needsAnotherPass
@@ -75,7 +77,8 @@ final class TitleCoordinator {
     // Work that stopped because the phone was offline picks up as soon as the network is back,
     // without waiting for the next launch. Stored failures still gate what may run.
     func networkBecameAvailable(context: ModelContext) async {
-        guard !failedThisSession.isEmpty else { return }
+        guard pausedForOffline || !failedThisSession.isEmpty else { return }
+        pausedForOffline = false
         failedThisSession = []
         await processQueue(context: context)
     }
@@ -115,6 +118,10 @@ final class TitleCoordinator {
             guard !title.isEmpty else { throw AIError.invalidResponse }
         } catch {
             let failure = AIJobFailure(any: error)
+            if failure.isOffline {
+                if !pausedForOffline { diagnostics.record("ai.offline", ["capability": "title"]) }
+                pausedForOffline = true
+            }
             if let current = Self.fetch(id, in: context) {
                 AIJobPolicy.recordFailure(.title, current, failure)
                 try? save(context)
@@ -128,13 +135,14 @@ final class TitleCoordinator {
             diagnostics.record("title.discarded", ["id": .id(entryID), "reason": "changed"])
             return
         }
-        AIJobPolicy.recordSuccess(.title, current)
         if presence.isOpen(entryID) {
+            // Left pending on purpose: if the app dies before the entry closes, the title is
+            // regenerated rather than silently lost.
             heldTitles[entryID] = (title, revision)
-            try? save(context)
             diagnostics.record("title.held", ["id": .id(entryID)])
             return
         }
+        AIJobPolicy.recordSuccess(.title, current)
         let applied = current.applyGeneratedTitle(title)
         try? save(context)
         diagnostics.record(applied ? "title.completed" : "title.discarded", ["id": .id(entryID), "words": .int(title.split(separator: " ").count)])
@@ -147,6 +155,7 @@ final class TitleCoordinator {
             descriptor.fetchLimit = 1
             guard let entry = try? context.fetch(descriptor).first, entry.contentRevision == held.revision else { continue }
             if entry.applyGeneratedTitle(held.title) {
+                AIJobPolicy.recordSuccess(.title, entry)
                 try? save(context)
                 diagnostics.record("title.completed", ["id": .id(entryID), "words": .int(held.title.split(separator: " ").count), "held": true])
             }

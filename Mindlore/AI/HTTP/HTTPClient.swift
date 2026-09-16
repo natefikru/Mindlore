@@ -33,6 +33,7 @@ nonisolated final class URLSessionHTTPClient: HTTPClient {
         session = URLSession(configuration: configuration)
     }
 
+    @concurrent
     func send(_ request: URLRequest, body: Data?) async throws -> HTTPResponse {
         let tracker = TaskTracker()
         defer { onTracked?(tracker) }

@@ -17,7 +17,7 @@ nonisolated final class LocalHTTPServer: @unchecked Sendable {
     private let listener: NWListener
     private let queue = DispatchQueue(label: "LocalHTTPServer")
     private let received = Mutex<Int>(0)
-    private var connections: [NWConnection] = []
+    private let connections = Mutex<[NWConnection]>([])
 
     var port: UInt16 { listener.port?.rawValue ?? 0 }
     var url: URL { URL(string: "http://127.0.0.1:\(port)")! }
@@ -26,7 +26,7 @@ nonisolated final class LocalHTTPServer: @unchecked Sendable {
     init(_ behavior: Behavior) async throws {
         listener = try NWListener(using: .tcp, on: .any)
         listener.newConnectionHandler = { [unowned self] connection in
-            self.connections.append(connection)
+            self.connections.withLock { $0.append(connection) }
             connection.start(queue: self.queue)
             self.read(connection, behavior: behavior)
         }
@@ -59,7 +59,7 @@ nonisolated final class LocalHTTPServer: @unchecked Sendable {
 
     func stop() {
         listener.cancel()
-        connections.forEach { $0.cancel() }
+        connections.withLock { $0.forEach { $0.cancel() } }
     }
 }
 

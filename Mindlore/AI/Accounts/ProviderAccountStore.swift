@@ -20,12 +20,21 @@ final class ProviderAccountStore {
     private(set) var keyRevision = 0
     // The provider's model list, once loaded, shared by every model picker.
     private(set) var availableModels: [String] = []
+    // Whether a usable key exists, so views can ask without a Keychain read on every render.
+    private(set) var hasUsableKey = false
 
     init(settings: SettingsStore, secrets: any SecretStore = KeychainSecretStore(), http: any HTTPClient = URLSessionHTTPClient(), diagnostics: DiagnosticsLog = .shared) {
         self.settings = settings
         self.secrets = secrets
         self.http = http
         self.diagnostics = diagnostics
+        refreshKeyState()
+    }
+
+    private func refreshKeyState() {
+        hasUsableKey = settings.providerAccounts.contains { account in
+            ((try? secrets.read(account: account.id.uuidString)) ?? nil)?.isEmpty == false
+        }
     }
 
     var openAIAccount: ProviderAccount? {
@@ -45,6 +54,7 @@ final class ProviderAccountStore {
         if settings.pageAccountID == nil { settings.pageAccountID = account.id }
         if settings.textAccountID == nil { settings.textAccountID = account.id }
         keyRevision += 1
+        refreshKeyState()
         diagnostics.record("ai.keySaved", ["provider": .string(ProviderPreset.openAI.id)])
         return account
     }
@@ -57,12 +67,18 @@ final class ProviderAccountStore {
         if settings.pageAccountID == account.id { settings.pageAccountID = nil }
         if settings.textAccountID == account.id { settings.textAccountID = nil }
         keyRevision += 1
+        refreshKeyState()
         diagnostics.record("ai.keyRemoved", ["provider": .string(account.presetID ?? "custom")])
     }
 
     func hasKey(for account: ProviderAccount) -> Bool {
         _ = keyRevision
         return ((try? secrets.read(account: account.id.uuidString)) ?? nil)?.isEmpty == false
+    }
+
+    // The account chosen for a capability, without touching the Keychain.
+    func settingsAccount(for capability: AICapability) -> ProviderAccount? {
+        settings.account(for: capability)
     }
 
     // Nil when the capability has no account or its account has no key. AI being on is checked by callers.

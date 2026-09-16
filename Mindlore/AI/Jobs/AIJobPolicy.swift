@@ -64,8 +64,8 @@ enum AIJobPolicy {
     }
 
     static func recordFailure(_ job: AIJob, _ entry: Entry, _ failure: AIJobFailure) {
-        // Nothing reached the server, so the attempt didn't happen.
-        if failure.isOffline {
+        // Nothing reached the server or nothing came back to act on, so the attempt didn't happen.
+        if failure.wasAbandoned {
             setAttempts(job, entry, max(0, attempts(job, entry) - 1))
         }
         setFailure(job, entry, failure.raw)
@@ -163,6 +163,10 @@ nonisolated struct AIJobFailure: Error, Equatable, Sendable {
 
     var isOffline: Bool {
         aiError?.isOffline ?? false
+    }
+
+    var wasAbandoned: Bool {
+        aiError?.wasAbandoned ?? false
     }
 
     var userMessage: String {

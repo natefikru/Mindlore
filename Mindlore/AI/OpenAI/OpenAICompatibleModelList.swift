@@ -8,6 +8,7 @@ nonisolated struct OpenAICompatibleModelList: Sendable {
     let apiKey: String
     let http: any HTTPClient
 
+    @concurrent
     func fetch() async throws -> [String] {
         var request = URLRequest(url: baseURL.appendingPathComponent("models"))
         request.httpMethod = "GET"

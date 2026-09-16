@@ -48,6 +48,7 @@ nonisolated struct OpenAICompatiblePageTranscriber: PageTranscriber {
         .init("writtenDate", .string(description: "yyyy-MM-dd, or null.", nullable: true)),
     ])
 
+    @concurrent
     func transcribe(_ request: PageRequest) async throws -> PageResult {
         var user = "Page \(request.pageNumber) of \(request.pageCount)."
         if let tail = request.previousPageTail, !tail.isEmpty {

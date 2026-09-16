@@ -25,7 +25,10 @@ struct GrowingTextEditor: UIViewRepresentable {
     }
 
     func updateUIView(_ view: UITextView, context: Context) {
-        if view.text != text {
+        context.coordinator.parent = self
+        // Never replace text while the keyboard is mid-composition (marked text, dictation): assigning
+        // would drop what the user is in the middle of typing.
+        if view.text != text, view.markedTextRange == nil {
             // Keep the caret where it was when the text changed from elsewhere.
             let selection = view.selectedRange
             view.text = text
@@ -48,13 +51,16 @@ struct GrowingTextEditor: UIViewRepresentable {
     }
 
     final class Coordinator: NSObject, UITextViewDelegate {
-        private let parent: GrowingTextEditor
+        // Updated on every render, so the delegate always writes through the current binding.
+        var parent: GrowingTextEditor
 
         init(_ parent: GrowingTextEditor) {
             self.parent = parent
         }
 
         func textViewDidChange(_ textView: UITextView) {
+            // Composition is still in progress; the binding gets the text when it is committed.
+            guard textView.markedTextRange == nil else { return }
             parent.text = textView.text
         }
 

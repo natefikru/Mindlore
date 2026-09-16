@@ -12,6 +12,7 @@ struct EntryInsightsView: View {
     @Environment(SettingsStore.self) private var settings
     @Environment(ProviderAccountStore.self) private var accounts
     @Environment(InsightsCoordinator.self) private var insightsCoordinator
+    @Environment(TitleCoordinator.self) private var titleCoordinator
     @Environment(AIPassTrigger.self) private var aiPass
     @State private var confirmingRun = false
     @State private var confirmingDelete = false
@@ -31,7 +32,7 @@ struct EntryInsightsView: View {
             running: insightsCoordinator.isRunning(entry),
             failure: AIJobPolicy.failure(.insights, entry),
             aiEnabled: settings.aiEnabled,
-            hasKey: accounts.resolve(.text) != nil
+            hasKey: accounts.hasUsableKey && accounts.settingsAccount(for: .text) != nil
         ))
     }
 
@@ -212,7 +213,11 @@ struct EntryInsightsView: View {
             saver.flush()
         }
         let context = modelContext
-        Task { await insightsCoordinator.runAI(for: entry, context: context) }
+        Task {
+            await insightsCoordinator.runAI(for: entry, context: context)
+            // The title shares the entry's AI state, so Run AI is also its way back from a failure.
+            await titleCoordinator.runAI(for: entry, context: context)
+        }
     }
 
     private func approve() {
