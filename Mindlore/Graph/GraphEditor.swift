@@ -1,0 +1,262 @@
+import Foundation
+import SwiftData
+
+// Every change the user makes to the graph. Each one marks the entity as theirs, so an
+// entity they have touched survives losing its last link, and each one that changes who
+// points at what recounts afterwards.
+@MainActor
+struct GraphEditor {
+    let diagnostics: DiagnosticsLog
+    private let indexer: GraphIndexer
+
+    init(diagnostics: DiagnosticsLog = .shared) {
+        self.diagnostics = diagnostics
+        self.indexer = GraphIndexer(diagnostics: diagnostics)
+    }
+
+    // A rename or a new alias can land on a name something else already answers to. Rather
+    // than leave two entities the resolver has to choose between, the edit stops and offers
+    // the merge that was probably meant.
+    enum EditOutcome: Equatable {
+        case applied
+        case collides(with: UUID)
+    }
+
+    // MARK: - Editing one entity
+
+    @discardableResult
+    func rename(_ entity: Entity, to name: String, in context: ModelContext) -> EditOutcome {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return .applied }
+        let key = EntityNormalizer.key(for: trimmed, kind: entity.kind)
+        if let clash = entityAnswering(to: key, kind: entity.kind, excluding: entity, in: context) {
+            return .collides(with: clash.id)
+        }
+        entity.name = trimmed
+        entity.key = key
+        claim(entity)
+        diagnostics.record("graph.entityEdited", ["id": .id(entity.id), "field": "name"])
+        return .applied
+    }
+
+    func setKind(_ kind: EntityKind, on entity: Entity) {
+        guard entity.kind != kind else { return }
+        entity.kind = kind
+        // From here on the extraction never changes it back.
+        entity.kindEditedByUser = true
+        claim(entity)
+        diagnostics.record("graph.entityEdited", ["id": .id(entity.id), "field": "kind", "kind": .string(kind.rawValue)])
+    }
+
+    @discardableResult
+    func addAlias(_ alias: String, to entity: Entity, in context: ModelContext) -> EditOutcome {
+        let trimmed = alias.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return .applied }
+        let key = EntityNormalizer.key(for: trimmed, kind: entity.kind)
+        guard !key.isEmpty else { return .applied }
+        // Already answers to it, under this spelling or another.
+        guard !keys(of: entity).contains(key) else { return .applied }
+        if let clash = entityAnswering(to: key, kind: entity.kind, excluding: entity, in: context) {
+            return .collides(with: clash.id)
+        }
+        entity.aliases.append(trimmed)
+        claim(entity)
+        diagnostics.record("graph.entityEdited", ["id": .id(entity.id), "field": "alias", "aliases": .int(entity.aliases.count)])
+        return .applied
+    }
+
+    func removeAlias(_ alias: String, from entity: Entity) {
+        entity.aliases.removeAll { $0 == alias }
+        claim(entity)
+        diagnostics.record("graph.entityEdited", ["id": .id(entity.id), "field": "alias", "aliases": .int(entity.aliases.count)])
+    }
+
+    // The user's own words. Once they write here, no AI draft replaces it.
+    func setBio(_ bio: String?, on entity: Entity) {
+        let trimmed = bio?.trimmingCharacters(in: .whitespacesAndNewlines)
+        entity.bio = (trimmed?.isEmpty ?? true) ? nil : trimmed
+        entity.bioWasGenerated = false
+        claim(entity)
+        diagnostics.record("graph.entityEdited", ["id": .id(entity.id), "field": "bio"])
+    }
+
+    // Hiding keeps the entity resolving, so what was hidden stays hidden instead of coming
+    // back under a new id the next time it is mentioned.
+    func setHidden(_ hidden: Bool, on entity: Entity) {
+        entity.hidden = hidden
+        claim(entity)
+        diagnostics.record("graph.hidden", ["id": .id(entity.id), "hidden": .bool(hidden)])
+    }
+
+    func markNotSame(_ entity: Entity, as other: Entity) {
+        if !entity.notSameAs.contains(other.id) { entity.notSameAs.append(other.id) }
+        if !other.notSameAs.contains(entity.id) { other.notSameAs.append(entity.id) }
+        claim(entity)
+        claim(other)
+        diagnostics.record("graph.suggestionDismissed", ["id": .id(entity.id), "other": .id(other.id)])
+    }
+
+    // MARK: - Merging
+
+    enum MergeOutcome: Equatable {
+        case merged
+        // Merging something into itself, or into something already merged into it.
+        case refused
+    }
+
+    @discardableResult
+    func merge(_ loser: Entity, into target: Entity, in context: ModelContext) -> MergeOutcome {
+        // Merging into a loser means merging into whatever it stands for now.
+        let winner = root(of: target, in: context)
+        guard winner.id != loser.id, !loser.isMerged else { return .refused }
+        guard root(of: winner, in: context).id != loser.id else { return .refused }
+        register(winner, in: context)
+
+        // By id, not through the relationship: mid-batch a relationship can read nil, and a
+        // predicate that reaches through one is worse.
+        let moved = indexer.allLinks(in: context).filter { $0.entityID == loser.id }
+        for link in moved { link.moveForMerge(to: winner) }
+
+        // Everything the loser answered to, that the winner does not answer to already.
+        let existing = Set(keys(of: winner))
+        var contributed: [String] = []
+        for surface in [loser.name] + loser.aliases {
+            let key = EntityNormalizer.key(for: surface, kind: winner.kind)
+            guard !key.isEmpty, !existing.contains(key), !contributed.contains(surface) else { continue }
+            contributed.append(surface)
+        }
+        winner.aliases.append(contentsOf: contributed)
+        loser.contributedAliases = contributed
+
+        loser.mergedIntoID = winner.id
+        loser.mergedAt = .now
+        // Anything that pointed at the loser now points at the winner, so no pointer is ever
+        // more than one hop from a live entity. Their own links keep their own birthplaces,
+        // so unmerging any of them still returns exactly what it brought.
+        for entity in merged(into: loser, in: context) {
+            entity.mergedIntoID = winner.id
+        }
+        claim(winner)
+        claim(loser)
+        // Made real before counting, so the next merge sees where these links ended up.
+        try? context.save()
+
+        indexer.recount(in: context)
+        try? context.save()
+        diagnostics.record("graph.merged", [
+            "id": .id(winner.id), "loser": .id(loser.id), "links": .int(moved.count), "aliases": .int(contributed.count),
+        ])
+        return .merged
+    }
+
+    @discardableResult
+    func unmerge(_ loser: Entity, in context: ModelContext) -> Bool {
+        guard let winnerID = loser.mergedIntoID else { return false }
+        let winner = entity(withID: winnerID, in: context)
+
+        // Exactly the links that were born on this entity, wherever they have ended up since.
+        // Filtered in memory: a predicate comparing an optional UUID is not dependable.
+        let born = indexer.allLinks(in: context).filter { $0.originalEntityID == loser.id }
+        for link in born { link.restore(to: loser) }
+
+        // Exactly the aliases it brought, and nothing the winner already had.
+        if let winner {
+            winner.aliases.removeAll { loser.contributedAliases.contains($0) }
+        }
+        loser.contributedAliases = []
+        loser.mergedIntoID = nil
+        loser.mergedAt = nil
+        claim(loser)
+        try? context.save()
+
+        indexer.recount(in: context)
+        try? context.save()
+        diagnostics.record("graph.unmerged", ["id": .id(loser.id), "links": .int(born.count)])
+        return true
+    }
+
+    // MARK: - One mention at a time
+
+    // "This is someone else." The link becomes the user's, so reindexing leaves it alone, and
+    // the entity it now points at is theirs too. Adding the alias fixes every future mention
+    // of the same name; without it, only this one moves.
+    // Returns what happened to the alias, so the screen can say why a name it offered to fix
+    // for good could not be: something else still answers to it.
+    @discardableResult
+    func repoint(_ link: EntityLink, to entity: Entity, addingAlias: Bool, in context: ModelContext) -> EditOutcome {
+        register(entity, in: context)
+
+        let surface = link.surface
+        link.repoint(to: entity)
+        claim(entity)
+        // Recount before the alias, not after: the entity this was taken off may have nothing
+        // left and be gone, and a name nobody answers to any more is not a collision.
+        try? context.save()
+        indexer.recount(in: context)
+        try? context.save()
+        let outcome = addingAlias ? addAlias(surface, to: entity, in: context) : .applied
+
+        diagnostics.record("graph.repointed", ["id": .id(entity.id), "alias": .bool(addingAlias)])
+        return outcome
+    }
+
+    // MARK: - Lookups
+
+    // What a merged entity stands for now. Pointers are flattened on merge, so this is one
+    // step, but it follows a chain defensively rather than trusting that forever.
+    func root(of entity: Entity, in context: ModelContext) -> Entity {
+        var current = entity
+        var seen: Set<UUID> = [entity.id]
+        while let nextID = current.mergedIntoID, let next = self.entity(withID: nextID, in: context) {
+            guard seen.insert(next.id).inserted else { break }
+            current = next
+        }
+        return current
+    }
+
+    func suggestions(in context: ModelContext) -> [EntityMatcher.Suggestion] {
+        let browsable = ((try? context.fetch(FetchDescriptor<Entity>())) ?? []).filter(\.isBrowsable)
+        return EntityMatcher.suggestions(among: browsable.map {
+            .init(id: $0.id, key: $0.key, kind: $0.kind, linkCount: $0.linkCount, notSameAs: $0.notSameAs)
+        })
+    }
+
+    func entity(withID id: UUID, in context: ModelContext) -> Entity? {
+        var descriptor = FetchDescriptor<Entity>(predicate: #Predicate { $0.id == id })
+        descriptor.fetchLimit = 1
+        return (try? context.fetch(descriptor))?.first
+    }
+
+    // MARK: - Private
+
+    private func claim(_ entity: Entity) {
+        entity.confirmedByUser = true
+    }
+
+    // An existing link silently refuses an entity the store has never seen, leaving it with
+    // no entity at all, which the next recount cleans up as garbage. Anything about to
+    // receive links has to be in the store first.
+    private func register(_ entity: Entity, in context: ModelContext) {
+        if entity.modelContext == nil { context.insert(entity) }
+        try? context.save()
+    }
+
+    private func keys(of entity: Entity) -> [String] {
+        ([entity.name] + entity.aliases).map { EntityNormalizer.key(for: $0, kind: entity.kind) }
+    }
+
+    private func entityAnswering(to key: String, kind: EntityKind, excluding entity: Entity, in context: ModelContext) -> Entity? {
+        guard !key.isEmpty else { return nil }
+        let live = ((try? context.fetch(FetchDescriptor<Entity>(predicate: #Predicate { $0.mergedIntoID == nil }))) ?? [])
+        return live.first { other in
+            other.id != entity.id
+                && (other.kind == kind || other.kind == .other || kind == .other)
+                && keys(of: other).contains(key)
+        }
+    }
+
+    private func merged(into entity: Entity, in context: ModelContext) -> [Entity] {
+        let id = entity.id
+        return (try? context.fetch(FetchDescriptor<Entity>(predicate: #Predicate { $0.mergedIntoID == id }))) ?? []
+    }
+}

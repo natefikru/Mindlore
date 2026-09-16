@@ -181,14 +181,22 @@ final class GraphHarness {
     }
 
     func links(of entry: Entry) -> [EntityLink] {
-        (entry.entityLinks ?? []).filter { !$0.isDeleted }
+        indexer.allLinks(in: context).filter { $0.entryID == entry.id }
     }
 }
 
 @MainActor
 struct GraphIndexerTests {
+    // Stored, so the container stays alive for the whole test. A harness in a local can be
+    // released as soon as the test stops mentioning it, and a deallocated container turns
+    // live objects into empty relationships part-way through the assertions.
+    let harness: GraphHarness
+
+    init() throws {
+        harness = try GraphHarness()
+    }
+
     @Test func indexingBuildsAnEntityPerValue() throws {
-        let harness = try GraphHarness()
         let entry = try harness.entry(
             tags: ["nature", "family"],
             themes: ["walking"],
@@ -211,7 +219,6 @@ struct GraphIndexerTests {
     }
 
     @Test func twoEntriesNamingTheSameThingShareOneEntity() throws {
-        let harness = try GraphHarness()
         let monday = try harness.entry(mentions: [("Sarah Kim", .person)])
         let friday = try harness.entry(mentions: [("sarah kim", .person)])
 
@@ -227,7 +234,6 @@ struct GraphIndexerTests {
 
     // Running AI again must not pile a second copy of everything on the entry.
     @Test func reindexingIsIdempotent() throws {
-        let harness = try GraphHarness()
         let entry = try harness.entry(tags: ["nature"], mentions: [("Sarah", .person)])
 
         harness.indexer.index(entry, in: harness.context)
@@ -244,7 +250,6 @@ struct GraphIndexerTests {
     // The entity has to come back with the same id, or a pushed entity page and every
     // notSameAs pointing at it would break.
     @Test func reindexingTheOnlyEntryForAnEntityKeepsItsID() throws {
-        let harness = try GraphHarness()
         let entry = try harness.entry(mentions: [("Sarah", .person)])
         harness.indexer.index(entry, in: harness.context)
         harness.indexer.recount(in: harness.context)
@@ -259,7 +264,6 @@ struct GraphIndexerTests {
     }
 
     @Test func regeneratedInsightsDropTheValuesThatWentAway() throws {
-        let harness = try GraphHarness()
         let entry = try harness.entry(tags: ["nature", "family"])
         harness.indexer.index(entry, in: harness.context)
         harness.indexer.recount(in: harness.context)
@@ -277,7 +281,6 @@ struct GraphIndexerTests {
     }
 
     @Test func aLinkTheUserRepointedSurvivesReindexing() throws {
-        let harness = try GraphHarness()
         let entry = try harness.entry(mentions: [("Sarah", .person)])
         harness.indexer.index(entry, in: harness.context)
         try harness.context.save()
@@ -304,7 +307,6 @@ struct GraphIndexerTests {
     }
 
     @Test func removingInsightsRemovesTheLinksAndTheStamp() throws {
-        let harness = try GraphHarness()
         let entry = try harness.entry(tags: ["nature"])
         harness.indexer.index(entry, in: harness.context)
         harness.indexer.recount(in: harness.context)
@@ -320,7 +322,6 @@ struct GraphIndexerTests {
     }
 
     @Test func deletingAnEntryPrunesWhatNobodyElseUses() throws {
-        let harness = try GraphHarness()
         let entry = try harness.entry(tags: ["nature"], mentions: [("Sarah", .person)])
         harness.indexer.index(entry, in: harness.context)
         harness.indexer.recount(in: harness.context)
@@ -341,13 +342,14 @@ struct GraphIndexerTests {
     }
 
     @Test func aMergeLoserSurvivesTheRecountThatFollowsIt() throws {
-        let harness = try GraphHarness()
         let entry = try harness.entry(mentions: [("Sarah", .person)])
         harness.indexer.index(entry, in: harness.context)
         try harness.context.save()
 
         let winner = Entity(name: "Sarah Kim", key: "sarah kim", kind: .person)
         harness.context.insert(winner)
+        // Saved before any link moves to it: an unsaved entity silently takes none.
+        try harness.context.save()
         let loser = try harness.entity("Sarah")
         for link in loser.links ?? [] { link.moveForMerge(to: winner) }
         loser.mergedIntoID = winner.id
@@ -363,7 +365,6 @@ struct GraphIndexerTests {
     }
 
     @Test func countersFollowTheEntryDateNotTheIndexingOrder() throws {
-        let harness = try GraphHarness()
         let recent = try harness.entry(entryDate: Date(timeIntervalSince1970: 9_000), tags: ["nature"])
         let old = try harness.entry(entryDate: Date(timeIntervalSince1970: 1_000), tags: ["nature"])
 
@@ -378,22 +379,25 @@ struct GraphIndexerTests {
         #expect(nature.lastLinkedAt == Date(timeIntervalSince1970: 9_000))
     }
 
-    @Test func recountDeletesLinksWhoseEntityIsGone() throws {
-        let harness = try GraphHarness()
+    @Test func theSweepDeletesLinksWhoseEntityIsGone() throws {
         let entry = try harness.entry(tags: ["nature"])
         harness.indexer.index(entry, in: harness.context)
         try harness.context.save()
 
         harness.context.delete(try harness.entity("nature"))
         try harness.context.save()
+        // Counting leaves it alone; the sweep is what clears it, against saved state.
         harness.indexer.recount(in: harness.context)
-        try harness.context.save()
+        #expect(try harness.context.fetchCount(FetchDescriptor<EntityLink>()) == 1)
 
-        #expect(try harness.context.fetchCount(FetchDescriptor<EntityLink>()) == 0)
+        entry.insights?.generatedAt = Date(timeIntervalSince1970: 2_000)
+        harness.indexer.sweep(in: harness.context)
+
+        #expect(harness.links(of: entry).count == 1, "the entry was reindexed, so it has a fresh link")
+        #expect(try harness.context.fetchCount(FetchDescriptor<EntityLink>()) == 1)
     }
 
     @Test func theSameValueTwiceInOneEntryLinksOnce() throws {
-        let harness = try GraphHarness()
         let entry = try harness.entry(mentions: [("Sarah", .person), ("sarah", .person), ("Sarah's", .person)])
 
         harness.indexer.index(entry, in: harness.context)
@@ -407,7 +411,6 @@ struct GraphIndexerTests {
     // MARK: - Sweep
 
     @Test func theSweepIndexesEveryEntryThatHasNeverBeenIndexed() throws {
-        let harness = try GraphHarness()
         for _ in 0..<3 { try harness.entry(tags: ["nature"]) }
 
         let indexed = harness.indexer.sweep(in: harness.context)
@@ -418,7 +421,6 @@ struct GraphIndexerTests {
     }
 
     @Test func theSweepSkipsWhatIsAlreadyCurrentAndPicksUpWhatChanged() throws {
-        let harness = try GraphHarness()
         let entry = try harness.entry(tags: ["nature"])
         #expect(harness.indexer.sweep(in: harness.context) == 1)
         #expect(harness.indexer.sweep(in: harness.context) == 0)
@@ -431,7 +433,6 @@ struct GraphIndexerTests {
     }
 
     @Test func anEntryWithNoInsightsIsNotSwept() throws {
-        let harness = try GraphHarness()
         let bare = Entry(text: "no insights yet")
         harness.context.insert(bare)
         try harness.context.save()
@@ -443,7 +444,6 @@ struct GraphIndexerTests {
     // The backfill runs over the user's whole journal. If it stamped the entries, every one of
     // them would look edited today.
     @Test func theSweepNeverStampsAnEntry() throws {
-        let harness = try GraphHarness()
         var before: [UUID: Date] = [:]
         for index in 0..<3 {
             let entry = try harness.entry(tags: ["nature"], mentions: [("Sarah", .person)])
@@ -462,7 +462,6 @@ struct GraphIndexerTests {
     // Indexing on the insights path rides in the coordinator's save, which excludes the entry
     // for exactly this reason.
     @Test func indexingOneEntryInsideItsOwnSaveNeverStampsIt() throws {
-        let harness = try GraphHarness()
         let entry = try harness.entry(tags: ["nature"])
         entry.updatedAt = Date(timeIntervalSince1970: 100)
         try harness.context.save()

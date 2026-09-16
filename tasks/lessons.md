@@ -53,3 +53,39 @@ context.insert(entity)
 try context.save()
 link.repoint(to: entity)
 ```
+
+## SwiftData relationships are not dependable for logic
+
+Reading `link.entity` part-way through an unsaved batch can return nil even though the link is
+fine, and the inverse array on an entity that has just received a link (`entity.links`) stays
+stale until the next save. A `#Predicate` that reaches through an optional relationship is worse
+still: comparing `persistentModelID` matches every row or none, and comparing an optional UUID
+against a non-optional one quietly returns the wrong set.
+
+Keep the relationship for SwiftData's cascade and nullify rules and for views to read, and store
+the id alongside it for every decision the code makes. Write both together in one method so they
+cannot drift. Filter in memory over one fetch rather than reaching through a relationship in a
+predicate.
+
+This cost an evening of flaky merge tests where the failing test changed on every run.
+
+## A counting pass must never delete
+
+`recount` deleted any link whose entity read nil, which looked like sensible garbage collection
+and was actually data loss: combined with the rule above, a transient nil during an unsaved batch
+permanently destroyed a link the user had just re-pointed. Counting now skips what it cannot
+resolve, and the launch sweep does the deleting, where everything has already been saved.
+
+If a pass has "recount" or "cleanup" in its name, make it prove something is garbage against
+saved state before removing it.
+
+## Never delete a test store directory in deinit
+
+A test harness that created its own file store and removed the directory in `deinit` produced
+
+    BUG IN CLIENT OF libsqlite3.dylib: database integrity compromised by
+    API violation: vnode unlinked while in use: .../entries.store
+
+because deinit ran while SQLite still had the store open, which corrupted whatever was running at
+the time and made unrelated tests fail at random. Use `.inMemory` for test stores, or delete the
+directory only after the container is definitely gone.

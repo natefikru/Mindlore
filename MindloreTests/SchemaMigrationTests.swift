@@ -120,8 +120,7 @@ struct SchemaMigrationTests {
             context.insert(entity)
             let link = EntityLink(surface: "Sarah", kind: .person)
             context.insert(link)
-            link.entry = entry
-            link.entity = entity
+            link.attach(to: entry, entity: entity)
             try context.save()
             #expect(try context.fetchCount(FetchDescriptor<EntryPage>()) == 1)
             #expect(try context.fetchCount(FetchDescriptor<EntryInsights>()) == 1)

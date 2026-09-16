@@ -25,7 +25,7 @@ struct GraphIndexer {
             return 0
         }
 
-        let existing = entry.entityLinks ?? []
+        let existing = allLinks(in: context).filter { $0.entryID == entry.id }
         // Read the user's links before deleting anything: a deleted object stays in the
         // relationship array until the next save, so re-reading it here would see ghosts.
         let keptByUser = existing.filter { $0.source == .user }
@@ -67,8 +67,7 @@ struct GraphIndexer {
 
             let link = EntityLink(surface: value.surface, kind: value.kind, source: .ai, inferred: inferred)
             context.insert(link)
-            link.entry = entry
-            link.entity = target
+            link.attach(to: entry, entity: target)
             linked += 1
         }
 
@@ -97,6 +96,7 @@ struct GraphIndexer {
         var links = 0
         for entry in stale { links += index(entry, in: context) }
         recount(in: context)
+        removeOrphanedLinks(in: context)
 
         let touched = Set(stale.map(\.persistentModelID))
         do {
@@ -116,24 +116,27 @@ struct GraphIndexer {
 
     // MARK: - Counters
 
-    // Recomputes every counter from the links, drops links whose entity or entry is gone, and
-    // prunes entities nothing points at any more. Runs at the end of a pass, never in the
-    // middle of one: an entity pruned between removing an entry's links and re-adding them
-    // would come back with a new id.
+    // Recomputes every counter from the links and prunes entities nothing points at any more.
+    // Runs at the end of a pass, never in the middle of one: an entity pruned between removing
+    // an entry's links and re-adding them would come back with a new id.
+    //
+    // It never deletes a link. A relationship can read nil part-way through an unsaved batch,
+    // and counting is not the place to decide that a link is rubbish: the sweep does that at
+    // launch, against what is actually on disk.
     func recount(in context: ModelContext) {
-        let links = (try? context.fetch(FetchDescriptor<EntityLink>())) ?? []
+        // Dates by entry id, so counting reads no relationships at all.
+        let dates = Dictionary(
+            ((try? context.fetch(FetchDescriptor<Entry>())) ?? []).map { ($0.id, $0.entryDate) },
+            uniquingKeysWith: { first, _ in first }
+        )
         var counts: [UUID: (count: Int, first: Date, last: Date)] = [:]
 
-        for link in links {
-            guard let entity = link.entity, let entry = link.entry else {
-                context.delete(link)
-                continue
-            }
-            let date = entry.entryDate
-            if let existing = counts[entity.id] {
-                counts[entity.id] = (existing.count + 1, min(existing.first, date), max(existing.last, date))
+        for link in allLinks(in: context) {
+            guard let entityID = link.entityID, let entryID = link.entryID, let date = dates[entryID] else { continue }
+            if let existing = counts[entityID] {
+                counts[entityID] = (existing.count + 1, min(existing.first, date), max(existing.last, date))
             } else {
-                counts[entity.id] = (1, date, date)
+                counts[entityID] = (1, date, date)
             }
         }
 
@@ -149,15 +152,34 @@ struct GraphIndexer {
         }
     }
 
+    // A link whose entity or entry is gone points at nothing and can never be shown. Only the
+    // launch sweep does this, where every change has already been saved, so a relationship
+    // that reads nil really is nil.
+    func removeOrphanedLinks(in context: ModelContext) {
+        let entities = Set(((try? context.fetch(FetchDescriptor<Entity>())) ?? []).map(\.id))
+        let entries = Set(((try? context.fetch(FetchDescriptor<Entry>())) ?? []).map(\.id))
+        for link in allLinks(in: context) {
+            guard let entityID = link.entityID, let entryID = link.entryID,
+                  entities.contains(entityID), entries.contains(entryID) else {
+                context.delete(link)
+                continue
+            }
+        }
+    }
+
     // MARK: - Removal
 
     // Drops the links the AI pass created and forgets the entry was ever indexed, so the next
     // insights run rebuilds it. The user's own links stay.
     func removeGeneratedLinks(for entry: Entry, in context: ModelContext) {
-        for link in entry.entityLinks ?? [] where link.source == .ai {
+        for link in allLinks(in: context) where link.entryID == entry.id && link.source == .ai {
             context.delete(link)
         }
         entry.graphIndexedAt = nil
+    }
+
+    func allLinks(in context: ModelContext) -> [EntityLink] {
+        ((try? context.fetch(FetchDescriptor<EntityLink>())) ?? []).filter { !$0.isDeleted }
     }
 
     // MARK: - Reading the insights

@@ -78,7 +78,7 @@ struct EntityKindTests {
 struct EntityLinkOwnershipTests {
     private func link(on entity: Entity) -> EntityLink {
         let link = EntityLink(surface: "Sarah", kind: .person)
-        link.entity = entity
+        link.point(at: entity)
         return link
     }
 
@@ -157,8 +157,7 @@ struct EntityPersistenceTests {
     private func linked(_ entry: Entry, _ entity: Entity, surface: String, in context: ModelContext) -> EntityLink {
         let link = EntityLink(surface: surface, kind: entity.kind)
         context.insert(link)
-        link.entry = entry
-        link.entity = entity
+        link.attach(to: entry, entity: entity)
         return link
     }
 
