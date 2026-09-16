@@ -1365,7 +1365,7 @@ Phase 8):
       appears as a node; **an entity above `minimumLinkCount` with no surviving edge, whose kind is
       excluded from `kinds`, does not appear as a node** (the standalone-node clause's own kind check,
       not just `filtered`'s edge-level one).
-- [ ] 7.3 `Mindlore/Views/Graph/GraphCanvasView.swift`: `TimelineView` + `Canvas`, the pan/zoom state,
+- [x] 7.3 `Mindlore/Views/Graph/GraphCanvasView.swift`: `TimelineView` + `Canvas`, the pan/zoom state,
       drag/magnify/tap gestures, the labelled subset, the selection ring, `EntityKind.color` fill,
       subject anchoring support (a flag or parameter for "this id is anchored, draw it distinctly").
       No unit test; confirms it compiles and the existing suite stays green.

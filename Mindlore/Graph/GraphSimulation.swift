@@ -71,6 +71,20 @@ nonisolated final class GraphSimulation {
         indexByID[id].map { nodes[$0].kind }
     }
 
+    func linkCount(of id: UUID) -> Int? {
+        indexByID[id].map { nodes[$0].linkCount }
+    }
+
+    // For the canvas, which draws every node and edge itself rather than re-deriving the topology
+    // from GraphData a second time; array order matches init's, so it stays stable across ticks.
+    func allNodeIDs() -> [UUID] {
+        nodes.map(\.id)
+    }
+
+    func allEdges() -> [EntityGraph.Edge] {
+        edges
+    }
+
     // Sticky: stays pinned until unpin.
     func pin(_ id: UUID, at point: SIMD2<Double>) {
         guard let index = indexByID[id] else { return }
