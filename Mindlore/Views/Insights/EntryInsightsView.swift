@@ -9,6 +9,7 @@ struct EntryInsightsView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
     @Environment(EntrySaver.self) private var saver
+    @Environment(GraphServices.self) private var graph
     @Environment(SettingsStore.self) private var settings
     @Environment(ProviderAccountStore.self) private var accounts
     @Environment(InsightsCoordinator.self) private var insightsCoordinator
@@ -231,8 +232,7 @@ struct EntryInsightsView: View {
 
     private func deleteInsights() {
         guard insights != nil else { return }
-        entry.removeInsights(in: modelContext)
-        GraphIndexer().recount(in: modelContext)
+        graph.insightsDeleted(for: entry, in: modelContext)
         saver.noteChange()
         saver.flush()
         DiagnosticsLog.shared.record("insights.deleted", ["id": .id(entry.id)])

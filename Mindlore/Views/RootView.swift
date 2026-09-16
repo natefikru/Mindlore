@@ -13,8 +13,8 @@ struct RootView: View {
     @State private var insights: InsightsCoordinator
     @State private var network = NetworkMonitor()
     @State private var indexing: GraphIndexingProgress?
+    @State private var graph: GraphServices
     private let context: ModelContext
-    private let graph: GraphIndexer
 
     init(container: ModelContainer, settings: SettingsStore, accounts: ProviderAccountStore) {
         let context = container.mainContext
@@ -32,8 +32,8 @@ struct RootView: View {
         )
         let titles = TitleCoordinator(resolve: { AIServices.titleGenerator(settings: settings, accounts: accounts, http: http) }, presence: presence)
 
-        let graph = GraphIndexer()
-        self.graph = graph
+        let graph = GraphServices()
+        _graph = State(initialValue: graph)
         let insights = InsightsCoordinator(
             resolve: { AIServices.insightsGenerator(settings: settings, accounts: accounts) },
             sections: { AIServices.insightSections(settings) },
@@ -43,10 +43,9 @@ struct RootView: View {
             // Indexing rides along in the coordinator's own save, which already knows not to
             // stamp the entry for insights it didn't ask for.
             onInsightsWritten: { entry, context in
-                graph.index(entry, in: context)
-                graph.recount(in: context)
+                graph.insightsWritten(for: entry, in: context)
             },
-            vocabulary: { graph.vocabulary(in: $0, sections: $1) }
+            vocabulary: { graph.indexer.vocabulary(in: $0, sections: $1) }
         )
 
         // A short delay lets a cancelled back swipe re-open the entry before any job looks at it.
@@ -89,6 +88,7 @@ struct RootView: View {
             .environment(titles)
             .environment(pageTranscription)
             .environment(insights)
+            .environment(graph)
             .overlay {
                 if let indexing {
                     GraphIndexingOverlay(progress: indexing)
@@ -109,7 +109,7 @@ struct RootView: View {
                 // Before the AI queues, so the first request already carries the names the
                 // journal knows. On the first launch after the graph shipped this is the backfill,
                 // which a large journal is shown progress for rather than a frozen screen.
-                await graph.sweep(in: context) { done, total in
+                await graph.indexer.sweep(in: context) { done, total in
                     indexing = GraphIndexingProgress.visible(done: done, total: total)
                 }
                 withAnimation { indexing = nil }

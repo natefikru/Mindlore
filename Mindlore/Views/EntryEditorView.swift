@@ -4,6 +4,7 @@ import SwiftData
 struct EntryEditorView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(EntrySaver.self) private var saver
+    @Environment(GraphServices.self) private var graph
     @Environment(SettingsStore.self) private var settings
     @Environment(TranscriptionCoordinator.self) private var transcription
     @Environment(EditorPresence.self) private var presence
@@ -144,8 +145,7 @@ struct EntryEditorView: View {
             if let entry {
                 EntryDateSheet(entry: entry) {
                     saver.noteChange()
-                    // The entity counters are dated by the entry, so moving one moves them.
-                    GraphIndexer().recount(in: modelContext)
+                    graph.entryDateChanged(in: modelContext)
                 }
                     .presentationDetents([.medium, .large])
             }

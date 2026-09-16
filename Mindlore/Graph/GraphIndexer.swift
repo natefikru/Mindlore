@@ -146,26 +146,32 @@ struct GraphIndexer {
     @discardableResult
     func sweep(in context: ModelContext, chunkSize: Int = 100, onProgress: (_ done: Int, _ total: Int) -> Void) async -> Int {
         let started = Date.now
-        let stale = staleEntries(in: context)
+        let ids = staleEntries(in: context).map(\.id)
         var total = Indexed()
         var done = 0
         var chunks = 0
-        onProgress(0, stale.count)
+        onProgress(0, ids.count)
         // Let the screen draw its progress before the first chunk holds the main thread.
-        if !stale.isEmpty { await Task.yield() }
-        while done < stale.count {
-            let chunk = Array(stale[done..<min(done + chunkSize, stale.count)])
-            guard let indexed = indexAndSave(chunk, in: context) else { return done }
+        if !ids.isEmpty { await Task.yield() }
+        while done < ids.count {
+            // By id, fetched afresh: an entry deleted and saved while this sweep waited is
+            // detached, not marked deleted, and reading its insights would crash.
+            let chunk = Set(ids[done..<min(done + chunkSize, ids.count)])
+            let entries = (try? context.fetch(FetchDescriptor<Entry>(
+                predicate: #Predicate { chunk.contains($0.id) },
+                sortBy: [SortDescriptor(\.createdAt)]
+            ))) ?? []
+            guard let indexed = indexAndSave(entries, in: context) else { return done }
             total.links += indexed.links
             total.created += indexed.created
             done += chunk.count
             chunks += 1
-            onProgress(done, stale.count)
+            onProgress(done, ids.count)
             await Task.yield()
         }
         guard repair(in: context) else { return done }
-        recordSweep(stale.count, total, chunks: chunks, since: started, in: context)
-        return stale.count
+        recordSweep(ids.count, total, chunks: chunks, since: started, in: context)
+        return ids.count
     }
 
     private struct Indexed {

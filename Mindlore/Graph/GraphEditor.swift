@@ -281,8 +281,10 @@ struct GraphEditor {
         }
     }
 
+    // In memory: comparing the optional mergedIntoID with a plain UUID inside a predicate can
+    // quietly return the wrong set (tasks/lessons.md).
     private func merged(into entity: Entity, in context: ModelContext) -> [Entity] {
         let id = entity.id
-        return (try? context.fetch(FetchDescriptor<Entity>(predicate: #Predicate { $0.mergedIntoID == id }))) ?? []
+        return ((try? context.fetch(FetchDescriptor<Entity>())) ?? []).filter { $0.mergedIntoID == id && !$0.isDeleted }
     }
 }

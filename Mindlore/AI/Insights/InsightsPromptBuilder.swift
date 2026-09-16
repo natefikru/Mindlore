@@ -231,18 +231,11 @@ nonisolated enum InsightsPromptBuilder {
         let words = name.split(separator: " ").map(String.init)
         for count in stride(from: words.count, through: 1, by: -1) {
             let phrase = words.prefix(count).joined(separator: " ")
-            if let range = wordRange(of: phrase, in: text) {
+            if let range = NameMatching.range(of: phrase, in: text) {
                 return String(text[range])
             }
         }
         return name
-    }
-
-    private static func wordRange(of phrase: String, in text: String) -> Range<String.Index>? {
-        let pattern = "(?<![\\p{L}\\p{N}])" + NSRegularExpression.escapedPattern(for: phrase) + "(?![\\p{L}\\p{N}])"
-        guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]),
-              let match = regex.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)) else { return nil }
-        return Range(match.range, in: text)
     }
 
     static func parse(_ text: String, plan: InsightsRequestPlan, calendar: Calendar = .current) throws -> InsightsResult {

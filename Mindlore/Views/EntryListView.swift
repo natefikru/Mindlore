@@ -4,6 +4,7 @@ import SwiftData
 struct EntryListView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(EntrySaver.self) private var saver
+    @Environment(GraphServices.self) private var graph
     @Environment(SettingsStore.self) private var settings
     // Backdated entries share noon of their day, so createdAt keeps their order stable.
     @Query(sort: [SortDescriptor(\Entry.entryDate, order: .reverse), SortDescriptor(\Entry.createdAt, order: .reverse)])
@@ -129,7 +130,7 @@ struct EntryListView: View {
         // Flush first so the cascade is real, then recount over what is left: the entry took
         // its links with it, and anything nobody mentions any more goes too.
         saver.flush()
-        GraphIndexer().recount(in: modelContext)
+        graph.entriesDeleted(in: modelContext)
         saver.flush()
     }
 }
@@ -219,6 +220,7 @@ private struct EntryRow: View {
     return EntryListView()
         .modelContainer(container)
         .environment(EntrySaver(context: container.mainContext))
+        .environment(GraphServices())
         .environment(RecordingIngestor())
         .environment(TranscriptionCoordinator())
         .environment(EditorPresence())

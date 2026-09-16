@@ -565,9 +565,11 @@ the requested name ("{name} is a friend the writer walks by the river with."), b
 fallback.
 
 **Steps**, each committed and pushed on its own with the unit suite green:
-- [ ] 5a.1 `GraphServices` in the environment with `entriesDeleted`, `insightsDeleted`,
+- [x] 5a.1 `GraphServices` in the environment with `entriesDeleted`, `insightsDeleted`,
       `entryDateChanged`; the three inline `GraphIndexer()` uses switch to it; `NameMatching`
-      shared by grounding and excerpts; `merged(into:)` filters in memory. No behavior change.
+      shared by grounding and excerpts; `merged(into:)` filters in memory. No behavior change. Also fixed: the chunked launch sweep
+      crashed when an entry was deleted between chunks (it held a detached entry); chunks now
+      re-fetch by id.
 - [ ] 5a.2 `Entity` bio fields, `bioEditedByUser` in `setBio`, `AIServices.textGenerator` and
       `textUsable`, `BioExcerpts`, `EntityBioDrafter`, drafts in `GraphServices`, the stub branch,
       events, the draft privacy test, the settings disclosure line.
