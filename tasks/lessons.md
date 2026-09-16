@@ -18,3 +18,23 @@ editor.coordinate(withNormalizedOffset: CGVector(dx: 0.95, dy: 0.5)).tap()
 
 Before changing app code to satisfy a UI test, prove where the real bug is: dump `element.value` and
 `element.frame` from a temporary `XCTFail` and compare a coordinate tap against `tap()`.
+
+## A ModelContext needs its container held alive
+
+`ModelContainerFactory.make(.inMemory).mainContext` compiles and then crashes mid-test with
+`EXC_BREAKPOINT` inside `-[NSManagedObjectContext _dealloc__]`: `mainContext` does not retain the
+container, so it is deallocated on the next allocation. Keep the container in a local for the whole
+test, the way every other suite here does:
+
+```swift
+let container = try ModelContainerFactory.make(.inMemory)
+let context = container.mainContext
+```
+
+## Never compare persistentModelID inside a #Predicate on an optional to-one
+
+`#Predicate { if let e = $0.entity { e.persistentModelID == wanted } else { false } }` produces no
+error and no correct answer: the same shape returned every row in one test and zero rows in another,
+and the `ids.contains(e.persistentModelID)` form matched nothing. Compare the model's own UUID
+instead (`e.id == wanted`), which works. Do not write a test that asserts the broken form stays
+broken; it goes red when the framework is fixed.

@@ -17,6 +17,11 @@ extension MoodCategory {
 }
 
 extension MentionKind {
+    var symbol: String { EntityKind(self).symbol }
+    var heading: String { EntityKind(self).heading }
+}
+
+extension EntityKind {
     var symbol: String {
         switch self {
         case .person: "person"
@@ -25,9 +30,12 @@ extension MentionKind {
         case .project: "hammer"
         case .event: "calendar"
         case .other: "tag"
+        case .tag: "number"
+        case .theme: "quote.bubble"
         }
     }
 
+    // Plural, for a section of them.
     var heading: String {
         switch self {
         case .person: "People"
@@ -36,6 +44,22 @@ extension MentionKind {
         case .project: "Projects"
         case .event: "Events"
         case .other: "Other"
+        case .tag: "Tags"
+        case .theme: "Themes"
+        }
+    }
+
+    // Singular, for one entity's kind picker and its page.
+    var label: String {
+        switch self {
+        case .person: "Person"
+        case .place: "Place"
+        case .organization: "Organization"
+        case .project: "Project"
+        case .event: "Event"
+        case .other: "Other"
+        case .tag: "Tag"
+        case .theme: "Theme"
         }
     }
 }
