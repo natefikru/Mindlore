@@ -227,6 +227,98 @@ final class GraphServices {
         })
     }
 
+    // MARK: - The picture
+
+    struct GraphData {
+        let nodes: [GraphSimulation.Node]
+        let edges: [EntityGraph.Edge]
+    }
+
+    private struct ResolvedGraph {
+        let byID: [UUID: Entity]
+        let links: [EntityGraph.LinkInput]
+    }
+
+    // One Entity fetch, one link fetch, one Entry fetch for dates, merges and hidden entities
+    // resolved through the same in-memory root(of:) walk mentionedWith already uses. localGraph
+    // and globalGraph share this so the fetch-once discipline isn't duplicated a third time;
+    // mentionedWith is left as its own method, since its "touching id, sorted, capped" step is a
+    // different shape from either graph method's output.
+    private func resolvedLinks(in context: ModelContext) -> ResolvedGraph {
+        let entities = ((try? context.fetch(FetchDescriptor<Entity>())) ?? []).filter { !$0.isDeleted }
+        let byID = Dictionary(uniqueKeysWithValues: entities.map { ($0.id, $0) })
+
+        func root(of id: UUID) -> Entity? {
+            guard var current = byID[id] else { return nil }
+            var seen: Set<UUID> = [current.id]
+            while let nextID = current.mergedIntoID, let next = byID[nextID], seen.insert(next.id).inserted {
+                current = next
+            }
+            return current
+        }
+
+        let links = indexer.allLinks(in: context)
+        let entryIDs = Set(links.compactMap(\.entryID))
+        let entryDates = Dictionary(uniqueKeysWithValues:
+            (((try? context.fetch(FetchDescriptor<Entry>(predicate: #Predicate { entryIDs.contains($0.id) }))) ?? [])
+                .filter { !$0.isDeleted }
+                .map { ($0.id, $0.entryDate) }))
+
+        let inputs: [EntityGraph.LinkInput] = links.compactMap { link in
+            guard let linkEntityID = link.entityID, let entryID = link.entryID,
+                  let entryDate = entryDates[entryID],
+                  let root = root(of: linkEntityID), root.isBrowsable
+            else { return nil }
+            return .init(entryID: entryID, entityID: root.id, entryDate: entryDate)
+        }
+
+        return ResolvedGraph(byID: byID, links: inputs)
+    }
+
+    // Depth 1 (direct co-mentions) or 2 (their partners too) around one entity, for the entity
+    // page's "Graph" sheet. A subject with no co-occurrence still returns a single-node,
+    // zero-edge GraphData, so the view can show the lone subject rather than an error.
+    func localGraph(around id: UUID, depth: Int, in context: ModelContext) -> GraphData {
+        let resolved = resolvedLinks(in: context)
+        let edges = EntityGraph.build(links: resolved.links)
+        let nodeIDs = EntityGraph.neighbourhood(of: id, in: edges, depth: depth).union([id])
+        let filteredEdges = edges.filter { nodeIDs.contains($0.a) && nodeIDs.contains($0.b) }
+        let nodes = nodeIDs.compactMap { nodeID -> GraphSimulation.Node? in
+            resolved.byID[nodeID].map { GraphSimulation.Node(id: nodeID, kind: $0.kind, linkCount: $0.linkCount) }
+        }
+        return GraphData(nodes: nodes, edges: filteredEdges)
+    }
+
+    // Every browsable entity as of a given date, for Connections' "Graph" screen. A node appears
+    // either because a surviving edge touches it, or because it meets both minimumLinkCount and
+    // kinds on its own: the standalone clause's own kind check isn't redundant with `filtered`'s,
+    // since `filtered` only constrains edges, and without it a kind toggle would still leave that
+    // kind's edgeless nodes on screen.
+    func globalGraph(asOf: Date = .now, kinds: Set<EntityKind>?, minimumLinkCount: Int, in context: ModelContext) -> GraphData {
+        let resolved = resolvedLinks(in: context)
+        let edges = EntityGraph.build(links: resolved.links, asOf: asOf)
+        let browsable = resolved.byID.values.filter(\.isBrowsable)
+        let nodeMap = Dictionary(uniqueKeysWithValues: browsable.map { ($0.id, EntityGraph.Node(kind: $0.kind, linkCount: $0.linkCount)) })
+        let filteredEdges = EntityGraph.filtered(edges: edges, nodes: nodeMap, kinds: kinds, minimumLinkCount: minimumLinkCount)
+
+        let edgeNodeIDs = Set(filteredEdges.flatMap { [$0.a, $0.b] })
+        let standaloneIDs = Set(browsable
+            .filter { $0.linkCount >= minimumLinkCount && (kinds?.contains($0.kind) ?? true) }
+            .map(\.id))
+
+        let nodes = edgeNodeIDs.union(standaloneIDs).compactMap { nodeID -> GraphSimulation.Node? in
+            resolved.byID[nodeID].map { GraphSimulation.Node(id: nodeID, kind: $0.kind, linkCount: $0.linkCount) }
+        }
+        return GraphData(nodes: nodes, edges: filteredEdges)
+    }
+
+    // Logged once per graph screen appearance and once per control change that rebuilds the
+    // simulation, never once per frame: settle time over hundreds of ticks is the expected,
+    // useful signal, and per-frame draw cost stays a manual, on-device observation instead.
+    func recordGraphRendered(nodes: Int, edges: Int, settleMilliseconds: Double) {
+        diagnostics.record("graph.rendered", ["nodes": .int(nodes), "edges": .int(edges), "settleMilliseconds": .double(settleMilliseconds)])
+    }
+
     // MARK: - Co-occurrence
 
     struct CoOccurrence: Identifiable {

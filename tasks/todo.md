@@ -1353,7 +1353,7 @@ Phase 8):
       - `EntityKind.color` returns eight distinct, defined colours (`ColorTests`-style equality check
         against `Color`'s own `Equatable` conformance, or a resolved-component comparison if `Color`
         equality proves unreliable across colour spaces).
-- [ ] 7.2 `GraphServices.resolvedLinks(in:)`, `localGraph(around:depth:in:)`, `globalGraph(asOf:kinds:minimumLinkCount:in:)`,
+- [x] 7.2 `GraphServices.resolvedLinks(in:)`, `localGraph(around:depth:in:)`, `globalGraph(asOf:kinds:minimumLinkCount:in:)`,
       `GraphData`; `EntityKind.color` (if not folded into 7.1's file); the `graph.rendered` event
       shape (recorded once wiring exists in 7.4/7.5, defined here so both views call the same helper).
       Test (`GraphServicesTests`, the existing SwiftData harness): `localGraph` at depth 1 includes
