@@ -1045,7 +1045,7 @@ produces edges at view time, per the "computed from co-occurrence at view time a
 
 **Steps**, each committed and pushed on its own with the unit suite green:
 
-- [ ] 6.1 `Mindlore/Graph/EntityGraph.swift`: `LinkInput`, `Edge`, `build`, `neighbourhood`,
+- [x] 6.1 `Mindlore/Graph/EntityGraph.swift`: `LinkInput`, `Edge`, `build`, `neighbourhood`,
       `filtered`, `defaultHalfLife`. No SwiftData import.
       Test file `EntityGraphTests.swift`, styled like `EntityMatcherTests.swift` (plain `struct`, no
       `@MainActor`, no `ModelContainer`, hand-built `LinkInput`/`Edge` fixtures):
@@ -1066,7 +1066,7 @@ produces edges at view time, per the "computed from co-occurrence at view time a
       - `filtered`: drops an edge whose endpoint's kind is outside the given set; keeps all when
         `kinds` is nil; drops an edge whose endpoint's `linkCount` is under the minimum; drops an
         edge with an endpoint missing from `nodes` instead of crashing.
-- [ ] 6.2 `GraphServices.mentionedWith(of:in:limit:)`, resolving hidden/merged entities through
+- [x] 6.2 `GraphServices.mentionedWith(of:in:limit:)`, resolving hidden/merged entities through
       `editor.root(of:)` and `Entity.isBrowsable` before building `LinkInput`s, batch-fetching names
       and kinds for the result.
       Test (`GraphServicesTests`, SwiftData harness like `GraphIndexerTests`'s
@@ -1075,12 +1075,12 @@ produces edges at view time, per the "computed from co-occurrence at view time a
       appears as a co-occurrence partner even though its links still exist; a merged-away entity's
       co-occurrences show up under the winner's id; results are ordered by weight; `limit` caps the
       list; an entity with nothing to co-occur with returns an empty list, not an error.
-- [ ] 6.3 `EntityPagePresentation.CoOccurrenceRow`/`coOccurrenceRows(_:)`; `EntityView` "Mentioned
+- [x] 6.3 `EntityPagePresentation.CoOccurrenceRow`/`coOccurrenceRows(_:)`; `EntityView` "Mentioned
       with" section.
       Test (`EntityPagePresentationTests`): rows preserve `mentionedWith`'s order; an empty input
       gives an empty list (the view hides the section on empty, no separate presentation flag
       needed since the list itself is the signal).
-- [ ] 6.4 Sub-agent review of the whole phase; fix what it finds.
+- [x] 6.4 Sub-agent review of the whole phase; fix what it finds.
 
 **Not in scope, this phase:** the depth control, kind toggles, minimum-count slider, and time
 scrubber UI (Phase 7 wires these to `neighbourhood`/`filtered`, this phase only builds and tests the
@@ -1195,6 +1195,14 @@ the phone.
 - Search across entry text (synthesis PR)
 
 ## Review log
+
+Phase 6 build (sub-agent review of `544f861..HEAD`, 2026-09-16, verdict: no findings). Checked the
+decay formula, the per-entry dedupe before pairing, `Edge` canonicalization and weight accumulation,
+`neighbourhood` and `filtered`'s edge cases, and that `mentionedWith` actually avoids a `root(of:)`
+fetch per link (the plan review's must-fix) by resolving against one in-memory entity map with its
+own cycle-guarded walk. Confirmed the "Mentioned with" section refreshes via `.task(id: graph.revision)`
+rather than a plain computed property (the plan review's other must-fix), hides on empty, and nothing
+from "Not in scope" leaked in. All tests the spec promised exist and assert what they claim.
 
 Phase 5a build (sub-agent review of `1d5a465..3ead125`, 2026-09-16, verdict "approve with
 fixes"; 8 findings, all fixed in the commit after 5a.5). Privacy, stamping, the post-await
