@@ -255,3 +255,35 @@ struct InsightsUseTheJournalVocabularyTests {
         #expect(second.insights?.sentTagCount == 1)
     }
 }
+
+// The live model completed a dictated "sarah" to a known "Sarah Kim" despite being told not to,
+// so names are cut back to what the entry says once the response is in.
+struct GroundedMentionTests {
+    @Test(arguments: [
+        // A whole name the entry contains stays as the model wrote it... in the entry's spelling.
+        ("Sarah Kim", "lunch with Sarah Kim today", "Sarah Kim"),
+        ("Sarah Kim", "lunch with sarah kim today", "sarah kim"),
+        // A completed name is cut back to the words the entry actually has.
+        ("Sarah Kim", "had lunch with sarah today", "sarah"),
+        ("Marcus James Webb", "called Marcus James about it", "Marcus James"),
+        // A possessive still counts as the name being there.
+        ("Sarah Kim", "at sarah's place", "sarah"),
+        // Part of a longer word is not the name.
+        ("Sara Kim", "sarah came by", "Sara Kim"),
+        // Nothing of it is in the entry: the model fixed a garbled name, which is kept.
+        ("Sarah Kim", "met sara kym this morning", "Sarah Kim"),
+        ("Harbor Coffee", "at harbour coffee", "Harbor Coffee"),
+        // Punctuation in a name is matched literally, not as a pattern.
+        ("St. Mary's", "born at St. Mary's in May", "St. Mary's"),
+        ("C++ Guild", "joined the c++ guild", "c++ guild"),
+    ])
+    func namesAreGroundedInTheEntry(_ name: String, _ text: String, _ expected: String) {
+        #expect(InsightsPromptBuilder.grounded(name, in: text) == expected)
+    }
+
+    @Test func parsingGroundsEveryMention() throws {
+        let plan = InsightsPromptBuilder.plan(text: "had lunch with sarah at harbour coffee", source: .voice, sections: InsightSections(), vocabulary: .empty, model: "m")
+        let result = try InsightsPromptBuilder.parse(#"{"mentions":[{"name":"Sarah Kim","kind":"person"},{"name":"Harbor Coffee","kind":"place"}]}"#, plan: plan)
+        #expect(result.mentions.map(\.name) == ["sarah", "Harbor Coffee"])
+    }
+}
