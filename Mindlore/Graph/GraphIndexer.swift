@@ -24,6 +24,7 @@ struct GraphIndexer {
         var linksByEntry: [UUID: [EntityLink]]
         var candidates: [EntityResolver.Candidate]
         var entities: [UUID: Entity]
+        var created = 0
 
         init(linksByEntry: [UUID: [EntityLink]], candidates: [EntityResolver.Candidate], entities: [UUID: Entity]) {
             self.linksByEntry = linksByEntry
@@ -44,10 +45,12 @@ struct GraphIndexer {
     // Rebuilds one entry's AI links from its current insights. Caller saves.
     @discardableResult
     func index(_ entry: Entry, in context: ModelContext) -> Int {
-        index(entry, in: context, batch: batch(in: context))
+        index(entry, in: context, batch: batch(in: context), recordEach: true)
     }
 
-    private func index(_ entry: Entry, in context: ModelContext, batch: Batch) -> Int {
+    // The sweep reports one summary instead of a line per entry: a first launch over a large
+    // journal would otherwise bury the device log in thousands of them.
+    private func index(_ entry: Entry, in context: ModelContext, batch: Batch, recordEach: Bool) -> Int {
         guard let insights = entry.insights else {
             removeGeneratedLinks(for: entry, in: context)
             batch.linksByEntry[entry.id] = batch.linksByEntry[entry.id]?.filter { $0.source != .ai }
@@ -114,6 +117,8 @@ struct GraphIndexer {
         batch.linksByEntry[entry.id] = kept
 
         entry.graphIndexedAt = insights.generatedAt
+        batch.created += created
+        guard recordEach else { return linked }
         diagnostics.record("graph.indexed", [
             "id": .id(entry.id),
             "links": .int(linked),
@@ -134,9 +139,11 @@ struct GraphIndexer {
                 return entry.graphIndexedAt != generatedAt
             }
         var links = 0
+        var created = 0
         if !stale.isEmpty {
             let shared = batch(in: context)
-            for entry in stale { links += index(entry, in: context, batch: shared) }
+            for entry in stale { links += index(entry, in: context, batch: shared, recordEach: false) }
+            created = shared.created
         }
         // Always, even with nothing stale: this is the only place counters are repaired and
         // links stranded by an interrupted edit are cleared, and in steady state nothing is
@@ -155,6 +162,7 @@ struct GraphIndexer {
         diagnostics.record("graph.sweep", [
             "entries": .int(stale.count),
             "links": .int(links),
+            "created": .int(created),
             "entities": .int((try? context.fetchCount(FetchDescriptor<Entity>())) ?? -1),
             "ms": .int(Int(Date.now.timeIntervalSince(started) * 1000)),
         ])

@@ -584,3 +584,24 @@ struct RemoveInsightsGuardTests {
         #expect(harness.links(of: entry).isEmpty)
     }
 }
+
+@MainActor
+struct SweepLoggingTests {
+    // One summary for the whole pass, not a line per entry: a first launch over a large
+    // journal would otherwise bury the device log.
+    @Test func theSweepLogsOneSummaryLine() throws {
+        let harness = try GraphHarness()
+        for _ in 0..<5 { try harness.entry(tags: ["nature"], mentions: [("Sarah", .person)]) }
+        let file = DiagnosticsFile()
+        let indexer = GraphIndexer(diagnostics: DiagnosticsLog(fileURL: file.url))
+
+        indexer.sweep(in: harness.context)
+
+        let lines = file.contents().split(separator: "\n")
+        #expect(!lines.contains { $0.contains("\"graph.indexed\"") })
+        let summary = try #require(lines.first { $0.contains("\"graph.sweep\"") })
+        #expect(summary.contains("\"entries\":5"))
+        #expect(summary.contains("\"created\":2"))
+        #expect(summary.contains("\"links\":10"))
+    }
+}

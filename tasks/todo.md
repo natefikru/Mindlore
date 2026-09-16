@@ -539,6 +539,21 @@ the phone.
 - **Sync later.** Every rule `CloudKitSchemaRulesTests` enforces holds. Merge pointers are UUIDs, so
   a merge on one device is a two-field write that syncs cleanly.
 
+### Measured before Phase 5 (2026-09-16, iPhone 17 simulator, Debug)
+
+- **First launch blocks the UI.** The sweep runs in `RootView`'s task on the main actor and finishes
+  before the scene reports active: 631 ms for the 300-entry fixture in a real launch, about 7 s for
+  3,000 entries in the timing test (119 s before the sweep shared one fetch). Before this ships to
+  anyone with a large journal, the sweep should work in chunks and yield between them, or start
+  after the first frame. Phase 8 measures it on the phone.
+- **Every launch pays for repair.** With nothing stale, the sweep still recounts and clears
+  stranded links: about 150 ms at 300 entries, and the recount alone is 340 ms at 3,000.
+- **The backfill leaves duplicates for Review, by design.** On the fixture, "Marcus" and
+  "Marcus Webb" stay apart because the bare name was indexed before the full one existed, and then
+  matched itself; 7 suggestions come out of 300 entries. An entity keeps the first spelling seen,
+  so "mom" can be lowercase. Worth deciding in Phase 5 whether a display name should prefer a
+  capitalized variant.
+
 ## Not in scope
 
 - `NLTagger` extraction for entries without AI: not deferred, dropped (owner, 2026-09-15). This is
