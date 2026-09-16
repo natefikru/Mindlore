@@ -161,3 +161,108 @@ struct DiagnosticsPrivacyTests {
         #expect(contents.contains(Self.sentinel) == false)
     }
 }
+
+// Every AI path, run against a sentinel string: entry text, title, tags, mention names, custom prompt
+// wording, page text, the API key, a provider error body, and a decoding error. None may reach the log.
+@MainActor
+struct AIDiagnosticsPrivacyTests {
+    private static let sentinel = DiagnosticsPrivacyTests.sentinel
+
+    private func log(_ file: DiagnosticsFile) -> DiagnosticsLog {
+        DiagnosticsLog(fileURL: file.url)
+    }
+
+    @Test func aiPathsNeverLogTextKeysOrProviderBodies() async throws {
+        let file = DiagnosticsFile()
+        let log = log(file)
+        let sentinel = Self.sentinel
+        let container = try ModelContainerFactory.make(.inMemory)
+        let context = container.mainContext
+
+        // Settings and keys: prompt wording and the key itself pass through here.
+        let settings = SettingsStore(store: FakeKeyValueStore(), diagnostics: log)
+        settings.customInsightPrompts = [CustomInsightPrompt(id: UUID(), name: "Name \(sentinel)", instructions: "Ask about \(sentinel)", enabled: true)]
+        let errorBody = #"{"error":{"message":"your text \#(sentinel) was rejected","code":"invalid_value"}}"#
+        let http = FakeHTTPClient(
+            .success(HTTPResponse(status: 400, headers: [:], data: Data(errorBody.utf8))),
+            .success(HTTPResponse(status: 400, headers: [:], data: Data(errorBody.utf8)))
+        )
+        let accounts = ProviderAccountStore(settings: settings, secrets: FakeSecretStore(), http: http, diagnostics: log)
+        try accounts.saveOpenAIKey("sk-\(sentinel)")
+        settings.aiEnabled = true
+        _ = await accounts.testConnection()
+
+        // An entry with the sentinel everywhere its text can go.
+        let entry = Entry(source: .photo, text: "Dear diary, \(sentinel)")
+        entry.title = "Title \(sentinel)"
+        entry.pagesConfirmed = true
+        context.insert(entry)
+        let page = EntryPage(index: 0, imageData: Data([1, 2, 3]), thumbnailData: Data([1]), pixelWidth: 10, pixelHeight: 10, origin: .camera)
+        context.insert(page)
+        page.entry = entry
+        try context.save()
+
+        // Pages: a transcriber that answers with the sentinel, then one that fails with a decoding error.
+        let pages = PageTranscriptionCoordinator(
+            resolve: { .success(.init(transcriber: SentinelPageTranscriber(text: "Page text \(sentinel)"), label: "openai:test")) },
+            diagnostics: log,
+            beginBackgroundTask: { _ in {} },
+            prepareUpload: { $0 }
+        )
+        entry.awaitingText = true
+        await pages.processQueue(context: context)
+        #expect(entry.text.contains(sentinel))
+
+        // Insights: sentinel text in, sentinel-laden result out, and a failing run.
+        let generator = FakeTextGenerator()
+        generator.results = [
+            .success(#"{"summary":"About \#(sentinel)","primaryMood":"calm","themes":["\#(sentinel)"],"tags":["\#(sentinel)"],"mentions":[{"name":"\#(sentinel)","kind":"person"}],"openThreads":["\#(sentinel)"]}"#),
+            .failure(AIError.badRequest(code: "invalid_value")),
+        ]
+        let insights = InsightsCoordinator(
+            resolve: { .success(.init(generator: generator, model: "m", label: "openai:m")) },
+            sections: { AIServices.insightSections(settings) },
+            autoApplyCleanedText: { false },
+            presence: EditorPresence(),
+            diagnostics: log
+        )
+        entry.textReviewPending = false
+        entry.insightsPending = true
+        await insights.processQueue(context: context)
+        #expect(entry.insights?.summary?.contains(sentinel) == true)
+        await insights.runAI(for: entry, context: context)
+
+        // Titles, including a generator that throws a DecodingError carrying the sentinel.
+        let titles = TitleCoordinator(
+            resolve: { .success(.init(generator: generator, model: "m", label: "openai:m")) },
+            presence: EditorPresence(),
+            diagnostics: log
+        )
+        generator.results = [.failure(DecodingError.dataCorrupted(.init(codingPath: [], debugDescription: "bad value \(sentinel)")))]
+        entry.title = ""
+        entry.titlePending = true
+        await titles.processQueue(context: context)
+
+        let contents = file.contents()
+        #expect(contents.contains("ai.keySaved"))
+        #expect(contents.contains("pages.transcription.completed"))
+        #expect(contents.contains("insights.completed"))
+        #expect(contents.contains("insights.failed"))
+        #expect(contents.contains("title.failed"))
+        #expect(contents.contains("settings.changed"))
+        #expect(contents.contains(sentinel) == false)
+    }
+}
+
+@MainActor
+private final class SentinelPageTranscriber: PageTranscriber {
+    let text: String
+
+    init(text: String) {
+        self.text = text
+    }
+
+    nonisolated func transcribe(_ request: PageRequest) async throws -> PageResult {
+        PageResult(text: await text, writtenDate: nil, inputTokens: 1, outputTokens: 1)
+    }
+}
