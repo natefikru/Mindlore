@@ -163,6 +163,20 @@ nonisolated enum EntityPagePresentation {
         return (["Drafted by AI", sent] + (model.isEmpty ? [] : [model])).joined(separator: " · ")
     }
 
+    // MARK: - Mentioned with
+
+    struct CoOccurrenceRow: Equatable, Identifiable {
+        let id: UUID
+        let name: String
+        let kind: EntityKind
+    }
+
+    // GraphServices.mentionedWith already orders by weight and applies the limit; this only
+    // drops the weight, which is ordering, not something the page shows as a number.
+    static func coOccurrenceRows(_ inputs: [GraphServices.CoOccurrence]) -> [CoOccurrenceRow] {
+        inputs.map { CoOccurrenceRow(id: $0.id, name: $0.name, kind: $0.kind) }
+    }
+
     // MARK: - Merged in
 
     struct MergedInput: Equatable {

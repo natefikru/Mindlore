@@ -65,6 +65,7 @@ private struct EntityPage: View {
     @State private var collidingEdit: ((Bool) -> GraphEditor.EditOutcome)?
     @State private var repointing: MentionRef?
     @State private var previewingRow: EntityPagePresentation.EntryRow?
+    @State private var coOccurring: [EntityPagePresentation.CoOccurrenceRow] = []
 
     init(id: UUID, showsLoser: Bool) {
         self.id = id
@@ -84,6 +85,7 @@ private struct EntityPage: View {
                 about(entity)
                 aliasesSection(entity)
                 entriesSection
+                mentionedWithSection
                 mergedInSection
                 if !entity.isMerged {
                     actionsSection(entity)
@@ -94,6 +96,9 @@ private struct EntityPage: View {
             .accessibilityIdentifier("entityPage")
             .onAppear {
                 if !showsLoser { graph.pageOpened(id, in: modelContext) }
+            }
+            .task(id: graph.revision) {
+                coOccurring = EntityPagePresentation.coOccurrenceRows(graph.mentionedWith(of: id, in: modelContext))
             }
             .sheet(isPresented: $editingBio) {
                 BioEditorSheet(initial: entity.bio ?? "") { text in
@@ -390,6 +395,20 @@ private struct EntityPage: View {
                                 .accessibilityIdentifier("entityNotThem")
                         }
                     }
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var mentionedWithSection: some View {
+        if !coOccurring.isEmpty {
+            Section("Mentioned with") {
+                ForEach(coOccurring) { row in
+                    NavigationLink(value: EntityRoute(id: row.id)) {
+                        Label(row.name, systemImage: row.kind.symbol)
+                    }
+                    .accessibilityIdentifier("mentionedWithRow-\(row.name)")
                 }
             }
         }

@@ -135,6 +135,22 @@ struct EntityPagePresentationTests {
 
         #expect(P.mergedIn([early, elsewhere, late, live], into: winner) == [late, early])
     }
+
+    // MARK: - Mentioned with
+
+    @Test func coOccurrenceRowsPreservesOrder() {
+        let tom = GraphServices.CoOccurrence(id: a, name: "Tom", kind: .person, weight: 2)
+        let ana = GraphServices.CoOccurrence(id: b, name: "Ana", kind: .person, weight: 1)
+
+        #expect(P.coOccurrenceRows([tom, ana]) == [
+            .init(id: a, name: "Tom", kind: .person),
+            .init(id: b, name: "Ana", kind: .person),
+        ])
+    }
+
+    @Test func coOccurrenceRowsIsEmptyForEmptyInput() {
+        #expect(P.coOccurrenceRows([]).isEmpty)
+    }
 }
 
 @MainActor
