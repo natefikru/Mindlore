@@ -21,6 +21,9 @@ final class InsightsCoordinator {
     @ObservationIgnored private let autoApplyEntryDate: () -> Bool
     @ObservationIgnored private let presence: EditorPresence
     @ObservationIgnored private let save: (ModelContext, Set<PersistentIdentifier>) throws -> Void
+    // Runs after insights are written and before they are saved, so the graph's links go to
+    // disk in the same save and the entry is never stamped for work that isn't an edit.
+    @ObservationIgnored private let onInsightsWritten: (Entry, ModelContext) -> Void
     @ObservationIgnored private let diagnostics: DiagnosticsLog
     @ObservationIgnored private let calendar: Calendar
     @ObservationIgnored private var failedThisSession: Set<UUID> = []
@@ -35,6 +38,7 @@ final class InsightsCoordinator {
         autoApplyEntryDate: @escaping () -> Bool = { false },
         presence: EditorPresence,
         save: @escaping (ModelContext, Set<PersistentIdentifier>) throws -> Void = { try $0.saveStampingEntries(except: $1) },
+        onInsightsWritten: @escaping (Entry, ModelContext) -> Void = { _, _ in },
         diagnostics: DiagnosticsLog = .shared,
         calendar: Calendar = .current
     ) {
@@ -44,6 +48,7 @@ final class InsightsCoordinator {
         self.autoApplyEntryDate = autoApplyEntryDate
         self.presence = presence
         self.save = save
+        self.onInsightsWritten = onInsightsWritten
         self.diagnostics = diagnostics
         self.calendar = calendar
     }
@@ -210,6 +215,7 @@ final class InsightsCoordinator {
                 }
             }
         }
+        onInsightsWritten(current, context)
         // Writing insights or a suggestion isn't an edit to the entry; applying cleanup is.
         try? save(context, changedEntry ? [] : [id])
         diagnostics.record(isCurrent ? "insights.completed" : "insights.stale", [

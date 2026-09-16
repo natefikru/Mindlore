@@ -4,7 +4,7 @@ Branch: `feature/knowledge-graph` from `main` at `0678525` (after PR #2 merged t
 layer this builds on is archived in `tasks/archive/ai-providers.md`; the product vision is
 `docs/mindlore-build-plan.md` Phase 2.
 
-Status: revision 2, awaiting owner approval. Revision 2 folds in the sub-agent review of revision 1
+Status: revision 2, approved. Phases 1 and 2 are built (PR #3); the rest is still plan. Revision 2 folds in the sub-agent review of revision 1
 (17 findings, all addressed; see "Review log"). Nothing below is implemented.
 
 ## Goal
@@ -354,37 +354,37 @@ the behaviour that produces them. Phases 6 and 7 (the graph picture, including t
 and node pinning) are the planned split point for a stacked PR if review of the first five gets
 long.
 
-### Phase 1: Models
-- [ ] `Mindlore/Models/Entity.swift`, `EntityLink.swift`, `EntityKind` with `symbol` and `heading`
+### Phase 1: Models (done)
+- [x] `Mindlore/Models/Entity.swift`, `EntityLink.swift`, `EntityKind` with `symbol` and `heading`
       (extend the per-kind table in `Views/Insights/InsightCards.swift:19-41`).
-- [ ] `Entry.swift:53-56`: `entityLinks` relationship and `graphIndexedAt`.
-- [ ] `ModelContainerFactory.swift:25`: schema.
-- [ ] Tests: `CloudKitSchemaRulesTests.appSchemaFollowsCloudKitRules` (`:43`) passes with the new
+- [x] `Entry.swift`: `entityLinks` relationship and `graphIndexedAt`.
+- [x] `ModelContainerFactory.swift`: schema.
+- [x] Tests: `CloudKitSchemaRulesTests.appSchemaFollowsCloudKitRules` (`:43`) passes with the new
       models; `SchemaMigrationTests` per-entry loop (`:54-64`) asserts the new fields;
       `MoodTests.moodRawValuesArePinned` (`InsightsTests.swift:6-20`) gains `EntityKind` and
       `EntityLinkSource`.
 
-### Phase 2: Normalizer, resolver, indexer
-- [ ] `Mindlore/Graph/EntityNormalizer.swift`: `key(for:kind:)`, `tokens(of:)`, honorific and
+### Phase 2: Normalizer, resolver, indexer (done)
+- [x] `Mindlore/Graph/EntityNormalizer.swift`: `key(for:kind:)`, `tokens(of:)`, honorific and
       possessive tables. Table-driven tests: `"Sarah's"`, `"Dr. Kim"`, `"NĚMEČEK"`, `"  new   york "`,
       `"James'"`, `"Aunt May"`, tag and theme forms.
-- [ ] `Mindlore/Graph/EntityResolver.swift`: the three-step rule over an in-memory snapshot of live
+- [x] `Mindlore/Graph/EntityResolver.swift`: the three-step rule over an in-memory snapshot of live
       entities (fetched once per index call). Returns link decisions; does not write.
-- [ ] `Mindlore/Graph/GraphIndexer.swift` (main actor, owns writes, injected `DiagnosticsLog`):
+- [x] `Mindlore/Graph/GraphIndexer.swift` (main actor, owns writes, injected `DiagnosticsLog`):
       `index(entry, context)`, `sweep(context)`, `recount(context)` with orphan pruning and
       nullified-link cleanup, `removeAILinks(for:)` which saves before returning. Every save goes
       through `saveStampingEntries(at:except:)` with the touched entries excluded.
-- [ ] `Entry+Editing.removeInsights()`; call it from `EntryInsightsView` "Delete insights" and from
+- [x] `Entry+Editing.removeInsights()`; call it from `EntryInsightsView` "Delete insights" and from
       `restartPages` (`Entry+Pages.swift:155-157`).
-- [ ] Hooks: `InsightsCoordinator.init` takes an `onInsightsWritten: (Entry, ModelContext) -> Void`
+- [x] Hooks: `InsightsCoordinator.init` takes an `onInsightsWritten: (Entry, ModelContext) -> Void`
       (the `InsightsHarness` passes a no-op or a spy), called before the save at `:207`;
       `RootView` third `.task` lane (`:89-95`) runs `sweep` before the title and insights queues so
       the first request after the upgrade already carries known names; `EntryDateSheet` dismiss
       (`:30,49`) and the two coordinator date paths (`InsightsCoordinator.swift:192`,
       `PageTranscriptionCoordinator.swift:209`) call `recount`; `EntryListView` delete path flushes
       then recounts.
-- [ ] Diagnostics events; `AIDiagnosticsPrivacyTests` extended.
-- [ ] Tests (`GraphIndexerTests`, `@MainActor`, in-memory container, `FakeTextGenerator` through
+- [x] Diagnostics events (`graph.indexed`, `graph.sweep`, `graph.ambiguous`, `graph.saveFailed`); `AIDiagnosticsPrivacyTests` extended.
+- [x] Tests (`GraphIndexerTests`, `@MainActor`, in-memory container, `FakeTextGenerator` through
       the `InsightsHarness` pattern at `InsightsTests.swift:155-198`): exact match links; alias
       match; first-name rule with one candidate links inferred, with two creates new, and ignores
       hidden candidates; cross-kind creates new; hidden entity is reused by exact match and stays

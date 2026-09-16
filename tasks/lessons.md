@@ -38,3 +38,18 @@ error and no correct answer: the same shape returned every row in one test and z
 and the `ids.contains(e.persistentModelID)` form matched nothing. Compare the model's own UUID
 instead (`e.id == wanted`), which works. Do not write a test that asserts the broken form stays
 broken; it goes red when the framework is fixed.
+
+## Point an existing link at a new SwiftData object only after the object is saved
+
+`link.entity = brandNewEntity` on a link that is already in the store silently leaves
+`link.entity` nil, with no error and no crash. It only shows up later, when a cleanup pass sees a
+link with no entity and deletes it as garbage. The same assignment works while both objects are new
+and unsaved in the same batch, which is why indexing was fine and re-pointing was not.
+
+Insert the new object and save before wiring an existing object to it:
+
+```swift
+context.insert(entity)
+try context.save()
+link.repoint(to: entity)
+```

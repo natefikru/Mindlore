@@ -126,6 +126,10 @@ struct EntryListView: View {
             DiagnosticsLog.shared.record("entry.deleted", ["id": .id(entries[index].id), "reason": "swipe"])
             Entry.delete(entries[index], in: modelContext)
         }
+        // Flush first so the cascade is real, then recount over what is left: the entry took
+        // its links with it, and anything nobody mentions any more goes too.
+        saver.flush()
+        GraphIndexer().recount(in: modelContext)
         saver.flush()
     }
 }

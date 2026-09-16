@@ -142,7 +142,11 @@ struct EntryEditorView: View {
         }
         .sheet(isPresented: $editingDate) {
             if let entry {
-                EntryDateSheet(entry: entry) { saver.noteChange() }
+                EntryDateSheet(entry: entry) {
+                    saver.noteChange()
+                    // The entity counters are dated by the entry, so moving one moves them.
+                    GraphIndexer().recount(in: modelContext)
+                }
                     .presentationDetents([.medium, .large])
             }
         }

@@ -13,6 +13,7 @@ struct RootView: View {
     @State private var insights: InsightsCoordinator
     @State private var network = NetworkMonitor()
     private let context: ModelContext
+    private let graph: GraphIndexer
 
     init(container: ModelContainer, settings: SettingsStore, accounts: ProviderAccountStore) {
         let context = container.mainContext
@@ -30,12 +31,20 @@ struct RootView: View {
         )
         let titles = TitleCoordinator(resolve: { AIServices.titleGenerator(settings: settings, accounts: accounts, http: http) }, presence: presence)
 
+        let graph = GraphIndexer()
+        self.graph = graph
         let insights = InsightsCoordinator(
             resolve: { AIServices.insightsGenerator(settings: settings, accounts: accounts) },
             sections: { AIServices.insightSections(settings) },
             autoApplyCleanedText: { settings.autoApplyCleanedText },
             autoApplyEntryDate: { settings.autoApplySuggestedEntryDate },
-            presence: presence
+            presence: presence,
+            // Indexing rides along in the coordinator's own save, which already knows not to
+            // stamp the entry for insights it didn't ask for.
+            onInsightsWritten: { entry, context in
+                graph.index(entry, in: context)
+                graph.recount(in: context)
+            }
         )
 
         // A short delay lets a cancelled back swipe re-open the entry before any job looks at it.
@@ -90,6 +99,9 @@ struct RootView: View {
                 if aiPass.sweep(context: context) > 0 {
                     try? context.saveStampingEntries()
                 }
+                // Before the AI queues, so the first request already carries the names the
+                // journal knows. On the first launch after the graph shipped this is the backfill.
+                graph.sweep(in: context)
                 await titles.processQueue(context: context)
                 await insights.processQueue(context: context)
             }

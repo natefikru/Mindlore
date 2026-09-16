@@ -54,6 +54,20 @@ extension Entry {
     static func delete(_ entry: Entry, in context: ModelContext) {
         context.delete(entry)
     }
+
+    // Deleting insights takes the graph links that came from them with it, and forgets the
+    // entry was ever indexed so a later run rebuilds it. The user's own links stay.
+    // Every path that drops insights goes through here: the Insights screen and a page restart.
+    func removeInsights(in context: ModelContext) {
+        if let insights {
+            context.delete(insights)
+            self.insights = nil
+        }
+        for link in entityLinks ?? [] where link.source == .ai {
+            context.delete(link)
+        }
+        graphIndexedAt = nil
+    }
 }
 
 // MARK: - Drafts

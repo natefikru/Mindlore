@@ -243,11 +243,24 @@ struct AIDiagnosticsPrivacyTests {
         entry.titlePending = true
         await titles.processQueue(context: context)
 
+        // The graph: entity names, aliases, and surface text all come from the sentinel above.
+        let graph = GraphIndexer(diagnostics: log)
+        let alias = Entity(name: "Alias holder \(sentinel)", key: "alias holder", kind: .person)
+        alias.aliases = ["Also \(sentinel)"]
+        alias.bio = "Bio \(sentinel)"
+        context.insert(alias)
+        try context.save()
+        graph.index(entry, in: context)
+        graph.recount(in: context)
+        try context.save()
+        #expect(entry.entityLinks?.isEmpty == false)
+
         let contents = file.contents()
         #expect(contents.contains("ai.keySaved"))
         #expect(contents.contains("pages.transcription.completed"))
         #expect(contents.contains("insights.completed"))
         #expect(contents.contains("insights.failed"))
+        #expect(contents.contains("graph.indexed"))
         #expect(contents.contains("title.failed"))
         #expect(contents.contains("settings.changed"))
         #expect(contents.contains(sentinel) == false)

@@ -230,9 +230,8 @@ struct EntryInsightsView: View {
     }
 
     private func deleteInsights() {
-        guard let insights else { return }
-        modelContext.delete(insights)
-        entry.insights = nil
+        guard insights != nil else { return }
+        entry.removeInsights(in: modelContext)
         saver.noteChange()
         saver.flush()
         DiagnosticsLog.shared.record("insights.deleted", ["id": .id(entry.id)])

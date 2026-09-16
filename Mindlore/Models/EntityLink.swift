@@ -39,6 +39,10 @@ final class EntityLink {
 
     // Merging this link's entity into `winner`. A link whose entity is already gone is left
     // for recount to delete rather than given a birthplace it never had.
+    //
+    // As with restore and repoint: a link that is already saved silently refuses a target the
+    // store has never seen, leaving `entity` nil. Insert and save a new entity before pointing
+    // existing links at it.
     func moveForMerge(to winner: Entity) {
         guard let current = entity else { return }
         if originalEntityID == nil { originalEntityID = current.id }
