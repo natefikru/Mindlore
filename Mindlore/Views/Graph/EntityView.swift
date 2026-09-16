@@ -386,6 +386,7 @@ private struct EntityPage: View {
                             }
                         }
                     }
+                    .accessibilityIdentifier("mergedInRow-\(loser.name)")
                     .swipeActions {
                         Button("Undo merge") {
                             saver.flush()

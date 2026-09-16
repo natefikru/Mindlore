@@ -123,4 +123,66 @@ final class GraphUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["entityBio"].label.contains("(edited)"))
         XCTAssertFalse(app.staticTexts["entityBioDrafted"].exists)
     }
+    // The Connections screen: browse, open an entry preview, merge, and unmerge, with the
+    // merge surviving a relaunch. Stub only, same reason as above.
+    @MainActor
+    func testConnectionsBrowseOpenAnEntryMergeAndUnmerge() throws {
+        finishEntryAndOpenInsights()
+        app.buttons["Done"].tap() // insights sheet -> editor
+        goBack() // editor -> list (already finished, so no Done button; autosave covers it)
+
+        app.buttons["Connections"].tap()
+        let sarahRow = app.buttons["connectionRow-Sarah"]
+        XCTAssertTrue(sarahRow.waitForExistence(timeout: 5))
+        sarahRow.tap()
+
+        XCTAssertTrue(app.descendants(matching: .any)["entityPage"].waitForExistence(timeout: 5))
+        let entryRow = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'entityEntryRow-'")).firstMatch
+        XCTAssertTrue(entryRow.waitForExistence(timeout: 5))
+        entryRow.tap()
+        XCTAssertTrue(app.descendants(matching: .any)["entryPreview"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label CONTAINS 'Met Sarah'")).firstMatch.waitForExistence(timeout: 5))
+        app.buttons["Done"].tap() // entry preview -> entity page
+
+        goBack() // Sarah's page -> Connections list
+        let tomRow = app.buttons["connectionRow-Tom"]
+        XCTAssertTrue(tomRow.waitForExistence(timeout: 5))
+        tomRow.tap()
+        XCTAssertTrue(app.descendants(matching: .any)["entityPage"].waitForExistence(timeout: 5))
+
+        app.buttons["entityMergeInto"].tap()
+        let candidate = app.buttons["mergeCandidate-Sarah"]
+        XCTAssertTrue(candidate.waitForExistence(timeout: 5))
+        candidate.tap()
+        app.buttons["confirmMergeButton"].firstMatch.tap()
+        // The route follows the merge: this is Sarah's page now, not Tom's.
+        XCTAssertTrue(app.navigationBars["Sarah"].waitForExistence(timeout: 5))
+
+        goBack() // Sarah's page -> Connections list
+        XCTAssertFalse(app.buttons["connectionRow-Tom"].waitForExistence(timeout: 3), "Tom merged away, so no longer browsable")
+        XCTAssertTrue(app.buttons["connectionRow-Sarah"].waitForExistence(timeout: 5))
+        app.buttons["Done"].tap() // Connections -> list
+
+        // Relaunching, the merge survives.
+        app.terminate()
+        app.launch()
+        app.buttons["Connections"].tap()
+        XCTAssertFalse(app.buttons["connectionRow-Tom"].waitForExistence(timeout: 3))
+        let sarahAgain = app.buttons["connectionRow-Sarah"]
+        XCTAssertTrue(sarahAgain.waitForExistence(timeout: 5))
+        sarahAgain.tap()
+
+        // Undo the merge from "Merged into this".
+        let mergedInRow = app.buttons["mergedInRow-Tom"]
+        scrollToElement(mergedInRow, in: app.collectionViews.firstMatch)
+        mergedInRow.tap()
+        let unmerge = app.buttons["entityUnmerge"]
+        XCTAssertTrue(unmerge.waitForExistence(timeout: 5))
+        unmerge.tap()
+
+        goBack() // Tom's page -> Sarah's page
+        goBack() // Sarah's page -> Connections list
+        XCTAssertTrue(app.buttons["connectionRow-Tom"].waitForExistence(timeout: 5), "unmerge restored Tom")
+        app.buttons["Done"].tap() // Connections -> list
+    }
 }
