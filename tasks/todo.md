@@ -246,22 +246,18 @@ section at the bottom. The graph opens from the toolbar.
 **The entity page is the person page.** Name (editable), kind (picker), aliases (chips, add and
 remove), the bio, first and last mentioned, count.
 
-**Bios are drafted lazily, owned by the user.** Opening an entity page whose bio is empty, with AI
-on and a key present, drafts one: `EntityBioDrafter` gathers the sentences containing the surface
-text from the eight most recent linked entries (capped at 1,500 characters), sends the build plan
-4.2 prompt ("Based only on how X was described in these entries, draft one neutral sentence. Do not
-speculate beyond what was said. If there is not enough information, say so."), and stores the
-result with `bioWasGenerated = true`. The page labels it "Drafted by AI" until the user edits it,
-which clears the flag; from then on AI never writes it, exactly the title rule. There is no approve
-step: the label is the approval state. A "Draft again" action exists only while the bio is still
-AI-written. Drafting is on demand, not queued, so it costs nothing for entities never opened and
-never nags; a failure shows inline and the page stays usable. The excerpts sent are from entries
-the provider already received in full for insights, so this is not a new disclosure category, and
-the page's "What was sent" lists the entry count and characters. The bio itself never leaves the
-device. Connected: the top co-occurring
-entities with a "Show graph" button. Entries: every linked entry by entry date, newest first, with
-the surface text as written. Merge into (search, suggestions first), Hide, and, for entities merged
-into this one, "Also known as B, merged on date, Undo".
+**Bios are drafted once, owned by the user.** The first time the page of a person, place,
+organization, project, or event opens while automatic insights are usable, `GraphServices` drafts
+a bio from excerpts of linked entries the provider has already received in full (Phase 5a spec
+has the exact rules), with the build plan 4.2 prompt, and stores it with `bioWasGenerated = true`.
+The page labels it "Drafted by AI" until the user edits it; any user edit, including clearing it,
+sets `bioEditedByUser` and AI never writes it again, exactly the title rule. There is no approve
+step: the label is the approval state. A tapped Draft works for any kind and any time the bio is
+empty or AI-written. The page shows what was sent (entry count, characters, model). The bio itself
+never leaves the device. Entries: every linked entry by entry date, newest first, with the
+sentence the name appears in, read-only until 5b. Merge into (search, suggestions first), Hide,
+and, for entities merged into this one, "Also known as B, merged on date, Undo". The co-occurring
+"Mentioned with" section arrives with Phase 6.
 
 **Chips are links.** Tags, themes, and mentions on the insights cards resolve through the entry's
 links and push the entity page inside the sheet's `NavigationStack`. A value with no link (insights
@@ -309,8 +305,13 @@ sentinel as an entity name, alias, bio, surface text, and inside a merge.
     var kindRaw: String = EntityKind.other.rawValue
     var aliases: [String] = []            // surface forms; keys computed in memory
     var bio: String?
-    var bioWasGenerated: Bool = false
-    var kindEditedByUser: Bool = false    // an untouched kind can still be upgraded     // AI may rewrite only while true; a user edit clears it
+    var bioWasGenerated: Bool = false     // AI may rewrite only while true; a user edit clears it
+    var bioEditedByUser: Bool = false     // set by setBio, even to empty; AI never writes after (5a)
+    var bioDraftedAt: Date?               // what was sent, for the page's disclosure line (5a)
+    var bioModelUsed: String?
+    var bioSourceEntries: Int = 0
+    var bioSourceCharacters: Int = 0
+    var kindEditedByUser: Bool = false    // an untouched kind can still be upgraded
     var confirmedByUser: Bool = false     // any manual edit, merge, hide, or alias
     var hidden: Bool = false
     var mergedIntoID: UUID?               // always one hop from a live root
@@ -435,195 +436,190 @@ long.
 The first screens that show the graph. From an entry's insights, a tag, theme, or name opens that
 entity's page: what it is, what the journal says about it, and every entry it appears in, with the
 edits Phase 3 built (rename, kind, aliases, bio, hide, merge, unmerge, "this is someone else").
+Plan review of 2026-09-16 (20 findings) is folded in below; see "Review log".
 
 **Rules the views follow** (from the Phase 2 and 3 review):
 - Never read `EntityLink.entity`/`.entry` or `Entity.links`/`Entry.entityLinks`. They exist for
   SwiftData's delete rules and read nil or short often enough to blank a screen. Everything
-  resolves through `entityID` and `entryID`.
-- Never hold an `Entity` across an edit. A page is given an id and reads the entity with
-  `@Query(filter: #Predicate { $0.id == id })`, which updates on every save. When the query
-  comes back empty (pruned), the page says so and pops. When it comes back merged, the page
-  shows the winner instead, since that is what the user was looking at.
+  resolves through `entityID` and `entryID`, and links for an entity or entry come from one fetch
+  filtered in memory, never from an optional-UUID `#Predicate` (check `GraphEditor.merged(into:)`,
+  which uses one, and fix it the same way). Rows with `isDeleted` are ignored.
+- Never hold an `Entity` across an edit. A page is given an id; `init(id:)` builds its
+  `Query(filter: #Predicate { $0.id == local })` from a local copy of the id. Sheets take strings and
+  ids, never an `Entity`.
 - Views get the graph from one injected object, not by building their own (review item 11).
+- Every graph edit from a view first flushes `EntrySaver` (so no entry has real unsaved edits),
+  then goes through `GraphServices`, which saves exempting only the entries whose links moved,
+  recounts when counts can change, and bumps `revision`. The Phase 3 text claiming the editor
+  saves and recounts on its own was wrong for most edits.
 
-**Decisions for this phase** (the three marked * are proposals for the owner):
-- `GraphServices`, an `@Observable` final class created in `RootView` and put in the environment,
-  holds the `GraphIndexer`, `GraphEditor`, and `EntityBioDrafter` with the shared log. The three
-  views that build `GraphIndexer()` inline switch to it. Tests build their own with a test log.
-- Navigation is by value: `EntityRoute(id: UUID)` with `.navigationDestination(for:)` on the
-  insights sheet's own `NavigationStack` (`EntryInsightsView.swift:40`). Pages push pages, so a
-  name on an entity page's merge list opens that entity too.
+**Decisions for this phase** (the three marked * were accepted by the owner on 2026-09-16):
+- `GraphServices`, an `@Observable` final class built once in `RootView` with
+  `State(initialValue:)` and put in the environment (and in every `#Preview`), holds the
+  `GraphIndexer`, `GraphEditor`, and `EntityBioDrafter` with the shared log. The coordinator
+  closures capture that same instance. It exposes `revision` (bumped after every graph save, the
+  refresh key for pages and chips), `drafting: Set<UUID>`, and `bioFailures: [UUID: AIError]`.
+  The three inline `GraphIndexer()` flows move into methods `entriesDeleted`, `insightsDeleted`,
+  and `entryDateChanged` so they are unit tested. Tests build their own with a test log.
+- Navigation is by value on a `NavigationPath` owned by the insights sheet's `NavigationStack`
+  (`EntryInsightsView.swift:40`). `EntityRoute(id:, follow: Bool)`: `follow` routes show the
+  merge winner when the id was merged elsewhere; merged-in rows push `follow: false` so they show
+  the loser itself. A merge made from the page replaces the top route with the winner, rather than
+  relying on the redirect, so Undo does not flip the page. When a route's entity is gone (pruned,
+  say after Generate again), the page shows "No longer in your journal" and the sheet removes gone
+  routes from the path; the page never dismisses itself. The resolved page is a separate body view
+  with `.id(rootID)`, watched with `.onChange(of:initial: true)`.
+  `EntityPagePresentation.resolve(route, fetched)` is the pure decision and is tested.
 - *Entry rows on an entity page are read-only in 5a: date, title or first words, and the sentence
   the name appears in. The page only lives inside the insights sheet here, and opening an editor
   inside a sheet opened from an editor fights `EntryEditorView`'s close-on-disappear. 5b adds
   Connections to the main stack, where a row can open the entry properly.
 - *"Mentioned with" (the entities an entity shares entries with) waits for Phase 6, which builds
   the weighted version. Building a plain one now means building it twice.
-- *A bio is drafted automatically once per entity, the first time its page opens with AI usable.
-  If the entries say too little, the model returns nothing, the bio stays empty, and the page
-  says "Not enough in your entries yet" with a Draft button. Draft stays available whenever the
-  bio is empty or still AI-written; once the user edits it, AI never writes it again.
+- *A bio is drafted automatically once per entity, the first time its page opens, only for
+  people, places, organizations, projects, and events (tags and themes rarely appear word for
+  word), and only while `AIServices.automaticInsightsUsable` holds, since it is a new automatic
+  send. If the entries say too little, the model returns null, the bio stays empty, and the page
+  says "Not enough in your entries yet" with a Draft button. Draft (any kind) stays available
+  whenever AI text generation is usable and the bio is empty or still AI-written and not
+  user-edited; a tapped Draft on a cleared bio clears `bioEditedByUser` first. Once the user edits
+  the bio, AI never writes it again. The AI settings disclosure mentions bios.
 
-**Bio drafting** (`Mindlore/Graph/EntityBioDrafter.swift`, main actor):
-- Excerpts (`BioExcerpts`, `nonisolated`, pure): the eight most recent linked entries by
+**Bio drafting** (`Mindlore/Graph/EntityBioDrafter.swift`, main actor, run by `GraphServices`):
+- Eligible entries (so nothing goes out that the provider has not already received in full): not
+  drafts, not photo entries awaiting approval, with insights whose source text still matches the
+  entry's current text, and only `text.prefix(InsightsPromptBuilder.maxInputCharacters)` is
+  searched.
+- Excerpts (`BioExcerpts`, `nonisolated`, pure): the eight most recent eligible linked entries by
   `entryDate`, and from each the sentences containing the link's surface text, matched as a whole
   word, case-insensitive, possessive included (the matcher `InsightsPromptBuilder.grounded` uses,
-  moved to a shared `NameMatching` so both use one). Capped at 1,500 characters in total, whole
-  sentences only, newest first. An entry whose text no longer contains the name contributes
-  nothing.
+  moved to a shared `NameMatching`). Capped at 1,500 characters in total, whole sentences only,
+  newest first. An entry whose text no longer contains the name contributes nothing. Zero excerpts
+  means no request and nothing recorded (so a later open can try once entries exist); the page
+  shows the not-enough state.
 - Request: structured, schema name `entity_bio`, one nullable string field `bio`. System prompt
   from build plan 4.2: "Based only on how {name} is described in these excerpts from the writer's
   journal, write one neutral sentence about who or what {name} is to the writer. Do not speculate
-  beyond what is said. Return null if the excerpts do not say enough." The name, kind, and
-  excerpts go in the user message. No bios, aliases, or other entities are sent.
-- Writes, after re-fetching the entity by id: only if it still exists, is not merged, and its bio
-  is still empty or AI-written (the user may have typed while the request was out). Stores `bio`
-  (or nil), `bioWasGenerated = true`, and what was sent: `bioDraftedAt`, `bioModelUsed`,
-  `bioSourceEntries`, `bioSourceCharacters` (new optional or defaulted fields on `Entity`;
-  `Entity` has never shipped, so this costs no migration). Saves without stamping any entry.
-- Cancelled with the page (a `.task(id:)`); a cancelled or failed draft records nothing on the
-  entity, so the next open tries again. Failures show inline with Try again, using the
-  `AIJobFailure.userMessage` wording.
-- `AIServices.textGenerator(settings:accounts:)` and `textUsable` are added; `insightsGenerator`
-  becomes a call to it.
+  beyond what is said. Return null if the excerpts do not say enough." The name goes through
+  `promptSafe`; name, kind, and excerpts go in the user message. No bios, aliases, or other
+  entities are sent.
+- One draft per entity at a time: `GraphServices` keys running drafts by entity id, so two quick
+  opens or two pages send one request. Leaving the page does not cancel it (the result is cheap to
+  keep and already paid for); app teardown does.
+- Writes, after `Task.isCancelled` is checked and the entity is re-fetched by id: only if it still
+  exists, is not merged, `!bioEditedByUser`, and its bio is still empty or AI-written. Stores `bio`
+  (or nil), `bioWasGenerated = true`, `bioDraftedAt`, `bioModelUsed`, `bioSourceEntries`,
+  `bioSourceCharacters` (see Data model changes; `Entity` has never shipped, so no migration).
+  Saves with plain `saveStampingEntries()`, never exempting an entry. A drafted bio does not
+  confirm the entity: if all its links go, the entity and its AI bio are pruned together.
+- A cancelled or failed draft records nothing on the entity, so the next open tries again.
+  Failures show inline with Try again, worded by `BioDraftPresentation.message(for:)`.
+- `AIServices.textGenerator(settings:accounts:)` and `textUsable` are added, sharing a
+  `ResolvedTextGenerator` with `insightsGenerator`; `textUsable` skips the Keychain read like
+  `pagesUsable`.
 - Events: `graph.bioDrafted` (id, entries, characters, empty, inputTokens, outputTokens) and
-  `graph.bioFailed` (id, error code). Never the name, excerpts, or bio.
+  `graph.bioFailed` (id, `DiagnosticValue.errorCode`). Never the name, excerpts, or bio.
 
 **The entity page** (`Mindlore/Views/Graph/EntityView.swift` and small pieces beside it):
-- Header: name (tap to rename), kind (menu of the eight kinds), "Mentioned in N entries",
-  first and last dates.
+- Header: name (tap to rename), kind menu, "Mentioned in N entries", first and last dates. The
+  kind menu offers only mention kinds for a mention entity and only tag or theme for a tag or
+  theme. `setKind` returns an `EditOutcome`, and a key collision goes to the merge offer.
 - About: the bio, with "Drafted by AI · N entries sent to OpenAI · model" under an AI-written one,
-  a spinner while drafting, Edit (a text editor sheet), Draft again while AI-written, and the
-  not-enough and failure states above.
+  a spinner while `drafting` contains the id, Edit (a text editor sheet taking the string), Draft
+  again while AI-written, and the not-enough, failure, and AI-unavailable states.
 - Also called: alias chips with remove, and Add alias.
-- Entries: newest first, read-only, each with the sentence the name appears in. A link the
-  resolver guessed (`inferred`) is marked "Guessed" with a one-tap "Not them" that opens the
-  re-point sheet.
-- Merged into this: each loser with its merge date and Undo (unmerge).
+- Entries: newest first, read-only, each with the sentence the name appears in. A guessed link
+  (`inferred`) is marked "Guessed" with a one-tap "Not them" that opens the re-point sheet.
+- Merged into this: each loser with its merge date, Undo (unmerge), and a `follow: false` route.
 - Actions: Merge into... (`MergeIntoView`: search over browsable entities, suggestions from
   `GraphEditor.suggestions` for this entity first, same-kind first), Hide or Unhide.
-- A rename or alias that collides shows "{other} already goes by that name. Merge them?" with
-  Merge (this into that, then the page follows to the winner) and Cancel.
-- Pure presentation helpers in `EntityPagePresentation` carry the logic the view shows: entry rows
+- A rename, alias, or kind change that collides shows "{other} already goes by that name. Merge
+  them?" with Merge (this into that, then the route is replaced with the winner) and Cancel. If the
+  other is hidden it says "(hidden)" and merging unhides it.
+- `EntityPagePresentation` (pure) carries the logic the view shows: route resolution, entry rows
   from links and entries, dates and counts wording, which bio state applies, merged-in list.
 
 **Chips** (`InsightCards.swift`, `EntryInsightsView.swift`):
-- `EntityChipIndex` (pure): from the entry's links (fetched and filtered by `entryID`), a lookup
-  from (normalized surface, kind) to (entity id, inferred, link id). Built when the sheet appears
-  and again when `insights.generatedAt` or the graph changes.
+- `EntityChipIndex` (pure): from the entry's links (one fetch, filtered by `entryID` in memory), a
+  lookup by the link's kind, exact surface first, then normalized key, to (entity id, inferred).
+  Hidden entities get no route. Rebuilt when `insights.generatedAt` or `GraphServices.revision`
+  changes.
 - Tags keep `WrappingChips`, which takes an optional route per item. Themes stay rows and become
-  navigation rows when linked. Mentions become per-name chips under each kind heading (today they
-  are one comma-joined line), so each name can be tapped. A value with no link (not indexed yet)
-  is plain text. A guessed link's chip has a dashed outline and "guessed" in its accessibility
-  label.
-- Each chip's context menu: Open, and for names "This is someone else", which opens
-  `RepointView`: search existing entities of that kind or type a new name, and a switch "Also for
-  future mentions of '{surface}'" (the alias). It calls `GraphEditor.repoint` and reports an alias
-  collision the same way the entity page does.
-- Accessibility identifiers: `entityChip-{surface}`, `entityPage`, `entityBio`,
+  navigation rows when linked. Mentions become per-name chips under each kind heading (today one
+  comma-joined line). A value with no link is plain text. A guessed link's chip has a dashed
+  outline and "guessed" in its accessibility label.
+- Several chips share one Form row, so each is a borderless `Button` appending to the path;
+  `MentionGroups` drops `.accessibilityElement(children: .combine)`; Copy moves off the
+  section-level context menu on chip cards; chips use `.contentShape(.contextMenuPreview, Capsule())`.
+- Each chip's context menu: Open, and for names "This is someone else", which opens `RepointView`.
+  It carries (entryID, surface, kind), never a link id, since Generate again can delete the link,
+  and looks the link up on commit ("This mention changed" if gone). Search existing entities of
+  that kind or type a new name (checked with `entityAnswering` first, offering the existing one),
+  and a switch "Also for future mentions of '{surface}'" (the alias). It calls
+  `GraphEditor.repoint` and reports an alias collision the same way the entity page does.
+- Accessibility identifiers: `entityChip-{kind}-{surface}`, `entityPage`, `entityBio`,
   `entityBioDrafted`, `entityRename`, `entityMergeInto`.
 
-**Test stub**: `UITestingHTTPClient` answers a body containing `entity_bio` with
-`{"bio":"Sarah is a friend the writer walks by the river with."}`, before the title fallback.
+**Test stub**: `UITestingHTTPClient` answers a body containing `entity_bio` with a sentence using
+the requested name ("{name} is a friend the writer walks by the river with."), before the title
+fallback.
 
 **Steps**, each committed and pushed on its own with the unit suite green:
-- [ ] 5a.1 `GraphServices` in the environment; the three inline `GraphIndexer()` uses switch to
-      it; `NameMatching` shared by grounding and excerpts. No behavior change: suite stays green.
-- [ ] 5a.2 `Entity` bio fields, `AIServices.textGenerator`/`textUsable`, `BioExcerpts`,
-      `EntityBioDrafter`, the stub branch, events.
-- [ ] 5a.3 `EntityPagePresentation`, `EntityView`, `MergeIntoView`, `RepointView`, the rename and
-      alias collision flow.
-- [ ] 5a.4 `EntityChipIndex`, tappable chips, per-name mention chips, navigation from the sheet.
-- [ ] 5a.5 UI test, sub-agent review of 5a, fixes, simulator screenshots of each screen state.
+- [ ] 5a.1 `GraphServices` in the environment with `entriesDeleted`, `insightsDeleted`,
+      `entryDateChanged`; the three inline `GraphIndexer()` uses switch to it; `NameMatching`
+      shared by grounding and excerpts; `merged(into:)` filters in memory. No behavior change.
+- [ ] 5a.2 `Entity` bio fields, `bioEditedByUser` in `setBio`, `AIServices.textGenerator` and
+      `textUsable`, `BioExcerpts`, `EntityBioDrafter`, drafts in `GraphServices`, the stub branch,
+      events, the draft privacy test, the settings disclosure line.
+- [ ] 5a.3 `EntityPagePresentation`, read-only `EntityView` with the bio section and editing,
+      route resolution.
+- [ ] 5a.4 Rename, kind, aliases, hide, `MergeIntoView`, `RepointView`, the collision flow.
+- [ ] 5a.5 `EntityChipIndex`, tappable chips, per-name mention chips, navigation from the sheet.
+- [ ] 5a.6 UI test, sub-agent review of 5a, fixes, simulator screenshots of each screen state.
 
 **Tests**:
 - `BioExcerptsTests`: the sentence containing each surface form; case and possessive; a longer
   word containing the name does not count; newest eight entries only; 1,500-character cap without
-  cutting a sentence; an entry that no longer names them adds nothing; no match gives no excerpts.
+  cutting a sentence; an entry that no longer names them adds nothing; no match gives no excerpts;
+  drafts, unapproved pages, stale insights, and text past the insights limit are excluded.
 - `EntityBioDrafterTests` (`FakeTextGenerator`): a draft lands with the flag and what-was-sent
-  fields; a null answer leaves the bio empty and marks it drafted; a user-written bio is never
-  replaced, including one typed while the request was out; an entity merged or pruned while the
-  request was out gets nothing; a failure or cancellation records nothing and logs `bioFailed`
-  (not for cancellation); AI off or no key does not call the generator; the request carries the
-  name and excerpts and no bio, alias, or other entity; no entry's `updatedAt` moves.
-- `EntityPagePresentationTests`: entry rows newest first with the right sentence and guessed
-  flag; bio state for each combination of empty, AI-written, user-written, drafting, failed, not
-  enough, AI unavailable; counts and date wording; merged-in list with dates.
+  fields; a null answer leaves the bio empty and marks it drafted; zero excerpts sends nothing and
+  records nothing; a user-written bio is never replaced, including one typed while the request was
+  out; a bio the user cleared is not redrafted automatically; an entity merged or pruned while the
+  request was out gets nothing; a failure records nothing and logs `bioFailed`; a cancellation
+  (suspended fake, cancel, resume) records and logs nothing; two opens send one request; tags and
+  themes are not auto-drafted; automatic insights off or no key does not call the generator; the
+  request carries the name and excerpts and no bio, alias, or other entity; no entry's `updatedAt`
+  moves; an unconfirmed entity whose links all go is pruned with its AI bio.
+- `EntityPagePresentationTests`: route resolution (live, merged with and without follow, gone);
+  entry rows newest first with the right sentence and guessed flag; bio state for each combination
+  of empty, AI-written, user-written, cleared, drafting, failed, not enough, AI unavailable; counts
+  and date wording; merged-in list with dates.
+- `GraphEditor` additions: `setKind` collision returns the other entity; the kind menu's allowed
+  kinds; merging into a hidden entity unhides it.
 - `EntityChipIndexTests`: a tag, theme, and name each resolve to their entity; a grounded
-  lowercase surface ("sarah") still resolves; a value with no link has no route; a guessed link
-  says so; a user-repointed link resolves to where the user put it.
-- `GraphServicesTests`: the services share one log, and the views' old inline paths (delete an
-  entry, change a date, delete insights) still recount through it.
-- Privacy: the sentinel as entry text, surface, and bio passes through a real draft and nothing
-  reaches the log.
+  lowercase surface ("sarah") still resolves; a value with no link has no route; a hidden entity
+  has no route; a guessed link says so; a user-repointed link resolves to where the user put it.
+- Repoint: after Generate again removed the link, commit reports the change and writes nothing; a
+  typed name that already exists links to that entity.
+- `GraphServicesTests`: the services share one log; `entriesDeleted`, `insightsDeleted`, and
+  `entryDateChanged` recount; `revision` moves on every save; Generate again that prunes a shown
+  entity leaves the route resolving to gone.
+- Privacy (in 5a.2): the sentinel as entry text, surface, and bio passes through a real draft and
+  nothing reaches the log.
 - `GraphUITests` (stub only, since real names vary): finish an entry, open insights, tap Sarah,
   see the page and the drafted bio marked as AI's, edit the bio and see the mark go, add an alias,
   go back, tap the "river" tag and see its page, relaunch and find the edited bio still there.
 - Unchanged suites stay green, including the live insights UI test.
 
-**Plan review, not yet folded in** (sub-agent review of this spec, 2026-09-16, "approve with fixes",
-20 findings; fold these into the spec above before building, and the owner has not yet answered the
-three * proposals):
-
-1. Excerpts can carry text the provider never saw: only use entries whose insights are current for
-   the text, not in review, not drafts, and only `text.prefix(InsightsPromptBuilder.maxInputCharacters)`.
-2. Several tappable chips in one Form row all fire on a row tap: borderless `Button`s appending to a
-   path, drop `.accessibilityElement(children: .combine)` in `MentionGroups`, move Copy off the
-   section-level context menu on chip cards, `.contentShape(.contextMenuPreview, Capsule())`.
-3. Merged-in rows push the winner twice, and Undo on a redirected page flips it: `NavigationPath`
-   on the sheet, replace the route after a merge from the page, redirect only for merges made
-   elsewhere, merged-in rows use a non-following route.
-4. A bio the user cleared looks never-drafted and gets redrafted: add `bioEditedByUser`, set by
-   `setBio`; auto-draft needs `!bioEditedByUser && bioDraftedAt == nil`; write-back needs
-   `!bioEditedByUser`; a tapped Draft may clear it.
-5. Drafts tied to `.task(id:)` resend on every quick open and duplicate across two pages: run them
-   in `GraphServices` keyed by entity id, with observable `drafting` and `failures`; check
-   `Task.isCancelled` before writing; test that two opens send one request.
-6. Most `GraphEditor` edits never save or recount (the Phase 3 text claiming they do is wrong):
-   the page calls `saver.noteChange()`/`flush()`, or `GraphServices` saves; the drafter uses plain
-   `saveStampingEntries()` so it never exempts an entry with real unsaved edits.
-7. `setKind` re-keys without a collision check and allows person to tag: return `EditOutcome` into
-   the merge offer, and limit the menu to mention kinds, or to tag and theme.
-8. The page and chips need links by entity: filter one fetch in memory (never the optional-UUID
-   predicate, which `GraphEditor.merged(into:)` also uses and should be checked), and a `revision`
-   counter on `GraphServices` as the refresh key.
-9. `RepointView` must not hold a link id that "Generate again" can delete: carry (entryID, surface,
-   kind), look it up on commit, say "This mention changed" if gone; check a typed new name with
-   `entityAnswering` first.
-10. Page mechanics: `init(id:)` builds the `Query` with a local id; ignore `isDeleted` rows;
-    `.onChange(of:initial: true)`; render the resolved page as a separate body view with
-    `.id(rootID)`; clean the path of gone or merged routes rather than self-dismissing; sheets take
-    strings and ids, never an `Entity`; test `EntityPagePresentation.resolve(route, fetched)`.
-11. Reused error wording is wrong for bios: a `BioDraftPresentation.message(for:)`, and log
-    `DiagnosticValue.errorCode`.
-12. Auto-draft only people, places, organizations, projects, and events (tags and themes rarely
-    appear word for word); the stub answers with the requested name; zero excerpts means no request,
-    and decide whether that sets `bioDraftedAt`.
-13. The automatic draft is a new automatic send: only when `automaticInsightsUsable` holds, mention
-    bios in the AI settings disclosure, pass the name through `promptSafe`. Proposals 1 and 2 are
-    sound; update Key decisions (no "Connected" yet) and Data model changes (bio fields).
-14. Chips skip hidden entities, look up by the link's kind, exact surface first then key;
-    identifiers `entityChip-{kind}-{surface}`.
-15. Move the three view recount flows into `GraphServices` methods (`entriesDeleted`,
-    `insightsDeleted`, `entryDateChanged`) so they can be unit tested.
-16. Build `GraphServices` once with `State(initialValue:)`, have the coordinator closures capture
-    that instance, and add it to the `#Preview` environments.
-17. A shared `ResolvedTextGenerator` for `textGenerator` and `insightsGenerator`; `textUsable`
-    skips the Keychain like `pagesUsable`.
-18. More tests: cancellation sequence with `FakeTextGenerator`, finding 1's exclusions, the cleared
-    bio, one request per entity, `setKind` collision, repoint after regeneration, route resolution,
-    hidden chip, "Generate again" popping a pruned page, and whether a drafted bio on an
-    unconfirmed entity may be lost to pruning.
-19. A rename can offer to merge into a hidden entity: say "(hidden)" and unhide on merge, or offer
-    Unhide.
-20. Split 5a.3 into the read-only page with bios, then merge, repoint, and collisions; move the
-    draft privacy test into 5a.2; record the capitalized-display-name question under 5b.
-
 **Not in 5a**: Connections, the Review list, and opening an entry from an entity page (5b); the
 "Mentioned with" section (6); the graph (7); creating an entity by hand; bulk edits; on-device bio
-drafting; sending bios anywhere; choosing a capitalized display name automatically.
+drafting; sending bios anywhere; choosing a capitalized display name automatically (a 5b
+question, recorded there).
 
 ### Phase 5b: Connections and review
+- [ ] Decide whether an entity's display name should prefer a capitalized variant ("mom" kept its
+      first spelling in the fixture; see "Measured before Phase 5").
 - [ ] `Mindlore/Views/Graph/ConnectionsView.swift`: search, kind picker, Review row, sort, Hidden
       section. Toolbar entry from `EntryListView`.
 - [ ] `ReviewSuggestionsView`: pairs with "Same" and "Not the same".
@@ -749,6 +745,17 @@ the phone.
 - Search across entry text (synthesis PR)
 
 ## Review log
+
+Phase 5a plan (sub-agent review of the spec, 2026-09-16, verdict "approve with fixes"; 20
+findings, all folded into the Phase 5a spec before building): excerpts limited to text the
+provider already received; several chips in one row firing together; double pushes and Undo
+flipping a redirected page; a cleared bio being redrafted (`bioEditedByUser`); duplicate draft
+requests (drafts run in `GraphServices`); most editor edits never saving (views flush, services
+save); `setKind` collisions and cross-family kinds; optional-UUID predicates; a repoint holding a
+link id that regeneration deletes; page and query mechanics; bio error wording; auto-draft limited
+to mention kinds; the automatic send gated and disclosed; hidden chips and kind-aware lookup; the
+view recount flows made testable; one `GraphServices` instance; a shared text generator; more
+tests; merging into a hidden entity; 5a.3 split and the privacy test moved into 5a.2.
 
 Phase 4 (sub-agent review of `3334c58`, 2026-09-16, verdict "needs rework"; 11 findings):
 
