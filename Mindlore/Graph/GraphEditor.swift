@@ -79,6 +79,7 @@ struct GraphEditor {
         let trimmed = bio?.trimmingCharacters(in: .whitespacesAndNewlines)
         entity.bio = (trimmed?.isEmpty ?? true) ? nil : trimmed
         entity.bioWasGenerated = false
+        entity.bioEditedByUser = true
         claim(entity)
         diagnostics.record("graph.entityEdited", ["id": .id(entity.id), "field": "bio"])
     }

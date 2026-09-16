@@ -518,7 +518,12 @@ Plan review of 2026-09-16 (20 findings) is folded in below; see "Review log".
   `ResolvedTextGenerator` with `insightsGenerator`; `textUsable` skips the Keychain read like
   `pagesUsable`.
 - Events: `graph.bioDrafted` (id, entries, characters, empty, inputTokens, outputTokens) and
-  `graph.bioFailed` (id, `DiagnosticValue.errorCode`). Never the name, excerpts, or bio.
+  `graph.bioFailed` (id, `AIJobFailure.raw`, the code `insights.failed` logs; `errorCode` would
+  only say "AIError 8"). A failed save logs `graph.saveFailed` with `errorCode`. Never the name,
+  excerpts, or bio.
+- Built (5a.2): `GraphServices.pageOpened` (automatic) and `draftBio` (tapped), `drafting`,
+  `bioFailures`, and `withoutExcerpts` (zero excerpts this session, for the page's not-enough
+  state); `draftFinished` lets tests await the real task; `cancelDrafts` for teardown.
 
 **The entity page** (`Mindlore/Views/Graph/EntityView.swift` and small pieces beside it):
 - Header: name (tap to rename), kind menu, "Mentioned in N entries", first and last dates. The
@@ -570,7 +575,7 @@ fallback.
       shared by grounding and excerpts; `merged(into:)` filters in memory. No behavior change. Also fixed: the chunked launch sweep
       crashed when an entry was deleted between chunks (it held a detached entry); chunks now
       re-fetch by id.
-- [ ] 5a.2 `Entity` bio fields, `bioEditedByUser` in `setBio`, `AIServices.textGenerator` and
+- [x] 5a.2 `Entity` bio fields, `bioEditedByUser` in `setBio`, `AIServices.textGenerator` and
       `textUsable`, `BioExcerpts`, `EntityBioDrafter`, drafts in `GraphServices`, the stub branch,
       events, the draft privacy test, the settings disclosure line.
 - [ ] 5a.3 `EntityPagePresentation`, read-only `EntityView` with the bio section and editing,

@@ -5,11 +5,7 @@ import SwiftData
 // Generates insights for entries flagged by the automatic pass or Run AI, one entry at a time.
 @Observable
 final class InsightsCoordinator {
-    struct Generator {
-        let generator: any TextGenerator
-        let model: String
-        let label: String
-    }
+    typealias Generator = ResolvedTextGenerator
 
     private(set) var running: Set<UUID> = []
     // Set by an offline failure so a queue of entries doesn't fire one doomed request each.

@@ -29,10 +29,25 @@ nonisolated struct UITestingHTTPClient: HTTPClient {
             let insights = #"{"summary":"A walk by the river with Sarah.","primaryMood":"calm","secondaryMoods":["grateful"],"themes":["a walk"],"tags":["river"],"mentions":[{"name":"Sarah","kind":"person"}],"openThreads":["Call the landlord"],"cleanedText":null,"writtenDate":null}"#
             let completion: [String: Any] = ["model": "stub", "choices": [["message": ["content": insights], "finish_reason": "stop"]]]
             json = String(decoding: (try? JSONSerialization.data(withJSONObject: completion)) ?? Data(), as: UTF8.self)
+        } else if let body, let text = String(data: body, encoding: .utf8), text.contains(EntityBioDrafter.schemaName) {
+            let name = Self.bioName(inRequestBody: text) ?? "Someone"
+            let bio = String(decoding: (try? JSONSerialization.data(withJSONObject: ["bio": "\(name) is a friend the writer walks by the river with."])) ?? Data(), as: UTF8.self)
+            let completion: [String: Any] = ["model": "stub", "choices": [["message": ["content": bio], "finish_reason": "stop"]]]
+            json = String(decoding: (try? JSONSerialization.data(withJSONObject: completion)) ?? Data(), as: UTF8.self)
         } else {
             json = #"{"model":"stub","choices":[{"message":{"content":"Stub Title"},"finish_reason":"stop"}]}"#
         }
         return HTTPResponse(status: 200, headers: [:], data: Data(json.utf8))
+    }
+
+    // The bio request's user message starts with "Name: ...".
+    static func bioName(inRequestBody body: String) -> String? {
+        guard let json = try? JSONSerialization.jsonObject(with: Data(body.utf8)) as? [String: Any],
+              let messages = json["messages"] as? [[String: Any]],
+              let content = messages.first(where: { $0["role"] as? String == "user" })?["content"],
+              let user = (content as? String) ?? ((content as? [[String: Any]])?.first?["text"] as? String),
+              let line = user.split(separator: "\n").first, line.hasPrefix("Name: ") else { return nil }
+        return String(line.dropFirst("Name: ".count))
     }
 
     // FakePages widths are start + offset * 10, so the last two digits encode the page's position.

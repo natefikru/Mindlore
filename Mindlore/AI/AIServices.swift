@@ -34,12 +34,29 @@ extension AIServices {
     }
 }
 
+// The text model for the account's text capability, with what to record about it.
+struct ResolvedTextGenerator {
+    let generator: any TextGenerator
+    let model: String
+    let label: String
+}
+
 extension AIServices {
-    static func insightsGenerator(settings: SettingsStore, accounts: ProviderAccountStore) -> Result<InsightsCoordinator.Generator, AIJobFailure> {
+    // Reads the key from the Keychain. Call when a request is about to go out.
+    static func textGenerator(settings: SettingsStore, accounts: ProviderAccountStore) -> Result<ResolvedTextGenerator, AIJobFailure> {
         guard settings.aiEnabled else { return .failure(AIJobFailure(raw: "settings.aiOff")) }
         guard let provider = accounts.resolve(.text) else { return .failure(AIJobFailure(.missingKey)) }
         let generator = OpenAICompatibleTextGenerator(baseURL: provider.account.baseURL, apiKey: provider.apiKey, http: accounts.http)
         return .success(.init(generator: generator, model: provider.model, label: "openai:\(provider.model)"))
+    }
+
+    // Whether textGenerator would succeed, without touching the Keychain, for views to ask.
+    static func textUsable(settings: SettingsStore, accounts: ProviderAccountStore) -> Bool {
+        settings.aiEnabled && accounts.hasUsableKey && accounts.settingsAccount(for: .text) != nil
+    }
+
+    static func insightsGenerator(settings: SettingsStore, accounts: ProviderAccountStore) -> Result<InsightsCoordinator.Generator, AIJobFailure> {
+        textGenerator(settings: settings, accounts: accounts)
     }
 
     static func insightSections(_ settings: SettingsStore) -> InsightSections {

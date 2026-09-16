@@ -29,6 +29,15 @@ final class Entity {
     var bio: String?
     // AI drafts a bio only while it is empty or still AI-written, the same rule as titles.
     var bioWasGenerated: Bool = false
+    // Any edit the user makes to the bio, clearing it included. After that AI never writes it,
+    // which an empty bio alone could not say.
+    var bioEditedByUser: Bool = false
+    // What the last draft was made from, for the page's disclosure line. Set only when a request
+    // was answered, so a draft that never went out is tried again.
+    var bioDraftedAt: Date?
+    var bioModelUsed: String?
+    var bioSourceEntries: Int = 0
+    var bioSourceCharacters: Int = 0
     // A kind the user never touched can still be upgraded when a later mention says what this
     // is. Kept apart from confirmedByUser so writing a bio doesn't freeze the kind.
     var kindEditedByUser: Bool = false

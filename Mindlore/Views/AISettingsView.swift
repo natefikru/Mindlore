@@ -23,7 +23,7 @@ struct AISettingsView: View {
                 Toggle("Use AI", isOn: $settings.aiEnabled)
                     .accessibilityIdentifier("aiEnabledToggle")
             } footer: {
-                Text("When AI is on, recordings, journal pages, and entry text are sent to your AI provider for transcription, titles, and insights.")
+                Text("When AI is on, recordings, journal pages, and entry text are sent to your AI provider for transcription, titles, and insights. Opening a person, place, or project in your journal sends the sentences that mention it, to draft a short description.")
             }
 
             Section {

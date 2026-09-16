@@ -32,7 +32,10 @@ struct RootView: View {
         )
         let titles = TitleCoordinator(resolve: { AIServices.titleGenerator(settings: settings, accounts: accounts, http: http) }, presence: presence)
 
-        let graph = GraphServices()
+        let graph = GraphServices(
+            resolveText: { AIServices.textGenerator(settings: settings, accounts: accounts) },
+            automaticBiosUsable: { AIServices.automaticInsightsUsable(settings: settings, accounts: accounts) }
+        )
         _graph = State(initialValue: graph)
         let insights = InsightsCoordinator(
             resolve: { AIServices.insightsGenerator(settings: settings, accounts: accounts) },
