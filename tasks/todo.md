@@ -4,7 +4,7 @@ Branch: `feature/knowledge-graph` from `main` at `0678525` (after PR #2 merged t
 layer this builds on is archived in `tasks/archive/ai-providers.md`; the product vision is
 `docs/mindlore-build-plan.md` Phase 2.
 
-Status: revision 2, approved. Phases 1 and 2 are built (PR #3); the rest is still plan. Revision 2 folds in the sub-agent review of revision 1
+Status: revision 2, approved. Phases 1 to 4 are built (PR #3); the rest is still plan. Revision 2 folds in the sub-agent review of revision 1
 (17 findings, all addressed; see "Review log"). Nothing below is implemented.
 
 ## Goal
@@ -395,17 +395,17 @@ long.
       from `generatedAt`; **a sweep over N entries leaves every `updatedAt` unchanged**; an exact
       tie resolves to the confirmed entity and records `graph.ambiguous`.
 
-### Phase 3: Editing, merge, suggestions
-- [ ] `Mindlore/Graph/Entity+Editing.swift`: `rename`, `setKind`, `addAlias`, `removeAlias`,
+### Phase 3: Editing, merge, suggestions (done)
+- [x] `Mindlore/Graph/GraphEditor.swift` (built as a struct rather than an `Entity` extension, so it can hold an injected `DiagnosticsLog`): `rename`, `setKind`, `addAlias`, `removeAlias`,
       `setBio`, `hide`, `unhide`, `merge(into:)`, `unmerge`, `markNotSame(as:)`, `repoint(link:to:)`.
       Every one sets `confirmedByUser` on the entity edited and calls recount. `rename` and
       `addAlias` return a collision (the other entity) instead of applying when the key is taken;
       `merge` refuses self, redirects a merged target to its root, flattens every loser pointing at
       the loser onto the winner, sets `originalEntityID` only where nil, and records
       `contributedAliases`.
-- [ ] `Mindlore/Graph/EntityMatcher.swift` (`nonisolated`): Jaro-Winkler, token subset,
+- [x] `Mindlore/Graph/EntityMatcher.swift` (`nonisolated`): Jaro-Winkler, token subset,
       `suggestions(among:)`.
-- [ ] Tests: merge moves links and aliases and unmerge restores exactly, including aliases the
+- [x] Tests: merge moves links and aliases and unmerge restores exactly, including aliases the
       winner already had; B into A then A into C leaves B pointing at C, and unmerging A from C
       restores only A's own links; unmerging B afterwards still works; self-merge and cycle refused;
       the loser survives the recount; the resolver links a mention of a loser's name to the root;
@@ -413,16 +413,27 @@ long.
       (`martha`/`marhta` 0.961); subset pairs suggested, dismissed pairs not, fuzzy cross-kind not,
       identical-key tag and theme suggested at 1.0; ranking.
 
-### Phase 4: Prompt feedback
-- [ ] `InsightsPromptBuilder.plan` (`:59-144`): `existingThemes` and `knownEntities` parameters with
+### Phase 4: Prompt feedback (done)
+- [x] `InsightsPromptBuilder.plan`: one `JournalVocabulary` parameter (tags, themes, named things) in place of `existingTags` with
       the guidance text above; caps at 50 each.
-- [ ] `InsightsCoordinator.topTags` (`:220-228`) replaced by `GraphIndexer.promptContext(in:)`
+- [x] `GraphIndexer.vocabulary(in:)`, injected into the coordinator; `InsightsCoordinator.topTags` kept only as the fallback
       reading `Entity` counters instead of scanning every `EntryInsights`.
-- [ ] `WhatWasSentView` (`EntryInsightsView.swift:238-278`) lists the counts sent.
-- [ ] Tests: prompt contains the names and kinds, excludes hidden and merged entities, caps at 50,
-      falls back to the old tag scan when the graph is empty.
+- [x] `WhatWasSentView` lists the counts sent.
+- [x] Tests: prompt contains the names and kinds, excludes hidden and merged entities, caps at 50,
+      falls back to the old tag scan when the graph is empty, and the coordinator really sends it.
 
 ### Phase 5a: Entity page, bios, chips
+
+Constraints from the Phase 2 and 3 review, which the views must respect:
+- Never read `EntityLink.entity` or `.entry`, and never read `Entity.links` or `Entry.entityLinks`.
+  They exist for SwiftData's delete rules and read nil or short often enough to blank a screen.
+  Resolve by `entityID` and `entryID`.
+- Never hold an `Entity` across an edit. Merging, re-pointing, and deleting entries can prune the
+  entity a page is showing. The page keeps an id and fetches, and closes itself if the fetch
+  comes back empty.
+- Decide how views receive `GraphIndexer` and `GraphEditor` here. Today `EntryListView`,
+  `EntryEditorView`, and `EntryInsightsView` construct their own with the shared log.
+
 - [ ] `Mindlore/Views/Graph/EntityView.swift`: the page as decided, with `MergeIntoView` (search,
       suggestions first) and the collision-to-merge prompt from rename and alias edits.
 - [ ] `Mindlore/Graph/EntityBioDrafter.swift`: excerpt gathering (`nonisolated` sentence finder,
@@ -542,6 +553,30 @@ the phone.
 - Search across entry text (synthesis PR)
 
 ## Review log
+
+Phases 2 and 3 (sub-agent review of `8343786` and `cfcd532`, 2026-09-16, verdict "needs rework";
+12 findings; fixed in the commit after Phase 4 unless noted):
+
+1. Reindexing a merged entry dropped the links' birthplaces, making the merge permanent: `index`
+   carries `originalEntityID` across the rebuild.
+2. The sweep returned before counting and cleanup whenever nothing was stale, which is always in
+   steady state: it now repairs counters and clears stranded links on every launch.
+3. A merge chain handed deeper losers' names up to the intermediate, so unmerging both left two
+   live entities with one key: each alias has one owner, and flattening moves it.
+4. `removeInsights` chose links through `entityLinks`: it deletes by `entryID`, and the insights
+   screen recounts.
+5. `GraphEditor` saved without the stamping rule: every save exempts the entries whose links moved.
+6. Changing a kind kept the old key, though keys are kind-sensitive: both paths re-key.
+7. Pruning can delete an entity a page is showing: a Phase 5 constraint, recorded above.
+8. A mention typed `other` could join or convert a tag or theme: labels only match their own kind.
+9. A re-pointed link kept the guess marker, and its alias was saved late: both fixed.
+10. Weak tests: the hiding test passed for the wrong reason (and hidden entities could in fact be
+    pruned; they no longer can), the merge-loser test hand-rolled a merge, orphan cleanup was never
+    reached, the privacy test skipped every editor event, and claims across kinds, a vanished
+    surface, and the ambiguity event were untested. All covered now.
+11. Views build `GraphIndexer` inline instead of receiving it: deferred to Phase 5, which is where
+    the view wiring gets designed.
+12. The matcher ran a filter inside its sort; `register` saved when it had nothing to do. Fixed.
 
 Revision 2 (sub-agent review of revision 1, 2026-09-15, verdict "needs rework"; 17 findings, all
 addressed; code claims verified against `ModelContext+Stamping.swift:9-13`, `EntrySaver.swift:52`,

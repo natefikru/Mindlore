@@ -74,6 +74,8 @@ final class EntityLink {
         point(at: entity)
         originalEntityID = nil
         source = .user
+        // The user said where this belongs, so it is no longer a guess.
+        inferred = false
     }
 
     // Sets the relationship and the id together. Nothing should ever write one without the other.

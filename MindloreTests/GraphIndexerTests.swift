@@ -342,26 +342,17 @@ struct GraphIndexerTests {
     }
 
     @Test func aMergeLoserSurvivesTheRecountThatFollowsIt() throws {
-        let entry = try harness.entry(mentions: [("Sarah", .person)])
-        harness.indexer.index(entry, in: harness.context)
-        try harness.context.save()
+        try harness.entry(mentions: [("Sarah", .person)])
+        try harness.entry(mentions: [("Sarah Kim", .person)])
+        harness.indexer.sweep(in: harness.context)
 
-        let winner = Entity(name: "Sarah Kim", key: "sarah kim", kind: .person)
-        harness.context.insert(winner)
-        // Saved before any link moves to it: an unsaved entity silently takes none.
-        try harness.context.save()
-        let loser = try harness.entity("Sarah")
-        for link in loser.links ?? [] { link.moveForMerge(to: winner) }
-        loser.mergedIntoID = winner.id
-        loser.mergedAt = .now
-        try harness.context.save()
-
+        GraphEditor(diagnostics: .disabled).merge(try harness.entity("Sarah"), into: try harness.entity("Sarah Kim"), in: harness.context)
         harness.indexer.recount(in: harness.context)
         try harness.context.save()
 
         #expect(try harness.entities().count == 2)
         #expect(try harness.entity("Sarah").isMerged)
-        #expect(try harness.entity("Sarah Kim").linkCount == 1)
+        #expect(try harness.entity("Sarah Kim").linkCount == 2)
     }
 
     @Test func countersFollowTheEntryDateNotTheIndexingOrder() throws {
@@ -472,5 +463,102 @@ struct GraphIndexerTests {
 
         #expect(entry.updatedAt == Date(timeIntervalSince1970: 100))
         #expect(harness.links(of: entry).count == 1)
+    }
+}
+
+@MainActor
+struct EntityLabelSeparationTests {
+    let harness: GraphHarness
+
+    init() throws {
+        harness = try GraphHarness()
+    }
+
+    // A tag and a mention can be written identically. They are still different things, and
+    // only the Review list may put them together.
+    @Test func aMentionNeverJoinsATagOrATheme() throws {
+        try harness.entry(tags: ["work"], themes: ["moving house"])
+        harness.indexer.sweep(in: harness.context)
+
+        try harness.entry(mentions: [("work", .other), ("moving house", .other)])
+        harness.indexer.sweep(in: harness.context)
+
+        let byName = try harness.entities().filter { $0.name == "work" }
+        #expect(byName.count == 2, "the tag and the named thing stay apart")
+        #expect(Set(byName.map(\.kind)) == [.tag, .other])
+        #expect(try harness.entity("work").kind == .tag, "and the tag was not converted")
+    }
+}
+
+@MainActor
+struct UserLinkReindexTests {
+    let harness: GraphHarness
+
+    init() throws {
+        harness = try GraphHarness()
+    }
+
+    private func repointed(_ entry: Entry) throws -> Entity {
+        let someoneElse = Entity(name: "Sarah Lee", key: "sarah lee", kind: .person)
+        let link = try #require(harness.links(of: entry).first)
+        GraphEditor(diagnostics: .disabled).repoint(link, to: someoneElse, addingAlias: false, in: harness.context)
+        return someoneElse
+    }
+
+    // The model calls her a person one run and `other` the next. The user's correction still
+    // covers her, so no AI link appears beside it.
+    @Test func aUserLinkClaimsTheSameNameUnderAnotherKind() throws {
+        let entry = try harness.entry(mentions: [("Sarah", .person)])
+        harness.indexer.sweep(in: harness.context)
+        let someoneElse = try repointed(entry)
+
+        entry.insights?.mentions = [Mention(name: "Sarah", kindRaw: MentionKind.other.rawValue)]
+        entry.insights?.generatedAt = Date(timeIntervalSince1970: 2_000)
+        harness.indexer.sweep(in: harness.context)
+
+        let links = harness.links(of: entry)
+        #expect(links.count == 1)
+        #expect(links.first?.entityID == someoneElse.id)
+    }
+
+    // A user link is theirs even when the name it came from is no longer in the insights.
+    @Test func aUserLinkOutlivesItsNameLeavingTheInsights() throws {
+        let entry = try harness.entry(mentions: [("Sarah", .person)])
+        harness.indexer.sweep(in: harness.context)
+        let someoneElse = try repointed(entry)
+
+        entry.insights?.mentions = []
+        entry.insights?.generatedAt = Date(timeIntervalSince1970: 2_000)
+        harness.indexer.sweep(in: harness.context)
+
+        #expect(harness.links(of: entry).map(\.entityID) == [someoneElse.id])
+    }
+
+    // A tag written like a corrected name is still its own thing.
+    @Test func aUserLinkOnAPersonDoesNotClaimATag() throws {
+        let entry = try harness.entry(mentions: [("Sarah", .person)])
+        harness.indexer.sweep(in: harness.context)
+        _ = try repointed(entry)
+
+        entry.insights?.tags = ["sarah"]
+        entry.insights?.generatedAt = Date(timeIntervalSince1970: 2_000)
+        harness.indexer.sweep(in: harness.context)
+
+        #expect(harness.links(of: entry).count == 2)
+    }
+
+    @Test func anAmbiguousMatchIsRecorded() throws {
+        let file = DiagnosticsFile()
+        let indexer = GraphIndexer(diagnostics: DiagnosticsLog(fileURL: file.url))
+        for name in ["Sarah Kim", "Sarah Kim"] {
+            let entity = Entity(name: name, key: "sarah kim", kind: .person)
+            harness.context.insert(entity)
+        }
+        try harness.context.save()
+        let entry = try harness.entry(mentions: [("Sarah Kim", .person)])
+
+        indexer.index(entry, in: harness.context)
+
+        #expect(file.contents().contains("graph.ambiguous"))
     }
 }

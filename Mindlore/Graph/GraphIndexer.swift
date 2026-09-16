@@ -30,14 +30,23 @@ struct GraphIndexer {
         // relationship array until the next save, so re-reading it here would see ghosts.
         let keptByUser = existing.filter { $0.source == .user }
         let claimed = Set(keptByUser.map { Claim(surface: $0.surface, kind: $0.kind) })
-        for link in existing where link.source == .ai { context.delete(link) }
+        // Where a merge took each link from, kept across the rebuild. Without this, running AI
+        // again on a merged entry quietly makes the merge permanent: the new link has no
+        // birthplace, so unmerging finds nothing to give back.
+        var origins: [Claim: UUID] = [:]
+        for link in existing where link.source == .ai {
+            if let origin = link.originalEntityID {
+                origins[Claim(surface: link.surface, kind: link.kind)] = origin
+            }
+            context.delete(link)
+        }
 
         var candidates = snapshot(in: context)
         var entities = liveEntities(in: context)
         var created = 0
         var linked = 0
 
-        for value in values(of: insights) where !claimed.contains(Claim(surface: value.surface, kind: value.kind)) {
+        for value in values(of: insights) where !isClaimed(Claim(surface: value.surface, kind: value.kind), by: claimed) {
             if EntityResolver.isAmbiguous(value, among: candidates) {
                 diagnostics.record("graph.ambiguous", ["id": .id(entry.id), "kind": .string(value.kind.rawValue)])
             }
@@ -54,6 +63,8 @@ struct GraphIndexer {
                 inferred = wasInferred
                 if let upgradeKind {
                     target.kind = upgradeKind
+                    // Keys are kind-sensitive: honorifics only come off a person's name.
+                    target.key = EntityNormalizer.key(for: target.name, kind: upgradeKind)
                     candidates = candidates.map { $0.id == id ? $0.withKind(upgradeKind) : $0 }
                 }
             case .create(let key, let kind):
@@ -68,6 +79,7 @@ struct GraphIndexer {
             let link = EntityLink(surface: value.surface, kind: value.kind, source: .ai, inferred: inferred)
             context.insert(link)
             link.attach(to: entry, entity: target)
+            link.originalEntityID = origins[Claim(surface: value.surface, kind: value.kind)]
             linked += 1
         }
 
@@ -91,10 +103,11 @@ struct GraphIndexer {
                 guard let generatedAt = entry.insights?.generatedAt else { return entry.graphIndexedAt != nil }
                 return entry.graphIndexedAt != generatedAt
             }
-        guard !stale.isEmpty else { return 0 }
-
         var links = 0
         for entry in stale { links += index(entry, in: context) }
+        // Always, even with nothing stale: this is the only place counters are repaired and
+        // links stranded by an interrupted edit are cleared, and in steady state nothing is
+        // ever stale.
         recount(in: context)
         removeOrphanedLinks(in: context)
 
@@ -105,6 +118,7 @@ struct GraphIndexer {
             diagnostics.record("graph.saveFailed", ["error": .errorCode(error)])
             return 0
         }
+        guard !stale.isEmpty else { return 0 }
         diagnostics.record("graph.sweep", [
             "entries": .int(stale.count),
             "links": .int(links),
@@ -163,16 +177,17 @@ struct GraphIndexer {
             entity.linkCount = tally?.count ?? 0
             entity.firstLinkedAt = tally?.first
             entity.lastLinkedAt = tally?.last
-            // A merge loser has no links by design and is the undo record, so it stays.
-            if entity.linkCount == 0 && !entity.confirmedByUser && !entity.isMerged {
+            // Kept even with nothing pointing at it: anything the user touched, anything they
+            // hid (or it would come back the next time it is mentioned), and a merge loser,
+            // which is the undo record.
+            if entity.linkCount == 0 && !entity.confirmedByUser && !entity.hidden && !entity.isMerged {
                 context.delete(entity)
             }
         }
     }
 
     // A link whose entity or entry is gone points at nothing and can never be shown. Only the
-    // launch sweep does this, where every change has already been saved, so a relationship
-    // that reads nil really is nil.
+    // launch sweep does this, where every change has already been saved.
     func removeOrphanedLinks(in context: ModelContext) {
         let entities = Set(((try? context.fetch(FetchDescriptor<Entity>())) ?? []).map(\.id))
         let entries = Set(((try? context.fetch(FetchDescriptor<Entry>())) ?? []).map(\.id))
@@ -209,6 +224,19 @@ struct GraphIndexer {
         init(surface: String, kind: EntityKind) {
             self.key = EntityNormalizer.key(for: surface, kind: kind)
             self.kind = kind
+        }
+    }
+
+    // A user link claims a regenerated value with the same key even if the model now types it
+    // differently ("Sarah" as a person last time, as `other` this time), or the entry would
+    // gain an AI link right beside the one the user corrected. Tags and themes only claim
+    // their own kind, as everywhere else.
+    private func isClaimed(_ value: Claim, by claimed: Set<Claim>) -> Bool {
+        claimed.contains { claim in
+            guard claim.key == value.key else { return false }
+            if claim.kind == value.kind { return true }
+            if EntityResolver.isLabel(claim.kind) || EntityResolver.isLabel(value.kind) { return false }
+            return claim.kind == .other || value.kind == .other
         }
     }
 

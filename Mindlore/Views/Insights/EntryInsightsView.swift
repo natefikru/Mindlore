@@ -232,6 +232,7 @@ struct EntryInsightsView: View {
     private func deleteInsights() {
         guard insights != nil else { return }
         entry.removeInsights(in: modelContext)
+        GraphIndexer().recount(in: modelContext)
         saver.noteChange()
         saver.flush()
         DiagnosticsLog.shared.record("insights.deleted", ["id": .id(entry.id)])

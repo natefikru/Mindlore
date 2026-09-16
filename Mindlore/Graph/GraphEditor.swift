@@ -42,6 +42,9 @@ struct GraphEditor {
     func setKind(_ kind: EntityKind, on entity: Entity) {
         guard entity.kind != kind else { return }
         entity.kind = kind
+        // Keys are kind-sensitive, so the name has to be keyed again under the new kind or
+        // the resolver and the collision check stop agreeing about what this answers to.
+        entity.key = EntityNormalizer.key(for: entity.name, kind: kind)
         // From here on the extraction never changes it back.
         entity.kindEditedByUser = true
         claim(entity)
@@ -117,10 +120,14 @@ struct GraphEditor {
         let moved = indexer.allLinks(in: context).filter { $0.entityID == loser.id }
         for link in moved { link.moveForMerge(to: winner) }
 
-        // Everything the loser answered to, that the winner does not answer to already.
+        // Everything the loser answered to, that the winner does not answer to already, minus
+        // anything the loser was itself given by an earlier merge. Those belong to whoever
+        // brought them, so unmerging this one does not take away someone else's name.
+        let deeper = merged(into: loser, in: context)
+        let inherited = Set(deeper.flatMap(\.contributedAliases))
         let existing = Set(keys(of: winner))
         var contributed: [String] = []
-        for surface in [loser.name] + loser.aliases {
+        for surface in [loser.name] + loser.aliases where !inherited.contains(surface) {
             let key = EntityNormalizer.key(for: surface, kind: winner.kind)
             guard !key.isEmpty, !existing.contains(key), !contributed.contains(surface) else { continue }
             contributed.append(surface)
@@ -133,16 +140,19 @@ struct GraphEditor {
         // Anything that pointed at the loser now points at the winner, so no pointer is ever
         // more than one hop from a live entity. Their own links keep their own birthplaces,
         // so unmerging any of them still returns exactly what it brought.
-        for entity in merged(into: loser, in: context) {
+        for entity in deeper {
             entity.mergedIntoID = winner.id
         }
+        // Their names move with them, so the loser does not keep answering to a name it is
+        // no longer the owner of once it is unmerged.
+        loser.aliases.removeAll { inherited.contains($0) }
         claim(winner)
         claim(loser)
         // Made real before counting, so the next merge sees where these links ended up.
-        try? context.save()
+        save(context, touchedBy: moved)
 
         indexer.recount(in: context)
-        try? context.save()
+        save(context, touchedBy: moved)
         diagnostics.record("graph.merged", [
             "id": .id(winner.id), "loser": .id(loser.id), "links": .int(moved.count), "aliases": .int(contributed.count),
         ])
@@ -167,10 +177,10 @@ struct GraphEditor {
         loser.mergedIntoID = nil
         loser.mergedAt = nil
         claim(loser)
-        try? context.save()
+        save(context, touchedBy: born)
 
         indexer.recount(in: context)
-        try? context.save()
+        save(context, touchedBy: born)
         diagnostics.record("graph.unmerged", ["id": .id(loser.id), "links": .int(born.count)])
         return true
     }
@@ -191,10 +201,10 @@ struct GraphEditor {
         claim(entity)
         // Recount before the alias, not after: the entity this was taken off may have nothing
         // left and be gone, and a name nobody answers to any more is not a collision.
-        try? context.save()
+        save(context, touchedBy: [link])
         indexer.recount(in: context)
-        try? context.save()
         let outcome = addingAlias ? addAlias(surface, to: entity, in: context) : .applied
+        save(context, touchedBy: [link])
 
         diagnostics.record("graph.repointed", ["id": .id(entity.id), "alias": .bool(addingAlias)])
         return outcome
@@ -237,8 +247,21 @@ struct GraphEditor {
     // no entity at all, which the next recount cleans up as garbage. Anything about to
     // receive links has to be in the store first.
     private func register(_ entity: Entity, in context: ModelContext) {
-        if entity.modelContext == nil { context.insert(entity) }
+        guard entity.modelContext == nil else { return }
+        context.insert(entity)
         try? context.save()
+    }
+
+    // Moving a link marks its entry as changed, but moving a link is not an edit to the entry.
+    // Every save here exempts the entries whose links moved, the same rule the sweep follows.
+    private func save(_ context: ModelContext, touchedBy links: [EntityLink]) {
+        let ids = Set(links.compactMap(\.entryID))
+        let touched = ids.isEmpty ? [] : Set(
+            ((try? context.fetch(FetchDescriptor<Entry>())) ?? [])
+                .filter { ids.contains($0.id) }
+                .map(\.persistentModelID)
+        )
+        try? context.saveStampingEntries(except: touched)
     }
 
     private func keys(of entity: Entity) -> [String] {
@@ -247,7 +270,10 @@ struct GraphEditor {
 
     private func entityAnswering(to key: String, kind: EntityKind, excluding entity: Entity, in context: ModelContext) -> Entity? {
         guard !key.isEmpty else { return nil }
-        let live = ((try? context.fetch(FetchDescriptor<Entity>(predicate: #Predicate { $0.mergedIntoID == nil }))) ?? [])
+        let live = ((try? context.fetch(FetchDescriptor<Entity>(
+            predicate: #Predicate { $0.mergedIntoID == nil },
+            sortBy: [SortDescriptor(\.createdAt), SortDescriptor(\.name)]
+        ))) ?? [])
         return live.first { other in
             other.id != entity.id
                 && (other.kind == kind || other.kind == .other || kind == .other)

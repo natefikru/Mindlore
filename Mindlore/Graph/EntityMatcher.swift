@@ -37,11 +37,12 @@ nonisolated enum EntityMatcher {
         }
         // The pair the user is most likely to care about first: a strong match on two entities
         // the journal actually uses beats a strong match on two it mentioned once.
-        return found.sorted {
-            let weight = ($0.score * Double(weightOf($0, in: candidates)), $0.score)
-            let other = ($1.score * Double(weightOf($1, in: candidates)), $1.score)
-            return weight > other
+        let counts = Dictionary(candidates.map { ($0.id, $0.linkCount) }, uniquingKeysWith: { first, _ in first })
+        func weight(_ suggestion: Suggestion) -> Double {
+            let pair = max(1, min(counts[suggestion.a] ?? 1, counts[suggestion.b] ?? 1))
+            return suggestion.score * Double(pair)
         }
+        return found.sorted { (weight($0), $0.score) > (weight($1), $1.score) }
     }
 
     static func score(_ a: Candidate, _ b: Candidate) -> Double? {
@@ -70,11 +71,6 @@ nonisolated enum EntityMatcher {
         let second = Set(EntityNormalizer.tokens(of: b))
         guard !first.isEmpty, !second.isEmpty, first != second else { return false }
         return first.isSubset(of: second) || second.isSubset(of: first)
-    }
-
-    private static func weightOf(_ suggestion: Suggestion, in candidates: [Candidate]) -> Int {
-        let counts = candidates.filter { $0.id == suggestion.a || $0.id == suggestion.b }.map(\.linkCount)
-        return max(1, counts.min() ?? 1)
     }
 
     // Jaro-Winkler, which rewards a shared prefix. Short names drift at the end far more than

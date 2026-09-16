@@ -63,7 +63,12 @@ extension Entry {
             context.delete(insights)
             self.insights = nil
         }
-        for link in entityLinks ?? [] where link.source == .ai {
+        // By id, not through entityLinks. That array can read short part-way through a batch,
+        // and a missed link would never be found again: an entry with no insights is not
+        // stale, so no sweep would come back to it. Counters are repaired by the next sweep.
+        let id = self.id
+        for link in ((try? context.fetch(FetchDescriptor<EntityLink>())) ?? [])
+        where link.entryID == id && link.source == .ai {
             context.delete(link)
         }
         graphIndexedAt = nil
