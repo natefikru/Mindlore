@@ -63,6 +63,7 @@ private struct EntityPage: View {
     @State private var merging = false
     @State private var collision: UUID?
     @State private var repointing: MentionRef?
+    @State private var previewingRow: EntityPagePresentation.EntryRow?
 
     init(id: UUID, showsLoser: Bool) {
         self.id = id
@@ -107,6 +108,9 @@ private struct EntityPage: View {
             }
             .sheet(item: $repointing) { mention in
                 RepointView(mention: mention, currentEntityID: id)
+            }
+            .sheet(item: $previewingRow) { row in
+                EntryPreview(entryID: row.id)
             }
             .alert("Rename", isPresented: $renaming) {
                 TextField("Name", text: $draftText)
@@ -324,24 +328,33 @@ private struct EntityPage: View {
             Section("Entries") {
                 ForEach(rows) { row in
                     VStack(alignment: .leading, spacing: 4) {
-                        HStack(alignment: .firstTextBaseline) {
-                            Text(row.heading).font(.headline)
-                            Spacer()
-                            if row.guessed != nil {
-                                Text("Guessed")
+                        Button {
+                            saver.flush()
+                            previewingRow = row
+                        } label: {
+                            VStack(alignment: .leading, spacing: 4) {
+                                HStack(alignment: .firstTextBaseline) {
+                                    Text(row.heading).font(.headline)
+                                    Spacer()
+                                    if row.guessed != nil {
+                                        Text("Guessed")
+                                            .font(.caption)
+                                            .foregroundStyle(.orange)
+                                    }
+                                }
+                                Text(row.date.formatted(date: .abbreviated, time: .omitted))
                                     .font(.caption)
-                                    .foregroundStyle(.orange)
+                                    .foregroundStyle(.secondary)
+                                if let sentence = row.sentence {
+                                    Text(sentence)
+                                        .font(.subheadline)
+                                        .foregroundStyle(.secondary)
+                                        .lineLimit(3)
+                                }
                             }
                         }
-                        Text(row.date.formatted(date: .abbreviated, time: .omitted))
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                        if let sentence = row.sentence {
-                            Text(sentence)
-                                .font(.subheadline)
-                                .foregroundStyle(.secondary)
-                                .lineLimit(3)
-                        }
+                        .buttonStyle(.plain)
+                        .accessibilityIdentifier("entityEntryRow-\(row.id)")
                         if let guessed = row.guessed {
                             Button("Not them") { repointing = guessed }
                                 .buttonStyle(.borderless)
@@ -448,6 +461,47 @@ private struct BioEditorSheet: View {
             }
         }
         .presentationDetents([.medium, .large])
+    }
+}
+
+// Read-only: reaching the full editor would mean dismissing through however many sheets got the
+// user to this entity page (the insights sheet, or Connections), each with its own stack.
+private struct EntryPreview: View {
+    let entryID: UUID
+    @Environment(\.dismiss) private var dismiss
+    @Query private var matches: [Entry]
+
+    init(entryID: UUID) {
+        self.entryID = entryID
+        _matches = Query(filter: #Predicate<Entry> { $0.id == entryID })
+    }
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                if let entry = matches.first(where: { !$0.isDeleted }) {
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text(entry.entryDate.formatted(date: .long, time: .omitted))
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                        Text(entry.text)
+                            .font(.body)
+                    }
+                    .padding()
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                } else {
+                    ContentUnavailableView("No longer in your journal", systemImage: "doc.text")
+                }
+            }
+            .navigationTitle("Entry")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Done") { dismiss() }
+                }
+            }
+        }
+        .accessibilityIdentifier("entryPreview")
     }
 }
 
