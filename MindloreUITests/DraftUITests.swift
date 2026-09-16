@@ -30,7 +30,9 @@ final class DraftUITests: XCTestCase {
         app.staticTexts["Started this on the train"].tap()
         XCTAssertTrue(editor.waitForExistence(timeout: 5))
         wait(for: [expectation(for: NSPredicate(format: "isHittable == true"), evaluatedWith: editor)], timeout: 5)
-        editor.tap()
+        // Past the end of the line, so the caret lands after the draft rather than at the activation
+        // point, which sits at the start of the text.
+        editor.coordinate(withNormalizedOffset: CGVector(dx: 0.95, dy: 0.5)).tap()
         editor.typeText(" and finished at home.")
 
         let done = app.buttons["finishEntryButton"]

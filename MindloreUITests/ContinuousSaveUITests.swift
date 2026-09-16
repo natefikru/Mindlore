@@ -84,7 +84,9 @@ final class ContinuousSaveUITests: XCTestCase {
         XCTAssertTrue(editor.waitForExistence(timeout: 5))
         let hittable = expectation(for: NSPredicate(format: "isHittable == true"), evaluatedWith: editor)
         wait(for: [hittable], timeout: 5)
-        editor.tap()
+        // Past the end of a short line, so the caret lands after the text the way it does for someone
+        // continuing an entry. A plain tap() uses the activation point, which sits at the start.
+        editor.coordinate(withNormalizedOffset: CGVector(dx: 0.95, dy: 0.5)).tap()
     }
 
     private func goBack() {

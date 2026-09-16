@@ -32,8 +32,15 @@ struct MindloreApp: App {
         let uiTesting = arguments.contains(StoreLocation.uiTestingArgument)
         let testStoreName = uiTesting ? ProcessInfo.processInfo.environment[StoreLocation.uiTestStoreNameKey] : nil
         let defaults = testStoreName.flatMap { UserDefaults(suiteName: "uitest-\($0)") } ?? .standard
-        // UI test keys stay in memory: a real key passed to a test run never touches the Keychain.
-        let secrets: any SecretStore = testStoreName == nil ? KeychainSecretStore() : InMemorySecretStore()
+        // A real key handed to a UI test run stays in memory so it never touches the Keychain; test
+        // runs with the stub's key use a Keychain service named for the run, so saving a key and
+        // finding it after a relaunch still works.
+        let liveTestKey = ProcessInfo.processInfo.environment["MINDLORE_OPENAI_KEY"].flatMap { $0.isEmpty ? nil : $0 }
+        let secrets: any SecretStore = switch (testStoreName, liveTestKey) {
+        case (nil, _): KeychainSecretStore()
+        case (_, .some): InMemorySecretStore()
+        case (.some(let name), nil): KeychainSecretStore(service: "\(KeychainSecretStore.productionService).uitest.\(name)")
+        }
         let http: any HTTPClient = uiTesting && arguments.contains(UITestingHTTPClient.launchArgument) ? UITestingHTTPClient() : URLSessionHTTPClient()
         let settingsStore = SettingsStore(store: defaults, onDeviceTitlesAvailable: { !uiTesting && FoundationModelsAvailability.isAvailable })
         settingsStore.recordAutomationStartIfNeeded()
@@ -41,8 +48,7 @@ struct MindloreApp: App {
         // UI tests that need AI start with it on and the stub's key saved, instead of typing it each time.
         // A real key passed by the test runner (MINDLORE_OPENAI_KEY) runs against OpenAI; otherwise the stub's key.
         if uiTesting, testStoreName != nil, arguments.contains(UITestingHTTPClient.readyArgument), accountStore.openAIAccount == nil {
-            let liveKey = ProcessInfo.processInfo.environment["MINDLORE_OPENAI_KEY"].flatMap { $0.isEmpty ? nil : $0 }
-            try? accountStore.saveOpenAIKey(liveKey ?? UITestingHTTPClient.validKey)
+            try? accountStore.saveOpenAIKey(liveTestKey ?? UITestingHTTPClient.validKey)
             settingsStore.aiEnabled = true
         }
         _settings = State(initialValue: settingsStore)

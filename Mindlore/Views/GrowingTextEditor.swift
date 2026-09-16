@@ -3,12 +3,13 @@ import UIKit
 
 // A text view that grows with its text instead of scrolling on its own, so an entry's header
 // (title, player, page thumbnails) scrolls together with the writing in one scroll view.
-// It keeps at least `minHeight` so a tap below short text still lands in the text and puts the
-// cursor at the end, the way Notes behaves.
+// The blank space below the text belongs to the view above it, which focuses this one and puts the
+// caret at the end, the way Notes behaves.
 struct GrowingTextEditor: UIViewRepresentable {
     @Binding var text: String
-    var minHeight: CGFloat
     var isFocused: Bool
+    // Bumped by the caller to ask for focus with the caret at the end of the text.
+    var focusAtEndToken: Int
     var onFocusChange: (Bool) -> Void
 
     func makeUIView(context: Context) -> UITextView {
@@ -18,9 +19,8 @@ struct GrowingTextEditor: UIViewRepresentable {
         view.backgroundColor = .clear
         view.font = .preferredFont(forTextStyle: .body)
         view.adjustsFontForContentSizeCategory = true
-        view.textContainerInset = UIEdgeInsets(top: 8, left: 0, bottom: 24, right: 0)
+        view.textContainerInset = UIEdgeInsets(top: 8, left: 0, bottom: 8, right: 0)
         view.textContainer.lineFragmentPadding = 0
-        view.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         return view
     }
 
@@ -29,13 +29,15 @@ struct GrowingTextEditor: UIViewRepresentable {
         // Never replace text while the keyboard is mid-composition (marked text, dictation): assigning
         // would drop what the user is in the middle of typing.
         if view.text != text, view.markedTextRange == nil {
-            // Keep the caret where it was when the text changed from elsewhere.
             let selection = view.selectedRange
             view.text = text
             view.selectedRange = NSRange(location: min(selection.location, text.utf16.count), length: 0)
         }
-        view.minimumContentHeight = minHeight
-        if isFocused && !view.isFirstResponder {
+        if focusAtEndToken != context.coordinator.handledFocusToken {
+            context.coordinator.handledFocusToken = focusAtEndToken
+            view.selectedRange = NSRange(location: view.text.utf16.count, length: 0)
+            view.becomeFirstResponder()
+        } else if isFocused && !view.isFirstResponder {
             view.becomeFirstResponder()
         }
     }
@@ -43,7 +45,7 @@ struct GrowingTextEditor: UIViewRepresentable {
     func sizeThatFits(_ proposal: ProposedViewSize, uiView: UITextView, context: Context) -> CGSize? {
         let width = proposal.width ?? uiView.bounds.width
         let fitting = uiView.sizeThatFits(CGSize(width: width, height: .greatestFiniteMagnitude))
-        return CGSize(width: width, height: max(fitting.height, minHeight))
+        return CGSize(width: width, height: fitting.height)
     }
 
     func makeCoordinator() -> Coordinator {
@@ -53,14 +55,16 @@ struct GrowingTextEditor: UIViewRepresentable {
     final class Coordinator: NSObject, UITextViewDelegate {
         // Updated on every render, so the delegate always writes through the current binding.
         var parent: GrowingTextEditor
+        var handledFocusToken: Int
 
         init(_ parent: GrowingTextEditor) {
             self.parent = parent
+            handledFocusToken = parent.focusAtEndToken
         }
 
         func textViewDidChange(_ textView: UITextView) {
-            // Composition is still in progress; the binding gets the text when it is committed.
-            guard textView.markedTextRange == nil else { return }
+            // Always recorded, including while text is marked: inline predictions and dictation mark
+            // text as you type, and skipping those would lose what was typed.
             parent.text = textView.text
         }
 
@@ -70,19 +74,6 @@ struct GrowingTextEditor: UIViewRepresentable {
 
         func textViewDidEndEditing(_ textView: UITextView) {
             parent.onFocusChange(false)
-        }
-    }
-}
-
-private extension UITextView {
-    // Taps below the last line should still reach the text view, so it never ends shorter than this.
-    var minimumContentHeight: CGFloat {
-        get { 0 }
-        set {
-            let inset = max(0, newValue - sizeThatFits(CGSize(width: bounds.width, height: .greatestFiniteMagnitude)).height)
-            if abs(textContainerInset.bottom - (24 + inset)) > 1 {
-                textContainerInset.bottom = 24 + inset
-            }
         }
     }
 }

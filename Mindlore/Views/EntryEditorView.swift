@@ -26,6 +26,8 @@ struct EntryEditorView: View {
     // Not @FocusState: the text view is a UITextView so it can grow with its content, and it
     // reports focus back through this flag.
     @State private var editorFocused = false
+    // Bumped to put the caret at the end, for taps in the blank space under the text.
+    @State private var focusAtEndToken = 0
 
     static let fallbackNoticeSeconds = 8.0
 
@@ -42,12 +44,19 @@ struct EntryEditorView: View {
                     // whole entry scrolls as one and a tap below short text still lands in the text.
                     GrowingTextEditor(
                         text: textBinding,
-                        minHeight: max(240, proxy.size.height - 160),
                         isFocused: editorFocused,
+                        focusAtEndToken: focusAtEndToken,
                         onFocusChange: { editorFocused = $0 }
                     )
                     .padding(.horizontal)
                     .accessibilityIdentifier("entryEditor")
+                    // Tapping under the text continues the entry, rather than doing nothing or
+                    // dropping the caret at the start.
+                    Color.clear
+                        .frame(minHeight: max(120, proxy.size.height / 2))
+                        .contentShape(Rectangle())
+                        .onTapGesture { focusAtEndToken += 1 }
+                        .accessibilityHidden(true)
                 }
             }
             .scrollDismissesKeyboard(.interactively)
@@ -141,7 +150,7 @@ struct EntryEditorView: View {
             if let entry {
                 presence.open(entry.id)
             } else {
-                editorFocused = true
+                focusAtEndToken += 1
             }
         }
         // A full-screen cover removes the presenting view, which would otherwise run the editor's
@@ -213,7 +222,7 @@ struct EntryEditorView: View {
                 .padding(.horizontal, 21)
                 .padding(.top, 8)
                 .submitLabel(.next)
-                .onSubmit { editorFocused = true }
+                .onSubmit { focusAtEndToken += 1 }
                 .accessibilityIdentifier("entryTitleField")
             if let entry, entry.awaitingText, entry.text.isEmpty {
                 Text(entry.source == .photo ? "Text from your pages will appear here. You can also start typing." : "Text from your recording will appear here. You can also start typing.")
