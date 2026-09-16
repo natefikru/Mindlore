@@ -35,6 +35,7 @@ final class SettingsStore {
     @ObservationIgnored private let store: any KeyValueStore
     @ObservationIgnored private let diagnostics: DiagnosticsLog
     @ObservationIgnored private let onDeviceTitlesAvailable: () -> Bool
+    @ObservationIgnored private let onDeviceSpeechAvailable: () -> Bool
     @ObservationIgnored private let now: () -> Date
 
     var keepAudioAfterTranscription: Bool {
@@ -60,8 +61,16 @@ final class SettingsStore {
         didSet { writeJSON(providerAccounts, Key.providerAccounts) }
     }
 
+    // nil until the user chooses. Apple's live transcription is free, private, and shows text as
+    // the user talks, so it leads wherever the phone can run it; OpenAI covers everywhere else.
+    private var storedSpeechEngine: SpeechEngine?
+
     var speechEngine: SpeechEngine {
-        didSet { write(speechEngine.rawValue, Key.speechEngine, logged: .string(speechEngine.rawValue)) }
+        get { storedSpeechEngine ?? (onDeviceSpeechAvailable() ? .onDeviceLive : .cloud) }
+        set {
+            storedSpeechEngine = newValue
+            write(newValue.rawValue, Key.speechEngine, logged: .string(newValue.rawValue))
+        }
     }
 
     var speechAccountID: UUID? {
@@ -133,11 +142,13 @@ final class SettingsStore {
         store: any KeyValueStore = UserDefaults.standard,
         diagnostics: DiagnosticsLog = .shared,
         onDeviceTitlesAvailable: @escaping () -> Bool = { false },
+        onDeviceSpeechAvailable: @escaping () -> Bool = { false },
         now: @escaping () -> Date = { .now }
     ) {
         self.store = store
         self.diagnostics = diagnostics
         self.onDeviceTitlesAvailable = onDeviceTitlesAvailable
+        self.onDeviceSpeechAvailable = onDeviceSpeechAvailable
         self.now = now
 
         func bool(_ key: String, _ fallback: Bool) -> Bool { store.object(forKey: key) as? Bool ?? fallback }
@@ -152,7 +163,7 @@ final class SettingsStore {
         aiEnabledAt = store.object(forKey: Key.aiEnabledAt) as? Date
         automationStartedAt = store.object(forKey: Key.automationStartedAt) as? Date
         providerAccounts = json(Key.providerAccounts, [])
-        speechEngine = string(Key.speechEngine).flatMap(SpeechEngine.init(rawValue:)) ?? .cloud
+        storedSpeechEngine = string(Key.speechEngine).flatMap(SpeechEngine.init(rawValue:))
         speechAccountID = uuid(Key.speechAccountID)
         speechModel = string(Key.speechModel) ?? ProviderDefaults.speechModel
         fallBackToOnDevice = bool(Key.fallBackToOnDevice, true)

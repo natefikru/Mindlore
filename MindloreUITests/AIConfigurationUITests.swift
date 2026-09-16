@@ -55,6 +55,11 @@ final class AIConfigurationUITests: XCTestCase {
         XCTAssertTrue(enginePicker.waitForExistence(timeout: 5))
         // The model picker or free-text field is there while OpenAI is selected.
         XCTAssertTrue(app.descendants(matching: .any)["speechModelPicker"].exists || app.textFields["speechModelField"].exists)
+        // All three tiers are offered by name. The simulator can't run live speech, so under UI
+        // tests the default is OpenAI; the Live default is covered in SettingsStoreTests.
+        XCTAssertEqual(enginePicker.buttons.count, 3)
+        XCTAssertTrue(enginePicker.buttons["Live"].exists)
+        XCTAssertTrue(enginePicker.buttons["OpenAI"].isSelected)
         enginePicker.buttons["This iPhone"].tap()
         back()
 

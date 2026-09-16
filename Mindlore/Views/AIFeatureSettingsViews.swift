@@ -48,15 +48,14 @@ struct SpeechSettingsView: View {
         Form {
             Section {
                 Picker("Transcribe with", selection: $settings.speechEngine) {
-                    Text("OpenAI").tag(SpeechEngine.cloud)
+                    Text("Live").tag(SpeechEngine.onDeviceLive)
                     Text("This iPhone").tag(SpeechEngine.onDevice)
+                    Text("OpenAI").tag(SpeechEngine.cloud)
                 }
                 .pickerStyle(.segmented)
                 .accessibilityIdentifier("speechEnginePicker")
             } footer: {
-                Text(settings.speechEngine == .cloud
-                     ? "Recordings are sent to OpenAI. Recordings made before you turned AI on stay on this iPhone unless you tap Retry."
-                     : "Recordings are transcribed by this iPhone and never sent anywhere.")
+                Text(Self.engineExplanation(settings.speechEngine))
             }
 
             if settings.speechEngine == .cloud {
@@ -72,6 +71,19 @@ struct SpeechSettingsView: View {
         }
         .navigationTitle("Speech to Text")
         .navigationBarTitleDisplayMode(.inline)
+    }
+}
+
+extension SpeechSettingsView {
+    static func engineExplanation(_ engine: SpeechEngine) -> String {
+        switch engine {
+        case .onDeviceLive:
+            "Text appears as you talk, written by this iPhone and never sent anywhere. On a recording this iPhone can't handle live, the text arrives right after you finish instead."
+        case .onDevice:
+            "Text arrives right after you finish recording, written by this iPhone and never sent anywhere."
+        case .cloud:
+            "Recordings are sent to OpenAI once you finish, and the text comes back after that. Recordings made before you turned AI on stay on this iPhone unless you tap Retry."
+        }
     }
 }
 
