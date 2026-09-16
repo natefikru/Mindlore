@@ -58,6 +58,42 @@ struct GraphEditorTests {
         #expect(entity.name == "Sarah Kim")
     }
 
+    @Test func renamingCanKeepTheOldNameAsAnAlias() throws {
+        let entity = Entity(name: "Lewis", key: "lewis", kind: .person)
+        harness.context.insert(entity)
+
+        #expect(editor.rename(entity, to: "Luis", keepingOldNameAsAlias: true, in: harness.context) == .applied)
+        #expect(entity.name == "Luis")
+        #expect(entity.aliases == ["Lewis"])
+
+        #expect(editor.rename(entity, to: "Luis R", keepingOldNameAsAlias: true, in: harness.context) == .applied)
+        #expect(entity.aliases == ["Lewis", "Luis"], "the alias from the first rename survives the second")
+    }
+
+    @Test func renamingWithoutTheFlagAddsNoAlias() throws {
+        let entity = Entity(name: "Lewis", key: "lewis", kind: .person)
+        harness.context.insert(entity)
+
+        #expect(editor.rename(entity, to: "Luis", in: harness.context) == .applied)
+        #expect(entity.aliases.isEmpty)
+    }
+
+    @Test func keepingTheOldNameStillReportsACollision() throws {
+        let (loser, winner) = try twoPeople()
+
+        #expect(editor.rename(loser, to: "Sarah Kim", keepingOldNameAsAlias: true, in: harness.context) == .collides(with: winner.id))
+        #expect(loser.name == "Sarah K", "nothing is applied, alias included, until the user decides")
+        #expect(loser.aliases.isEmpty)
+    }
+
+    @Test func keepingTheOldNameOnASpellingOnlyRenameAddsNoDuplicateAlias() throws {
+        let entity = Entity(name: "sarah kim", key: "sarah kim", kind: .person)
+        harness.context.insert(entity)
+
+        #expect(editor.rename(entity, to: "Sarah Kim", keepingOldNameAsAlias: true, in: harness.context) == .applied)
+        #expect(entity.aliases.isEmpty, "the old spelling and the new one are the same key")
+    }
+
     @Test func aliasesAreAddedOnceAndRemovedByTheirOwnSpelling() throws {
         let entity = Entity(name: "Sarah Kim", key: "sarah kim", kind: .person)
         harness.context.insert(entity)

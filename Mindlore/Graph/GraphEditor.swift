@@ -24,16 +24,23 @@ struct GraphEditor {
 
     // MARK: - Editing one entity
 
+    // `keepingOldNameAsAlias` skips the collision check for the old name: it already belonged to
+    // this entity, so nothing else can be answering to it.
     @discardableResult
-    func rename(_ entity: Entity, to name: String, in context: ModelContext) -> EditOutcome {
+    func rename(_ entity: Entity, to name: String, keepingOldNameAsAlias: Bool = false, in context: ModelContext) -> EditOutcome {
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return .applied }
         let key = EntityNormalizer.key(for: trimmed, kind: entity.kind)
         if let clash = entityAnswering(to: key, kind: entity.kind, excluding: entity, in: context) {
             return .collides(with: clash.id)
         }
+        let oldName = entity.name
         entity.name = trimmed
         entity.key = key
+        if keepingOldNameAsAlias, !oldName.isEmpty, key != EntityNormalizer.key(for: oldName, kind: entity.kind),
+           !entity.aliases.contains(oldName) {
+            entity.aliases.append(oldName)
+        }
         claim(entity)
         diagnostics.record("graph.entityEdited", ["id": .id(entity.id), "field": "name"])
         return .applied

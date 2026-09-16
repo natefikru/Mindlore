@@ -30,6 +30,13 @@ nonisolated enum EntityPagePresentation {
         return .show(route.id)
     }
 
+    // Whether any of an entity's linked entries came from a recording, so the rename alert can
+    // default "keep the old name as another name" on: a name recognizer mishearing one is far
+    // more likely than a typed entry misspelling one.
+    static func hasVoiceSourcedLink(sources: [EntrySource]) -> Bool {
+        sources.contains(.voice)
+    }
+
     // After a merge made from a page, the page's route names the winner itself, so undoing
     // that merge later doesn't flip the page back to the loser. Only the top route that shows
     // the loser is replaced.

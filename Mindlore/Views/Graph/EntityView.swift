@@ -112,11 +112,10 @@ private struct EntityPage: View {
             .sheet(item: $previewingRow) { row in
                 EntryPreview(entryID: row.id)
             }
-            .alert("Rename", isPresented: $renaming) {
-                TextField("Name", text: $draftText)
-                    .accessibilityIdentifier("entityRenameField")
-                Button("Save") { apply { graph.rename(id, to: draftText, in: modelContext) } }
-                Button("Cancel", role: .cancel) {}
+            .sheet(isPresented: $renaming) {
+                RenameEntitySheet(initial: entity.name, defaultsToKeepingOldName: hasVoiceSourcedLink) { name, keepOldName in
+                    apply { graph.rename(id, to: name, keepingOldNameAsAlias: keepOldName, in: modelContext) }
+                }
             }
             .alert("Add another name", isPresented: $addingAlias) {
                 TextField("Name", text: $draftText)
@@ -179,7 +178,6 @@ private struct EntityPage: View {
             .accessibilityElement(children: .combine)
             if !entity.isMerged {
                 Button {
-                    draftText = entity.name
                     renaming = true
                 } label: {
                     LabeledContent("Name", value: entity.name)
@@ -404,16 +402,25 @@ private struct EntityPage: View {
         }
     }
 
+    // Whether to default the rename sheet's "keep the old name" toggle on.
+    private var hasVoiceSourcedLink: Bool {
+        EntityPagePresentation.hasVoiceSourcedLink(sources: linkedEntries.map(\.source))
+    }
+
     // Links by id, one fetch filtered in memory, never through a relationship.
+    private var linkedEntries: [Entry] {
+        let ids = Set(links.filter { $0.entityID == id && !$0.isDeleted }.compactMap(\.entryID))
+        guard !ids.isEmpty else { return [] }
+        return ((try? modelContext.fetch(FetchDescriptor<Entry>(predicate: #Predicate { ids.contains($0.id) }))) ?? [])
+            .filter { !$0.isDeleted }
+    }
+
     private var entryRows: [EntityPagePresentation.EntryRow] {
         let mine = links.filter { $0.entityID == id && !$0.isDeleted }
         let byEntry = Dictionary(grouping: mine.compactMap { link in link.entryID.map { ($0, link) } }, by: \.0)
             .mapValues { $0.map(\.1) }
         guard !byEntry.isEmpty else { return [] }
-        let ids = Set(byEntry.keys)
-        let entries = ((try? modelContext.fetch(FetchDescriptor<Entry>(predicate: #Predicate { ids.contains($0.id) }))) ?? [])
-            .filter { !$0.isDeleted }
-        return EntityPagePresentation.entryRows(entries.map { entry in
+        return EntityPagePresentation.entryRows(linkedEntries.map { entry in
             let links = byEntry[entry.id] ?? []
             return .init(
                 entryID: entry.id,
@@ -462,6 +469,51 @@ private struct BioEditorSheet: View {
             }
         }
         .presentationDetents([.medium, .large])
+    }
+}
+
+// A sheet, not an alert: a `Toggle` doesn't render inside `.alert`'s action builder, which is
+// backed by UIAlertController and only really supports buttons and text fields.
+private struct RenameEntitySheet: View {
+    @Environment(\.dismiss) private var dismiss
+    @State private var name: String
+    @State private var keepOldName: Bool
+    let initial: String
+    let onSave: (String, Bool) -> Void
+
+    init(initial: String, defaultsToKeepingOldName: Bool, onSave: @escaping (String, Bool) -> Void) {
+        self.initial = initial
+        _name = State(initialValue: initial)
+        _keepOldName = State(initialValue: defaultsToKeepingOldName)
+        self.onSave = onSave
+    }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                TextField("Name", text: $name)
+                    .accessibilityIdentifier("entityRenameField")
+                if name.trimmingCharacters(in: .whitespacesAndNewlines) != initial {
+                    Toggle("Keep \"\(initial)\" as another name", isOn: $keepOldName)
+                        .accessibilityIdentifier("entityRenameKeepOldName")
+                }
+            }
+            .navigationTitle("Rename")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Save") {
+                        onSave(name, keepOldName)
+                        dismiss()
+                    }
+                    .accessibilityIdentifier("entityRenameSave")
+                }
+            }
+        }
+        .presentationDetents([.medium])
     }
 }
 

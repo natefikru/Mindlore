@@ -25,6 +25,12 @@ struct EntityPagePresentationTests {
         #expect(P.resolve(EntityRoute(id: a, follow: false), exists: false, mergedIntoID: b) == .gone)
     }
 
+    @Test func hasVoiceSourcedLinkIsTrueWithAnyVoiceEntry() {
+        #expect(P.hasVoiceSourcedLink(sources: [.typed, .voice]))
+        #expect(!P.hasVoiceSourcedLink(sources: [.typed, .photo]))
+        #expect(!P.hasVoiceSourcedLink(sources: []))
+    }
+
     @Test func aMergeFromAPageReplacesOnlyTheTopRouteForTheLoser() {
         let other = UUID()
         let path = [EntityRoute(id: a), EntityRoute(id: other), EntityRoute(id: a)]

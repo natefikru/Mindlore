@@ -70,6 +70,17 @@ struct EntityPageEditTests {
         #expect(services.revision == 1)
     }
 
+    @Test func aRenameThroughServicesCanKeepTheOldNameAsAnAlias() throws {
+        try harness.entry("Lewis called.", mentions: [("Lewis", .person)])
+        let lewis = try harness.entity("Lewis")
+
+        #expect(services.rename(lewis.id, to: "Luis", keepingOldNameAsAlias: true, in: context) == .applied)
+
+        #expect(lewis.name == "Luis")
+        #expect(lewis.aliases == ["Lewis"])
+        #expect(!context.hasChanges)
+    }
+
     @Test func aliasesAddAndRemove() throws {
         try harness.entry("Mom called.", mentions: [("Sarah", .person)])
         let sarah = try harness.entity("Sarah")

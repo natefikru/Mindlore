@@ -201,11 +201,11 @@ final class GraphUITests: XCTestCase {
 
         // Renaming Tom to "Sara" makes him look like Sarah, so a suggestion appears.
         app.buttons["entityRename"].tap()
-        let field = app.alerts.firstMatch.textFields.firstMatch
-        XCTAssertTrue(field.waitForExistence(timeout: 5))
-        field.doubleTap()
-        field.typeText("Sara")
-        app.alerts.firstMatch.buttons["Save"].tap()
+        let renameField = app.textFields["entityRenameField"]
+        XCTAssertTrue(renameField.waitForExistence(timeout: 5))
+        renameField.doubleTap()
+        renameField.typeText("Sara")
+        app.buttons["entityRenameSave"].tap()
 
         goBack() // Sara's page -> Connections list
         let notTheSame = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'reviewNotSame-'")).firstMatch

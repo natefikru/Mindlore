@@ -52,8 +52,8 @@ final class GraphServices {
     }
 
     @discardableResult
-    func rename(_ entityID: UUID, to name: String, in context: ModelContext) -> GraphEditor.EditOutcome {
-        edit(entityID, in: context) { editor.rename($0, to: name, in: context) }
+    func rename(_ entityID: UUID, to name: String, keepingOldNameAsAlias: Bool = false, in context: ModelContext) -> GraphEditor.EditOutcome {
+        edit(entityID, in: context) { editor.rename($0, to: name, keepingOldNameAsAlias: keepingOldNameAsAlias, in: context) }
     }
 
     @discardableResult

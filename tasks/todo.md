@@ -766,7 +766,7 @@ transcription-hint bullet waits on an owner call about scope.
       the same way `originalEntityID` already is; `NameMatching.nearestWord` requires the
       candidate word or phrase to share the name's first letter before scoring, which is what lets
       `nearestWordThreshold` sit at 0.8 instead of `EntityMatcher`'s 0.88 without matching noise.)
-- [ ] 5c.2 Rename offers "Keep '{old name}' as another name." `GraphEditor.rename(_:to:in:)`
+- [x] 5c.2 Rename offers "Keep '{old name}' as another name." `GraphEditor.rename(_:to:in:)`
       (`GraphEditor.swift:27-38`) gains `keepingOldNameAsAlias: Bool = false`; on a successful
       rename it appends the entity's old `name` to `aliases` in the same edit, skipping
       `entityAnswering`'s collision check since the old name already belonged to this entity.
@@ -781,6 +781,15 @@ transcription-hint bullet waits on an owner call about scope.
       computed fetch again or lifting it into a stored value the header can also read, not a new
       kind of query but a second invocation of the existing one unless restructured. Passed through
       `apply`'s closure to `graph.rename(id, to:, keepingOldNameAsAlias:, in:)`.
+      (Built: the rename UI moved from `.alert` to a small `.sheet` (`RenameEntitySheet`,
+      mirroring `BioEditorSheet`'s pattern), because `.alert`'s action builder is backed by
+      `UIAlertController`, which does not render a `Toggle`, only buttons and text fields; the
+      toggle only shows once the typed name differs from the original, since keeping a name that
+      didn't change is a no-op. `entryRows` and the new default both read a shared
+      `linkedEntries` computed property, still a second fetch per render rather than one, per the
+      spec's own note. The existing `GraphUITests` rename interaction, which drove `app.alerts`,
+      was updated to the sheet's `entityRenameField`/`entityRenameSave` identifiers; not run this
+      session per the standing "no UI tests" note, but it builds.)
       Test: rename with the flag true adds the alias and it survives a second rename; false behaves
       exactly as `rename` does today; `hasVoiceSourcedLink` is true with a voice entry among the
       links and false for typed-only or none; a rename that collides never touches the alias,
