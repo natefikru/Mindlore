@@ -49,6 +49,21 @@ extension EntityKind {
         }
     }
 
+    // The graph canvas's node fill, and any kind legend beside it. Eight fixed, visually distinct
+    // colours; never derived from anything else, so a kind's colour stays stable across a session.
+    var color: Color {
+        switch self {
+        case .person: .blue
+        case .place: .green
+        case .organization: .purple
+        case .project: .orange
+        case .event: .red
+        case .tag: .teal
+        case .theme: .indigo
+        case .other: .gray
+        }
+    }
+
     // Singular, for one entity's kind picker and its page.
     var label: String {
         switch self {

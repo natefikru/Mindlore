@@ -1320,7 +1320,7 @@ Phase 8's device smoke steps); this phase's own tests cover the simulation's mat
 test beyond compiling and the existing suite staying green; their behaviour is judged on the phone,
 Phase 8):
 
-- [ ] 7.1 `Mindlore/Graph/GraphSimulation.swift`: `Node`, the constants, `init`, `tick`, `settled`,
+- [x] 7.1 `Mindlore/Graph/GraphSimulation.swift`: `Node`, the constants, `init`, `tick`, `settled`,
       the lookup accessors, `pin`/`unpin`/`isPinned`/`anchor`, the four forces, the phyllotaxis
       initial placement.
       Test file `GraphSimulationTests.swift`, styled like `EntityGraphTests.swift` (plain `struct`, no
