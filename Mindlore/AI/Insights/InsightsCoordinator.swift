@@ -84,6 +84,9 @@ final class InsightsCoordinator {
     // Creates, retries, or replaces insights for one entry, whatever its history.
     func runAI(for entry: Entry, context: ModelContext) async {
         guard !isRunning(entry), Self.canRunAI(on: entry) else { return }
+        // The automatic pass exists so each entry is analyzed once without asking. Asking counts, or
+        // closing the entry afterwards would pay for the same analysis again.
+        entry.automaticAIPassUsed = true
         AIJobPolicy.manualReset(.insights, entry)
         failedThisSession.remove(entry.id)
         manualRuns.insert(entry.id)

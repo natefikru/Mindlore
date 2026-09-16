@@ -60,6 +60,25 @@ struct InsightsPresentationTests {
         #expect(InsightsPresentation.state(inputs { $0.failure = AIJobFailure(.invalidKey); $0.hasInsights = true; $0.insightsAreCurrent = true }) == .current)
     }
 
+    // Opening insights on an entry that has none starts the run; anything else waits for a tap.
+    @Test func openingRunsOnlyAFirstRunWithNothingInTheWay() {
+        #expect(InsightsPresentation.runsWhenOpened(inputs { _ in }))
+
+        // Spending again, retrying a failure, and finishing a draft all stay deliberate.
+        #expect(!InsightsPresentation.runsWhenOpened(inputs { $0.hasInsights = true; $0.insightsAreCurrent = true }))
+        #expect(!InsightsPresentation.runsWhenOpened(inputs { $0.hasInsights = true }))
+        #expect(!InsightsPresentation.runsWhenOpened(inputs { $0.failure = AIJobFailure(any: AIError.invalidKey) }))
+        #expect(!InsightsPresentation.runsWhenOpened(inputs { $0.isDraft = true }))
+
+        // Nothing to analyze, or not allowed to yet.
+        #expect(!InsightsPresentation.runsWhenOpened(inputs { $0.hasText = false }))
+        #expect(!InsightsPresentation.runsWhenOpened(inputs { $0.awaitingText = true }))
+        #expect(!InsightsPresentation.runsWhenOpened(inputs { $0.textReviewPending = true }))
+        #expect(!InsightsPresentation.runsWhenOpened(inputs { $0.running = true }))
+        #expect(!InsightsPresentation.runsWhenOpened(inputs { $0.aiEnabled = false }))
+        #expect(!InsightsPresentation.runsWhenOpened(inputs { $0.hasKey = false }))
+    }
+
     @Test func glyphTellsNoneCurrentStaleAndFailedApart() {
         #expect(InsightsPresentation.symbol(for: .failed("x")) == "exclamationmark.triangle")
         #expect(InsightsPresentation.symbol(for: .current) == "sparkles")

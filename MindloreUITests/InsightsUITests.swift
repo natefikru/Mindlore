@@ -69,7 +69,15 @@ final class InsightsUITests: XCTestCase {
         app.buttons["insightsMenuButton"].tap()
         app.buttons["Delete insights"].tap()
         app.buttons["confirmDeleteInsightsButton"].firstMatch.tap()
+        // Deleting inside the sheet doesn't start a run on its own; that's still the user's call.
         XCTAssertTrue(waitForRunButton("Generate insights"), "got \(app.buttons["runInsightsButton"].label)")
+        app.buttons["Done"].tap()
+        XCTAssertTrue(editor.waitForExistence(timeout: 5))
+
+        // With no insights, the entry's Insights button generates them without a second tap.
+        app.buttons["insightsButton"].tap()
+        XCTAssertTrue(waitForRunButton("Generate again", timeout: 90), "got \(app.buttons["runInsightsButton"].label)")
+        XCTAssertTrue(app.staticTexts["Summary"].exists)
         app.buttons["Done"].tap()
         XCTAssertTrue(editor.waitForExistence(timeout: 5))
     }

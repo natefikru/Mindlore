@@ -126,7 +126,7 @@ struct EntryEditorView: View {
         }
         .sheet(isPresented: $showingInsights) {
             if let entry {
-                EntryInsightsView(entry: entry)
+                EntryInsightsView(entry: entry, runsWhenOpened: true)
             }
         }
         .sheet(isPresented: $reviewingCleanup) {
