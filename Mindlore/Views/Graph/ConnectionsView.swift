@@ -152,8 +152,8 @@ private struct ConnectionRowLabel: View {
     }
 }
 
-// One pair EntityMatcher thinks might be the same thing. "Same" merges the second into the
-// first; "Not the same" records it, and EntityMatcher won't suggest the pair again.
+// One pair EntityMatcher thinks might be the same thing. "Same" merges the first into the
+// second; "Not the same" records it, and EntityMatcher won't suggest the pair again.
 private struct ReviewSuggestionRow: View {
     let a: Entity
     let b: Entity

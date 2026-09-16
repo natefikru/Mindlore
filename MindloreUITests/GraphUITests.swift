@@ -185,4 +185,38 @@ final class GraphUITests: XCTestCase {
         XCTAssertTrue(app.buttons["connectionRow-Tom"].waitForExistence(timeout: 5), "unmerge restored Tom")
         app.buttons["Done"].tap() // Connections -> list
     }
+    // The Review section: a suggestion appears when two names look alike, "Not the same"
+    // dismisses it, and the refresh keyed on graph.revision actually drops it (not just that
+    // editor.suggestions(in:) would, which EntityPageEditTests already covers).
+    @MainActor
+    func testReviewSuggestionNotTheSameRemovesThePair() throws {
+        finishEntryAndOpenInsights()
+        app.buttons["Done"].tap() // insights sheet -> editor
+        goBack() // editor -> list
+
+        app.buttons["Connections"].tap()
+        let tomRow = app.buttons["connectionRow-Tom"]
+        XCTAssertTrue(tomRow.waitForExistence(timeout: 5))
+        tomRow.tap()
+
+        // Renaming Tom to "Sara" makes him look like Sarah, so a suggestion appears.
+        app.buttons["entityRename"].tap()
+        let field = app.alerts.firstMatch.textFields.firstMatch
+        XCTAssertTrue(field.waitForExistence(timeout: 5))
+        field.doubleTap()
+        field.typeText("Sara")
+        app.alerts.firstMatch.buttons["Save"].tap()
+
+        goBack() // Sara's page -> Connections list
+        let notTheSame = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'reviewNotSame-'")).firstMatch
+        XCTAssertTrue(notTheSame.waitForExistence(timeout: 5), "Sara and Sarah look alike enough to suggest")
+        notTheSame.tap()
+
+        // The pair is gone, and neither name merged into the other.
+        let stillSuggested = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'reviewNotSame-'")).firstMatch
+        XCTAssertFalse(stillSuggested.waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["connectionRow-Sara"].exists)
+        XCTAssertTrue(app.buttons["connectionRow-Sarah"].exists)
+        app.buttons["Done"].tap() // Connections -> list
+    }
 }

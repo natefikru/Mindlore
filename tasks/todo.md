@@ -644,7 +644,7 @@ Display name decided (2026-09-16): no auto-capitalization. `entity.name` stays e
 first seen, same as today; a display-only capitalizer would fight the user's own rename (5a) and
 add a rule with no clean edge (initials, "mom" versus "Mom's house"). Unchanged from Phase 5a.
 
-- [ ] 5b.1 `Mindlore/Graph/ConnectionsPresentation.swift`: pure filter/sort helpers.
+- [x] 5b.1 `Mindlore/Graph/ConnectionsPresentation.swift`: pure filter/sort helpers.
       - `filter(_:kind:search:)`: kind is `EntityKind?` (`nil` = all), search matches name or any
         alias (`localizedStandardContains`, matching `MergeCandidates.order`'s search).
       - `SortOption: name, mostMentioned, recent` (`recent` = `lastLinkedAt`, nil sorts last, per
@@ -652,13 +652,13 @@ add a rule with no clean edge (initials, "mom" versus "Mom's house"). Unchanged 
       - `ConnectionRow` (id, name, kind, linkCount, lastLinkedAt), built from `Entity` by the view.
       - Tests: filter by kind, filter by search (name and alias), each sort, nil `lastLinkedAt`
         sorts last.
-- [ ] 5b.2 `GraphServices.markNotSame(_:_:in:)`: `GraphEditor.markNotSame` takes two `Entity`
+- [x] 5b.2 `GraphServices.markNotSame(_:_:in:)`: `GraphEditor.markNotSame` takes two `Entity`
       values and doesn't save, so this can't reuse the private `edit(_:in:_:)` helper (single id,
       single-entity closure); fetch both entities directly, call `editor.markNotSame`, then the
       private `save(context)` (`GraphServices.swift:154-161`), bumping `revision` the same way
       `merge`/`unmerge` do.
       Test: after `markNotSame`, the pair is gone from `editor.suggestions(in:)`.
-- [ ] 5b.3 `Mindlore/Views/Graph/ConnectionsView.swift` + `ReviewSuggestionsView` (small subview,
+- [x] 5b.3 `Mindlore/Views/Graph/ConnectionsView.swift` + `ReviewSuggestionsView` (small subview,
       same file): own `NavigationStack` and `.navigationDestination(for: EntityRoute.self)`,
       mirroring `MergeIntoView`/`EntryInsightsView`. Sections, in order:
       1. **Review** — `graph.editor.suggestions(in:)`, refreshed via `.task(id:)` keyed on
@@ -678,7 +678,7 @@ add a rule with no clean edge (initials, "mom" versus "Mom's house"). Unchanged 
       Settings' pattern at `EntryListView.swift:78,90-92`), `.sheet`.
       Accessibility ids: `"connectionRow-\(entity.name)"`, `"connectionsKindPicker"`,
       `"connectionsSortPicker"`, `"reviewSame-\(suggestion.a)"`, `"reviewNotSame-\(suggestion.a)"`.
-- [ ] 5b.4 Entry rows on the entity page become tappable (gap from 5a: "opening an entry from an
+- [x] 5b.4 Entry rows on the entity page become tappable (gap from 5a: "opening an entry from an
       entity page" was explicitly deferred here). Scope: a read-only preview sheet (date, full
       text), not the full editor — reaching the editor would mean dismissing through however many
       sheets got the user to this entity page (the insights sheet, or now Connections, each with
@@ -688,7 +688,7 @@ add a rule with no clean edge (initials, "mom" versus "Mom's house"). Unchanged 
       entry's live text in this file (rename, hide, and merge all flush first; this had been the
       one unflushed read of `entry.text`). Accessibility ids: `"entityEntryRow-\(row.id)"`,
       `"entryPreview"`.
-- [ ] 5b.5 `UITestingHTTPClient` (`Mindlore/AI/HTTP/UITestingHTTPClient.swift:29`): add a second
+- [x] 5b.5 `UITestingHTTPClient` (`Mindlore/AI/HTTP/UITestingHTTPClient.swift:29`): add a second
       mention, `{"name":"Tom","kind":"person"}`, to the fixed payload, so a merge can be
       exercised. Confirmed safe: `InsightsUITests` asserts only section titles and the run button
       label; `GraphUITests` asserts Sarah's and river's chips specifically, unaffected by Tom's
@@ -702,6 +702,17 @@ add a rule with no clean edge (initials, "mom" versus "Mom's house"). Unchanged 
 Not in scope: manual entity creation, bulk merge or hide, full-text entry search (name/alias only,
 same as `MergeIntoView`'s), model-judged merge suggestions (`EntityMatcher`'s heuristic only), and
 opening the full editor from an entity page's entry row (5b.4's preview instead).
+
+Review log (sub-agent review of `e700e7a..HEAD`, 2026-09-16, verdict: two findings, both fixed):
+1. No test exercised the Review section's Same/Not-the-same buttons or its `.task(id:)` refresh
+   actually dropping a pair, as the plan required. Added
+   `testReviewSuggestionNotTheSameRemovesThePair`: renames Tom to "Sara" so he looks like Sarah,
+   confirms the suggestion appears, dismisses it, and confirms it's gone after the refresh.
+2. `ReviewSuggestionRow`'s comment had the merge direction backwards ("second into the first"
+   when the code merges the first into the second). Fixed the comment; behavior was never wrong.
+Everything else the reviewer checked (markNotSame's implementation, saver.flush() before the
+entry preview, kind filtering on both All and Hidden, Tom not false-matching Sarah, no
+capitalization creeping in, nothing from "Not in scope" leaking in) was already correct.
 
 ### Phase 5c: Names that sound alike (owner request, 2026-09-16; not yet specified)
 
