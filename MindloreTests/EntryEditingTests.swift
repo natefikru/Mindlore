@@ -153,9 +153,32 @@ struct EntryEditingTests {
         #expect(Set(try context.fetch(FetchDescriptor<Entry>()).map(\.id)) == [written.id, waiting.id])
     }
 
-    @Test func blankMeansNoTextAndNoAudio() {
+    @Test func blankMeansNoTitleTextAudioOrPages() throws {
         #expect(Entry().isBlank)
         #expect(Entry(text: " ").isBlank == false)
         #expect(Entry(source: .voice, awaitingText: true, audioData: Data([1])).isBlank == false)
+
+        let titled = Entry()
+        titled.title = "Just a title"
+        #expect(titled.isBlank == false)
+
+        let container = try ModelContainerFactory.make(.inMemory)
+        let photo = Entry(source: .photo)
+        container.mainContext.insert(photo)
+        let page = EntryPage(index: 0, imageData: Data([1]), thumbnailData: nil, pixelWidth: 1, pixelHeight: 1, origin: .camera)
+        page.entry = photo
+        #expect(photo.isBlank == false)
+    }
+
+    @Test func closingKeepsATitleOnlyEntry() throws {
+        let container = try ModelContainerFactory.make(.inMemory)
+        let context = container.mainContext
+        let titled = Entry()
+        titled.title = "Groceries"
+        context.insert(titled)
+
+        #expect(Entry.editorDidClose(titled, keepAudio: true, in: context) == false)
+        try context.save()
+        #expect(try context.fetchCount(FetchDescriptor<Entry>()) == 1)
     }
 }

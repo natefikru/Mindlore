@@ -288,3 +288,315 @@ struct TranscriptionCoordinatorTests {
         #expect(TranscriptionError.analysisFailed("x").isPermanent == false)
     }
 }
+
+// Cloud routing, persisted failures, fallback, and offline behavior.
+@MainActor
+struct TranscriptionRoutingTests {
+    private func coordinator(_ harness: TranscriptionHarness, cloud: FakeTranscriber?, fallback: Bool, onDevice: FakeTranscriber? = nil, prompts: PromptLog? = nil) -> TranscriptionCoordinator {
+        let onDevice = onDevice ?? harness.transcriber
+        return TranscriptionCoordinator(
+            route: { _, _ in
+                guard let cloud else { return .onDevice(onDevice) }
+                return TranscriptionRoute(
+                    cloud: .init(label: "openai:test", makeTranscriber: { prompt in prompts?.prompts.append(prompt); return cloud }, chunkTargetSeconds: 1_200, maxUploadBytes: 25_000_000),
+                    onDevice: onDevice,
+                    onDeviceLabel: "apple",
+                    fallBackToOnDevice: fallback
+                )
+            },
+            locale: Locale(identifier: "en_US"),
+            temporaryDirectory: harness.temporaryDirectory,
+            diagnostics: .disabled,
+            beginBackgroundTask: { _ in {} }
+        )
+    }
+
+    final class PromptLog {
+        var prompts: [String?] = []
+    }
+
+    @Test func voiceQueueIgnoresPhotoEntries() async throws {
+        let harness = try TranscriptionHarness()
+        let photo = Entry(source: .photo, awaitingText: true, audioData: TranscriptionHarness.m4aBytes)
+        harness.context.insert(photo)
+        try harness.context.save()
+        harness.transcriber.automaticResult = .success("should not happen")
+
+        await harness.coordinator.processQueue(context: harness.context)
+
+        #expect(harness.transcriber.calls.isEmpty)
+        #expect(photo.textAttempts == 0)
+    }
+
+    @Test func permanentFailureIsNotRetriedAfterRelaunch() async throws {
+        let harness = try TranscriptionHarness()
+        let entry = try harness.voiceEntry()
+        let cloud = FakeTranscriber()
+        cloud.automaticResult = .failure(AIError.invalidKey)
+
+        await coordinator(harness, cloud: cloud, fallback: false).processQueue(context: harness.context)
+        #expect(entry.textFailureRaw == "ai.invalidKey")
+        #expect(entry.textAttempts == 1)
+
+        // A new coordinator over the same store stands in for the next launch.
+        await coordinator(harness, cloud: cloud, fallback: false).processQueue(context: harness.context)
+        #expect(cloud.calls.count == 1)
+        #expect(entry.awaitingText)
+    }
+
+    @Test func retryableFailureRetriesOncePerLaunchUntilTheCap() async throws {
+        let harness = try TranscriptionHarness()
+        let entry = try harness.voiceEntry()
+        let cloud = FakeTranscriber()
+        cloud.automaticResult = .failure(AIError.serverError(status: 503))
+
+        let first = coordinator(harness, cloud: cloud, fallback: false)
+        await first.processQueue(context: harness.context)
+        await first.processQueue(context: harness.context)
+        #expect(cloud.calls.count == 1)
+
+        for _ in 0..<4 {
+            await coordinator(harness, cloud: cloud, fallback: false).processQueue(context: harness.context)
+        }
+        #expect(cloud.calls.count == 3)
+        #expect(entry.textAttempts == 3)
+    }
+
+    @Test func attemptIsSavedBeforeTheRequestReturns() async throws {
+        let harness = try TranscriptionHarness()
+        let entry = try harness.voiceEntry()
+        let cloud = FakeTranscriber()
+        let running = coordinator(harness, cloud: cloud, fallback: false)
+
+        let task = Task { await running.processQueue(context: harness.context) }
+        await cloud.waitForCall(number: 1)
+        #expect(try harness.persisted(entry.id)?.textAttempts == 1)
+
+        cloud.answer(.success("done"))
+        await task.value
+        #expect(entry.textAttempts == 0)
+        #expect(entry.text == "done")
+        #expect(entry.textGeneratedBy == "openai:test")
+    }
+
+    @Test func offlineWithoutFallbackPausesAndResumesWhenTheNetworkReturns() async throws {
+        let harness = try TranscriptionHarness()
+        let entry = try harness.voiceEntry()
+        let cloud = FakeTranscriber()
+        cloud.automaticResult = .failure(AIError.offline(.notConnectedToInternet))
+        let running = coordinator(harness, cloud: cloud, fallback: false)
+
+        await running.processQueue(context: harness.context)
+        #expect(running.pausedForOffline)
+        #expect(entry.textAttempts == 0)
+
+        await running.processQueue(context: harness.context)
+        #expect(cloud.calls.count == 1)
+
+        cloud.automaticResult = .success("back online")
+        await running.networkBecameAvailable(context: harness.context)
+        #expect(entry.text == "back online")
+        #expect(!running.pausedForOffline)
+    }
+
+    @Test func cloudFailureFallsBackToOnDeviceAndRecordsWhy() async throws {
+        let harness = try TranscriptionHarness()
+        let entry = try harness.voiceEntry()
+        let cloud = FakeTranscriber()
+        cloud.automaticResult = .failure(AIError.network(.timedOut))
+        harness.transcriber.automaticResult = .success("from the phone")
+        var readyIDs: [PersistentIdentifier] = []
+        let running = coordinator(harness, cloud: cloud, fallback: true)
+        running.onTextReady = { readyIDs.append($0) }
+
+        await running.processQueue(context: harness.context)
+
+        #expect(entry.text == "from the phone")
+        #expect(entry.textGeneratedBy == "apple")
+        #expect(entry.textFallbackReasonRaw == "ai.network")
+        #expect(entry.textAttempts == 0)
+        #expect(entry.textFailureRaw == nil)
+        #expect(readyIDs == [entry.persistentModelID])
+        #expect(!running.pausedForOffline)
+    }
+
+    @Test func fallbackFailureRecordsTheOnDeviceError() async throws {
+        let harness = try TranscriptionHarness()
+        let entry = try harness.voiceEntry()
+        let cloud = FakeTranscriber()
+        cloud.automaticResult = .failure(AIError.serverError(status: 500))
+        harness.transcriber.automaticResult = .failure(TranscriptionError.unsupportedLocale)
+
+        await coordinator(harness, cloud: cloud, fallback: true).processQueue(context: harness.context)
+
+        #expect(entry.textFailureRaw == "speech.unsupportedLocale")
+        #expect(entry.awaitingText)
+    }
+
+    @Test func cloudNoSpeechIsNotUploadedAgain() async throws {
+        let harness = try TranscriptionHarness()
+        let entry = try harness.voiceEntry()
+        let cloud = FakeTranscriber()
+        cloud.automaticResult = .failure(TranscriptionError.noSpeechDetected)
+
+        await coordinator(harness, cloud: cloud, fallback: true).processQueue(context: harness.context)
+        await coordinator(harness, cloud: cloud, fallback: true).processQueue(context: harness.context)
+
+        #expect(cloud.calls.count == 1)
+        #expect(harness.transcriber.calls.isEmpty)
+        #expect(entry.textFailureRaw == "speech.noSpeechDetected")
+    }
+
+    @Test func longRecordingsAreChunkedWithThePreviousTextAsPrompt() async throws {
+        let harness = try TranscriptionHarness()
+        let caf = harness.temporaryDirectory.appendingPathComponent("long.caf")
+        _ = try AudioFixtures.writePCM(to: caf, seconds: 9)
+        let entry = try harness.voiceEntry(audio: try AudioConverter.convertToAAC(caf).data)
+        let cloud = FakeTranscriber()
+        let prompts = PromptLog()
+        let running = TranscriptionCoordinator(
+            route: { _, _ in
+                TranscriptionRoute(
+                    cloud: .init(label: "openai:test", makeTranscriber: { prompt in prompts.prompts.append(prompt); return cloud }, chunkTargetSeconds: 4, maxUploadBytes: 25_000_000),
+                    onDevice: harness.transcriber, onDeviceLabel: "apple", fallBackToOnDevice: false
+                )
+            },
+            locale: Locale(identifier: "en_US"),
+            temporaryDirectory: harness.temporaryDirectory,
+            diagnostics: .disabled,
+            chunkSearchSeconds: 1,
+            beginBackgroundTask: { _ in {} }
+        )
+
+        let task = Task { await running.processQueue(context: harness.context) }
+        await cloud.waitForCall(number: 1)
+        cloud.answer(.success("first part"))
+        await cloud.waitForCall(number: 2)
+        cloud.answer(.success("second part"))
+        await cloud.waitForCall(number: 3)
+        cloud.answer(.success("third part"))
+        await task.value
+
+        #expect(prompts.prompts == [nil, "first part", "second part"])
+        #expect(entry.text == "first part second part third part")
+    }
+
+    @Test func oneFailedChunkFailsTheEntryAsOneAttempt() async throws {
+        let harness = try TranscriptionHarness()
+        let caf = harness.temporaryDirectory.appendingPathComponent("long.caf")
+        _ = try AudioFixtures.writePCM(to: caf, seconds: 9)
+        let entry = try harness.voiceEntry(audio: try AudioConverter.convertToAAC(caf).data)
+        let cloud = FakeTranscriber()
+        let running = TranscriptionCoordinator(
+            route: { _, _ in
+                TranscriptionRoute(
+                    cloud: .init(label: "openai:test", makeTranscriber: { _ in cloud }, chunkTargetSeconds: 4, maxUploadBytes: 25_000_000),
+                    onDevice: harness.transcriber, onDeviceLabel: "apple", fallBackToOnDevice: false
+                )
+            },
+            locale: Locale(identifier: "en_US"),
+            temporaryDirectory: harness.temporaryDirectory,
+            diagnostics: .disabled,
+            chunkSearchSeconds: 1,
+            beginBackgroundTask: { _ in {} }
+        )
+
+        let task = Task { await running.processQueue(context: harness.context) }
+        await cloud.waitForCall(number: 1)
+        cloud.answer(.success("first part"))
+        await cloud.waitForCall(number: 2)
+        cloud.answer(.failure(AIError.serverError(status: 502)))
+        await task.value
+
+        #expect(cloud.calls.count == 2)
+        #expect(entry.textAttempts == 1)
+        #expect(entry.text.isEmpty)
+        #expect(entry.awaitingText)
+    }
+
+    @Test func retryWhileOfflineStillSends() async throws {
+        let harness = try TranscriptionHarness()
+        let entry = try harness.voiceEntry()
+        let cloud = FakeTranscriber()
+        cloud.automaticResult = .failure(AIError.offline(.notConnectedToInternet))
+        let running = coordinator(harness, cloud: cloud, fallback: false)
+        await running.processQueue(context: harness.context)
+        #expect(running.pausedForOffline)
+
+        cloud.automaticResult = .success("sent on retry")
+        await running.retry(entry.persistentModelID, context: harness.context)
+
+        #expect(cloud.calls.count == 2)
+        #expect(entry.text == "sent on retry")
+        #expect(!running.pausedForOffline)
+    }
+
+    @Test func nonProviderCloudFailuresFallBackToo() async throws {
+        let harness = try TranscriptionHarness()
+        let entry = try harness.voiceEntry()
+        let cloud = FakeTranscriber()
+        cloud.automaticResult = .failure(TranscriptionError.analysisFailed("conversion"))
+        harness.transcriber.automaticResult = .success("the phone read it")
+
+        await coordinator(harness, cloud: cloud, fallback: true).processQueue(context: harness.context)
+
+        #expect(entry.text == "the phone read it")
+        #expect(entry.textFallbackReasonRaw == "speech.analysisFailed")
+    }
+
+    @Test func manualRetryResetsAPermanentFailure() async throws {
+        let harness = try TranscriptionHarness()
+        let entry = try harness.voiceEntry()
+        let cloud = FakeTranscriber()
+        cloud.automaticResult = .failure(AIError.quotaExceeded)
+        let running = coordinator(harness, cloud: cloud, fallback: false)
+        await running.processQueue(context: harness.context)
+
+        cloud.automaticResult = .success("paid up")
+        await running.retry(entry.persistentModelID, context: harness.context)
+
+        #expect(entry.text == "paid up")
+        #expect(entry.textFailureRaw == nil)
+    }
+}
+
+@MainActor
+struct TranscriberRouterTests {
+    private func makeRouter(aiEnabled: Bool = true, engine: SpeechEngine = .cloud, key: Bool = true, fallback: Bool = true, enabledAt: Date = Date(timeIntervalSince1970: 1_000)) throws -> TranscriberRouter {
+        var clock = enabledAt
+        let settings = SettingsStore(store: FakeKeyValueStore(), diagnostics: .disabled, now: { clock })
+        let accounts = ProviderAccountStore(settings: settings, secrets: FakeSecretStore(), diagnostics: .disabled)
+        if key { try accounts.saveOpenAIKey("sk-test") }
+        settings.speechEngine = engine
+        settings.fallBackToOnDevice = fallback
+        settings.aiEnabled = aiEnabled
+        clock = .now
+        return TranscriberRouter(settings: settings, accounts: accounts, http: FakeHTTPClient(), onDevice: FakeTranscriber())
+    }
+
+    private let newEntry = Entry(createdAt: Date(timeIntervalSince1970: 5_000), source: .voice)
+    private let oldEntry = Entry(createdAt: Date(timeIntervalSince1970: 10), source: .voice)
+
+    @Test func cloudWhenAIIsOnWithAKeyForNewRecordings() throws {
+        let route = try makeRouter().route(for: newEntry, manualRetry: false)
+        #expect(route.cloud?.label == "openai:gpt-transcribe")
+        #expect(route.fallBackToOnDevice)
+        #expect(route.cloud?.chunkTargetSeconds == 1_200)
+    }
+
+    @Test func onDeviceWhenAIIsOffTheKeyIsMissingOrEngineIsOnDevice() throws {
+        #expect(try makeRouter(aiEnabled: false).route(for: newEntry, manualRetry: false).cloud == nil)
+        #expect(try makeRouter(key: false).route(for: newEntry, manualRetry: false).cloud == nil)
+        #expect(try makeRouter(engine: .onDevice).route(for: newEntry, manualRetry: false).cloud == nil)
+    }
+
+    @Test func recordingsFromBeforeAIWasOnGoToTheCloudOnlyOnRetry() throws {
+        let router = try makeRouter()
+        #expect(router.route(for: oldEntry, manualRetry: false).cloud == nil)
+        #expect(router.route(for: oldEntry, manualRetry: true).cloud != nil)
+    }
+
+    @Test func fallbackFollowsTheSetting() throws {
+        #expect(try makeRouter(fallback: false).route(for: newEntry, manualRetry: false).fallBackToOnDevice == false)
+    }
+}

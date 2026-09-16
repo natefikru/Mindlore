@@ -11,7 +11,8 @@ import SwiftData
 @main
 struct MindloreApp: App {
     private let container: Result<ModelContainer, any Error>
-    @State private var settings = SettingsStore()
+    @State private var settings: SettingsStore
+    @State private var accounts: ProviderAccountStore
 
     init() {
         let diagnostics = DiagnosticsLog.shared
@@ -26,6 +27,33 @@ struct MindloreApp: App {
         }
         diagnostics.record("app.launch", launch)
 
+        // UI tests get their own settings and Keychain per named store, and run against whatever model
+        // the simulator's host offers, so on-device titles stay off to keep them deterministic.
+        let uiTesting = arguments.contains(StoreLocation.uiTestingArgument)
+        let testStoreName = uiTesting ? ProcessInfo.processInfo.environment[StoreLocation.uiTestStoreNameKey] : nil
+        let defaults = testStoreName.flatMap { UserDefaults(suiteName: "uitest-\($0)") } ?? .standard
+        // A real key handed to a UI test run stays in memory so it never touches the Keychain; test
+        // runs with the stub's key use a Keychain service named for the run, so saving a key and
+        // finding it after a relaunch still works.
+        let liveTestKey = ProcessInfo.processInfo.environment["MINDLORE_OPENAI_KEY"].flatMap { $0.isEmpty ? nil : $0 }
+        let secrets: any SecretStore = switch (testStoreName, liveTestKey) {
+        case (nil, _): KeychainSecretStore()
+        case (_, .some): InMemorySecretStore()
+        case (.some(let name), nil): KeychainSecretStore(service: "\(KeychainSecretStore.productionService).uitest.\(name)")
+        }
+        let http: any HTTPClient = uiTesting && arguments.contains(UITestingHTTPClient.launchArgument) ? UITestingHTTPClient() : URLSessionHTTPClient()
+        let settingsStore = SettingsStore(store: defaults, onDeviceTitlesAvailable: { !uiTesting && FoundationModelsAvailability.isAvailable })
+        settingsStore.recordAutomationStartIfNeeded()
+        let accountStore = ProviderAccountStore(settings: settingsStore, secrets: secrets, http: http)
+        // UI tests that need AI start with it on and the stub's key saved, instead of typing it each time.
+        // A real key passed by the test runner (MINDLORE_OPENAI_KEY) runs against OpenAI; otherwise the stub's key.
+        if uiTesting, testStoreName != nil, arguments.contains(UITestingHTTPClient.readyArgument), accountStore.openAIAccount == nil {
+            try? accountStore.saveOpenAIKey(liveTestKey ?? UITestingHTTPClient.validKey)
+            settingsStore.aiEnabled = true
+        }
+        _settings = State(initialValue: settingsStore)
+        _accounts = State(initialValue: accountStore)
+
         // Runs before any UI exists, so no recording can be in progress yet.
         let recovered = (try? RecordingsDirectory.standard.recoverInterruptedRecordings()) ?? []
         if !recovered.isEmpty {
@@ -36,7 +64,17 @@ struct MindloreApp: App {
             environment: ProcessInfo.processInfo.environment
         )
         container = Result { try ModelContainerFactory.make(location) }
-        if case .failure(let error) = container {
+        switch container {
+        case .success(let opened):
+            do {
+                let repaired = try EntryDateRepair.run(in: opened.mainContext)
+                if repaired > 0 {
+                    diagnostics.record("store.entryDatesRepaired", ["count": .int(repaired)])
+                }
+            } catch {
+                diagnostics.record("store.entryDateRepairFailed", ["error": .errorCode(error)])
+            }
+        case .failure(let error):
             diagnostics.record("store.openFailed", ["error": .errorCode(error)])
         }
     }
@@ -45,9 +83,10 @@ struct MindloreApp: App {
         WindowGroup {
             switch container {
             case .success(let container):
-                RootView(container: container)
+                RootView(container: container, settings: settings, accounts: accounts)
                     .modelContainer(container)
                     .environment(settings)
+                    .environment(accounts)
             case .failure(let error):
                 StoreErrorView(error: error)
             }

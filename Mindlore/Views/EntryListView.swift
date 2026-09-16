@@ -5,18 +5,53 @@ struct EntryListView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(EntrySaver.self) private var saver
     @Environment(SettingsStore.self) private var settings
-    @Query(sort: \Entry.createdAt, order: .reverse) private var entries: [Entry]
+    // Backdated entries share noon of their day, so createdAt keeps their order stable.
+    @Query(sort: [SortDescriptor(\Entry.entryDate, order: .reverse), SortDescriptor(\Entry.createdAt, order: .reverse)])
+    private var entries: [Entry]
     @State private var path: [Entry] = []
     @State private var showingSettings = false
     @State private var writingNewEntry = false
     @State private var recording = false
+    @State private var pageOrder: PageOrderTarget?
+    @State private var insightsEntry: Entry?
+    @Environment(InsightsCoordinator.self) private var insightsCoordinator
+
+    enum PageOrderTarget: Identifiable {
+        case new
+        case existing(Entry)
+
+        var id: String {
+            switch self {
+            case .new: "new"
+            case .existing(let entry): entry.id.uuidString
+            }
+        }
+    }
 
     var body: some View {
         NavigationStack(path: $path) {
             List {
                 ForEach(entries) { entry in
-                    NavigationLink(value: entry) {
-                        EntryRow(entry: entry)
+                    // Pages still being gathered reopen the page screen, not the editor.
+                    if entry.isAwaitingPageConfirmation {
+                        Button {
+                            pageOrder = .existing(entry)
+                        } label: {
+                            EntryRow(entry: entry, isAnalyzing: isAnalyzing(entry))
+                        }
+                        .foregroundStyle(.primary)
+                    } else {
+                        NavigationLink(value: entry) {
+                            EntryRow(entry: entry, isAnalyzing: isAnalyzing(entry))
+                        }
+                        .contextMenu {
+                            Button("Insights", systemImage: "sparkles") { insightsEntry = entry }
+                            if InsightsCoordinator.canRunAI(on: entry) {
+                                Button("Run AI", systemImage: "arrow.clockwise") {
+                                    Task { await insightsCoordinator.runAI(for: entry, context: modelContext) }
+                                }
+                            }
+                        }
                     }
                 }
                 .onDelete(perform: delete)
@@ -41,15 +76,14 @@ struct EntryListView: View {
                 ToolbarItem(placement: .topBarLeading) {
                     Button("Settings", systemImage: "gearshape") { showingSettings = true }
                 }
-                // The default entry mode sits in the outermost, easiest-to-reach position.
+                // Voice sits outermost, in the easiest-to-reach position.
                 ToolbarItemGroup(placement: .topBarTrailing) {
-                    if settings.defaultEntryMode == .voice {
-                        newTypedEntryButton
-                        newVoiceEntryButton
-                    } else {
-                        newVoiceEntryButton
-                        newTypedEntryButton
+                    if DocumentCameraView.isSupported || FakePages.isEnabled {
+                        Button("Photograph Pages", systemImage: "doc.viewfinder") { pageOrder = .new }
+                            .accessibilityIdentifier("newPhotoEntryButton")
                     }
+                    newTypedEntryButton
+                    newVoiceEntryButton
                 }
             }
             .sheet(isPresented: $showingSettings) {
@@ -57,6 +91,17 @@ struct EntryListView: View {
             }
             .fullScreenCover(isPresented: $recording) {
                 RecordingView { entry in path.append(entry) }
+            }
+            .sheet(item: $insightsEntry) { entry in
+                EntryInsightsView(entry: entry)
+            }
+            .fullScreenCover(item: $pageOrder) { target in
+                switch target {
+                case .new:
+                    PageOrderView(entry: nil, startWithCamera: true) { entry in path.append(entry) }
+                case .existing(let entry):
+                    PageOrderView(entry: entry, startWithCamera: false) { entry in path.append(entry) }
+                }
             }
         }
     }
@@ -71,6 +116,11 @@ struct EntryListView: View {
             .accessibilityIdentifier("newVoiceEntryButton")
     }
 
+    // AI work the user should be able to see from the list, without opening the entry.
+    private func isAnalyzing(_ entry: Entry) -> Bool {
+        insightsCoordinator.isRunning(entry) || entry.insightsPending || entry.titlePending
+    }
+
     private func delete(at offsets: IndexSet) {
         for index in offsets {
             DiagnosticsLog.shared.record("entry.deleted", ["id": .id(entries[index].id), "reason": "swipe"])
@@ -82,6 +132,7 @@ struct EntryListView: View {
 
 private struct EntryRow: View {
     let entry: Entry
+    var isAnalyzing = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
@@ -90,28 +141,70 @@ private struct EntryRow: View {
                     Image(systemName: "mic.fill")
                         .foregroundStyle(.secondary)
                         .accessibilityLabel("Voice entry")
+                } else if entry.source == .photo {
+                    Image(systemName: "doc.text.image")
+                        .foregroundStyle(.secondary)
+                        .accessibilityLabel("Journal pages")
                 }
-                Text(entry.createdAt, format: .dateTime.weekday(.abbreviated).month().day().hour().minute())
+                EntryDateText(entry: entry)
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
-                if entry.awaitingText {
-                    Text("Getting text")
+                if let status = statusBadge {
+                    Text(status)
                         .font(.caption)
                         .padding(.horizontal, 6)
                         .padding(.vertical, 2)
                         .background(.quaternary, in: Capsule())
                 }
+                if isAnalyzing {
+                    Label {
+                        Text("Analyzing")
+                    } icon: {
+                        ProgressView().controlSize(.mini)
+                    }
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .accessibilityIdentifier("analyzingBadge")
+                } else if let insights = entry.insights {
+                    Image(systemName: "sparkles")
+                        .font(.caption2)
+                        .foregroundStyle(insights.isCurrent(for: entry) ? Color.secondary : Color.orange)
+                        .accessibilityLabel(insights.isCurrent(for: entry) ? "Has insights" : "Insights out of date")
+                }
             }
-            Text(preview)
-                .lineLimit(2)
-                .foregroundStyle(entry.text.isEmpty ? .secondary : .primary)
+            EntryAddedText(entry: entry)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            Text(entry.text.isEmpty && entry.title.isEmpty ? "No text yet" : entry.displayTitle)
+                .font(.headline)
+                .lineLimit(1)
+                .foregroundStyle(entry.text.isEmpty && entry.title.isEmpty ? .secondary : .primary)
+            // The preview is skipped when it would just repeat the headline.
+            if let preview, preview != entry.displayTitle {
+                Text(preview)
+                    .lineLimit(2)
+                    .foregroundStyle(.secondary)
+            }
         }
         .padding(.vertical, 2)
+        .accessibilityIdentifier("entryRow")
     }
 
-    private var preview: String {
-        let firstLine = entry.text.split(whereSeparator: \.isNewline).first.map(String.init) ?? ""
-        return firstLine.isEmpty ? "No text yet" : firstLine
+    private var statusBadge: String? {
+        if entry.isAwaitingPageConfirmation { return "Pages not confirmed" }
+        if entry.isDraft { return "Draft" }
+        guard entry.awaitingText else { return nil }
+        return entry.source == .photo ? "Transcribing pages" : "Getting text"
+    }
+
+    private var preview: String? {
+        let lines = entry.text.split(whereSeparator: \.isNewline).map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+        guard let first = lines.first else { return nil }
+        // Without a title the first line is already the headline, so preview what follows it.
+        if entry.title.isEmpty {
+            return lines.count > 1 && first.count <= Entry.derivedTitleLength ? lines[1] : (first.count > Entry.derivedTitleLength ? first : nil)
+        }
+        return first
     }
 }
 
@@ -124,5 +217,9 @@ private struct EntryRow: View {
         .environment(EntrySaver(context: container.mainContext))
         .environment(RecordingIngestor())
         .environment(TranscriptionCoordinator())
+        .environment(EditorPresence())
+        .environment(ProviderAccountStore(settings: SettingsStore(store: UserDefaults(suiteName: "preview")!)))
+        .environment(PageTranscriptionCoordinator(resolve: { .failure(AIJobFailure(raw: "settings.aiOff")) }))
+        .environment(AIPassTrigger(settings: SettingsStore(store: UserDefaults(suiteName: "preview")!), presence: EditorPresence(), titleUsable: { false }))
         .environment(SettingsStore(store: UserDefaults(suiteName: "preview")!))
 }

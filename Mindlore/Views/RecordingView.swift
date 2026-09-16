@@ -23,7 +23,7 @@ struct RecordingView: View {
                     ContentUnavailableView {
                         Label("Microphone access is off", systemImage: "mic.slash")
                     } description: {
-                        Text("Mindlore needs the microphone to record entries. Recordings stay on your device.")
+                        Text("Mindlore needs the microphone to record entries.")
                     } actions: {
                         Button("Open Settings") {
                             if let url = URL(string: UIApplication.openSettingsURLString) { openURL(url) }

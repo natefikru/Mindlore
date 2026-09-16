@@ -10,20 +10,14 @@ struct SettingsView: View {
         NavigationStack {
             Form {
                 Section {
-                    Picker("New entries start with", selection: $settings.defaultEntryMode) {
-                        Text("Voice").tag(EntrySource.voice)
-                        Text("Typing").tag(EntrySource.typed)
-                    }
+                    NavigationLink("AI") { AISettingsView() }
+                        .accessibilityIdentifier("aiSettingsLink")
                 }
 
                 Section {
                     Toggle("Keep recordings", isOn: $settings.keepAudioAfterTranscription)
                 } footer: {
                     Text("When this is off, a recording is deleted once its text has been generated and you've closed the entry.")
-                }
-
-                Section("Storage") {
-                    Label("Your entries are stored on this device only. Mindlore has no servers.", systemImage: "lock.iphone")
                 }
             }
             .navigationTitle("Settings")
@@ -37,6 +31,8 @@ struct SettingsView: View {
 }
 
 #Preview {
-    SettingsView()
-        .environment(SettingsStore(store: UserDefaults(suiteName: "preview")!))
+    let settings = SettingsStore(store: UserDefaults(suiteName: "preview")!)
+    return SettingsView()
+        .environment(settings)
+        .environment(ProviderAccountStore(settings: settings))
 }

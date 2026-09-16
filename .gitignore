@@ -27,3 +27,6 @@ Pods/
 
 # Device smoke-test logs pulled from the phone
 .smoke/
+
+# Claude Code worktrees
+.claude/worktrees/

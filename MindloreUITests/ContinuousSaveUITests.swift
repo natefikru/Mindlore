@@ -1,5 +1,8 @@
 import XCTest
 
+// Saving has no Save button, so these prove text is on disk after the ways an entry can end:
+// a force-quit mid-sentence, leaving the app, and editing later. Each app launch costs about ten
+// seconds, so the checks are grouped into two runs rather than one per behavior.
 final class ContinuousSaveUITests: XCTestCase {
     private var app: XCUIApplication!
 
@@ -12,78 +15,48 @@ final class ContinuousSaveUITests: XCTestCase {
     }
 
     @MainActor
-    func testTypedTextSurvivesTheAppBeingKilledWhileStillEditing() throws {
+    func testTextSurvivesForceQuitLeavingTheAppAndLaterEdits() throws {
         app.launch()
         startNewEntry()
         editor.typeText("Walked to the river this morning.")
 
+        // Killed while still typing, with no save step taken.
         sleep(2)
         app.terminate()
         app.launch()
-
         XCTAssertTrue(app.staticTexts["Walked to the river this morning."].waitForExistence(timeout: 5))
-    }
 
-    @MainActor
-    func testLeavingTheAppSavesImmediately() throws {
-        app.launch()
-        startNewEntry()
-        editor.typeText("Saved on the way out")
-
+        // Editing an existing entry, then leaving the app, saves immediately.
+        app.staticTexts["Walked to the river this morning."].tap()
+        focusEditor()
+        editor.typeText(" The light was strange.")
         XCUIDevice.shared.press(.home)
         app.terminate()
         app.launch()
 
-        XCTAssertTrue(app.staticTexts["Saved on the way out"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["Walked to the river this morning. The light was strange."].waitForExistence(timeout: 5))
     }
 
     @MainActor
-    func testEditingAnExistingEntryIsSaved() throws {
+    func testEntriesWithNothingInThemDoNotStickAround() throws {
         app.launch()
-        startNewEntry()
-        editor.typeText("First draft")
-        goBack()
 
-        app.staticTexts["First draft"].tap()
-        focusEditor()
-        editor.typeText(" and more")
-        goBack()
-
-        app.terminate()
-        app.launch()
-        XCTAssertTrue(app.staticTexts["First draft and more"].waitForExistence(timeout: 5))
-    }
-
-    @MainActor
-    func testOpeningANewEntryWithoutTypingLeavesNothingBehind() throws {
-        app.launch()
+        // Opening a new entry and leaving without typing.
         startNewEntry()
         goBack()
-
         XCTAssertTrue(app.staticTexts["No entries yet"].waitForExistence(timeout: 5))
-    }
 
-    @MainActor
-    func testClearingAllTextDeletesTheEntry() throws {
-        app.launch()
+        // Clearing an entry's text deletes it, and it stays deleted.
         startNewEntry()
         editor.typeText("oops")
         editor.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: 4))
         goBack()
-
         XCTAssertTrue(app.staticTexts["No entries yet"].waitForExistence(timeout: 5))
-        app.terminate()
-        app.launch()
-        XCTAssertTrue(app.staticTexts["No entries yet"].waitForExistence(timeout: 5))
-    }
 
-    @MainActor
-    func testSwipeDeleteStaysDeletedAfterRelaunch() throws {
-        app.launch()
+        // Swipe to delete, also across a relaunch.
         startNewEntry()
         editor.typeText("Delete me")
         goBack()
-
         let row = app.staticTexts["Delete me"]
         XCTAssertTrue(row.waitForExistence(timeout: 5))
         row.swipeLeft()
@@ -111,7 +84,9 @@ final class ContinuousSaveUITests: XCTestCase {
         XCTAssertTrue(editor.waitForExistence(timeout: 5))
         let hittable = expectation(for: NSPredicate(format: "isHittable == true"), evaluatedWith: editor)
         wait(for: [hittable], timeout: 5)
-        editor.tap()
+        // Past the end of a short line, so the caret lands after the text the way it does for someone
+        // continuing an entry. A plain tap() uses the activation point, which sits at the start.
+        editor.coordinate(withNormalizedOffset: CGVector(dx: 0.95, dy: 0.5)).tap()
     }
 
     private func goBack() {

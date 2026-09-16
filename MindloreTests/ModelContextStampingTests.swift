@@ -35,4 +35,30 @@ struct ModelContextStampingTests {
 
         #expect(untouched.updatedAt == Date(timeIntervalSince1970: 100))
     }
+    @Test func writingInsightsDoesNotCountAsAnEdit() throws {
+        let container = try ModelContainerFactory.make(.inMemory)
+        let context = container.mainContext
+        let entry = Entry(createdAt: Date(timeIntervalSince1970: 100), text: "journal")
+        context.insert(entry)
+        try context.save()
+
+        let insights = EntryInsights(modelUsed: "test")
+        context.insert(insights)
+        insights.entry = entry
+        try context.saveStampingEntries(at: Date(timeIntervalSince1970: 5_000), except: [entry.persistentModelID])
+
+        #expect(entry.updatedAt == Date(timeIntervalSince1970: 100))
+        #expect(entry.insights?.modelUsed == "test")
+    }
+
+    @Test func sortedPagesFollowIndexNotInsertionOrder() throws {
+        let container = try ModelContainerFactory.make(.inMemory)
+        let entry = Entry(source: .photo)
+        container.mainContext.insert(entry)
+        for index in [2, 0, 1] {
+            let page = EntryPage(index: index, imageData: nil, thumbnailData: nil, pixelWidth: 1, pixelHeight: 1, origin: .camera)
+            page.entry = entry
+        }
+        #expect(entry.sortedPages.map(\.index) == [0, 1, 2])
+    }
 }
