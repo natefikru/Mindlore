@@ -71,6 +71,11 @@ struct GraphEditorTests {
         #expect(loser.aliases == ["Sarah Kim"])
         #expect(loser.notSameAs.contains(winner.id))
         #expect(winner.notSameAs.contains(loser.id))
+
+        let candidates = [loser, winner].map {
+            EntityMatcher.Candidate(id: $0.id, key: $0.key, kind: $0.kind, linkCount: $0.linkCount, notSameAs: $0.notSameAs)
+        }
+        #expect(EntityMatcher.suggestions(among: candidates).isEmpty, "forcing the collision should not immediately re-suggest the merge")
     }
 
     @Test func withoutForceACollisionIsUnchanged() throws {

@@ -927,6 +927,30 @@ Sub-agent review of the whole phase; fix what it finds.
   privacy-note update regardless; simpler to keep 5c scoped to resolution and take the whole bullet,
   spike included, as its own follow-up phase, the same way Phases 6 and 7 are already split off.
 
+Review log (sub-agent review of `96865ae..HEAD`, 2026-09-16, verdict: one real bug, two coverage
+gaps, both fixed):
+1. `RenameEntitySheet`'s "keep the old name" toggle decided whether to show itself by comparing
+   the typed name to the original as plain strings, not by the normalized key
+   `GraphEditor.rename` itself uses to decide whether to add the alias. A spelling-only rename
+   ("sarah kim" to "Sarah Kim", same key) still showed the toggle and let it be turned on, but
+   the edit silently added no alias, since the key hadn't changed, no feedback either way. Fixed:
+   the sheet now takes the entity's `kind` and compares `EntityNormalizer.key(for:kind:)` on both
+   sides, matching the editor exactly.
+2. 5c.1's actual wiring (`GraphIndexer.index` copying `Mention.writtenSurface` onto
+   `EntityLink.writtenSurface`, and `EntityBioDrafter.excerpts` preferring it over `surface`) had
+   no test exercising it end to end, only the pure `grounded`/`nearestWord` pieces. Added
+   `indexingCopiesWrittenSurfaceFromTheMention`, `indexingLeavesWrittenSurfaceNilWhenTheMentionHasNone`
+   (`GraphIndexerTests.swift`), and `writtenSurfaceIsSearchedInsteadOfTheCorrectedSurface`
+   (`EntityBioTests.swift`).
+3. 5c.3's forced-alias test checked `notSameAs` but not that `EntityMatcher.suggestions` actually
+   comes back empty afterward, unlike its forced-rename sibling. Added the same assertion to
+   `aForcedAliasAppliesAndKeepsBothEntitiesLiveAndSeparate`.
+Everything else the reviewer checked was already correct: the `unsureAmong` lifecycle across
+merge/hide/repoint, the `recount` and `repoint` fixes from earlier steps, `collisionForced`'s
+privacy (ids only), `writtenSurface`/`unsureAmong` both optional-or-defaulted for
+`CloudKitSchemaRulesTests`, and no leakage of the excluded AI-disambiguation or
+transcription-hint work.
+
 ### Phase 6: Co-occurrence
 - [ ] `Mindlore/Graph/EntityGraph.swift`: `build(links:asOf:halfLife:)` groups links by entry,
       emits weighted pairs with exponential decay from the entry date; `neighbourhood(of:depth:)`;

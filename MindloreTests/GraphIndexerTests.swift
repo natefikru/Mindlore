@@ -243,6 +243,30 @@ struct GraphIndexerTests {
         #expect(entry.graphIndexedAt == entry.insights?.generatedAt)
     }
 
+    // 5c.1: what InsightsPromptBuilder.parse records on a corrected Mention reaches the link.
+    @Test func indexingCopiesWrittenSurfaceFromTheMention() throws {
+        let entry = try harness.entry("dinner with Lewis last night")
+        entry.insights?.mentions = [Mention(name: "Luis", kindRaw: MentionKind.person.rawValue, writtenSurface: "Lewis")]
+        try harness.context.save()
+
+        harness.indexer.index(entry, in: harness.context)
+        try harness.context.save()
+
+        let link = try #require(harness.links(of: entry).first)
+        #expect(link.surface == "Luis")
+        #expect(link.writtenSurface == "Lewis")
+    }
+
+    @Test func indexingLeavesWrittenSurfaceNilWhenTheMentionHasNone() throws {
+        let entry = try harness.entry(mentions: [("Sarah", .person)])
+
+        harness.indexer.index(entry, in: harness.context)
+        try harness.context.save()
+
+        let link = try #require(harness.links(of: entry).first)
+        #expect(link.writtenSurface == nil)
+    }
+
     // 5c.4: two live, unconfirmed entities sharing a key (the shape a forced rename or alias
     // leaves behind) tie instead of silently picking one; the link still resolves to something
     // (today's bestExact pick) so nothing breaks while it waits in Review.

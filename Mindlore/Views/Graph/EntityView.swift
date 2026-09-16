@@ -114,7 +114,7 @@ private struct EntityPage: View {
                 EntryPreview(entryID: row.id)
             }
             .sheet(isPresented: $renaming) {
-                RenameEntitySheet(initial: entity.name, defaultsToKeepingOldName: hasVoiceSourcedLink) { name, keepOldName in
+                RenameEntitySheet(initial: entity.name, kind: entity.kind, defaultsToKeepingOldName: hasVoiceSourcedLink) { name, keepOldName in
                     applyForcible { force in graph.rename(id, to: name, keepingOldNameAsAlias: keepOldName, force: force, in: modelContext) }
                 }
             }
@@ -509,13 +509,21 @@ private struct RenameEntitySheet: View {
     @State private var name: String
     @State private var keepOldName: Bool
     let initial: String
+    let kind: EntityKind
     let onSave: (String, Bool) -> Void
 
-    init(initial: String, defaultsToKeepingOldName: Bool, onSave: @escaping (String, Bool) -> Void) {
+    init(initial: String, kind: EntityKind, defaultsToKeepingOldName: Bool, onSave: @escaping (String, Bool) -> Void) {
         self.initial = initial
+        self.kind = kind
         _name = State(initialValue: initial)
         _keepOldName = State(initialValue: defaultsToKeepingOldName)
         self.onSave = onSave
+    }
+
+    // The same key comparison GraphEditor.rename itself uses to decide whether to add the alias,
+    // so the toggle never offers to keep a name that a spelling-only change wouldn't actually add.
+    private var changesKey: Bool {
+        EntityNormalizer.key(for: name, kind: kind) != EntityNormalizer.key(for: initial, kind: kind)
     }
 
     var body: some View {
@@ -523,7 +531,7 @@ private struct RenameEntitySheet: View {
             Form {
                 TextField("Name", text: $name)
                     .accessibilityIdentifier("entityRenameField")
-                if name.trimmingCharacters(in: .whitespacesAndNewlines) != initial {
+                if changesKey {
                     Toggle("Keep \"\(initial)\" as another name", isOn: $keepOldName)
                         .accessibilityIdentifier("entityRenameKeepOldName")
                 }

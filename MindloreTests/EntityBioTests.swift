@@ -209,6 +209,19 @@ struct EntityBioDrafterTests {
         #expect(selection.sentences == ["Sarah sent."])
     }
 
+    // 5c.1: a corrected name's excerpt is found by what the entry actually wrote, not by the
+    // model's correction, which the entry's own text may not contain at all.
+    @Test func writtenSurfaceIsSearchedInsteadOfTheCorrectedSurface() throws {
+        let entry = try harness.entry("dinner with Lewis last night.", mentions: [("Luis", .person)])
+        let link = try #require(harness.graph.links(of: entry).first)
+        link.writtenSurface = "Lewis"
+        try harness.context.save()
+
+        let selection = harness.services.drafter.excerpts(for: try harness.entity("Luis").id, in: harness.context)
+
+        #expect(selection.sentences == ["dinner with Lewis last night."])
+    }
+
     @Test func cleanedUpTextStillCounts() throws {
         let entry = try harness.entry("sarah um called.", mentions: [("Sarah", .person)])
         entry.text = "Sarah called."
