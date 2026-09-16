@@ -50,15 +50,19 @@ Still unrun. `tasks/smoke-test.md` steps 23 and 27 have the expected events.
 - [ ] **Optional: a 25-minute recording with OpenAI picked.** Memory should stay flat, since nothing
       reads the live buffers.
 
-## Small follow-ups (next PR off main)
+## Small follow-ups
 
-Asked for during the live transcription smoke test.
+Asked for during the live transcription smoke test, built in the editor follow-ups PR. Both still
+need a look on the device.
 
-- [ ] **The Insights button generates.** Automatic insights still run when an entry closes. Tapping
-      Insights on an entry that has none should start them right away and show progress, rather than
-      opening an empty sheet with a Generate button.
-- [ ] **Seeking in recordings.** The player is play and pause only. Add 10-second back and forward
-      buttons and a scrubber with the elapsed time.
+- [x] **The Insights button generates.** Automatic insights still run when an entry closes. Tapping
+      Insights on an entry that has none starts them right away and shows progress. Regenerating,
+      retrying, and finishing a draft still wait for a tap. Building this exposed a double charge:
+      a manual run didn't use up the entry's automatic pass, so closing the entry afterwards paid for
+      the same analysis again. Run AI now counts as the pass.
+- [x] **Seeking in recordings.** 10-second back and forward buttons, a scrubber, and the elapsed time.
+- [ ] **Device check.** Tap Insights on an entry without insights, then close it: exactly one
+      `insights.started`. Skip and scrub a recording, including near both ends.
 
 ## Deferred from the pre-merge code review (2026-09-15)
 
