@@ -639,18 +639,69 @@ drafting; sending bios anywhere; choosing a capitalized display name automatical
 question, recorded there).
 
 ### Phase 5b: Connections and review
-- [ ] Decide whether an entity's display name should prefer a capitalized variant ("mom" kept its
-      first spelling in the fixture; see "Measured before Phase 5").
-- [ ] `Mindlore/Views/Graph/ConnectionsView.swift`: search, kind picker, Review row, sort, Hidden
-      section. Toolbar entry from `EntryListView`.
-- [ ] `ReviewSuggestionsView`: pairs with "Same" and "Not the same".
-- [ ] `UITestingHTTPClient` (`:28-31`): the stub insights payload already names Sarah; add a second
-      person and a tag so a merge can be exercised. `InsightsUITests` asserts section titles only
-      (`:48-49`), so it is unaffected.
-- [ ] Tests: sort and filter helpers as pure functions; UI test `GraphUITests`, stub only (real
-      OpenAI returns whatever names it likes, so the test always launches with
-      `-uiTestingFakeAI`): finish an entry, open Connections, tap Sarah, see the entry, merge the
-      second person into Sarah, relaunch, the merge and the count survive, unmerge.
+
+Display name decided (2026-09-16): no auto-capitalization. `entity.name` stays exactly what was
+first seen, same as today; a display-only capitalizer would fight the user's own rename (5a) and
+add a rule with no clean edge (initials, "mom" versus "Mom's house"). Unchanged from Phase 5a.
+
+- [ ] 5b.1 `Mindlore/Graph/ConnectionsPresentation.swift`: pure filter/sort helpers.
+      - `filter(_:kind:search:)`: kind is `EntityKind?` (`nil` = all), search matches name or any
+        alias (`localizedStandardContains`, matching `MergeCandidates.order`'s search).
+      - `SortOption: name, mostMentioned, recent` (`recent` = `lastLinkedAt`, nil sorts last, per
+        `EntityModelTests.swift:307-328`'s existing sort contract).
+      - `ConnectionRow` (id, name, kind, linkCount, lastLinkedAt), built from `Entity` by the view.
+      - Tests: filter by kind, filter by search (name and alias), each sort, nil `lastLinkedAt`
+        sorts last.
+- [ ] 5b.2 `GraphServices.markNotSame(_:_:in:)`: `GraphEditor.markNotSame` takes two `Entity`
+      values and doesn't save, so this can't reuse the private `edit(_:in:_:)` helper (single id,
+      single-entity closure); fetch both entities directly, call `editor.markNotSame`, then the
+      private `save(context)` (`GraphServices.swift:154-161`), bumping `revision` the same way
+      `merge`/`unmerge` do.
+      Test: after `markNotSame`, the pair is gone from `editor.suggestions(in:)`.
+- [ ] 5b.3 `Mindlore/Views/Graph/ConnectionsView.swift` + `ReviewSuggestionsView` (small subview,
+      same file): own `NavigationStack` and `.navigationDestination(for: EntityRoute.self)`,
+      mirroring `MergeIntoView`/`EntryInsightsView`. Sections, in order:
+      1. **Review** — `graph.editor.suggestions(in:)`, refreshed via `.task(id:)` keyed on
+         `graph.revision` (the `RefreshKey` pattern from `MergeIntoView.swift:20-24`). Each pair:
+         both names, "Same" (`graph.merge`) and "Not the same" (`graph.markNotSame`, 5b.2).
+         Both act, then rely on the same `.task(id:)` refresh (keyed on `graph.revision`) to drop
+         the pair, the pattern `MergeIntoView` already proves; a ConnectionsView UI test covers
+         the refresh actually happening, not just that `editor.suggestions(in:)` drops the pair.
+      2. **All** — `isBrowsable` entities, filtered/sorted (5b.1). Rows are
+         `NavigationLink(value: EntityRoute(id:))`, opening the existing `EntityView`; merge and
+         hide stay on that page, unchanged from 5a. No row swipe actions.
+      3. **Hidden** — `hidden == true` entities, same row style, same navigation.
+      Toolbar: kind picker (menu, `EntityKind?`), sort menu. `.searchable(text:)`.
+      `ContentUnavailableView.search(text:)` when a search matches nothing; a plain "No entities
+      yet" when the graph is empty (no entries indexed).
+      `EntryListView`: `showingConnections` state, toolbar button (`"person.2"`, matching
+      Settings' pattern at `EntryListView.swift:78,90-92`), `.sheet`.
+      Accessibility ids: `"connectionRow-\(entity.name)"`, `"connectionsKindPicker"`,
+      `"connectionsSortPicker"`, `"reviewSame-\(suggestion.a)"`, `"reviewNotSame-\(suggestion.a)"`.
+- [ ] 5b.4 Entry rows on the entity page become tappable (gap from 5a: "opening an entry from an
+      entity page" was explicitly deferred here). Scope: a read-only preview sheet (date, full
+      text), not the full editor — reaching the editor would mean dismissing through however many
+      sheets got the user to this entity page (the insights sheet, or now Connections, each with
+      their own stack), which is a bigger change for a small want. `entityRows`
+      (`EntityView.swift:394`) rows become buttons opening `.sheet(item:)` with a small
+      `EntryPreview` view. `saver.flush()` before presenting it, matching every other read of an
+      entry's live text in this file (rename, hide, and merge all flush first; this had been the
+      one unflushed read of `entry.text`). Accessibility ids: `"entityEntryRow-\(row.id)"`,
+      `"entryPreview"`.
+- [ ] 5b.5 `UITestingHTTPClient` (`Mindlore/AI/HTTP/UITestingHTTPClient.swift:29`): add a second
+      mention, `{"name":"Tom","kind":"person"}`, to the fixed payload, so a merge can be
+      exercised. Confirmed safe: `InsightsUITests` asserts only section titles and the run button
+      label; `GraphUITests` asserts Sarah's and river's chips specifically, unaffected by Tom's
+      presence.
+      UI test (`GraphUITests`, stub only, real OpenAI names people however it likes so this test
+      always launches with `-uiTestingFakeAI`): finish an entry, open Connections from the list
+      toolbar, tap Sarah, see her entry (5b.4's preview), go back, merge Tom into Sarah (existing
+      `EntityView` flow), relaunch, the merge and the count survive, unmerge.
+      Sub-agent review of the whole phase; fix what it finds.
+
+Not in scope: manual entity creation, bulk merge or hide, full-text entry search (name/alias only,
+same as `MergeIntoView`'s), model-judged merge suggestions (`EntityMatcher`'s heuristic only), and
+opening the full editor from an entity page's entry row (5b.4's preview instead).
 
 ### Phase 5c: Names that sound alike (owner request, 2026-09-16; not yet specified)
 
