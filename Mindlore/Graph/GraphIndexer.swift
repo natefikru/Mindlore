@@ -17,15 +17,44 @@ struct GraphIndexer {
 
     // MARK: - Indexing
 
+    // What indexing needs to know about the store, read once. The sweep shares one across every
+    // entry: fetching all links and entities per entry made a first launch grow with the square
+    // of the journal, two minutes for three thousand entries.
+    final class Batch {
+        var linksByEntry: [UUID: [EntityLink]]
+        var candidates: [EntityResolver.Candidate]
+        var entities: [UUID: Entity]
+
+        init(linksByEntry: [UUID: [EntityLink]], candidates: [EntityResolver.Candidate], entities: [UUID: Entity]) {
+            self.linksByEntry = linksByEntry
+            self.candidates = candidates
+            self.entities = entities
+        }
+    }
+
+    func batch(in context: ModelContext) -> Batch {
+        let entities = liveEntities(in: context)
+        return Batch(
+            linksByEntry: Dictionary(grouping: allLinks(in: context).filter { $0.entryID != nil }, by: { $0.entryID! }),
+            candidates: entities.values.map(candidate(for:)),
+            entities: entities
+        )
+    }
+
     // Rebuilds one entry's AI links from its current insights. Caller saves.
     @discardableResult
     func index(_ entry: Entry, in context: ModelContext) -> Int {
+        index(entry, in: context, batch: batch(in: context))
+    }
+
+    private func index(_ entry: Entry, in context: ModelContext, batch: Batch) -> Int {
         guard let insights = entry.insights else {
             removeGeneratedLinks(for: entry, in: context)
+            batch.linksByEntry[entry.id] = batch.linksByEntry[entry.id]?.filter { $0.source != .ai }
             return 0
         }
 
-        let existing = allLinks(in: context).filter { $0.entryID == entry.id }
+        let existing = batch.linksByEntry[entry.id] ?? []
         // Read the user's links before deleting anything: a deleted object stays in the
         // relationship array until the next save, so re-reading it here would see ghosts.
         let keptByUser = existing.filter { $0.source == .user }
@@ -40,17 +69,16 @@ struct GraphIndexer {
             }
             context.delete(link)
         }
+        var kept = keptByUser
 
-        var candidates = snapshot(in: context)
-        var entities = liveEntities(in: context)
         var created = 0
         var linked = 0
 
         for value in values(of: insights) where !isClaimed(Claim(surface: value.surface, kind: value.kind), by: claimed) {
-            if EntityResolver.isAmbiguous(value, among: candidates) {
+            if EntityResolver.isAmbiguous(value, among: batch.candidates) {
                 diagnostics.record("graph.ambiguous", ["id": .id(entry.id), "kind": .string(value.kind.rawValue)])
             }
-            let outcome = EntityResolver.resolve(value, among: candidates)
+            let outcome = EntityResolver.resolve(value, among: batch.candidates)
             let target: Entity
             var inferred = false
 
@@ -58,20 +86,20 @@ struct GraphIndexer {
             case .skip:
                 continue
             case .existing(let id, let wasInferred, let upgradeKind):
-                guard let found = entities[id] else { continue }
+                guard let found = batch.entities[id] else { continue }
                 target = found
                 inferred = wasInferred
                 if let upgradeKind {
                     target.kind = upgradeKind
                     // Keys are kind-sensitive: honorifics only come off a person's name.
                     target.key = EntityNormalizer.key(for: target.name, kind: upgradeKind)
-                    candidates = candidates.map { $0.id == id ? $0.withKind(upgradeKind) : $0 }
+                    batch.candidates = batch.candidates.map { $0.id == id ? candidate(for: found) : $0 }
                 }
             case .create(let key, let kind):
                 let entity = Entity(name: value.surface, key: key, kind: kind)
                 context.insert(entity)
-                entities[entity.id] = entity
-                candidates.append(candidate(for: entity))
+                batch.entities[entity.id] = entity
+                batch.candidates.append(candidate(for: entity))
                 target = entity
                 created += 1
             }
@@ -80,8 +108,10 @@ struct GraphIndexer {
             context.insert(link)
             link.attach(to: entry, entity: target)
             link.originalEntityID = origins[Claim(surface: value.surface, kind: value.kind)]
+            kept.append(link)
             linked += 1
         }
+        batch.linksByEntry[entry.id] = kept
 
         entry.graphIndexedAt = insights.generatedAt
         diagnostics.record("graph.indexed", [
@@ -104,7 +134,10 @@ struct GraphIndexer {
                 return entry.graphIndexedAt != generatedAt
             }
         var links = 0
-        for entry in stale { links += index(entry, in: context) }
+        if !stale.isEmpty {
+            let shared = batch(in: context)
+            for entry in stale { links += index(entry, in: context, batch: shared) }
+        }
         // Always, even with nothing stale: this is the only place counters are repaired and
         // links stranded by an interrupted edit are cleared, and in steady state nothing is
         // ever stale.
@@ -296,10 +329,6 @@ struct GraphIndexer {
         (try? context.fetch(FetchDescriptor<Entity>())) ?? []
     }
 
-    private func snapshot(in context: ModelContext) -> [EntityResolver.Candidate] {
-        liveEntities(in: context).values.map(candidate(for:))
-    }
-
     private func candidate(for entity: Entity) -> EntityResolver.Candidate {
         EntityResolver.Candidate(
             id: entity.id,
@@ -310,15 +339,6 @@ struct GraphIndexer {
             kindEditedByUser: entity.kindEditedByUser,
             linkCount: entity.linkCount,
             confirmedByUser: entity.confirmedByUser
-        )
-    }
-}
-
-private extension EntityResolver.Candidate {
-    func withKind(_ kind: EntityKind) -> Self {
-        .init(
-            id: id, key: key, kind: kind, aliasKeys: aliasKeys, hidden: hidden,
-            kindEditedByUser: kindEditedByUser, linkCount: linkCount, confirmedByUser: confirmedByUser
         )
     }
 }
