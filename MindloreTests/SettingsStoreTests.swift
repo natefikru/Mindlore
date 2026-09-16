@@ -15,7 +15,6 @@ struct SettingsStoreTests {
         let settings = SettingsStore(store: FakeKeyValueStore())
 
         #expect(settings.keepAudioAfterTranscription == true)
-        #expect(settings.defaultEntryMode == .voice)
     }
 
     @Test func storedFalseIsNotMistakenForMissing() {
@@ -30,10 +29,8 @@ struct SettingsStoreTests {
         let settings = SettingsStore(store: store)
 
         settings.keepAudioAfterTranscription = false
-        settings.defaultEntryMode = .typed
 
         #expect(store.values[SettingsStore.Key.keepAudioAfterTranscription] as? Bool == false)
-        #expect(store.values[SettingsStore.Key.defaultEntryMode] as? String == "typed")
     }
 
     @Test func changesAreLoggedWithoutAffectingStoredValues() throws {
@@ -41,13 +38,11 @@ struct SettingsStoreTests {
         let settings = SettingsStore(store: FakeKeyValueStore(), diagnostics: DiagnosticsLog(fileURL: file.url))
 
         settings.keepAudioAfterTranscription = false
-        settings.defaultEntryMode = .typed
 
         let events = try file.events()
-        #expect(events.map { $0["event"] as? String } == ["settings.changed", "settings.changed"])
+        #expect(events.map { $0["event"] as? String } == ["settings.changed"])
         #expect(events[0]["key"] as? String == "keepAudioAfterTranscription")
         #expect(events[0]["value"] as? Bool == false)
-        #expect(events[1]["value"] as? String == "typed")
     }
 
     @Test func initDoesNotWriteDefaultsBack() {
@@ -57,11 +52,14 @@ struct SettingsStoreTests {
         #expect(store.values.isEmpty)
     }
 
-    @Test func unknownEntryModeFallsBackToVoice() {
+    @Test func unknownStoredChoiceFallsBackToItsDefault() {
         let store = FakeKeyValueStore()
-        store.values[SettingsStore.Key.defaultEntryMode] = "telepathy"
+        store.values[SettingsStore.Key.insightsTrigger] = "telepathy"
+        store.values[SettingsStore.Key.titleGenerator] = "telepathy"
 
-        #expect(SettingsStore(store: store).defaultEntryMode == .voice)
+        let settings = SettingsStore(store: store, onDeviceTitlesAvailable: { true })
+        #expect(settings.insightsTrigger == .automatic)
+        #expect(settings.titleGenerator == .onDevice)
     }
 
     @Test func wrongTypeFallsBackToDefault() {
@@ -78,12 +76,13 @@ struct SettingsStoreTests {
 
         let first = SettingsStore(store: defaults)
         first.keepAudioAfterTranscription = false
-        first.defaultEntryMode = .typed
+        first.insightsTrigger = .manual
 
         let second = SettingsStore(store: defaults)
         #expect(second.keepAudioAfterTranscription == false)
-        #expect(second.defaultEntryMode == .typed)
+        #expect(second.insightsTrigger == .manual)
     }
+
     @Test func aiSettingsDefaults() {
         let settings = SettingsStore(store: FakeKeyValueStore())
 

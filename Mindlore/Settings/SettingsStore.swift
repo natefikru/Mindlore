@@ -5,7 +5,6 @@ import Observation
 final class SettingsStore {
     enum Key {
         static let keepAudioAfterTranscription = "keepAudioAfterTranscription"
-        static let defaultEntryMode = "defaultEntryMode"
         static let aiEnabled = "aiEnabled"
         static let aiEnabledAt = "aiEnabledAt"
         static let automationStartedAt = "automationStartedAt"
@@ -39,10 +38,6 @@ final class SettingsStore {
 
     var keepAudioAfterTranscription: Bool {
         didSet { write(keepAudioAfterTranscription, Key.keepAudioAfterTranscription, logged: .bool(keepAudioAfterTranscription)) }
-    }
-
-    var defaultEntryMode: EntrySource {
-        didSet { write(defaultEntryMode.rawValue, Key.defaultEntryMode, logged: .string(defaultEntryMode.rawValue)) }
     }
 
     // Turning AI on stamps the time, so recordings made while it was off stay on-device automatically.
@@ -146,7 +141,6 @@ final class SettingsStore {
         }
 
         keepAudioAfterTranscription = bool(Key.keepAudioAfterTranscription, true)
-        defaultEntryMode = string(Key.defaultEntryMode).flatMap(EntrySource.init(rawValue:)) ?? .voice
         aiEnabled = bool(Key.aiEnabled, false)
         aiEnabledAt = store.object(forKey: Key.aiEnabledAt) as? Date
         automationStartedAt = store.object(forKey: Key.automationStartedAt) as? Date

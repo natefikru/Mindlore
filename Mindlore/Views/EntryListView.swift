@@ -76,19 +76,14 @@ struct EntryListView: View {
                 ToolbarItem(placement: .topBarLeading) {
                     Button("Settings", systemImage: "gearshape") { showingSettings = true }
                 }
-                // The default entry mode sits in the outermost, easiest-to-reach position.
+                // Voice sits outermost, in the easiest-to-reach position.
                 ToolbarItemGroup(placement: .topBarTrailing) {
                     if DocumentCameraView.isSupported || FakePages.isEnabled {
                         Button("Photograph Pages", systemImage: "doc.viewfinder") { pageOrder = .new }
                             .accessibilityIdentifier("newPhotoEntryButton")
                     }
-                    if settings.defaultEntryMode == .voice {
-                        newTypedEntryButton
-                        newVoiceEntryButton
-                    } else {
-                        newVoiceEntryButton
-                        newTypedEntryButton
-                    }
+                    newTypedEntryButton
+                    newVoiceEntryButton
                 }
             }
             .sheet(isPresented: $showingSettings) {

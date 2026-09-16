@@ -10,13 +10,6 @@ struct SettingsView: View {
         NavigationStack {
             Form {
                 Section {
-                    Picker("New entries start with", selection: $settings.defaultEntryMode) {
-                        Text("Voice").tag(EntrySource.voice)
-                        Text("Typing").tag(EntrySource.typed)
-                    }
-                }
-
-                Section {
                     NavigationLink("AI") { AISettingsView() }
                         .accessibilityIdentifier("aiSettingsLink")
                 }
