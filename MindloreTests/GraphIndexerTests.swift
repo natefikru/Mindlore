@@ -138,6 +138,31 @@ struct EntityResolverTests {
         #expect(!EntityResolver.isAmbiguous(value("Sarah Kim", .person), among: [sarah]))
         #expect(!EntityResolver.isAmbiguous(value("Nobody", .person), among: [sarah]))
     }
+
+    // 5c.4: two confirmed (or two unconfirmed) entities sharing a key is a real tie, and the
+    // indexer records it instead of trusting `bestExact`'s linkCount/id tie-break silently.
+    @Test func twoConfirmedCandidatesAreTied() {
+        let a = candidate("lewis", .person, confirmed: true)
+        let b = candidate("lewis", .person, confirmed: true)
+        #expect(Set(EntityResolver.tied(value("Lewis", .person), among: [a, b])) == [a.id, b.id])
+    }
+
+    @Test func twoUnconfirmedCandidatesAreTiedToo() {
+        let a = candidate("lewis", .person)
+        let b = candidate("lewis", .person)
+        #expect(Set(EntityResolver.tied(value("Lewis", .person), among: [a, b])) == [a.id, b.id])
+    }
+
+    @Test func oneConfirmedAmongUnconfirmedIsNotTied() {
+        let confirmed = candidate("lewis", .person, confirmed: true)
+        let unconfirmed = candidate("lewis", .person)
+        #expect(EntityResolver.tied(value("Lewis", .person), among: [confirmed, unconfirmed]).isEmpty)
+    }
+
+    @Test func aSingleMatchIsNotTied() {
+        let sarah = candidate("sarah kim", .person)
+        #expect(EntityResolver.tied(value("Sarah Kim", .person), among: [sarah]).isEmpty)
+    }
 }
 
 @MainActor
@@ -216,6 +241,34 @@ struct GraphIndexerTests {
         // The key is normalized; the name keeps what the model wrote.
         #expect(try harness.entity("the river").key == "the river")
         #expect(entry.graphIndexedAt == entry.insights?.generatedAt)
+    }
+
+    // 5c.4: two live, unconfirmed entities sharing a key (the shape a forced rename or alias
+    // leaves behind) tie instead of silently picking one; the link still resolves to something
+    // (today's bestExact pick) so nothing breaks while it waits in Review.
+    @Test func indexingAValueThatTiesMarksTheLinkUnsure() throws {
+        let a = Entity(name: "Lewis", key: "lewis", kind: .person)
+        let b = Entity(name: "Lewis", key: "lewis", kind: .person)
+        harness.context.insert(a)
+        harness.context.insert(b)
+        try harness.context.save()
+
+        let entry = try harness.entry(mentions: [("Lewis", .person)])
+        harness.indexer.index(entry, in: harness.context)
+        try harness.context.save()
+
+        let link = try #require(harness.links(of: entry).first)
+        #expect(Set(link.unsureAmong) == [a.id, b.id])
+        #expect(link.entityID == a.id || link.entityID == b.id, "still resolves to something while it waits in Review")
+    }
+
+    @Test func indexingAValueThatDoesNotTieLeavesUnsureAmongEmpty() throws {
+        let entry = try harness.entry(mentions: [("Sarah", .person)])
+        harness.indexer.index(entry, in: harness.context)
+        try harness.context.save()
+
+        let link = try #require(harness.links(of: entry).first)
+        #expect(link.unsureAmong.isEmpty)
     }
 
     @Test func twoEntriesNamingTheSameThingShareOneEntity() throws {

@@ -11,11 +11,15 @@ nonisolated struct EntityChipIndex: Equatable {
         let inferred: Bool
         // Hidden entities open nothing: the user asked not to see them.
         let entityHidden: Bool
+        // The resolver tied on this one and picked for now; the Review list's "Which one?"
+        // has the real answer (5c.4).
+        let unsure: Bool
     }
 
     struct Chip: Equatable {
         let entityID: UUID
         let guessed: Bool
+        let unsure: Bool
         // The link's own words, which a correction must look it up by; the value on screen can
         // differ in case or punctuation.
         let surface: String
@@ -33,7 +37,7 @@ nonisolated struct EntityChipIndex: Equatable {
 
     init(links: [LinkInput]) {
         for link in links where !link.entityHidden {
-            let chip = Chip(entityID: link.entityID, guessed: link.inferred, surface: link.surface)
+            let chip = Chip(entityID: link.entityID, guessed: link.inferred, unsure: link.unsure, surface: link.surface)
             exact[Lookup(text: link.surface, kind: link.kind)] = exact[Lookup(text: link.surface, kind: link.kind)] ?? chip
             let key = EntityNormalizer.key(for: link.surface, kind: link.kind)
             if !key.isEmpty {

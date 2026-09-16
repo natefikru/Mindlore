@@ -14,6 +14,8 @@ struct ConnectionsView: View {
     @State private var kind: EntityKind?
     @State private var sortOption: ConnectionsPresentation.SortOption = .name
     @State private var suggestions: [EntityMatcher.Suggestion] = []
+    @State private var unsureMentions: [GraphServices.UnsureMention] = []
+    @State private var resolving: GraphServices.UnsureMention?
     @State private var loaded = false
     // Entity pages pushed from a row, by value, so a merge made from one can replace another.
     @State private var path: [EntityRoute] = []
@@ -26,6 +28,7 @@ struct ConnectionsView: View {
     private func refresh() {
         defer { loaded = true }
         suggestions = graph.editor.suggestions(in: modelContext)
+        unsureMentions = graph.unsureLinks(in: modelContext)
     }
 
     private func entity(_ id: UUID) -> Entity? {
@@ -66,6 +69,19 @@ struct ConnectionsView: View {
                         }
                     }
                 }
+                if !unsureMentions.isEmpty {
+                    Section("Which one?") {
+                        ForEach(unsureMentions) { unsure in
+                            Button {
+                                saver.flush()
+                                resolving = unsure
+                            } label: {
+                                Text("\u{201C}\(unsure.mention.surface)\u{201D} could be \(unsure.candidates.map(\.name).joined(separator: " or "))")
+                            }
+                            .accessibilityIdentifier("whichOne-\(unsure.mention.surface)")
+                        }
+                    }
+                }
                 Section("All") {
                     ForEach(visible) { row in
                         NavigationLink(value: EntityRoute(id: row.id)) {
@@ -86,13 +102,16 @@ struct ConnectionsView: View {
                 }
             }
             .overlay {
-                if loaded && suggestions.isEmpty && visible.isEmpty && hiddenRows.isEmpty {
+                if loaded && suggestions.isEmpty && unsureMentions.isEmpty && visible.isEmpty && hiddenRows.isEmpty {
                     if search.isEmpty {
                         ContentUnavailableView("No entities yet", systemImage: "person.2")
                     } else {
                         ContentUnavailableView.search(text: search)
                     }
                 }
+            }
+            .sheet(item: $resolving) { unsure in
+                RepointView(mention: unsure.mention, currentEntityID: nil, restrictedTo: Set(unsure.candidates.map(\.id)))
             }
             .searchable(text: $search, placement: .navigationBarDrawer(displayMode: .always))
             .task(id: RefreshKey(revision: graph.revision, count: entities.count)) { refresh() }

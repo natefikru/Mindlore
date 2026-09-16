@@ -7,6 +7,8 @@ struct RepointView: View {
     let mention: MentionRef
     // Where the mention points now, left out of the choices.
     let currentEntityID: UUID?
+    // Narrows the choices to this set (5c.4's "Which one?"), nil for the full search.
+    var restrictedTo: Set<UUID>? = nil
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
     @Environment(\.entityRouteReplacer) private var routeReplacer
@@ -37,6 +39,7 @@ struct RepointView: View {
         entities.filter { entity in
             !entity.isDeleted && entity.isBrowsable && entity.id != currentEntityID
                 && RepointChoices.accepts(entity.kind, for: mention.kind)
+                && (restrictedTo?.contains(entity.id) ?? true)
                 && (query.isEmpty || entity.name.localizedStandardContains(query))
         }
     }

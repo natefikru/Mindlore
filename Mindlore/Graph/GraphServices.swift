@@ -104,6 +104,46 @@ final class GraphServices {
         save(context)
     }
 
+    // The Review list's "Which one?": links the resolver couldn't tell apart between two or
+    // more live, unhidden candidates (5c.4). Each candidate id is resolved through `root(of:)`
+    // in case it was merged since the tie was recorded, and a link left with one or zero live
+    // candidates that way is quietly cleared, since the tie already answered itself.
+    struct UnsureMention: Identifiable {
+        struct Candidate: Identifiable {
+            let id: UUID
+            let name: String
+        }
+        let mention: MentionRef
+        let candidates: [Candidate]
+        var id: MentionRef { mention }
+    }
+
+    func unsureLinks(in context: ModelContext) -> [UnsureMention] {
+        let links = indexer.allLinks(in: context).filter { !$0.unsureAmong.isEmpty }
+        guard !links.isEmpty else { return [] }
+        var result: [UnsureMention] = []
+        var resolvedAutomatically = false
+        for link in links {
+            guard let entryID = link.entryID else { continue }
+            var seen: Set<UUID> = []
+            var candidates: [UnsureMention.Candidate] = []
+            for id in link.unsureAmong {
+                guard let found = editor.entity(withID: id, in: context) else { continue }
+                let root = editor.root(of: found, in: context)
+                guard !root.hidden, seen.insert(root.id).inserted else { continue }
+                candidates.append(.init(id: root.id, name: root.name))
+            }
+            if candidates.count > 1 {
+                result.append(UnsureMention(mention: MentionRef(entryID: entryID, surface: link.surface, kind: link.kind), candidates: candidates))
+            } else {
+                link.unsureAmong = []
+                resolvedAutomatically = true
+            }
+        }
+        if resolvedAutomatically { try? context.save() }
+        return result
+    }
+
     // "This is someone else", for one mention. The mention is found again by what it says,
     // because Generate again may have replaced the link since the sheet opened.
     enum RepointTarget: Equatable {
@@ -179,7 +219,7 @@ final class GraphServices {
             .filter(\.hidden).map(\.id))
         return EntityChipIndex(links: links.compactMap { link in
             link.entityID.map {
-                .init(surface: link.surface, kind: link.kind, entityID: $0, inferred: link.inferred, entityHidden: hidden.contains($0))
+                .init(surface: link.surface, kind: link.kind, entityID: $0, inferred: link.inferred, entityHidden: hidden.contains($0), unsure: !link.unsureAmong.isEmpty)
             }
         })
     }

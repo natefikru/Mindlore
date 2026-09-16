@@ -6,8 +6,8 @@ import Testing
 struct EntityChipIndexTests {
     private let sarah = UUID()
 
-    private func link(_ surface: String, _ kind: EntityKind, _ id: UUID, inferred: Bool = false, hidden: Bool = false) -> EntityChipIndex.LinkInput {
-        .init(surface: surface, kind: kind, entityID: id, inferred: inferred, entityHidden: hidden)
+    private func link(_ surface: String, _ kind: EntityKind, _ id: UUID, inferred: Bool = false, hidden: Bool = false, unsure: Bool = false) -> EntityChipIndex.LinkInput {
+        .init(surface: surface, kind: kind, entityID: id, inferred: inferred, entityHidden: hidden, unsure: unsure)
     }
 
     @Test func looksUpByKindExactWordsFirst() {
@@ -32,7 +32,12 @@ struct EntityChipIndexTests {
 
     @Test func aGuessSaysSo() {
         let index = EntityChipIndex(links: [link("sarah", .person, sarah, inferred: true)])
-        #expect(index.chip(for: "sarah", kind: .person) == .init(entityID: sarah, guessed: true, surface: "sarah"))
+        #expect(index.chip(for: "sarah", kind: .person) == .init(entityID: sarah, guessed: true, unsure: false, surface: "sarah"))
+    }
+
+    @Test func anUnsureLinkSaysSo() {
+        let index = EntityChipIndex(links: [link("Lewis", .person, sarah, unsure: true)])
+        #expect(index.chip(for: "Lewis", kind: .person) == .init(entityID: sarah, guessed: false, unsure: true, surface: "Lewis"))
     }
 
     @Test func aValueWithNoLinkHasNoChip() {
@@ -72,7 +77,7 @@ struct EntityChipIndexStoreTests {
 
         let chip = services.chipIndex(for: entry.id, in: harness.context).chip(for: "sarah", kind: .person)
 
-        #expect(chip == .init(entityID: try harness.entity("Sarah Kim").id, guessed: true, surface: "sarah"))
+        #expect(chip == .init(entityID: try harness.entity("Sarah Kim").id, guessed: true, unsure: false, surface: "sarah"))
     }
 
     @Test func aMovedMentionOpensWhereTheUserPutIt() throws {
@@ -84,7 +89,7 @@ struct EntityChipIndexStoreTests {
 
         let chip = services.chipIndex(for: entry.id, in: harness.context).chip(for: "sarah", kind: .person)
 
-        #expect(chip == .init(entityID: tom.id, guessed: false, surface: "sarah"))
+        #expect(chip == .init(entityID: tom.id, guessed: false, unsure: false, surface: "sarah"))
     }
 
     @Test func aHiddenEntityOpensNothing() throws {

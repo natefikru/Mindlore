@@ -107,4 +107,18 @@ nonisolated enum EntityResolver {
         let exact = candidates.filter { $0.keys.contains(key) && matches(kind: value.kind, $0) }
         return Set(exact.map(\.id)).count > 1
     }
+
+    // The full set of exact matches, but only when `bestExact` isn't really choosing anything: a
+    // single confirmed candidate among unconfirmed others already reflects a real decision (the
+    // same case `bestExact` resolves cleanly), so it isn't tied. Two or more confirmed, or none
+    // confirmed at all, is a real tie, and `GraphIndexer` records it on the link instead of
+    // silently picking with `bestExact`'s `linkCount`/id tie-break (5c.4).
+    static func tied(_ value: Value, among candidates: [Candidate]) -> [UUID] {
+        let key = value.key
+        guard !key.isEmpty else { return [] }
+        let exact = candidates.filter { $0.keys.contains(key) && matches(kind: value.kind, $0) }
+        guard Set(exact.map(\.id)).count > 1 else { return [] }
+        guard exact.filter(\.confirmedByUser).count != 1 else { return [] }
+        return exact.map(\.id)
+    }
 }

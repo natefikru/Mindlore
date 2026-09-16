@@ -818,7 +818,7 @@ transcription-hint bullet waits on an owner call about scope.
       `applyForcible`, is what `RenameEntitySheet` and the alias alert call, so `setKind`'s
       collision closure never populates `collidingEdit` and "No, someone else" never appears for a
       kind collision, which the spec's text implied but didn't spell out as a second function.)
-- [ ] 5c.4 The resolver asks instead of silently choosing, when a shared key ties.
+- [x] 5c.4 The resolver asks instead of silently choosing, when a shared key ties.
       `EntityResolver.resolve`'s exact-match band (`EntityResolver.swift:42-49`) already tolerates
       more than one live match (its own comment: "two live entities can share a key after a rename
       collision the user pushed through") and always picks with `bestExact`
@@ -863,6 +863,24 @@ transcription-hint bullet waits on an owner call about scope.
       right chips unsure; a `ConnectionsView` UI test opens "Which one?," picks one, and the row is
       gone after the refresh (the same `.task(id:)` pattern 5b's Review section
       uses).
+      (Built: testing surfaced a real bug the spec text didn't anticipate, now fixed. The
+      candidate a tie doesn't pick has no link pointing at it yet, so it looked exactly like an
+      abandoned entity to `GraphIndexer.recount` (`GraphIndexer.swift:301-330`: `linkCount == 0 &&
+      !confirmedByUser` gets deleted), and the very next recount pruned it, silently resolving the
+      tie by deleting one side. `recount` now also keeps an entity referenced in any link's
+      `unsureAmong`, the same way it already keeps a hidden entity or a merge loser. `unsureLinks`
+      returns `GraphServices.UnsureMention` (a `MentionRef` for identity, reusing the existing
+      "found again by what it says" pattern from `GraphServices.repoint`, plus named
+      `Candidate(id:name:)` values) rather than raw tuples. A "Which one?" row commits through the
+      existing `RepointView` UI, unchanged beyond the new `restrictedTo` filter; no new commit
+      path was written. `EntityChipIndex.Chip`/`LinkInput` grew a third field, `unsure`, alongside
+      `guessed` rather than replacing it, since the two states are mutually exclusive (`inferred`
+      only comes from the resolver's first-name band, `unsureAmong` only from its exact-match
+      band) but both are real; the chip badge is a small "?" circle, not a border style, so it
+      reads distinctly from the guessed chip's dashed outline. `ConnectionsView`'s UI test was not
+      written or run this session, per the standing "no UI tests" note; `unsureLinks` and the
+      repoint-clears-`unsureAmong` path are covered at the `GraphServices`/`GraphIndexer` unit
+      level instead.)
 - [ ] 5c.5 "Spelled right?" for a brand-new, unconfirmed name. `EntityPagePresentation` gains a
       pure `showsSpellingPrompt(for:) -> Bool`: true when `!entity.confirmedByUser &&
       entity.linkCount <= 1` and the kind is one of person, place, organization, project, or event,

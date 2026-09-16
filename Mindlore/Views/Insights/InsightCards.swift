@@ -238,7 +238,7 @@ struct EntityChips: View {
             ForEach(values, id: \.self) { value in
                 if let chip = index.chip(for: value, kind: kind) {
                     Button { open(chip.entityID) } label: {
-                        chipLabel(value, guessed: chip.guessed)
+                        chipLabel(value, guessed: chip.guessed, unsure: chip.unsure)
                     }
                     .buttonStyle(.borderless)
                     .contentShape(.contextMenuPreview, Capsule())
@@ -251,11 +251,11 @@ struct EntityChips: View {
                         }
                         Button("Copy", systemImage: "doc.on.doc") { UIPasteboard.general.string = value }
                     }
-                    .accessibilityLabel(chip.guessed ? "\(value), guessed" : value)
+                    .accessibilityLabel(chip.unsure ? "\(value), unsure which one" : chip.guessed ? "\(value), guessed" : value)
                     .accessibilityHint("Opens its page")
                     .accessibilityIdentifier("entityChip-\(kind.rawValue)-\(value)")
                 } else {
-                    chipLabel(value, guessed: false)
+                    chipLabel(value, guessed: false, unsure: false)
                         .foregroundStyle(.primary)
                         .contextMenu {
                             Button("Copy", systemImage: "doc.on.doc") { UIPasteboard.general.string = value }
@@ -265,7 +265,7 @@ struct EntityChips: View {
         }
     }
 
-    private func chipLabel(_ value: String, guessed: Bool) -> some View {
+    private func chipLabel(_ value: String, guessed: Bool, unsure: Bool) -> some View {
         Text(value)
             .font(.subheadline)
             .padding(.horizontal, 10)
@@ -275,6 +275,16 @@ struct EntityChips: View {
                 if guessed {
                     Capsule().strokeBorder(style: StrokeStyle(lineWidth: 1, dash: [3, 2]))
                         .foregroundStyle(.secondary)
+                }
+            }
+            .overlay(alignment: .topTrailing) {
+                if unsure {
+                    Text("?")
+                        .font(.caption2.bold())
+                        .frame(width: 14, height: 14)
+                        .background(.orange, in: Circle())
+                        .foregroundStyle(.white)
+                        .offset(x: 4, y: -4)
                 }
             }
     }

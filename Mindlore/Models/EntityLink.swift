@@ -30,6 +30,10 @@ final class EntityLink {
     // ever sets it, and only the first one: a link merged twice still belongs to the entity
     // it was born on.
     var originalEntityID: UUID?
+    // The resolver's candidates when a shared key tied and it picked one to link to for now,
+    // rather than a real decision. Empty means resolved normally. The Review list's "Which one?"
+    // asks, and repointing to one of them clears it (5c.4).
+    var unsureAmong: [UUID] = []
 
     var kind: EntityKind {
         get { EntityKind(rawValue: kindRaw) ?? .other }
@@ -80,6 +84,8 @@ final class EntityLink {
         source = .user
         // The user said where this belongs, so it is no longer a guess.
         inferred = false
+        // ...and no longer unsure, whether it was tied or just guessed wrong.
+        unsureAmong = []
     }
 
     // Sets the relationship and the id together. Nothing should ever write one without the other.

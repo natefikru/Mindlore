@@ -43,6 +43,85 @@ struct GraphServicesTests {
         #expect(services.revision == 1)
     }
 
+    // MARK: - 5c.4: unsure links
+
+    @Test func unsureLinksListsTiedCandidatesByName() throws {
+        let a = Entity(name: "Lewis", key: "lewis", kind: .person)
+        let b = Entity(name: "Lewis", key: "lewis", kind: .person)
+        harness.context.insert(a)
+        harness.context.insert(b)
+        try harness.context.save()
+        let entry = try harness.entry(mentions: [("Lewis", .person)])
+        services.insightsWritten(for: entry, in: harness.context)
+        try harness.context.save()
+
+        let unsure = services.unsureLinks(in: harness.context)
+
+        #expect(unsure.count == 1)
+        #expect(unsure[0].mention == MentionRef(entryID: entry.id, surface: "Lewis", kind: .person))
+        #expect(Set(unsure[0].candidates.map(\.id)) == [a.id, b.id])
+    }
+
+    @Test func unsureLinksDropsAStaleCandidateAndResolvesThroughTheMergeWinner() throws {
+        let a = Entity(name: "Lewis", key: "lewis", kind: .person)
+        let b = Entity(name: "Lewis", key: "lewis", kind: .person)
+        harness.context.insert(a)
+        harness.context.insert(b)
+        try harness.context.save()
+        let entry = try harness.entry(mentions: [("Lewis", .person)])
+        services.insightsWritten(for: entry, in: harness.context)
+        try harness.context.save()
+
+        // b merges into a third entity after the tie was recorded, before anyone answers "Which one?".
+        let c = Entity(name: "Louis", key: "louis", kind: .person)
+        harness.context.insert(c)
+        try harness.context.save()
+        _ = services.merge(b.id, into: c.id, in: harness.context)
+
+        let unsure = services.unsureLinks(in: harness.context)
+
+        #expect(unsure.count == 1)
+        #expect(Set(unsure[0].candidates.map(\.id)) == [a.id, c.id], "resolves the stale merged id through its winner")
+    }
+
+    @Test func unsureLinksClearsALinkLeftWithOneLiveCandidate() throws {
+        let a = Entity(name: "Lewis", key: "lewis", kind: .person)
+        let b = Entity(name: "Lewis", key: "lewis", kind: .person)
+        harness.context.insert(a)
+        harness.context.insert(b)
+        try harness.context.save()
+        let entry = try harness.entry(mentions: [("Lewis", .person)])
+        services.insightsWritten(for: entry, in: harness.context)
+        try harness.context.save()
+
+        // b hides after the tie was recorded: unsureLinks(in:) should quietly resolve, not offer a choice.
+        services.setHidden(true, on: b.id, in: harness.context)
+
+        let unsure = services.unsureLinks(in: harness.context)
+
+        #expect(unsure.isEmpty)
+        let link = try #require(harness.links(of: entry).first)
+        #expect(link.unsureAmong.isEmpty)
+    }
+
+    @Test func repointingAnUnsureLinkClearsUnsureAmong() throws {
+        let a = Entity(name: "Lewis", key: "lewis", kind: .person)
+        let b = Entity(name: "Lewis", key: "lewis", kind: .person)
+        harness.context.insert(a)
+        harness.context.insert(b)
+        try harness.context.save()
+        let entry = try harness.entry(mentions: [("Lewis", .person)])
+        services.insightsWritten(for: entry, in: harness.context)
+        try harness.context.save()
+
+        let mention = MentionRef(entryID: entry.id, surface: "Lewis", kind: .person)
+        #expect(services.repoint(mention, to: .existing(b.id), addingAlias: false, in: harness.context) == .applied(b.id))
+
+        let link = try #require(harness.links(of: entry).first)
+        #expect(link.unsureAmong.isEmpty)
+        #expect(services.unsureLinks(in: harness.context).isEmpty)
+    }
+
     @Test func deletingInsightsDropsTheirLinksAndRecounts() throws {
         let entry = try harness.entry(mentions: [("Sarah", .person)])
         try harness.entry(mentions: [("Sarah", .person)])

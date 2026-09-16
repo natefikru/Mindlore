@@ -87,6 +87,7 @@ struct GraphIndexer {
             if EntityResolver.isAmbiguous(value, among: batch.candidates) {
                 diagnostics.record("graph.ambiguous", ["id": .id(entry.id), "kind": .string(value.kind.rawValue)])
             }
+            let tiedAmong = EntityResolver.tied(value, among: batch.candidates)
             let outcome = EntityResolver.resolve(value, among: batch.candidates)
             let target: Entity
             var inferred = false
@@ -118,6 +119,7 @@ struct GraphIndexer {
             link.attach(to: entry, entity: target)
             link.originalEntityID = origins[Claim(surface: value.surface, kind: value.kind)]
             link.writtenSurface = writtenSurfaces[Claim(surface: value.surface, kind: value.kind)]
+            link.unsureAmong = tiedAmong
             kept.append(link)
             linked += 1
         }
@@ -302,9 +304,10 @@ struct GraphIndexer {
             ((try? context.fetch(FetchDescriptor<Entry>())) ?? []).map { ($0.id, $0.entryDate) },
             uniquingKeysWith: { first, _ in first }
         )
+        let links = allLinks(in: context)
         var counts: [UUID: (count: Int, first: Date, last: Date)] = [:]
 
-        for link in allLinks(in: context) {
+        for link in links {
             guard let entityID = link.entityID, let entryID = link.entryID, let date = dates[entryID] else { continue }
             if let existing = counts[entityID] {
                 counts[entityID] = (existing.count + 1, min(existing.first, date), max(existing.last, date))
@@ -313,15 +316,20 @@ struct GraphIndexer {
             }
         }
 
+        // The candidate a tie didn't pick has no link of its own yet, but pruning it would
+        // orphan the tie: "Which one?" would answer itself with nothing left to choose between.
+        let tiedCandidates = Set(links.flatMap(\.unsureAmong))
+
         for entity in liveAndMergedEntities(in: context) {
             let tally = counts[entity.id]
             entity.linkCount = tally?.count ?? 0
             entity.firstLinkedAt = tally?.first
             entity.lastLinkedAt = tally?.last
             // Kept even with nothing pointing at it: anything the user touched, anything they
-            // hid (or it would come back the next time it is mentioned), and a merge loser,
-            // which is the undo record.
-            if entity.linkCount == 0 && !entity.confirmedByUser && !entity.hidden && !entity.isMerged {
+            // hid (or it would come back the next time it is mentioned), a merge loser (the undo
+            // record), and a tie's other candidate.
+            if entity.linkCount == 0 && !entity.confirmedByUser && !entity.hidden && !entity.isMerged
+                && !tiedCandidates.contains(entity.id) {
                 context.delete(entity)
             }
         }
