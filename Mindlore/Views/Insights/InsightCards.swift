@@ -213,8 +213,8 @@ struct MentionGroups: View {
                         kind: EntityKind(kind),
                         index: index,
                         open: open,
-                        repoint: { value, entityID in
-                            repoint(MentionRef(entryID: entryID, surface: value, kind: EntityKind(kind)), entityID)
+                        repoint: { surface, entityID in
+                            repoint(MentionRef(entryID: entryID, surface: surface, kind: EntityKind(kind)), entityID)
                         }
                     )
                 }
@@ -246,7 +246,7 @@ struct EntityChips: View {
                         Button("Open", systemImage: "arrow.right.circle") { open(chip.entityID) }
                         if let repoint {
                             Button("This is someone else", systemImage: "person.crop.circle.badge.questionmark") {
-                                repoint(value, chip.entityID)
+                                repoint(chip.surface, chip.entityID)
                             }
                         }
                         Button("Copy", systemImage: "doc.on.doc") { UIPasteboard.general.string = value }

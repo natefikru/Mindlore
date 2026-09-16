@@ -260,7 +260,8 @@ private struct EntityPage: View {
             drafting: graph.drafting.contains(id),
             failure: graph.bioFailures[id],
             withoutExcerpts: graph.withoutExcerpts.contains(id),
-            textUsable: AIServices.textUsable(settings: settings, accounts: accounts)
+            // A merged entity's bio is kept for undo; nothing drafts it.
+            textUsable: !entity.isMerged && AIServices.textUsable(settings: settings, accounts: accounts)
         ))
         return Section("About") {
             switch state {

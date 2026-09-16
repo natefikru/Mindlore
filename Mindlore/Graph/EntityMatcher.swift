@@ -45,6 +45,14 @@ nonisolated enum EntityMatcher {
         return found.sorted { (weight($0), $0.score) > (weight($1), $1.score) }
     }
 
+    // The same test for one entity against the rest: linear, for a screen about that entity.
+    static func likelySame(as entity: Candidate, among candidates: [Candidate], threshold: Double = threshold) -> Set<UUID> {
+        Set(candidates.filter { other in
+            other.id != entity.id && !entity.notSameAs.contains(other.id) && !other.notSameAs.contains(entity.id)
+                && (score(entity, other) ?? 0) >= threshold
+        }.map(\.id))
+    }
+
     static func score(_ a: Candidate, _ b: Candidate) -> Double? {
         guard !a.key.isEmpty, !b.key.isEmpty else { return nil }
 

@@ -466,8 +466,8 @@ Plan review of 2026-09-16 (20 findings) is folded in below; see "Review log".
   merge winner when the id was merged elsewhere; merged-in rows push `follow: false` so they show
   the loser itself. A merge made from the page replaces the top route with the winner, rather than
   relying on the redirect, so Undo does not flip the page. When a route's entity is gone (pruned,
-  say after Generate again), the page shows "No longer in your journal" and the sheet removes gone
-  routes from the path; the page never dismisses itself. The resolved page is a separate body view
+  say after Generate again), the page shows "No longer in your journal" until the user goes back;
+  the page never dismisses itself and the path is not rewritten under the user. The resolved page is a separate body view
   with `.id(rootID)`, watched with `.onChange(of:initial: true)`.
   `EntityPagePresentation.resolve(route, fetched)` is the pure decision and is tested.
 - *Entry rows on an entity page are read-only in 5a: date, title or first words, and the sentence
@@ -505,7 +505,7 @@ Plan review of 2026-09-16 (20 findings) is folded in below; see "Review log".
   entities are sent.
 - One draft per entity at a time: `GraphServices` keys running drafts by entity id, so two quick
   opens or two pages send one request. Leaving the page does not cancel it (the result is cheap to
-  keep and already paid for); app teardown does.
+  keep and already paid for), and nothing in the app cancels one; `cancelDrafts` exists for tests.
 - Writes, after `Task.isCancelled` is checked and the entity is re-fetched by id: only if it still
   exists, is not merged, `!bioEditedByUser`, and its bio is still empty or AI-written. Stores `bio`
   (or nil), `bioWasGenerated = true`, `bioDraftedAt`, `bioModelUsed`, `bioSourceEntries`,
@@ -523,7 +523,7 @@ Plan review of 2026-09-16 (20 findings) is folded in below; see "Review log".
   excerpts, or bio.
 - Built (5a.2): `GraphServices.pageOpened` (automatic) and `draftBio` (tapped), `drafting`,
   `bioFailures`, and `withoutExcerpts` (zero excerpts this session, for the page's not-enough
-  state); `draftFinished` lets tests await the real task; `cancelDrafts` for teardown.
+  state); `draftFinished` lets tests await the real task; `cancelDrafts` for the cancellation tests only; nothing in the app cancels a draft.
 
 **The entity page** (`Mindlore/Views/Graph/EntityView.swift` and small pieces beside it):
 - Header: name (tap to rename), kind menu, "Mentioned in N entries", first and last dates. The
@@ -593,6 +593,8 @@ fallback.
       Mentioned cards lost their card-wide Copy, and each chip's menu has Open, Copy, and for
       names "This is someone else".)
 - [ ] 5a.6 UI test, sub-agent review of 5a, fixes, simulator screenshots of each screen state.
+      Review and fixes done (see "Review log"); the UI test and screenshots wait for the owner,
+      who is running UI and smoke tests in another session.
 
 **Tests**:
 - `BioExcerptsTests`: the sentence containing each surface form; case and possessive; a longer
@@ -762,6 +764,28 @@ the phone.
 - Search across entry text (synthesis PR)
 
 ## Review log
+
+Phase 5a build (sub-agent review of `1d5a465..3ead125`, 2026-09-16, verdict "approve with
+fixes"; 8 findings, all fixed in the commit after 5a.5). Privacy, stamping, the post-await
+checks, and the route replacer were confirmed sound.
+
+1. "This is someone else" with the alias switch offered to merge the two entities the user had
+   just separated: a collision with the entity the mention came from is now `aliasStaysWith`,
+   reported without a merge offer.
+2. `MergeIntoView` ran the all-pairs matcher on every render: `EntityMatcher.likelySame` scores
+   one entity against the rest, once per search or graph change.
+3. The collision check let `other` meet tags and themes, unlike the resolver: it uses the
+   resolver's label rule.
+4. A merged entity's page offered Draft, and tapping it (or a failed resolve) cleared the
+   user's "cleared bio" flag: Draft is hidden on merged pages, and the flag changes only once a
+   request can go out.
+5. An automatic draft resent after a permanent failure on every appearance: it waits for Try
+   again.
+6. A chip found by key but repointed by exact surface said "This mention changed": chips carry
+   the link's own surface.
+7. `cancelDrafts` and the gone-route path claims did not match the code: the spec now says what
+   the code does; `register`'s plain save is commented.
+8. Tests added: unapproved photo entries excluded, cancellation logs nothing, and one per fix.
 
 Phase 5a plan (sub-agent review of the spec, 2026-09-16, verdict "approve with fixes"; 20
 findings, all folded into the Phase 5a spec before building): excerpts limited to text the

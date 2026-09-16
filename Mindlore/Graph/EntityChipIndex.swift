@@ -16,6 +16,9 @@ nonisolated struct EntityChipIndex: Equatable {
     struct Chip: Equatable {
         let entityID: UUID
         let guessed: Bool
+        // The link's own words, which a correction must look it up by; the value on screen can
+        // differ in case or punctuation.
+        let surface: String
     }
 
     private struct Lookup: Hashable {
@@ -30,7 +33,7 @@ nonisolated struct EntityChipIndex: Equatable {
 
     init(links: [LinkInput]) {
         for link in links where !link.entityHidden {
-            let chip = Chip(entityID: link.entityID, guessed: link.inferred)
+            let chip = Chip(entityID: link.entityID, guessed: link.inferred, surface: link.surface)
             exact[Lookup(text: link.surface, kind: link.kind)] = exact[Lookup(text: link.surface, kind: link.kind)] ?? chip
             let key = EntityNormalizer.key(for: link.surface, kind: link.kind)
             if !key.isEmpty {

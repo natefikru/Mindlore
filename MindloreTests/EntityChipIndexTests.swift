@@ -22,6 +22,7 @@ struct EntityChipIndexTests {
     @Test func fallsBackToTheNormalizedKey() {
         let index = EntityChipIndex(links: [link("Sarah's", .person, sarah)])
         #expect(index.chip(for: "sarah", kind: .person)?.entityID == sarah)
+        #expect(index.chip(for: "sarah", kind: .person)?.surface == "Sarah's", "a correction looks the link up by its own words")
     }
 
     @Test func hiddenEntitiesOpenNothing() {
@@ -31,7 +32,7 @@ struct EntityChipIndexTests {
 
     @Test func aGuessSaysSo() {
         let index = EntityChipIndex(links: [link("sarah", .person, sarah, inferred: true)])
-        #expect(index.chip(for: "sarah", kind: .person) == .init(entityID: sarah, guessed: true))
+        #expect(index.chip(for: "sarah", kind: .person) == .init(entityID: sarah, guessed: true, surface: "sarah"))
     }
 
     @Test func aValueWithNoLinkHasNoChip() {
@@ -71,7 +72,7 @@ struct EntityChipIndexStoreTests {
 
         let chip = services.chipIndex(for: entry.id, in: harness.context).chip(for: "sarah", kind: .person)
 
-        #expect(chip == .init(entityID: try harness.entity("Sarah Kim").id, guessed: true))
+        #expect(chip == .init(entityID: try harness.entity("Sarah Kim").id, guessed: true, surface: "sarah"))
     }
 
     @Test func aMovedMentionOpensWhereTheUserPutIt() throws {
@@ -83,7 +84,7 @@ struct EntityChipIndexStoreTests {
 
         let chip = services.chipIndex(for: entry.id, in: harness.context).chip(for: "sarah", kind: .person)
 
-        #expect(chip == .init(entityID: tom.id, guessed: false))
+        #expect(chip == .init(entityID: tom.id, guessed: false, surface: "sarah"))
     }
 
     @Test func aHiddenEntityOpensNothing() throws {

@@ -55,7 +55,8 @@ struct EntityBioDrafter {
 
     // The insights request for this exact text went out, so quoting it discloses nothing new.
     static func wasSentInFull(_ entry: Entry) -> Bool {
-        guard !entry.isDeleted, InsightsCoordinator.canRunAI(on: entry), let insights = entry.insights else { return false }
+        guard !entry.isDeleted, !entry.isAwaitingPageConfirmation, InsightsCoordinator.canRunAI(on: entry),
+              let insights = entry.insights else { return false }
         return insights.isCurrent(for: entry)
     }
 

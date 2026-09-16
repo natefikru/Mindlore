@@ -6,23 +6,32 @@ import SwiftUI
 struct MergeIntoView: View {
     let entityID: UUID
     let onMerge: (UUID) -> Void
-    @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
     @Environment(GraphServices.self) private var graph
     @Query(sort: \Entity.name) private var entities: [Entity]
     @State private var search = ""
     @State private var confirming: Entity?
+    // Worked out once per search or graph change, not on every render.
+    @State private var candidates: [MergeCandidates.Candidate] = []
+    @State private var loaded = false
 
     private var me: Entity? { entities.first { $0.id == entityID } }
 
-    private var candidates: [MergeCandidates.Candidate] {
-        let suggested = Set(graph.editor.suggestions(in: modelContext).compactMap { pair -> UUID? in
-            if pair.a == entityID { return pair.b }
-            if pair.b == entityID { return pair.a }
-            return nil
-        })
-        return MergeCandidates.order(
-            entities.filter { !$0.isDeleted && $0.isBrowsable }.map {
+    private struct RefreshKey: Equatable {
+        let search: String
+        let revision: Int
+        let count: Int
+    }
+
+    private func refresh() {
+        let browsable = entities.filter { !$0.isDeleted && $0.isBrowsable }
+        func matcher(_ entity: Entity) -> EntityMatcher.Candidate {
+            .init(id: entity.id, key: entity.key, kind: entity.kind, linkCount: entity.linkCount, notSameAs: entity.notSameAs)
+        }
+        let suggested = me.map { EntityMatcher.likelySame(as: matcher($0), among: browsable.map(matcher)) } ?? []
+        defer { loaded = true }
+        candidates = MergeCandidates.order(
+            browsable.map {
                 .init(id: $0.id, name: $0.name, kind: $0.kind, linkCount: $0.linkCount, suggested: suggested.contains($0.id))
             },
             excluding: entityID,
@@ -50,11 +59,12 @@ struct MergeIntoView: View {
                 .accessibilityIdentifier("mergeCandidate-\(candidate.name)")
             }
             .overlay {
-                if candidates.isEmpty {
+                if loaded && candidates.isEmpty {
                     ContentUnavailableView.search(text: search)
                 }
             }
             .searchable(text: $search, placement: .navigationBarDrawer(displayMode: .always))
+            .task(id: RefreshKey(search: search, revision: graph.revision, count: entities.count)) { refresh() }
             .navigationTitle("Merge \(me?.name ?? "") into")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {

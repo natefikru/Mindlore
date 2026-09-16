@@ -20,11 +20,13 @@ struct RepointView: View {
     private enum Problem: Identifiable {
         case mentionChanged
         case aliasTaken(entityID: UUID, other: UUID)
+        case aliasStays(owner: UUID)
 
         var id: String {
             switch self {
             case .mentionChanged: "changed"
             case .aliasTaken(_, let other): other.uuidString
+            case .aliasStays(let owner): "stays-" + owner.uuidString
             }
         }
     }
@@ -88,6 +90,12 @@ struct RepointView: View {
                         message: Text("The insights were made again, and this name isn't there any more."),
                         dismissButton: .default(Text("OK")) { dismiss() }
                     )
+                case .aliasStays(let owner):
+                    Alert(
+                        title: Text("This mention moved"),
+                        message: Text("Other mentions of \u{201C}\(mention.surface)\u{201D} still go to \(name(of: owner)). Use \u{201C}This is someone else\u{201D} on those too, or rename one of them."),
+                        dismissButton: .default(Text("OK")) { dismiss() }
+                    )
                 case .aliasTaken(let entityID, let other):
                     Alert(
                         title: Text("\(name(of: other)) already goes by \u{201C}\(mention.surface)\u{201D}"),
@@ -111,6 +119,7 @@ struct RepointView: View {
         case .applied: dismiss()
         case .mentionChanged: problem = .mentionChanged
         case .aliasCollides(let entityID, let other): problem = .aliasTaken(entityID: entityID, other: other)
+        case .aliasStaysWith(_, let owner): problem = .aliasStays(owner: owner)
         }
     }
 

@@ -131,6 +131,19 @@ struct EntityPageEditTests {
         #expect(!winner.hidden)
     }
 
+    @Test func likelySameScoresOneEntityAgainstTheRest() {
+        func candidate(_ key: String, _ kind: EntityKind = .person, notSame: [UUID] = []) -> EntityMatcher.Candidate {
+            .init(id: UUID(), key: key, kind: kind, linkCount: 1, notSameAs: notSame)
+        }
+        let kim = candidate("sarah kim")
+        let me = candidate("sarah", notSame: [kim.id])
+        let lee = candidate("sarah lee")
+        let tom = candidate("tom")
+        let tag = candidate("sarah", .tag)
+
+        #expect(EntityMatcher.likelySame(as: me, among: [me, kim, lee, tom, tag]) == [lee.id])
+    }
+
     @Test func mergeCandidatesPutLikelyDuplicatesAndTheSameKindFirst() {
         let me = UUID()
         func candidate(_ name: String, _ kind: EntityKind, links: Int = 1, suggested: Bool = false) -> MergeCandidates.Candidate {
@@ -208,18 +221,45 @@ struct EntityPageEditTests {
         #expect(tom.linkCount == 1)
     }
 
-    @Test func anAliasSomeoneElseHasIsReported() throws {
-        let (_, mention) = try guessedSarah()
+    // The user just said this is not the entity it came from, so the name staying there is
+    // reported, never offered as a merge.
+    @Test func theNameStayingWithWhereItCameFromIsNotAMergeOffer() throws {
+        let (entry, mention) = try guessedSarah()
         let sarah = try harness.entity("sarah")
         try harness.entry("Tom called.", mentions: [("Tom", .person)])
         let tom = try harness.entity("Tom")
-        // Something else still answers to the name after the mention moves.
         try harness.entry("Sarah again.", mentions: [("Sarah", .person)])
 
         let outcome = services.repoint(mention, to: .existing(tom.id), addingAlias: true, in: context)
 
-        #expect(outcome == .aliasCollides(entityID: tom.id, with: sarah.id))
-        #expect(harness.graph.links(of: try #require(try context.fetch(FetchDescriptor<Entry>()).first { $0.id == mention.entryID })).first?.entityID == tom.id)
+        #expect(outcome == .aliasStaysWith(entityID: tom.id, owner: sarah.id))
+        #expect(harness.graph.links(of: entry).first?.entityID == tom.id)
+    }
+
+    @Test func aNameAThirdEntityAnswersToIsReportedAsACollision() throws {
+        let (_, mention) = try guessedSarah()
+        try harness.entry("Tom called.", mentions: [("Tom", .person)])
+        try harness.entry("Amy called.", mentions: [("Amy", .person)])
+        let tom = try harness.entity("Tom")
+        let amy = try harness.entity("Amy")
+        // Amy answers to "sarah" too, and the entity the mention came from is pruned.
+        #expect(services.addAlias("Sarah", to: amy.id, in: context) == .collides(with: try harness.entity("sarah").id))
+        amy.aliases.append("sarah")
+        try context.save()
+
+        let outcome = services.repoint(mention, to: .existing(tom.id), addingAlias: true, in: context)
+
+        #expect(outcome == .aliasCollides(entityID: tom.id, with: amy.id))
+    }
+
+    // Labels never meet named kinds, in the collision check as in the resolver.
+    @Test func becomingOtherBesideATagIsNotACollision() throws {
+        try harness.entry("Work was long.", mentions: [("Work", .project)], tags: ["work"])
+        let project = try #require(try harness.graph.entities().first { $0.kind == .project })
+
+        #expect(services.setKind(.other, on: project.id, in: context) == .applied)
+        #expect(project.kind == .other)
+        #expect(services.editor.entity(answering: "work", kind: .other, in: context)?.id == project.id)
     }
 
     @Test func repointChoicesFollowTheResolversKindRule() {

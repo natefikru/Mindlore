@@ -271,6 +271,9 @@ struct GraphEditor {
         entity.confirmedByUser = true
     }
 
+    // A plain save, which stamps nothing it shouldn't only because every caller has flushed the
+    // entry saver first; the only unsaved change here is the new entity.
+    //
     // An existing link silently refuses an entity the store has never seen, leaving it with
     // no entity at all, which the next recount cleans up as garbage. Anything about to
     // receive links has to be in the store first.
@@ -304,13 +307,20 @@ struct GraphEditor {
         ))) ?? [])
         return live.first { other in
             other.id != entity?.id
-                && (other.kind == kind || other.kind == .other || kind == .other)
+                && Self.sameFamily(other.kind, kind)
                 && keys(of: other).contains(key)
         }
     }
 
     // In memory: comparing the optional mergedIntoID with a plain UUID inside a predicate can
     // quietly return the wrong set (tasks/lessons.md).
+    // The resolver's rule: a kind meets itself, and `other` meets any named kind, never a label.
+    private static func sameFamily(_ a: EntityKind, _ b: EntityKind) -> Bool {
+        if a == b { return true }
+        if EntityResolver.isLabel(a) || EntityResolver.isLabel(b) { return false }
+        return a == .other || b == .other
+    }
+
     private func merged(into entity: Entity, in context: ModelContext) -> [Entity] {
         let id = entity.id
         return ((try? context.fetch(FetchDescriptor<Entity>())) ?? []).filter { $0.mergedIntoID == id && !$0.isDeleted }

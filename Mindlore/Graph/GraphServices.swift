@@ -105,8 +105,11 @@ final class GraphServices {
 
     enum RepointOutcome: Equatable {
         case applied(UUID)
-        // Moved, but the name still belongs to someone else for future mentions.
+        // Moved, but a third entity already answers to the name: probably the same one.
         case aliasCollides(entityID: UUID, with: UUID)
+        // Moved, and the entity it came from keeps the name for its other mentions. The user
+        // just said these are different, so this is never a merge offer.
+        case aliasStaysWith(entityID: UUID, owner: UUID)
         case mentionChanged
     }
 
@@ -130,11 +133,13 @@ final class GraphServices {
             }
         }
         guard link.entityID != entity.id || addingAlias else { return .applied(entity.id) }
+        let previous = link.entityID
 
         let outcome = editor.repoint(link, to: entity, addingAlias: addingAlias, in: context)
         revision += 1
         switch outcome {
         case .applied: return .applied(entity.id)
+        case .collides(let other) where other == previous: return .aliasStaysWith(entityID: entity.id, owner: other)
         case .collides(let other): return .aliasCollides(entityID: entity.id, with: other)
         }
     }
@@ -176,25 +181,30 @@ final class GraphServices {
     // An entity page appeared. Drafts once, for the kinds that are named word for word, while
     // automatic insights are on: this sends text, so it follows the same switch.
     func pageOpened(_ entityID: UUID, in context: ModelContext) {
+        // A failure that retrying can't fix waits for the user's Try again.
+        if let failure = bioFailures[entityID], !failure.isRetryable { return }
         guard automaticBiosUsable(), drafts[entityID] == nil,
               let entity = editor.entity(withID: entityID, in: context),
               EntityBioDrafter.automaticKinds.contains(entity.kind),
-              entity.bio == nil, entity.bioDraftedAt == nil, EntityBioDrafter.mayWrite(entity)
+              entity.bio == nil, entity.bioDraftedAt == nil, EntityBioDrafter.mayWrite(entity),
+              let generator = resolveGenerator(for: entityID)
         else { return }
-        startDraft(entityID, in: context)
+        startDraft(entityID, using: generator, in: context)
     }
 
     // The user asked. Works for any kind, and brings back AI for a bio they had cleared.
     func draftBio(_ entityID: UUID, in context: ModelContext) {
-        guard drafts[entityID] == nil, let entity = editor.entity(withID: entityID, in: context) else { return }
-        if entity.bioEditedByUser && entity.bio == nil {
-            entity.bioEditedByUser = false
-        }
-        guard EntityBioDrafter.mayWrite(entity) else { return }
-        startDraft(entityID, in: context)
+        guard drafts[entityID] == nil, let entity = editor.entity(withID: entityID, in: context), !entity.isMerged else { return }
+        let bringingBack = entity.bioEditedByUser && entity.bio == nil
+        guard bringingBack || EntityBioDrafter.mayWrite(entity) else { return }
+        // The flag only changes once a request can actually go out.
+        guard let generator = resolveGenerator(for: entityID) else { return }
+        if bringingBack { entity.bioEditedByUser = false }
+        startDraft(entityID, using: generator, in: context)
     }
 
-    // Leaving a page doesn't cancel its draft: the answer is already paid for.
+    // Leaving a page doesn't cancel its draft: the answer is already paid for, and the app
+    // never cancels one. This exists so tests can reach the drafter's cancellation path.
     func cancelDrafts() {
         drafts.values.forEach { $0.cancel() }
     }
@@ -204,15 +214,18 @@ final class GraphServices {
         await drafts[entityID]?.value
     }
 
-    private func startDraft(_ entityID: UUID, in context: ModelContext) {
-        bioFailures[entityID] = nil
-        let generator: ResolvedTextGenerator
+    private func resolveGenerator(for entityID: UUID) -> ResolvedTextGenerator? {
         switch resolveText() {
-        case .success(let resolved): generator = resolved
+        case .success(let resolved):
+            bioFailures[entityID] = nil
+            return resolved
         case .failure(let failure):
             bioFailures[entityID] = failure
-            return
+            return nil
         }
+    }
+
+    private func startDraft(_ entityID: UUID, using generator: ResolvedTextGenerator, in context: ModelContext) {
         drafting.insert(entityID)
         drafts[entityID] = Task {
             let outcome = await drafter.draft(entityID: entityID, using: generator, in: context)

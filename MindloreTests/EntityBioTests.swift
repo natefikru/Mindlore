@@ -199,6 +199,9 @@ struct EntityBioDrafterTests {
         edited.text = "Sarah new, never analyzed."
         let filler = String(repeating: "word ", count: InsightsPromptBuilder.maxInputCharacters / 5)
         try harness.entry(filler + "Sarah beyond the limit.", day: 4, mentions: [("Sarah", .person)])
+        let photo = try harness.entry("Sarah on a page.", day: 6, mentions: [("Sarah", .person)])
+        photo.sourceRaw = EntrySource.photo.rawValue
+        photo.pagesConfirmed = false
         try harness.entry("Sarah sent.", day: 5, mentions: [("Sarah", .person)])
 
         let selection = harness.services.drafter.excerpts(for: try harness.entity("Sarah").id, in: harness.context)
@@ -329,7 +332,10 @@ struct EntityBioDrafterTests {
     }
 
     @Test func aCancelledDraftRecordsNothing() async throws {
-        let sarah = try sarah()
+        let file = DiagnosticsFile()
+        let harness = try BioHarness(log: DiagnosticsLog(fileURL: file.url))
+        try harness.entry("Walked with Sarah.", mentions: [("Sarah", .person)])
+        let sarah = try harness.entity("Sarah")
         harness.generator.suspends = true
 
         harness.services.pageOpened(sarah.id, in: harness.context)
@@ -342,6 +348,43 @@ struct EntityBioDrafterTests {
         #expect(sarah.bioDraftedAt == nil)
         #expect(harness.services.bioFailures.isEmpty)
         #expect(harness.services.drafting.isEmpty)
+        #expect(!file.contents().contains("graph.bio"))
+    }
+
+    @Test func aPermanentFailureWaitsForTryAgain() async throws {
+        let sarah = try sarah()
+        harness.generator.results = [.failure(AIError.quotaExceeded), .success(#"{"bio":"A friend."}"#)]
+
+        await harness.open(sarah)
+        await harness.open(sarah)
+        #expect(harness.generator.requests.count == 1)
+
+        await harness.draft(sarah)
+        #expect(sarah.bio == "A friend.")
+    }
+
+    // A merged entity's bio is its undo record: nothing drafts it, and asking changes nothing.
+    @Test func aMergedEntityIsNeverDrafted() async throws {
+        let sarah = try sarah()
+        try harness.entry("Tom called.", mentions: [("Tom", .person)])
+        harness.services.editor.setBio(nil, on: sarah)
+        harness.services.merge(sarah.id, into: try harness.entity("Tom").id, in: harness.context)
+
+        await harness.draft(sarah)
+
+        #expect(harness.generator.requests.isEmpty)
+        #expect(sarah.bioEditedByUser)
+    }
+
+    @Test func aClearedBioKeepsItsFlagWhenNoRequestCanGo() async throws {
+        let sarah = try sarah()
+        harness.services.editor.setBio(nil, on: sarah)
+        harness.switches.resolveFailure = AIJobFailure(.missingKey)
+
+        await harness.draft(sarah)
+
+        #expect(sarah.bioEditedByUser)
+        #expect(harness.services.bioFailures[sarah.id] == AIJobFailure(.missingKey))
     }
 
     @Test func twoOpensSendOneRequest() async throws {
