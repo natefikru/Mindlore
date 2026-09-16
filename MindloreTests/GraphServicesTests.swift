@@ -176,6 +176,71 @@ struct GraphServicesTests {
         #expect(sarah.lastLinkedAt == moved)
         #expect(services.revision == 1)
     }
+
+    // MARK: - 6.2: Mentioned with
+
+    @Test func mentionedWithFindsAnEntitySharingAnEntry() throws {
+        try harness.entry(mentions: [("Sarah", .person), ("Tom", .person)])
+        harness.indexer.sweep(in: harness.context)
+        let sarah = try harness.entity("Sarah")
+        let tom = try harness.entity("Tom")
+
+        let found = services.mentionedWith(of: sarah.id, in: harness.context)
+
+        #expect(found.map(\.id) == [tom.id])
+    }
+
+    @Test func mentionedWithNeverShowsAHiddenPartner() throws {
+        try harness.entry(mentions: [("Sarah", .person), ("Tom", .person)])
+        harness.indexer.sweep(in: harness.context)
+        let sarah = try harness.entity("Sarah")
+        let tom = try harness.entity("Tom")
+        services.setHidden(true, on: tom.id, in: harness.context)
+
+        let found = services.mentionedWith(of: sarah.id, in: harness.context)
+
+        #expect(found.isEmpty)
+    }
+
+    @Test func mentionedWithResolvesAMergedPartnerToItsWinner() throws {
+        try harness.entry(mentions: [("Sarah", .person), ("Tom", .person)])
+        harness.indexer.sweep(in: harness.context)
+        let sarah = try harness.entity("Sarah")
+        let tom = try harness.entity("Tom")
+        let lewis = Entity(name: "Lewis", key: "lewis", kind: .person)
+        harness.context.insert(lewis)
+        try harness.context.save()
+        _ = services.merge(tom.id, into: lewis.id, in: harness.context)
+
+        let found = services.mentionedWith(of: sarah.id, in: harness.context)
+
+        #expect(found.map(\.id) == [lewis.id])
+    }
+
+    @Test func mentionedWithOrdersByWeightAndRespectsTheLimit() throws {
+        // Sarah and Tom share two entries; Sarah and Ana share one, so Tom outranks Ana.
+        try harness.entry(mentions: [("Sarah", .person), ("Tom", .person)])
+        try harness.entry(mentions: [("Sarah", .person), ("Tom", .person)])
+        try harness.entry(mentions: [("Sarah", .person), ("Ana", .person)])
+        harness.indexer.sweep(in: harness.context)
+        let sarah = try harness.entity("Sarah")
+        let tom = try harness.entity("Tom")
+        let ana = try harness.entity("Ana")
+
+        let found = services.mentionedWith(of: sarah.id, in: harness.context)
+        #expect(found.map(\.id) == [tom.id, ana.id])
+
+        let limited = services.mentionedWith(of: sarah.id, in: harness.context, limit: 1)
+        #expect(limited.map(\.id) == [tom.id])
+    }
+
+    @Test func mentionedWithIsEmptyForAnEntityWithNothingToShare() throws {
+        try harness.entry(mentions: [("Sarah", .person)])
+        harness.indexer.sweep(in: harness.context)
+        let sarah = try harness.entity("Sarah")
+
+        #expect(services.mentionedWith(of: sarah.id, in: harness.context).isEmpty)
+    }
 }
 
 struct NameMatchingTests {

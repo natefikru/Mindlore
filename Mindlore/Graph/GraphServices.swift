@@ -227,6 +227,63 @@ final class GraphServices {
         })
     }
 
+    // MARK: - Co-occurrence
+
+    struct CoOccurrence: Identifiable {
+        let id: UUID
+        let name: String
+        let kind: EntityKind
+        let weight: Double
+    }
+
+    // "Mentioned with" on an entity page. Resolves merges and hidden entities against one
+    // in-memory map of every entity, never per-link, since this reads every link in the store:
+    // a `root(of:)`/`entity(withID:)` call per link would be a fetch per link, the way `recount`
+    // avoids by fetching each table exactly once.
+    func mentionedWith(of entityID: UUID, in context: ModelContext, limit: Int = 8) -> [CoOccurrence] {
+        let entities = ((try? context.fetch(FetchDescriptor<Entity>())) ?? []).filter { !$0.isDeleted }
+        let byID = Dictionary(uniqueKeysWithValues: entities.map { ($0.id, $0) })
+
+        func root(of id: UUID) -> Entity? {
+            guard var current = byID[id] else { return nil }
+            var seen: Set<UUID> = [current.id]
+            while let nextID = current.mergedIntoID, let next = byID[nextID], seen.insert(next.id).inserted {
+                current = next
+            }
+            return current
+        }
+
+        guard let subjectRoot = root(of: entityID), subjectRoot.isBrowsable else { return [] }
+
+        let links = indexer.allLinks(in: context)
+        let entryIDs = Set(links.compactMap(\.entryID))
+        guard !entryIDs.isEmpty else { return [] }
+        let entryDates = Dictionary(uniqueKeysWithValues:
+            (((try? context.fetch(FetchDescriptor<Entry>(predicate: #Predicate { entryIDs.contains($0.id) }))) ?? [])
+                .filter { !$0.isDeleted }
+                .map { ($0.id, $0.entryDate) }))
+
+        let inputs: [EntityGraph.LinkInput] = links.compactMap { link in
+            guard let linkEntityID = link.entityID, let entryID = link.entryID,
+                  let entryDate = entryDates[entryID],
+                  let root = root(of: linkEntityID), root.isBrowsable
+            else { return nil }
+            return .init(entryID: entryID, entityID: root.id, entryDate: entryDate)
+        }
+
+        let edges = EntityGraph.build(links: inputs)
+        let touching = edges.compactMap { edge -> (UUID, Double)? in
+            if edge.a == subjectRoot.id { return (edge.b, edge.weight) }
+            if edge.b == subjectRoot.id { return (edge.a, edge.weight) }
+            return nil
+        }
+
+        return touching
+            .sorted { $0.1 > $1.1 }
+            .prefix(limit)
+            .compactMap { id, weight in byID[id].map { CoOccurrence(id: $0.id, name: $0.name, kind: $0.kind, weight: weight) } }
+    }
+
     // MARK: - Bios
 
     // An entity page appeared. Drafts once, for the kinds that are named word for word, while
