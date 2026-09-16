@@ -13,6 +13,7 @@ final class GraphServices {
     let indexer: GraphIndexer
     let editor: GraphEditor
     let drafter: EntityBioDrafter
+    let diagnostics: DiagnosticsLog
     private(set) var revision = 0
 
     // Bio drafts in flight, and what the last attempt for an entity came to this session.
@@ -33,8 +34,29 @@ final class GraphServices {
         indexer = GraphIndexer(diagnostics: diagnostics)
         editor = GraphEditor(diagnostics: diagnostics)
         drafter = EntityBioDrafter(diagnostics: diagnostics)
+        self.diagnostics = diagnostics
         self.resolveText = resolveText
         self.automaticBiosUsable = automaticBiosUsable
+    }
+
+    // MARK: - Edits from a page
+    //
+    // Callers flush EntrySaver first, so no entry has unsaved edits of its own and a plain save
+    // can't stamp one by accident.
+
+    func setBio(_ bio: String?, on entityID: UUID, in context: ModelContext) {
+        guard let entity = editor.entity(withID: entityID, in: context) else { return }
+        editor.setBio(bio, on: entity)
+        save(context)
+    }
+
+    private func save(_ context: ModelContext) {
+        do {
+            try context.saveStampingEntries()
+        } catch {
+            diagnostics.record("graph.saveFailed", ["error": .errorCode(error)])
+        }
+        revision += 1
     }
 
     // MARK: - Bios

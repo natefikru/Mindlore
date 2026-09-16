@@ -18,6 +18,8 @@ struct EntryInsightsView: View {
     @State private var confirmingRun = false
     @State private var confirmingDelete = false
     @State private var editingMoods = false
+    // Entity pages pushed from the chips, by value, so a page can be replaced or dropped.
+    @State private var path: [EntityRoute] = []
 
     private var insights: EntryInsights? { entry.insights }
 
@@ -38,7 +40,7 @@ struct EntryInsightsView: View {
     }
 
     var body: some View {
-        NavigationStack {
+        NavigationStack(path: $path) {
             Form {
                 statusSection
                 if let insights, state == .current || state == .stale {
@@ -48,6 +50,9 @@ struct EntryInsightsView: View {
             }
             .navigationTitle("Insights")
             .navigationBarTitleDisplayMode(.inline)
+            .navigationDestination(for: EntityRoute.self) { route in
+                EntityView(route: route)
+            }
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Done") { dismiss() }

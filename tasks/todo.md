@@ -578,8 +578,10 @@ fallback.
 - [x] 5a.2 `Entity` bio fields, `bioEditedByUser` in `setBio`, `AIServices.textGenerator` and
       `textUsable`, `BioExcerpts`, `EntityBioDrafter`, drafts in `GraphServices`, the stub branch,
       events, the draft privacy test, the settings disclosure line.
-- [ ] 5a.3 `EntityPagePresentation`, read-only `EntityView` with the bio section and editing,
-      route resolution.
+- [x] 5a.3 `EntityPagePresentation`, read-only `EntityView` with the bio section and editing,
+      route resolution. (Built: the insights sheet's stack takes a typed `[EntityRoute]` path;
+      a gone route shows "No longer in your journal" until the user goes back. Nothing pushes a
+      page from an entry yet; that is 5a.5.)
 - [ ] 5a.4 Rename, kind, aliases, hide, `MergeIntoView`, `RepointView`, the collision flow.
 - [ ] 5a.5 `EntityChipIndex`, tappable chips, per-name mention chips, navigation from the sheet.
 - [ ] 5a.6 UI test, sub-agent review of 5a, fixes, simulator screenshots of each screen state.
