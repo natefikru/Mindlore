@@ -951,12 +951,142 @@ privacy (ids only), `writtenSurface`/`unsureAmong` both optional-or-defaulted fo
 `CloudKitSchemaRulesTests`, and no leakage of the excluded AI-disambiguation or
 transcription-hint work.
 
-### Phase 6: Co-occurrence
-- [ ] `Mindlore/Graph/EntityGraph.swift`: `build(links:asOf:halfLife:)` groups links by entry,
-      emits weighted pairs with exponential decay from the entry date; `neighbourhood(of:depth:)`;
-      filters by kind set and minimum count.
-- [ ] Tests: weights for known link sets, decay at one half-life is 0.5, depth-2 neighbourhood,
-      hidden and merged entities excluded, `asOf` excludes later entries.
+### Phase 6: Co-occurrence (specified 2026-09-16)
+
+Two entities share an edge because they share an entry, the same way Obsidian's edges are derived,
+not stored (plan line 71-72). This phase builds the weighted computation two things already promised
+it: the entity page's "Mentioned with" section, deferred twice ("waits for Phase 6, which builds the
+weighted version," Phase 5a; "arrives with Phase 6," Phase 5b), and the edge weights Phase 7's local
+and global graphs draw. No new stored model: `EntityGraph` reads `EntityLink` and `Entity` and
+produces edges at view time, per the "computed from co-occurrence at view time and never stored" rule
+(plan line 108-110).
+
+**Key decisions:**
+- `EntityGraph` is `nonisolated`, like `EntityMatcher` (`Mindlore/Graph/EntityMatcher.swift:9`): a
+  plain enum namespace, static functions, plain `Sendable` value types in and out, no `@Model`
+  reference anywhere in its signatures. It cannot call `GraphEditor.root(of:)` or read
+  `Entity.isBrowsable` itself, so the caller resolves merges and hidden entities into plain values
+  first. This is *not* `chipIndex`/`unsureLinks`'s exact shape, since both of those resolve a handful
+  of ids per call (one entry's links, or a tied set), while `mentionedWith` (below) resolves against
+  every link in the store: one `allLinks(in:)` fetch plus one plain `Entity` fetch (all of them, or
+  every id referenced by those links), turned into an in-memory `[UUID: Entity]` map, with
+  `mergedIntoID` chains and `isBrowsable` walked purely against that map, never one `root(of:)` or
+  `entity(withID:)` call per link. `GraphEditor.root(of:)`/`entity(withID:)` each issue their own
+  `FetchDescriptor`, and calling either per link over a link table sized in the thousands (this
+  app's own stated scale) is the perf cliff `recount` (`GraphIndexer.swift:301-330`) avoids by
+  fetching each table exactly once; `mentionedWith` must do the same.
+- Input type: `EntityGraph.LinkInput(entryID: UUID, entityID: UUID, entryDate: Date)`, where
+  `entityID` is already the live root (post `root(of:)`) of a link whose `entity` `isBrowsable`
+  (`Entity.swift:75`). A link pointing at a hidden or merged-away entity is dropped before it ever
+  reaches `EntityGraph`, so "hidden and merged entities excluded" is a caller responsibility, not a
+  filter inside `build`. `entryDate` is `Entry.entryDate` (`Entry.swift:21`, always present, defaults
+  to `createdAt`), the same field `GraphIndexer.recount` uses for `firstLinkedAt`/`lastLinkedAt`
+  (`GraphIndexer.swift:302-306`), not `createdAt` itself and not the link's own creation time.
+- `build(links:asOf:halfLife:) -> [Edge]`: groups `links` by `entryID` (mirroring
+  `GraphIndexer.batch`'s `Dictionary(grouping:by:)` at `GraphIndexer.swift:36-43`), drops any group
+  whose `entryDate` is after `asOf` entirely (excluded, not zero-weighted, so `asOf` behaves like a
+  point-in-time filter, matching the time scrubber's job in Phase 7), de-duplicates `entityID`s
+  within a group (two mentions in one entry resolving to the same entity, common after a merge, must
+  not pair that entity with itself or double-count a pair through it), then for every remaining group
+  with two or more distinct entities emits every unordered pair with weight
+  `0.5 raisedTo (asOf.timeIntervalSince(entryDate) / halfLife)` (so age equal to one half-life is
+  weight 0.5, an entry from `asOf` itself is weight 1.0, `halfLife` defaults to 90 days *
+  86400 seconds, matching Phase 7's plan line 267 "90-day half-life"). `Edge(a: UUID, b: UUID, weight:
+  Double)` canonicalizes `a`/`b` by comparing `.uuidString` (`a < b`), a fixed 36-character uppercase
+  hex form, so ordering is deterministic across implementations; `build` keeps an internal `[Edge.Key:
+  Double]` accumulator (`Edge.Key` the canonicalized `(a, b)` pair) and sums every group's
+  contribution into it before turning it into the returned `[Edge]`, which is how "a pair appearing in
+  several entries sums its per-entry weights into one `Edge`" is actually satisfied, not merely a
+  side effect of `Edge` being `Equatable`.
+- `neighbourhood(of:in:depth:) -> Set<UUID>`: breadth-first over `edges` treated as an adjacency list,
+  returning ids reachable within `depth` hops, excluding `id` itself. Depth 0 is the empty set, depth
+  1 is direct neighbours, depth 2 adds their neighbours; Phase 7's local graph (plan line 266, depth 1
+  or 2 from an entity page) calls this directly and then filters `edges` to the pairs whose both ends
+  are in the returned set (or equal `id`) for what it draws, which this phase does not need to do
+  itself since nothing renders yet.
+- `filtered(edges:nodes:kinds:minimumLinkCount:) -> [Edge]`: the global graph's two controls (plan
+  line 268-269, kind toggles and the minimum-count slider defaulting to 2). `nodes: [UUID:
+  (kind: EntityKind, linkCount: Int)]` is supplied by the caller (another plain map from `Entity`,
+  since `EntityGraph` cannot fetch one), because filtering by total mentions is a property of the
+  entity, not the edge weight; an edge is kept only when both ends appear in `nodes`, both ends' kind
+  is in `kinds` (`nil` means no kind filter, matching every other optional-set filter in this codebase,
+  e.g. `RepointView.restrictedTo`), and both ends' `linkCount` is at least `minimumLinkCount`. An edge
+  with an end missing from `nodes` (the entity was pruned since `edges` was built) is dropped rather
+  than crashing, the same defensive stance `RepointView(restrictedTo:)` takes on a stale id
+  (5c.4).
+- `GraphServices.mentionedWith(of:in:limit:) -> [CoOccurrence]` (new method, placed after
+  `chipIndex(for:in:)` at `GraphServices.swift:228`, before the bios section): builds the resolved
+  `LinkInput` array as above from `indexer.allLinks(in:)`, calls `EntityGraph.build` with the default
+  half-life, keeps only edges touching `id`, sorts by weight descending, caps at `limit` (8, the
+  entity page's row count), and turns the surviving ids into `CoOccurrence(id: UUID, name: String,
+  kind: EntityKind, weight: Double)` via one batch fetch of `Entity` by id set, the same
+  `#Predicate { entityIDs.contains($0.id) }` pattern `chipIndex` already uses rather than one fetch
+  per id (this can reuse the same `[UUID: Entity]` map the resolution step above already built,
+  rather than fetching twice). An id that resolves to nothing (pruned since the last recount) is
+  dropped. This method does not save or bump `revision`; it is a read, like `unsureLinks`, and logs no
+  `graph.*` diagnostics event, consistent with `chipIndex`/`unsureLinks` being unlogged reads too.
+- `EntityPagePresentation` gains `struct CoOccurrenceRow` and a pure `static func
+  coOccurrenceRows(_:) -> [CoOccurrenceRow]` (renaming/passing straight through `GraphServices`'s
+  `CoOccurrence` list; kept as a separate presentation type so the view layer never imports
+  `EntityGraph` directly, matching how `EntryRow`/`MergedRow` already sit between the raw fetch and
+  the view, `EntityPagePresentation.swift:87-94,166-178`).
+- `EntityView` gets a "Mentioned with" section, alongside `entriesSection`/`mergedInSection`
+  (`EntityView.swift:352-433`), one row per `CoOccurrenceRow` (name, kind icon reusing the existing
+  per-kind table extended in Phase 1, no weight number shown, weight is ordering only), each a
+  `NavigationLink(value: EntityRoute(id:))` into the same stack. `entriesSection`/`mergedInSection`
+  are `@Query`-backed computed properties and refresh for free on any SwiftData change; `mentionedWith`
+  is a fresh, uncached fetch over the whole link table, not something to recompute on every body
+  re-evaluation. The new section instead follows `ConnectionsView`/`MergeIntoView`'s pattern
+  (`ConnectionsView.swift:117`, `MergeIntoView.swift:67`): a `@State private var coOccurring:
+  [CoOccurrenceRow] = []`, populated by `.task(id: graph.revision)` calling `graph.mentionedWith` once
+  per revision bump, not a plain computed property. Empty section (no co-occurring entities yet, or
+  not yet loaded) is hidden entirely, not a placeholder row, matching how `mergedInSection` already
+  hides itself when there is nothing to show.
+
+**Steps**, each committed and pushed on its own with the unit suite green:
+
+- [ ] 6.1 `Mindlore/Graph/EntityGraph.swift`: `LinkInput`, `Edge`, `build`, `neighbourhood`,
+      `filtered`, `defaultHalfLife`. No SwiftData import.
+      Test file `EntityGraphTests.swift`, styled like `EntityMatcherTests.swift` (plain `struct`, no
+      `@MainActor`, no `ModelContainer`, hand-built `LinkInput`/`Edge` fixtures):
+      - Two entities sharing one entry produce one edge at weight 1.0 when `asOf` equals `entryDate`.
+      - An entry aged exactly one half-life produces weight 0.5; two half-lives, 0.25.
+      - Three entities in one entry produce three edges (every pair), each carrying that entry's
+        weight.
+      - The same pair across two entries sums both entries' weights into one edge.
+      - Two `LinkInput`s in the same entry with the same `entityID` (a duplicate after resolving
+        merges) do not pair the entity with itself and do not inflate any other pair's weight.
+      - An entry with `entryDate` after `asOf` contributes nothing, not a near-zero weight.
+      - A single-entity entry (no pair possible) contributes nothing.
+      - `Edge(a:b:)` canonicalizes regardless of input order, so building from links in either order
+        produces `Equatable`-equal results.
+      - `neighbourhood`: depth 0 is empty, depth 1 is direct neighbours only, depth 2 includes a
+        neighbour's neighbour but not further, a node with no edges has an empty neighbourhood, and
+        `id` itself is never in its own result.
+      - `filtered`: drops an edge whose endpoint's kind is outside the given set; keeps all when
+        `kinds` is nil; drops an edge whose endpoint's `linkCount` is under the minimum; drops an
+        edge with an endpoint missing from `nodes` instead of crashing.
+- [ ] 6.2 `GraphServices.mentionedWith(of:in:limit:)`, resolving hidden/merged entities through
+      `editor.root(of:)` and `Entity.isBrowsable` before building `LinkInput`s, batch-fetching names
+      and kinds for the result.
+      Test (`GraphServicesTests`, SwiftData harness like `GraphIndexerTests`'s
+      `ModelContainerFactory.make(.inMemory)` pattern): two entries mentioning the same two people
+      produce a co-occurrence edge between them found by `mentionedWith`; a hidden entity never
+      appears as a co-occurrence partner even though its links still exist; a merged-away entity's
+      co-occurrences show up under the winner's id; results are ordered by weight; `limit` caps the
+      list; an entity with nothing to co-occur with returns an empty list, not an error.
+- [ ] 6.3 `EntityPagePresentation.CoOccurrenceRow`/`coOccurrenceRows(_:)`; `EntityView` "Mentioned
+      with" section.
+      Test (`EntityPagePresentationTests`): rows preserve `mentionedWith`'s order; an empty input
+      gives an empty list (the view hides the section on empty, no separate presentation flag
+      needed since the list itself is the signal).
+- [ ] 6.4 Sub-agent review of the whole phase; fix what it finds.
+
+**Not in scope, this phase:** the depth control, kind toggles, minimum-count slider, and time
+scrubber UI (Phase 7 wires these to `neighbourhood`/`filtered`, this phase only builds and tests the
+functions); `GraphSimulation` and any rendering; caching or incrementally updating the computed graph
+(the existing "Recount cost" risk note, plan line 1008-1010, already covers the O(links) budget this
+reuses); showing edge weight as a number anywhere in the UI.
 
 ### Phase 7: The picture
 - [ ] `Mindlore/Graph/GraphSimulation.swift`: forces, tick, alpha schedule, pin and unpin.
