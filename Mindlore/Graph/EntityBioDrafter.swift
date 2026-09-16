@@ -13,7 +13,9 @@ struct EntityBioDrafter {
     }
 
     // Only kinds whose names appear word for word in entries are drafted without being asked.
-    static let automaticKinds: Set<EntityKind> = [.person, .place, .organization, .project, .event]
+    // Also the kind restriction for the entity page's "Spelled right?" prompt (5c.5): a plain
+    // constant, not actor state, so it's safe to read off the main actor too.
+    nonisolated static let automaticKinds: Set<EntityKind> = [.person, .place, .organization, .project, .event]
 
     nonisolated static let schemaName = "entity_bio"
     static let schema = JSONSchema.object([.init("bio", .string(nullable: true))])

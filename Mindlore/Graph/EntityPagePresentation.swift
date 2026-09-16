@@ -37,6 +37,14 @@ nonisolated enum EntityPagePresentation {
         sources.contains(.voice)
     }
 
+    // A fresh, single-mention, never-touched name is worth double-checking: dictation is the
+    // likeliest source of a wrong spelling, and nobody has confirmed this one is right yet.
+    // Restricted to the kinds bio auto-drafting already limits itself to (5a): tags and themes
+    // rarely appear word for word, so a misspelling there isn't the scenario this is for.
+    static func showsSpellingPrompt(confirmedByUser: Bool, linkCount: Int, kind: EntityKind) -> Bool {
+        !confirmedByUser && linkCount <= 1 && EntityBioDrafter.automaticKinds.contains(kind)
+    }
+
     // After a merge made from a page, the page's route names the winner itself, so undoing
     // that merge later doesn't flip the page back to the loser. Only the top route that shows
     // the loser is replaced.

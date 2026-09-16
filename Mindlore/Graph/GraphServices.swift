@@ -180,7 +180,10 @@ final class GraphServices {
                 entity = Entity(name: trimmed, key: EntityNormalizer.key(for: trimmed, kind: mention.kind), kind: mention.kind)
             }
         }
-        guard link.entityID != entity.id || addingAlias else { return .applied(entity.id) }
+        // Already pointing there isn't a no-op when the link was unsure (5c.4): the user just
+        // confirmed the resolver's own guess, and that still needs to clear unsureAmong and mark
+        // the link theirs, or "Which one?" keeps asking about a mention that's already answered.
+        guard link.entityID != entity.id || addingAlias || !link.unsureAmong.isEmpty else { return .applied(entity.id) }
         let previous = link.entityID
 
         let outcome = editor.repoint(link, to: entity, addingAlias: addingAlias, in: context)

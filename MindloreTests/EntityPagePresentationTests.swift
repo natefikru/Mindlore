@@ -31,6 +31,15 @@ struct EntityPagePresentationTests {
         #expect(!P.hasVoiceSourcedLink(sources: []))
     }
 
+    @Test func showsSpellingPromptOnlyForAFreshUnconfirmedMentionKind() {
+        #expect(P.showsSpellingPrompt(confirmedByUser: false, linkCount: 1, kind: .person))
+        #expect(P.showsSpellingPrompt(confirmedByUser: false, linkCount: 0, kind: .place))
+        #expect(!P.showsSpellingPrompt(confirmedByUser: true, linkCount: 1, kind: .person), "confirmed already answered it")
+        #expect(!P.showsSpellingPrompt(confirmedByUser: false, linkCount: 2, kind: .person), "a second mention is no longer a fresh guess")
+        #expect(!P.showsSpellingPrompt(confirmedByUser: false, linkCount: 1, kind: .tag), "tags rarely appear word for word")
+        #expect(!P.showsSpellingPrompt(confirmedByUser: false, linkCount: 1, kind: .theme))
+    }
+
     @Test func aMergeFromAPageReplacesOnlyTheTopRouteForTheLoser() {
         let other = UUID()
         let path = [EntityRoute(id: a), EntityRoute(id: other), EntityRoute(id: a)]

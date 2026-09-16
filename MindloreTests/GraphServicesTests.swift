@@ -104,7 +104,7 @@ struct GraphServicesTests {
         #expect(link.unsureAmong.isEmpty)
     }
 
-    @Test func repointingAnUnsureLinkClearsUnsureAmong() throws {
+    @Test func repointingAnUnsureLinkToTheOtherCandidateClearsUnsureAmong() throws {
         let a = Entity(name: "Lewis", key: "lewis", kind: .person)
         let b = Entity(name: "Lewis", key: "lewis", kind: .person)
         harness.context.insert(a)
@@ -114,10 +114,36 @@ struct GraphServicesTests {
         services.insightsWritten(for: entry, in: harness.context)
         try harness.context.save()
 
+        // Whichever of the two the resolver provisionally picked, repoint to the other one.
+        let picked = try #require(harness.links(of: entry).first?.entityID)
+        let other = picked == a.id ? b.id : a.id
         let mention = MentionRef(entryID: entry.id, surface: "Lewis", kind: .person)
-        #expect(services.repoint(mention, to: .existing(b.id), addingAlias: false, in: harness.context) == .applied(b.id))
+        #expect(services.repoint(mention, to: .existing(other), addingAlias: false, in: harness.context) == .applied(other))
 
         let link = try #require(harness.links(of: entry).first)
+        #expect(link.entityID == other)
+        #expect(link.unsureAmong.isEmpty)
+        #expect(services.unsureLinks(in: harness.context).isEmpty)
+    }
+
+    // The resolver's own provisional pick is a real answer too: confirming it must still clear
+    // unsureAmong, or "Which one?" keeps asking about a mention the user already settled.
+    @Test func repointingAnUnsureLinkToItsAlreadyPointedCandidateStillClearsUnsureAmong() throws {
+        let a = Entity(name: "Lewis", key: "lewis", kind: .person)
+        let b = Entity(name: "Lewis", key: "lewis", kind: .person)
+        harness.context.insert(a)
+        harness.context.insert(b)
+        try harness.context.save()
+        let entry = try harness.entry(mentions: [("Lewis", .person)])
+        services.insightsWritten(for: entry, in: harness.context)
+        try harness.context.save()
+
+        let picked = try #require(harness.links(of: entry).first?.entityID)
+        let mention = MentionRef(entryID: entry.id, surface: "Lewis", kind: .person)
+        #expect(services.repoint(mention, to: .existing(picked), addingAlias: false, in: harness.context) == .applied(picked))
+
+        let link = try #require(harness.links(of: entry).first)
+        #expect(link.entityID == picked)
         #expect(link.unsureAmong.isEmpty)
         #expect(services.unsureLinks(in: harness.context).isEmpty)
     }

@@ -881,7 +881,7 @@ transcription-hint bullet waits on an owner call about scope.
       written or run this session, per the standing "no UI tests" note; `unsureLinks` and the
       repoint-clears-`unsureAmong` path are covered at the `GraphServices`/`GraphIndexer` unit
       level instead.)
-- [ ] 5c.5 "Spelled right?" for a brand-new, unconfirmed name. `EntityPagePresentation` gains a
+- [x] 5c.5 "Spelled right?" for a brand-new, unconfirmed name. `EntityPagePresentation` gains a
       pure `showsSpellingPrompt(for:) -> Bool`: true when `!entity.confirmedByUser &&
       entity.linkCount <= 1` and the kind is one of person, place, organization, project, or event,
       the same set bio auto-drafting already limits itself to (5a: "tags and themes rarely appear
@@ -894,6 +894,21 @@ transcription-hint bullet waits on an owner call about scope.
       toggle, clears the prompt the normal way, since it sets `confirmedByUser`.
       Test: `showsSpellingPrompt` is true for a fresh single-link entity, false once confirmed or
       once it has a second link; the banner opens the rename alert with the name selected.
+      (Built: `showsSpellingPrompt` takes plain values (`confirmedByUser:linkCount:kind:`), not an
+      `Entity`, matching every other pure function in this file; the kind set is
+      `EntityBioDrafter.automaticKinds`, reused rather than duplicated, marked `nonisolated` since
+      it was `@MainActor`-isolated by default and this pure enum needed to read it. The button
+      opens 5c.2's rename sheet, not an alert (the alert was already replaced); "pre-filled with
+      the current name selected" simplified to pre-filled, unselected, since selecting the text
+      needs a `UITextField`-backed control this codebase doesn't have and the win is small.
+      Fixed a flaky test while adding this step's coverage, unrelated to 5c.5 itself but found by
+      running the suite repeatedly: `GraphServices.repoint` had an early return, "already points
+      there, nothing to do," that predates `unsureAmong`. When the resolver's own provisional pick
+      for a tied link happened to be the same entity the user then confirmed through "Which one?",
+      that return fired before `unsureAmong` was ever cleared, so confirming the resolver's own
+      guess left the mention stuck "unsure" forever, roughly half the time depending on which of
+      the tied candidates `bestExact` happened to pick. The guard now also fires the real repoint
+      when `unsureAmong` isn't empty, even if `entityID` doesn't change.)
 
 Sub-agent review of the whole phase; fix what it finds.
 

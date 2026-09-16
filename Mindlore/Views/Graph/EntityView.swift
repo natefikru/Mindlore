@@ -184,6 +184,14 @@ private struct EntityPage: View {
 
     private func header(_ entity: Entity) -> some View {
         Section {
+            if EntityPagePresentation.showsSpellingPrompt(confirmedByUser: entity.confirmedByUser, linkCount: entity.linkCount, kind: entity.kind) {
+                Button {
+                    renaming = true
+                } label: {
+                    Label("Spelled right? \(entity.name)", systemImage: "questionmark.circle")
+                }
+                .accessibilityIdentifier("entitySpellingPrompt")
+            }
             VStack(alignment: .leading, spacing: 4) {
                 Text(EntityPagePresentation.mentionSummary(count: entity.linkCount))
                 if let range = EntityPagePresentation.dateRange(first: entity.firstLinkedAt, last: entity.lastLinkedAt) {
