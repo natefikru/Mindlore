@@ -129,44 +129,100 @@ struct GraphIndexer {
     }
 
     // Every entry whose insights are newer than what the graph has seen. On the first launch
-    // after this ships every stamp is nil, so this is the backfill. Saves once at the end.
+    // after this ships every stamp is nil, so this is the backfill.
     @discardableResult
     func sweep(in context: ModelContext) -> Int {
         let started = Date.now
-        let stale = ((try? context.fetch(FetchDescriptor<Entry>(sortBy: [SortDescriptor(\.createdAt)]))) ?? [])
-            .filter { entry in
-                guard let generatedAt = entry.insights?.generatedAt else { return entry.graphIndexedAt != nil }
-                return entry.graphIndexedAt != generatedAt
-            }
+        let stale = staleEntries(in: context)
+        guard let indexed = indexAndSave(stale, in: context), repair(in: context) else { return 0 }
+        recordSweep(stale.count, indexed, chunks: 1, since: started, in: context)
+        return stale.count
+    }
+
+    // The same pass for launch, a chunk at a time with a pause between, so the screen can
+    // animate while a large journal is indexed instead of freezing. Each chunk reads the store
+    // afresh and saves, so a sweep that is interrupted, or that something else writes to
+    // between chunks, picks up where it left off.
+    @discardableResult
+    func sweep(in context: ModelContext, chunkSize: Int = 100, onProgress: (_ done: Int, _ total: Int) -> Void) async -> Int {
+        let started = Date.now
+        let stale = staleEntries(in: context)
+        var total = Indexed()
+        var done = 0
+        var chunks = 0
+        onProgress(0, stale.count)
+        // Let the screen draw its progress before the first chunk holds the main thread.
+        if !stale.isEmpty { await Task.yield() }
+        while done < stale.count {
+            let chunk = Array(stale[done..<min(done + chunkSize, stale.count)])
+            guard let indexed = indexAndSave(chunk, in: context) else { return done }
+            total.links += indexed.links
+            total.created += indexed.created
+            done += chunk.count
+            chunks += 1
+            onProgress(done, stale.count)
+            await Task.yield()
+        }
+        guard repair(in: context) else { return done }
+        recordSweep(stale.count, total, chunks: chunks, since: started, in: context)
+        return stale.count
+    }
+
+    private struct Indexed {
         var links = 0
         var created = 0
-        if !stale.isEmpty {
-            let shared = batch(in: context)
-            for entry in stale { links += index(entry, in: context, batch: shared, recordEach: false) }
-            created = shared.created
-        }
-        // Always, even with nothing stale: this is the only place counters are repaired and
-        // links stranded by an interrupted edit are cleared, and in steady state nothing is
-        // ever stale.
-        recount(in: context)
-        removeOrphanedLinks(in: context)
+    }
 
-        let touched = Set(stale.map(\.persistentModelID))
+    private func staleEntries(in context: ModelContext) -> [Entry] {
+        ((try? context.fetch(FetchDescriptor<Entry>(sortBy: [SortDescriptor(\.createdAt)]))) ?? []).filter { entry in
+            guard let generatedAt = entry.insights?.generatedAt else { return entry.graphIndexedAt != nil }
+            return entry.graphIndexedAt != generatedAt
+        }
+    }
+
+    // Indexes these entries against one read of the store and saves without stamping them.
+    private func indexAndSave(_ entries: [Entry], in context: ModelContext) -> Indexed? {
+        let live = entries.filter { !$0.isDeleted }
+        guard !live.isEmpty else { return Indexed() }
+        let shared = batch(in: context)
+        var indexed = Indexed()
+        for entry in live { indexed.links += index(entry, in: context, batch: shared, recordEach: false) }
+        indexed.created = shared.created
+        return save(context, exempting: Set(live.map(\.id))) ? indexed : nil
+    }
+
+    // Always runs, even with nothing stale: this is the only place counters are repaired and
+    // links stranded by an interrupted edit are cleared, and in steady state nothing is stale.
+    private func repair(in context: ModelContext) -> Bool {
+        recount(in: context)
+        let stranded = removeOrphanedLinks(in: context)
+        return save(context, exempting: stranded)
+    }
+
+    // Removing a stranded link marks its entry changed too, and that is no edit either.
+    private func save(_ context: ModelContext, exempting entryIDs: Set<UUID>) -> Bool {
+        let touched = entryIDs.isEmpty ? [] : Set(
+            ((try? context.fetch(FetchDescriptor<Entry>())) ?? []).filter { entryIDs.contains($0.id) }.map(\.persistentModelID)
+        )
         do {
             try context.saveStampingEntries(except: touched)
+            return true
         } catch {
             diagnostics.record("graph.saveFailed", ["error": .errorCode(error)])
-            return 0
+            return false
         }
-        guard !stale.isEmpty else { return 0 }
+    }
+
+    private func recordSweep(_ entries: Int, _ indexed: Indexed, chunks: Int, since started: Date, in context: ModelContext) {
+        guard entries > 0 else { return }
         diagnostics.record("graph.sweep", [
-            "entries": .int(stale.count),
-            "links": .int(links),
-            "created": .int(created),
+            "entries": .int(entries),
+            "links": .int(indexed.links),
+            "created": .int(indexed.created),
+            "chunks": .int(chunks),
             "entities": .int((try? context.fetchCount(FetchDescriptor<Entity>())) ?? -1),
             "ms": .int(Int(Date.now.timeIntervalSince(started) * 1000)),
         ])
-        return stale.count
     }
 
     // What this journal already calls things, for the next insights request. Nil when the graph
@@ -260,16 +316,21 @@ struct GraphIndexer {
 
     // A link whose entity or entry is gone points at nothing and can never be shown. Only the
     // launch sweep does this, where every change has already been saved.
-    func removeOrphanedLinks(in context: ModelContext) {
+    // Returns the entries whose links it removed, so the save can leave them unstamped.
+    @discardableResult
+    func removeOrphanedLinks(in context: ModelContext) -> Set<UUID> {
         let entities = Set(((try? context.fetch(FetchDescriptor<Entity>())) ?? []).map(\.id))
         let entries = Set(((try? context.fetch(FetchDescriptor<Entry>())) ?? []).map(\.id))
+        var touched: Set<UUID> = []
         for link in allLinks(in: context) {
             guard let entityID = link.entityID, let entryID = link.entryID,
                   entities.contains(entityID), entries.contains(entryID) else {
+                if let entryID = link.entryID { touched.insert(entryID) }
                 context.delete(link)
                 continue
             }
         }
+        return touched
     }
 
     // MARK: - Removal

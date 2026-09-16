@@ -12,6 +12,7 @@ struct RootView: View {
     @State private var pageTranscription: PageTranscriptionCoordinator
     @State private var insights: InsightsCoordinator
     @State private var network = NetworkMonitor()
+    @State private var indexing: GraphIndexingProgress?
     private let context: ModelContext
     private let graph: GraphIndexer
 
@@ -88,6 +89,11 @@ struct RootView: View {
             .environment(titles)
             .environment(pageTranscription)
             .environment(insights)
+            .overlay {
+                if let indexing {
+                    GraphIndexingOverlay(progress: indexing)
+                }
+            }
             .task {
                 await ingestor.ingestAll(in: .standard, context: context)
                 await transcription.processQueue(context: context)
@@ -101,8 +107,12 @@ struct RootView: View {
                     try? context.saveStampingEntries()
                 }
                 // Before the AI queues, so the first request already carries the names the
-                // journal knows. On the first launch after the graph shipped this is the backfill.
-                graph.sweep(in: context)
+                // journal knows. On the first launch after the graph shipped this is the backfill,
+                // which a large journal is shown progress for rather than a frozen screen.
+                await graph.sweep(in: context) { done, total in
+                    indexing = GraphIndexingProgress.visible(done: done, total: total)
+                }
+                withAnimation { indexing = nil }
                 await titles.processQueue(context: context)
                 await insights.processQueue(context: context)
             }

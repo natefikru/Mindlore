@@ -541,11 +541,19 @@ the phone.
 
 ### Measured before Phase 5 (2026-09-16, iPhone 17 simulator, Debug)
 
-- **First launch blocks the UI.** The sweep runs in `RootView`'s task on the main actor and finishes
-  before the scene reports active: 631 ms for the 300-entry fixture in a real launch, about 7 s for
-  3,000 entries in the timing test (119 s before the sweep shared one fetch). Before this ships to
-  anyone with a large journal, the sweep should work in chunks and yield between them, or start
-  after the first frame. Phase 8 measures it on the phone.
+- **The live model completes names it is told not to.** With 50 journal names in the prompt,
+  gpt-5.6-luna wrote "Sarah Kim" for an entry that said "sarah". Names are now grounded in the
+  entry text after parsing. Live: a garbled "sara kym" still becomes "Sarah Kim", none of 48 decoy
+  names is invented, and the list costs about 590 input tokens a request.
+
+- **First launch of a large journal shows a loading screen (owner decision).** The launch sweep
+  indexes in chunks of 100 and yields between them; with 200 or more entries to index, an opaque
+  "Organizing your journal" screen shows progress until it is done. A real launch on a
+  3,000-entry store took 27 s this way (10.7 s in the unit test, 119 s before the sweep shared one
+  fetch per chunk); the 300-entry fixture takes under a second and shows nothing. The screen
+  appears at once rather than fading in, because a fade stalls behind the first chunk. Before any
+  of that, the app itself takes about 2 s to draw its first frame on a 3,000-entry store, which is
+  existing startup cost, not the graph. Phase 8 measures both on the phone.
 - **Every launch pays for repair.** With nothing stale, the sweep still recounts and clears
   stranded links: about 150 ms at 300 entries, and the recount alone is 340 ms at 3,000.
 - **The backfill leaves duplicates for Review, by design.** On the fixture, "Marcus" and
