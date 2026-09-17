@@ -12,7 +12,7 @@ struct EntryListView: View {
     @Environment(AppRouter.self) private var router
     @State private var showingSettings = false
     @State private var showingConnections = false
-    @State private var recording = false
+    @Environment(RecordingSession.self) private var recording
     @State private var pageOrder: PageOrderTarget?
     @State private var insightsEntry: Entry?
     @Environment(InsightsCoordinator.self) private var insightsCoordinator
@@ -94,8 +94,8 @@ struct EntryListView: View {
             .sheet(isPresented: $showingConnections) {
                 ConnectionsView()
             }
-            .fullScreenCover(isPresented: $recording) {
-                RecordingView { entry in router.showEntry(entry.id) }
+            .fullScreenCover(isPresented: Binding(get: { recording.isExpanded }, set: { if !$0 { recording.close() } })) {
+                RecordingView()
             }
             .sheet(item: $insightsEntry) { entry in
                 EntryInsightsView(entry: entry)
@@ -122,7 +122,7 @@ struct EntryListView: View {
     }
 
     private var newVoiceEntryButton: some View {
-        Button("New Voice Entry", systemImage: "mic") { recording = true }
+        Button("New Voice Entry", systemImage: "mic") { recording.begin() }
             .accessibilityIdentifier("newVoiceEntryButton")
     }
 

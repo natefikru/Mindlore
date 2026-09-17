@@ -4,7 +4,8 @@ import SwiftData
 struct RootView: View {
     @Environment(\.scenePhase) private var scenePhase
     @State private var saver: EntrySaver
-    @State private var ingestor = RecordingIngestor()
+    @State private var ingestor: RecordingIngestor
+    @State private var recording: RecordingSession
     @State private var transcription: TranscriptionCoordinator
     @State private var presence: EditorPresence
     @State private var aiPass: AIPassTrigger
@@ -82,7 +83,20 @@ struct RootView: View {
             aiPass: aiPass,
             keepAudio: { settings.keepAudioAfterTranscription }
         )
-        _router = State(initialValue: AppRouter(opened: lifecycle.opened, closed: lifecycle.closed))
+        let appRouter = AppRouter(opened: lifecycle.opened, closed: lifecycle.closed)
+        _router = State(initialValue: appRouter)
+        let ingestor = RecordingIngestor()
+        _ingestor = State(initialValue: ingestor)
+        let fakeRecorder = UITestingRecorder.isEnabled
+        _recording = State(initialValue: RecordingSession(
+            context: context,
+            ingestor: ingestor,
+            makeRecorder: { fakeRecorder ? UITestingRecorder() as any AudioRecording : AudioRecorder() },
+            makeLiveSession: { SpeechAnalyzerLiveSession(locale: $0) },
+            speechEngine: { settings.speechEngine },
+            afterIngest: { await transcription.processQueue(context: context) },
+            onFinished: { appRouter.showEntry($0.id) }
+        ))
 
         _presence = State(initialValue: presence)
         _pageTranscription = State(initialValue: pageTranscription)
@@ -104,6 +118,7 @@ struct RootView: View {
             .environment(insights)
             .environment(graph)
             .environment(router)
+            .environment(recording)
             .overlay {
                 if let indexing {
                     GraphIndexingOverlay(progress: indexing)
