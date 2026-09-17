@@ -41,8 +41,12 @@ final class GraphScreenshotTests: XCTestCase {
         app.launchEnvironment = [:]
         app.launch()
 
-        let connections = app.buttons["Connections"]
-        XCTAssertTrue(connections.waitForExistence(timeout: 60))
+        // Connections lives on the Mind tab until the Mind graph replaces it.
+        let mind = app.tabBars.buttons["Mind"]
+        XCTAssertTrue(mind.waitForExistence(timeout: 60))
+        mind.tap()
+        let connections = app.buttons["connectionsButton"]
+        XCTAssertTrue(connections.waitForExistence(timeout: 10))
         connections.tap()
         let graphButton = app.buttons["Graph"]
         XCTAssertTrue(graphButton.waitForExistence(timeout: 10))

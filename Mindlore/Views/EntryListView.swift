@@ -9,13 +9,12 @@ struct EntryListView: View {
     // Backdated entries share noon of their day, so createdAt keeps their order stable.
     @Query(sort: [SortDescriptor(\Entry.entryDate, order: .reverse), SortDescriptor(\Entry.createdAt, order: .reverse)])
     private var entries: [Entry]
-    @State private var path: [Entry] = []
+    @Environment(AppRouter.self) private var router
     @State private var showingSettings = false
-    @State private var showingConnections = false
-    @State private var writingNewEntry = false
-    @State private var recording = false
     @State private var pageOrder: PageOrderTarget?
     @State private var insightsEntry: Entry?
+    @State private var pickedArea: LifeArea?
+    @Environment(RecordingSession.self) private var recording
     @Environment(InsightsCoordinator.self) private var insightsCoordinator
 
     enum PageOrderTarget: Identifiable {
@@ -31,9 +30,15 @@ struct EntryListView: View {
     }
 
     var body: some View {
-        NavigationStack(path: $path) {
+        @Bindable var router = router
+        NavigationStack(path: $router.journalPath) {
             List {
-                ForEach(entries) { entry in
+                if !offeredAreas.isEmpty {
+                    areaFilterRow
+                        .listRowInsets(EdgeInsets())
+                        .listRowBackground(Color.clear)
+                }
+                ForEach(shownEntries) { entry in
                     // Pages still being gathered reopen the page screen, not the editor.
                     if entry.isAwaitingPageConfirmation {
                         Button {
@@ -43,7 +48,10 @@ struct EntryListView: View {
                         }
                         .foregroundStyle(.primary)
                     } else {
-                        NavigationLink(value: entry) {
+                        NavigationLink(value: JournalRoute(
+                            entryID: entry.id,
+                            opensForReading: EntryReadMode.opensForReading(entry, automationStartedAt: settings.automationStartedAt)
+                        )) {
                             EntryRow(entry: entry, isAnalyzing: isAnalyzing(entry))
                         }
                         .contextMenu {
@@ -65,40 +73,37 @@ struct EntryListView: View {
                         systemImage: "book.closed",
                         description: Text("Tap the microphone to speak an entry, or the pencil to write one.")
                     )
+                } else if shownEntries.isEmpty, let area = activeArea {
+                    ContentUnavailableView {
+                        Label("Nothing in \(settings.name(of: area))", systemImage: area.symbol)
+                    } actions: {
+                        Button("Show all entries") { pickedArea = nil }
+                    }
                 }
             }
             .navigationTitle("Mindlore")
-            .navigationDestination(for: Entry.self) { entry in
-                EntryEditorView(entry: entry)
-            }
-            .navigationDestination(isPresented: $writingNewEntry) {
-                EntryEditorView(entry: nil)
+            .navigationDestination(for: JournalRoute.self) { route in
+                JournalEntryDestination(route: route)
             }
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     Button("Settings", systemImage: "gearshape") { showingSettings = true }
                 }
-                ToolbarItem(placement: .topBarLeading) {
-                    Button("Connections", systemImage: "person.2") { showingConnections = true }
-                }
-                // Voice sits outermost, in the easiest-to-reach position.
+                // Voice sits outermost, in the easiest-to-reach position. A running recording shows in
+                // the tab bar's accessory.
                 ToolbarItemGroup(placement: .topBarTrailing) {
                     if DocumentCameraView.isSupported || FakePages.isEnabled {
                         Button("Photograph Pages", systemImage: "camera") { pageOrder = .new }
                             .accessibilityIdentifier("newPhotoEntryButton")
                     }
                     newTypedEntryButton
-                    newVoiceEntryButton
+                    Button("New Voice Entry", systemImage: "mic") { recording.begin() }
+                        .disabled(recording.status != .idle)
+                        .accessibilityIdentifier("newVoiceEntryButton")
                 }
             }
             .sheet(isPresented: $showingSettings) {
                 SettingsView()
-            }
-            .sheet(isPresented: $showingConnections) {
-                ConnectionsView()
-            }
-            .fullScreenCover(isPresented: $recording) {
-                RecordingView { entry in path.append(entry) }
             }
             .sheet(item: $insightsEntry) { entry in
                 EntryInsightsView(entry: entry)
@@ -106,22 +111,71 @@ struct EntryListView: View {
             .fullScreenCover(item: $pageOrder) { target in
                 switch target {
                 case .new:
-                    PageOrderView(entry: nil) { entry in path.append(entry) }
+                    PageOrderView(entry: nil) { entry in router.showEntry(entry.id) }
                 case .existing(let entry):
-                    PageOrderView(entry: entry) { entry in path.append(entry) }
+                    PageOrderView(entry: entry) { entry in router.showEntry(entry.id) }
                 }
+            }
+            .onChange(of: pageOrder != nil) { _, open in
+                router.setCover("pageOrder", open: open)
+            }
+            .onChange(of: settings.hiddenLifeAreas) {
+                if JournalFilter.active(pickedArea, hidden: settings.hiddenLifeAreas) == nil { pickedArea = nil }
+            }
+            .onChange(of: router.dismissPresentationsToken) {
+                showingSettings = false
+                insightsEntry = nil
             }
         }
     }
 
     private var newTypedEntryButton: some View {
-        Button("New Written Entry", systemImage: "square.and.pencil") { writingNewEntry = true }
+        Button("New Written Entry", systemImage: "square.and.pencil") { router.journalPath.append(.new()) }
             .accessibilityIdentifier("newEntryButton")
     }
 
-    private var newVoiceEntryButton: some View {
-        Button("New Voice Entry", systemImage: "mic") { recording = true }
-            .accessibilityIdentifier("newVoiceEntryButton")
+    private var activeArea: LifeArea? {
+        JournalFilter.active(pickedArea, hidden: settings.hiddenLifeAreas)
+    }
+
+    private var shownEntries: [Entry] {
+        guard let area = activeArea else { return entries }
+        return entries.filter { JournalFilter.matches(areasRaw: $0.insights?.areasRaw ?? [], area: area) }
+    }
+
+    private var offeredAreas: [LifeArea] {
+        JournalFilter.offered(entryAreas: entries.map { $0.insights?.areasRaw ?? [] }, hidden: settings.hiddenLifeAreas)
+    }
+
+    private var areaFilterRow: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                ForEach(offeredAreas, id: \.self) { area in
+                    let selected = activeArea == area
+                    Button {
+                        pickedArea = selected ? nil : area
+                    } label: {
+                        Label {
+                            Text(settings.name(of: area))
+                        } icon: {
+                            Image(systemName: area.symbol)
+                                .foregroundStyle(selected ? Color.white : area.color)
+                        }
+                            .font(.subheadline)
+                            .lineLimit(1)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 6)
+                            .foregroundStyle(selected ? Color.white : Color.primary)
+                            .background(selected ? area.color : Color(.secondarySystemFill), in: Capsule())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityAddTraits(selected ? .isSelected : [])
+                    .accessibilityIdentifier("areaFilter-\(area.rawValue)")
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 4)
+        }
     }
 
     // AI work the user should be able to see from the list, without opening the entry.
@@ -130,15 +184,33 @@ struct EntryListView: View {
     }
 
     private func delete(at offsets: IndexSet) {
+        let shown = shownEntries
         for index in offsets {
-            DiagnosticsLog.shared.record("entry.deleted", ["id": .id(entries[index].id), "reason": "swipe"])
-            Entry.delete(entries[index], in: modelContext)
+            DiagnosticsLog.shared.record("entry.deleted", ["id": .id(shown[index].id), "reason": "swipe"])
+            Entry.delete(shown[index], in: modelContext)
         }
         // Flush first so the cascade is real, then recount over what is left: the entry took
         // its links with it, and anything nobody mentions any more goes too.
         saver.flush()
         graph.entriesDeleted(in: modelContext)
         saver.flush()
+    }
+}
+
+// Resolves a route to its entry each time it's shown, so a deleted entry never reaches the editor.
+private struct JournalEntryDestination: View {
+    let route: JournalRoute
+    @Environment(\.modelContext) private var modelContext
+
+    var body: some View {
+        // One branch for new and existing routes: JournalRoute compares by id alone, so SwiftUI may
+        // hand this view either form of the same route, and the editor's identity must not flip.
+        let entry = EditorLifecycle.entry(route.entryID, in: modelContext)
+        if route.isNew || entry != nil {
+            EntryEditorView(entry: entry, newEntryID: route.entryID, opensForReading: route.opensForReading && entry != nil)
+        } else {
+            ContentUnavailableView("This entry was deleted", systemImage: "trash")
+        }
     }
 }
 
@@ -197,6 +269,9 @@ private struct EntryRow: View {
                     .lineLimit(2)
                     .foregroundStyle(.secondary)
             }
+            if let areas = entry.insights?.areas, !areas.isEmpty {
+                LifeAreaChips(areas: areas)
+            }
         }
         .padding(.vertical, 2)
         .accessibilityIdentifier("entryRow")
@@ -228,9 +303,18 @@ private struct EntryRow: View {
         .modelContainer(container)
         .environment(EntrySaver(context: container.mainContext))
         .environment(GraphServices())
-        .environment(RecordingIngestor())
         .environment(TranscriptionCoordinator())
         .environment(EditorPresence())
+        .environment(AppRouter(opened: { _ in }, closed: { _ in }))
+        .environment(RecordingSession(
+            context: container.mainContext,
+            ingestor: RecordingIngestor(),
+            makeRecorder: { AudioRecorder() },
+            makeLiveSession: { SpeechAnalyzerLiveSession(locale: $0) },
+            speechEngine: { .onDevice },
+            afterIngest: {},
+            onFinished: { _ in }
+        ))
         .environment(ProviderAccountStore(settings: SettingsStore(store: UserDefaults(suiteName: "preview")!)))
         .environment(PageTranscriptionCoordinator(resolve: { .failure(AIJobFailure(raw: "settings.aiOff")) }))
         .environment(AIPassTrigger(settings: SettingsStore(store: UserDefaults(suiteName: "preview")!), presence: EditorPresence(), titleUsable: { false }))

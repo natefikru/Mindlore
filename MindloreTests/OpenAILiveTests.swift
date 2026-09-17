@@ -78,9 +78,32 @@ struct OpenAILiveTests {
         #expect(result.primaryMood != nil)
         #expect(result.mentions.contains { $0.name.lowercased().contains("sarah") && $0.kind == .person })
         #expect(result.cleanedText?.isEmpty == false)
-        #expect(!result.openThreads.isEmpty)
+        #expect(!result.looseEnds.new.isEmpty, "calling the landlord is a concrete loose end")
         #expect((1...LifeArea.maxPerEntry).contains(result.areas.count), "every entry with content is filed")
+        #expect(Set(result.tags).isDisjoint(with: result.areas.map(\.rawValue)), "no tag repeats an area")
     }
+    // Known loose ends go out as handles, and a real model settles one by its handle, mentions
+    // another by sameAs, and leaves an unrelated one alone.
+    @Test func looseEndsAreSettledAndMentionedByHandle() async throws {
+        let offer = UUID(), landlord = UUID(), dentist = UUID()
+        let known: [InsightsPromptBuilder.KnownLooseEnd] = [
+            .init(id: offer, text: "Hear back from Acme about the job offer", own: false),
+            .init(id: landlord, text: "Get the landlord to fix the heating", own: false),
+            .init(id: dentist, text: "Book a dentist appointment", own: false),
+        ]
+        let text = "Acme called this morning and offered me the job, and I accepted on the spot. Still no word from the landlord about the heating, it's freezing in here."
+        let plan = InsightsPromptBuilder.plan(text: text, source: .typed, sections: InsightSections(), vocabulary: .init(looseEnds: known), model: ProviderDefaults.textModel, entryDate: .now)
+        let generator = OpenAICompatibleTextGenerator(baseURL: baseURL, apiKey: key, http: http, jsonModeMemory: JSONModeMemory())
+
+        let response = try await generator.generate(plan.request)
+        let result = try InsightsPromptBuilder.parse(response.text, plan: plan).looseEnds
+
+        print("LIVE looseEnds resolved \(result.resolved.map { $0 == offer ? "offer" : $0 == landlord ? "landlord" : "dentist" }) mentioned \(result.mentioned.count) new \(result.new.map(\.text))")
+        #expect(result.resolved == [offer])
+        #expect(!result.resolved.contains(dentist) && !result.mentioned.contains(dentist))
+        #expect(result.mentioned.contains(landlord) || result.new.isEmpty, "the heating is the known loose end, not a new one")
+    }
+
     // The journal's own names, against the real model, at the real cap of 50. A name is written
     // as the entry writes it, a garbled one takes the listed spelling, and nothing on the list
     // turns up unless the entry says it.

@@ -51,14 +51,18 @@ extension Entry {
         return true
     }
 
+    // Loose ends the entry settled open again, and the ones it created go with it.
     static func delete(_ entry: Entry, in context: ModelContext) {
+        LooseEnd.rollback(forEntryID: entry.id, .entryDeleted, in: context)
         context.delete(entry)
     }
 
     // Deleting insights takes the graph links that came from them with it, and forgets the
     // entry was ever indexed so a later run rebuilds it. The user's own links stay.
     // Every path that drops insights goes through here: the Insights screen and a page restart.
+    // Loose ends came from the insights, so they are undone too.
     func removeInsights(in context: ModelContext) {
+        LooseEnd.rollback(forEntryID: id, .insightsRemoved, in: context)
         if let insights {
             context.delete(insights)
             self.insights = nil

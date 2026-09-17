@@ -184,7 +184,7 @@ struct InsightsSettingsView: View {
                 }
                 Toggle("Tags", isOn: $settings.insightTags).accessibilityIdentifier("insightTagsToggle")
                 Toggle("People and places", isOn: $settings.insightMentions).accessibilityIdentifier("insightMentionsToggle")
-                Toggle("Open threads", isOn: $settings.insightOpenThreads).accessibilityIdentifier("insightOpenThreadsToggle")
+                Toggle("Loose ends", isOn: $settings.insightLooseEnds).accessibilityIdentifier("insightLooseEndsToggle")
             }
 
             Section {

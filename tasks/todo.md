@@ -505,22 +505,22 @@ the real key.
   - `OpenAILiveTests` asserts 1 to 2 valid areas
 
 ### A2: Loose ends
-- [ ] `LooseEnd` model, registered in the container, plus a `CloudKitSchemaRulesTests` case.
-- [ ] Prompt: the known loose-ends block with handles, the quality bar, the cap of 2, and the
+- [x] `LooseEnd` model, registered in the container, plus a `CloudKitSchemaRulesTests` case.
+- [x] Prompt: the known loose-ends block with handles, the quality bar, the cap of 2, and the
       `looseEnds` and `resolved` schema. Settings key renamed to `looseEnds`.
       `EntryInsights.openThreads` deleted.
-- [ ] `LooseEndWriter` in the insights write path: create, `sameAs`, resolve, re-fetch after the
+- [x] `LooseEndWriter` in the insights write path: create, `sameAs`, resolve, re-fetch after the
       await, entity mapping through a link fetch, and dates from `entryDate`.
-- [ ] `LooseEnd.rollback(forEntryID:)` in `Entry.delete` and `removeInsights`. Regeneration calls
+- [x] `LooseEnd.rollback(forEntryID:)` in `Entry.delete` and `removeInsights`. Regeneration calls
       it first.
-- [ ] Read-time resolution of `entityIDs` through `mergedIntoID`. `sentLooseEndCount` and "What
+- [x] Read-time resolution of `entityIDs` through `mergedIntoID`. `sentLooseEndCount` and "What
       was sent".
-- [ ] `LooseEndLifecycle` (fading) in the launch lane. `LooseEndPrompter`.
-- [ ] Insights sheet: the loose-ends card shows status and offers Done and Let go.
-- [ ] Diagnostics: `looseEnds.written` (created, sameAs, resolved counts), `looseEnds.faded`
+- [x] `LooseEndLifecycle` (fading) in the launch lane. `LooseEndPrompter`.
+- [x] Insights sheet: the loose-ends card shows status and offers Done and Let go.
+- [x] Diagnostics: `looseEnds.written` (created, sameAs, resolved counts), `looseEnds.faded`
       (count). Privacy test cases.
-- [ ] The seeder writes loose ends across entries, including resolved ones.
-- [ ] Tests:
+- [x] The seeder writes loose ends across entries, including resolved ones.
+- [x] Tests:
   - handles never leak UUIDs
   - unknown handles are dropped
   - cap of 2 enforced even when the model returns more
@@ -562,16 +562,17 @@ the real key.
       `GraphEngine` actor, then SpriteKit. Stop at the first step that passes.
 
 ### A4: Tabs and the record accessory
-- [ ] Device check first: the accessory under sheets, full-screen covers, and an overlay panel.
+- [x] Device check first: the accessory under sheets, full-screen covers, and an overlay panel.
       Write the result in the review log.
-- [ ] `AppRouter` (tab, Journal path, Mind path, jumps). Editor close rules move to "left
+- [x] `AppRouter` (tab, Journal path, Mind path, jumps). Editor close rules move to "left
       Journal's path".
-- [ ] `RecordingSession` extracted from `RecordingView` (start task, levels, recorder protocol),
+- [x] `RecordingSession` extracted from `RecordingView` (start task, levels, recorder protocol),
       owned by `RootView`. The recorder minimizes while recording, and discard works from there.
-- [ ] `TabView` (Journal, Mind placeholder, Ask placeholder). Record accessory with idle and
-      recording states. The loose-end prompt line in the recorder.
-- [ ] Journal: remove the Connections button. Add area chips on rows and the area filter row.
-- [ ] Tests:
+- [x] `TabView` (Journal, Mind placeholder, Ask placeholder). Record accessory with idle and
+      recording states.
+- [x] The loose-end prompt line in the recorder (after A2's `LooseEndPrompter`).
+- [x] Journal: remove the Connections button. Add area chips on rows and the area filter row.
+- [x] Tests:
   - `RecordingSession` start/stop/discard with a fake recorder
   - minimizing keeps recording
   - finishing ingests once and routes to the entry, replacing the path
@@ -580,7 +581,7 @@ the real key.
   - the area filter predicate
   - UI tests: recording still produces an entry through the accessory
   - existing identifiers still pass
-- [ ] Device: record, switch tabs, lock the phone, come back, finish. Siri interruption while
+- [x] Device: record, switch tabs, lock the phone, come back, finish. Siri interruption while
       minimized.
 
 ### A5: Mind tab, search panel, peek card
@@ -620,9 +621,10 @@ the real key.
 - [ ] Device: replay, a lens switch, regions settling into a readable layout.
 
 ### A6: Read mode and tappable names
-- [ ] Read and edit modes in `EntryEditorView`. Name ranges from links. The `OpenURLAction` and
-      the peek sheet. Peek added to `isPresentingOverEditor`.
-- [ ] Tests:
+- [x] Read and edit modes in `EntryEditorView`. Name ranges from links. The `OpenURLAction` and
+      the peek sheet. Peek added to `isPresentingOverEditor` (moot since A4: nothing closes the
+      editor on disappear).
+- [x] Tests:
   - name ranges (overlaps, aliases, `writtenSurface`, possessives, a merged entity resolves to
     the winner)
   - which entries open in read mode, including page review and live-text recordings, which don't
@@ -753,8 +755,28 @@ longer mentions themes. Not changed: old theme rows (a fresh install covers them
 (the privacy test already renames an area to the sentinel). The Debug distribution lives on the
 Life areas screen, reached from the insights settings while areas are on. Also fixed after the
 owner saw it on the simulator: the area chip rendered as a tall empty yellow capsule; it's now a
-grey capsule with a coloured icon, like the tag chips. `OpenAILiveTests`' area check hasn't run
-yet (no key in this session).
+grey capsule with a coloured icon, like the tag chips. `OpenAILiveTests` later ran with the real
+key (2026-09-17): areas came back valid, but the model also tagged the entry `friends` next to the
+Friends area despite the prompt, so the parser now drops any tag that is an area's name while
+areas are on.
+
+A2 build (sub-agent review of the working tree, 2026-09-17; 12 findings, one data bug).
+Fixed: rerunning an entry reopened everything it had settled, since settled loose ends weren't
+offered back; they now are, right after the entry's own. "Reopen" no longer marks a loose end as
+the user's, so a later entry can still settle it. Rollback has three modes: deleting an entry
+removes everything it made, touched or not; removing insights removes only what is open and
+untouched; regenerating keeps what the new answer still means and what another entry settled.
+An empty `sameAs` counts as null. A dated loose end waits for its day before the silence rule
+applies. Changing an entry's date re-dates its loose ends. The card saves without stamping
+entries. Insights holding only a loose end aren't "empty". "What was sent" counts only other
+entries' loose ends. The demo seeder cycles its templates. Not changed: the Foundation Models
+cap of 5 (insights only ever run through OpenAI today; add the cap if that changes); the
+read-time `mergedIntoID` resolution exists as `EntityDirectory.root` and is used for candidate
+ranking, and its other readers (search panel counts, peek card) arrive in A5. The live OpenAI
+test `looseEndsAreSettledAndMentionedByHandle` passed against gpt-5.6-luna: the strict schema with
+a nullable handle enum was accepted, the settled loose end came back in `resolved`, the ongoing
+one as `sameAs`, and the unrelated one was left alone. `InsightsUITests` passed with the real key. The loose-end row's
+identifier moved from the row to its label: on the row it overrode the menu button's own.
 
 A3 build (2026-09-17, lane `feature/phase-a-graph`). Built to a spec the owner approved after a
 sub-agent review (15 findings folded in). The draw cache keys on the simulation's own
@@ -810,6 +832,53 @@ file list; no other lane touches it before A5):
   place, which needs no new route type in the three stacks that push entity pages.
 - Entries that didn't make sense under a tag: the demo seeder picks tags at random and never
   writes them into the text, so this is demo data, not the app.
+
+A4 (lane 3, `feature/phase-a-shell`, build spec in `tasks/a4-shell-spec.md`):
+
+- Accessory check, on the simulator rather than the phone: sheets and full-screen covers hide the
+  accessory, pushed views keep it and the tab bar, and a panel inside a tab already lays out above
+  it. The keyboard case is left for the phone.
+- The spec review (17 findings) is folded into the spec. The main ones: start, finish, and discard
+  guard each other with a generation number; a blank entry deleted while the editor animates out
+  reads as no entry; `JournalRoute` compares by id alone.
+- Deviations: `isPresentingOverEditor` is gone, since nothing closes the editor on disappear any
+  more, so A6's "add the peek sheet to `isPresentingOverEditor`" has nothing to do. A jump waits for
+  full-screen covers (`AppRouter.setCover`) instead of closing them, because the page screen has
+  its own close rules. `LiveTranscriptionSession` didn't gain `Observable`; observation works
+  through the concrete types. Moving the close rules also fixed presence counting twice after a
+  cover over the editor, which left the entry "open" until relaunch.
+- UI tests run against `-uiTestingFakeRecorder`, a recorder that writes a second of silence.
+  Recordings share one folder across UI test stores, so a run killed mid-recording shows up as a
+  recovered entry in the next test.
+- Code review (10 findings, no crash paths), all fixed in "A4 review fixes".
+- Found, not fixed (outside this lane, gone in A5): inside Connections the entity page's
+  `EntityRoute` links push nothing, because Connections' path is typed `[ConnectionsPathItem]`.
+  "Merged into this" is dead there, and `GraphUITests` marks that step as an expected failure.
+  A likely cause of the unmerge item in A5's checklist. The
+  test's `entityMergeInto` failure noted under A3 was a scroll issue and is fixed. The same run
+  found `PageOrderUITests.testClosingWithNoPagesLeavesNothingBehind` never tapped Scan; fixed.
+- Device steps passed on the phone (2026-09-17): recording across tabs and a lock, a Siri
+  interruption while minimized, and A6's read mode and card. Owner change after using it: Record
+  stays the microphone in Journal's toolbar, as before A4. The tab bar's accessory appears only
+  while a recording runs, so a recording still follows the user across tabs.
+
+A6 (lane 3, build spec in `tasks/a6-read-mode-spec.md`):
+
+- The peek card is built here in its sheet form (owner's call), in `EntityPeekCard.swift`; A5 adds
+  the Mind overlay on the same view instead of a second card.
+- A simulator spike confirmed per-kind link colours render in `Text`, links tap with text
+  selection on, and XCUITest exposes each name as a link.
+- Spec review (15 findings) folded in. The main ones: read text keyed on the text itself, Edit's
+  focus through the text view's own appearance, a finished recording lands for typing through its
+  route, tags aren't linked, and the mode flips to typing one way only.
+- "Opening and closing the peek card doesn't run the close rules" needs no test of its own: since
+  A4, close rules only run when a route leaves Journal's path.
+- Code review: one real bug (the editor re-decided its mode as the entry changed, so finishing a
+  draft grew a second Done; the route now carries the decision), plus capitalised names linking
+  only where capitalised ("I will call Will"), a card that spun forever for a missing entity, and
+  two UI test waits. All fixed.
+- The card's loose-end line and the recorder's prompt line landed after A2 (`looseEnds.prompted`
+  logs the id only).
 
 Owner answers after revision 1 (2026-09-17): the tab is Mind, a fresh install is fine, and Ask
 keeps saved conversations and opens a new one by default. Folded in above.

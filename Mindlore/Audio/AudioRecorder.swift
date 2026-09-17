@@ -2,8 +2,28 @@ import AVFoundation
 import Foundation
 import Observation
 
+// What RecordingSession needs from a recorder, so tests and UI tests can drive it without a microphone.
+// Conformers are @Observable, so views reading these through the session stay current.
+@MainActor
+protocol AudioRecording: AnyObject {
+    var state: AudioRecorder.State { get }
+    var level: Float { get }
+    var elapsed: TimeInterval { get }
+    var audioGap: String? { get }
+    var isResuming: Bool { get }
+    var resumeFailed: Bool { get }
+    var buffers: AsyncStream<AVAudioPCMBuffer>? { get }
+
+    func start() async throws
+    func stopBuffering()
+    func pause()
+    func resume() async
+    func stop() throws -> URL?
+    func discard()
+}
+
 @Observable
-final class AudioRecorder {
+final class AudioRecorder: AudioRecording {
     enum State: Equatable {
         case idle
         case recording

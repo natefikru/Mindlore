@@ -17,14 +17,14 @@ final class EntryInsights {
     var areasRaw: [String] = []
     var tags: [String] = []
     var mentionsData: Data?
-    var openThreads: [String] = []
     var cleanedText: String?
     var cleanedTextSkippedReasonRaw: String?
     var customCardsData: Data?
-    // How many of the journal's own tags and names went with the request, for the
+    // How many of the journal's own tags, names, and loose ends went with the request, for the
     // disclosure screen. Zero for insights made before those were sent.
     var sentTagCount: Int = 0
     var sentNameCount: Int = 0
+    var sentLooseEndCount: Int = 0
 
     init(generatedAt: Date = .now, modelUsed: String = "", sourceTextHash: String = "") {
         self.generatedAt = generatedAt
