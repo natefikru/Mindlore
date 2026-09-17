@@ -15,10 +15,15 @@ struct MindView: View {
     @State private var filters = MindFilters()
     @State private var loadedFilters: MindFilters?
     @State private var areaOf: [UUID: LifeArea] = [:]
+    @State private var entryAreas: [UUID: [LifeArea]] = [:]
+    @State private var regionLabels: [GraphRegion] = []
     @State private var highlightedArea: LifeArea?
     @State private var trail = FocusTrail()
     @State private var panelStop: SearchPanel.Stop = .half
     @State private var showingFilters = false
+    @State private var lens: MindLens = .kind
+    @State private var paint: GraphPaint?
+    @State private var paintGeneration = 0
 
     static let cardHeight: CGFloat = 200
     private static let topBarHeight: CGFloat = 52
@@ -37,8 +42,12 @@ struct MindView: View {
                 ZStack(alignment: .bottom) {
                     graphLayer(available: available, safeArea: safeArea)
                         .ignoresSafeArea()
-                    VStack(spacing: 0) {
+                    VStack(spacing: 4) {
                         topBar
+                        if lens != .kind {
+                            MindLensLegend(lens: lens, paint: paint)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
                         Spacer(minLength: 0)
                     }
                     VStack(spacing: 8) {
@@ -76,9 +85,14 @@ struct MindView: View {
         .task(id: RefreshKey(filters: filters, revision: graph.revision)) { refresh() }
         .onChange(of: router.mindFocusRequest?.token) { takeFocusRequest() }
         .onChange(of: router.dismissPresentationsToken) { showingFilters = false }
+        .onChange(of: lens) {
+            repaint()
+            graph.recordMindLensChanged(lens.rawValue)
+        }
         // Hiding an area in Settings removes its tile, which would leave no way to clear it.
         .onChange(of: settings.visibleLifeAreas) { _, visible in
             if let area = highlightedArea, !visible.contains(area) { highlightedArea = nil }
+            if filters.groupsByArea { refresh() }
         }
         .sheet(isPresented: $showingFilters) {
             MindFiltersView(filters: $filters)
@@ -106,9 +120,13 @@ struct MindView: View {
                     }
                 ),
                 highlightedIDs: highlightedIDs,
+                paint: paint,
+                regions: regionLabels,
+                lensName: lens.rawValue,
                 clearsMissingFocus: false,
                 visibleInsets: visibleInsets(available: available, safeArea: safeArea),
                 onNavigate: { router.mindPath.append(EntityRoute(id: $0)) },
+                onOpenEntry: { openEntry($0) },
                 onRendered: { graph.recordGraphRendered($0) }
             )
             .accessibilityIdentifier("mindGraphCanvas")
@@ -143,6 +161,21 @@ struct MindView: View {
                 }
             }
             Spacer(minLength: 0)
+            Menu {
+                Picker("Colour by", selection: $lens) {
+                    ForEach(MindLens.allCases, id: \.self) { lens in
+                        Label(lens.title, systemImage: lens.symbol)
+                            .accessibilityIdentifier("mindLens-\(lens.rawValue)")
+                    }
+                }
+            } label: {
+                Image(systemName: "paintpalette")
+                    .font(.body.weight(.semibold))
+                    .frame(width: 40, height: 40)
+                    .background(.regularMaterial, in: Circle())
+            }
+            .accessibilityLabel("Colour by")
+            .accessibilityIdentifier("mindLens")
             Button {
                 showingFilters = true
             } label: {
@@ -178,7 +211,10 @@ struct MindView: View {
     }
 
     private var highlightedIDs: Set<UUID>? {
-        highlightedArea.map { area in Set(areaOf.compactMap { $0.value == area ? $0.key : nil }) }
+        highlightedArea.map { area in
+            Set(areaOf.compactMap { $0.value == area ? $0.key : nil })
+                .union(entryAreas.compactMap { $0.value.contains(area) ? $0.key : nil })
+        }
     }
 
     // In the canvas's own space, which runs under the status bar and the tab bar.
@@ -214,20 +250,51 @@ struct MindView: View {
 
     // MARK: - Data
 
+    // What the map shows at one moment: the live map, or one replay step.
+    struct Frame {
+        var nodes: [GraphSimulation.Node]
+        var edges: [EntityGraph.Edge]
+        var names: [UUID: String]
+        var areaOf: [UUID: LifeArea]
+        var entryAreas: [UUID: [LifeArea]]
+        var regions: [UUID: SIMD2<Double>]
+    }
+
+    static func frame(_ snapshot: MindMapSnapshot, filters: MindFilters, visibleAreas: [LifeArea], asOf: Date) -> Frame {
+        let data = MindMap.graph(snapshot, kinds: filters.kinds, minimumLinkCount: filters.minimumMentions, asOf: asOf)
+        var nodes = data.nodes
+        var edges = data.edges
+        var entryAreas: [UUID: [LifeArea]] = [:]
+        if filters.showsEntries {
+            let dots = MindMap.entryNodes(snapshot, onMap: Set(nodes.map(\.id)), asOf: asOf)
+            nodes += dots.nodes
+            edges += dots.edges
+            for dot in dots.nodes {
+                entryAreas[dot.id] = snapshot.entries[dot.id]?.areas ?? []
+            }
+        }
+        let areaOf = MindMap.primaryAreas(snapshot, asOf: asOf)
+        var regions: [UUID: SIMD2<Double>] = [:]
+        if filters.groupsByArea {
+            let points = MindRegions.points(visible: visibleAreas, entityCount: snapshot.entities.count)
+            regions = MindRegions.nodePoints(nodes: nodes, areaOf: areaOf, entryAreas: entryAreas, points: points)
+        }
+        return Frame(nodes: nodes, edges: edges, names: data.names, areaOf: areaOf, entryAreas: entryAreas, regions: regions)
+    }
+
     // The first load builds the simulation; every change after that updates it in place, so
     // surviving nodes keep their spots and new ones grow out of their neighbours.
     private func refresh() {
+        let now = Date.now
+        let snapshot = graph.mapSnapshot(in: modelContext)
         if loadedFilters == nil {
-            let browsable = ((try? modelContext.fetch(FetchDescriptor<Entity>())) ?? []).filter { !$0.isDeleted && $0.isBrowsable }.count
-            let minimum = MindFilters.defaultMinimum(browsableCount: browsable)
+            let minimum = MindFilters.defaultMinimum(browsableCount: snapshot.entities.count)
             if minimum != filters.minimumMentions {
                 filters.minimumMentions = minimum
             }
         }
-        let data = graph.globalGraph(kinds: filters.kinds, minimumLinkCount: filters.minimumMentions, in: modelContext)
-        let nodes = GraphSimulation.Node.layoutOrdered(data.nodes)
-        names = data.names
-        areaOf = graph.primaryAreas(in: modelContext)
+        let frame = Self.frame(snapshot, filters: filters, visibleAreas: settings.visibleLifeAreas, asOf: now)
+        show(frame, snapshot: snapshot, asOf: now)
 
         let directory = EntityDirectory(in: modelContext)
         trail.normalize(root: directory.root(of:), exists: { directory.entity($0).map { !$0.isDeleted } ?? false })
@@ -236,17 +303,65 @@ struct MindView: View {
             names[id] = directory.entity(id)?.name
         }
 
-        if let simulation {
-            simulation.update(nodes: nodes, edges: data.edges)
-            version = simulation.topologyVersion
-        } else {
-            simulation = GraphSimulation(nodes: nodes, edges: data.edges)
-        }
         if let loadedFilters, loadedFilters != filters {
-            graph.recordMindFiltersChanged(kinds: filters.kinds.count, minimum: filters.minimumMentions, nodes: nodes.count)
+            graph.recordMindFiltersChanged(
+                kinds: filters.kinds.count,
+                minimum: filters.minimumMentions,
+                entries: filters.showsEntries,
+                regions: filters.groupsByArea,
+                nodes: frame.nodes.count
+            )
         }
         loadedFilters = filters
         takeFocusRequest()
+    }
+
+    // Puts a frame on the canvas. State is only written when it changed, so a replay step doesn't
+    // re-render the panel for nothing.
+    private func show(_ frame: Frame, snapshot: MindMapSnapshot, asOf: Date) {
+        var names = frame.names
+        for id in trail.ids where names[id] == nil {
+            names[id] = self.names[id]
+        }
+        if names != self.names { self.names = names }
+        if frame.areaOf != areaOf { areaOf = frame.areaOf }
+        if frame.entryAreas != entryAreas { entryAreas = frame.entryAreas }
+        let labels = regionLabels(snapshot)
+        if labels != regionLabels { regionLabels = labels }
+
+        if let simulation {
+            simulation.update(nodes: frame.nodes, edges: frame.edges, regions: frame.regions)
+            if version != simulation.topologyVersion { version = simulation.topologyVersion }
+        } else {
+            simulation = GraphSimulation(nodes: frame.nodes, edges: frame.edges, regions: frame.regions)
+        }
+        repaint(snapshot, asOf: asOf)
+    }
+
+    private func regionLabels(_ snapshot: MindMapSnapshot) -> [GraphRegion] {
+        guard filters.groupsByArea else { return [] }
+        let points = MindRegions.points(visible: settings.visibleLifeAreas, entityCount: snapshot.entities.count)
+        return LifeArea.allCases.compactMap { area in
+            points[area].map { GraphRegion(id: area.rawValue, name: settings.name(of: area), point: $0, color: area.color) }
+        }
+    }
+
+    // Rebuilds the lens paint for what the simulation holds now.
+    private func repaint(_ snapshot: MindMapSnapshot? = nil, asOf: Date = .now) {
+        guard let simulation else { return }
+        let snapshot = snapshot ?? graph.mapSnapshot(in: modelContext)
+        let onMap = Set(simulation.nodes.lazy.filter { !$0.isEntry }.map(\.id))
+        paintGeneration += 1
+        paint = lens.paint(snapshot, onMap: onMap, asOf: asOf, generation: paintGeneration)
+    }
+
+    // A tapped entry dot opens the entry on the Journal tab, for reading when it's finished.
+    private func openEntry(_ id: UUID) {
+        guard let entry = try? modelContext.fetch(FetchDescriptor<Entry>(predicate: #Predicate { $0.id == id })).first,
+              !entry.isDeleted
+        else { return }
+        router.showEntry(id, forReading: EntryReadMode.opensForReading(entry, automationStartedAt: settings.automationStartedAt))
+        graph.recordMindEntryOpened()
     }
 }
 
@@ -295,6 +410,20 @@ private struct MindFiltersView: View {
                         }
                         .accessibilityIdentifier("mindKind-\(kind.rawValue)")
                     }
+                }
+                Section {
+                    Toggle(isOn: $filters.showsEntries) {
+                        Label("Entries", systemImage: "circle.fill")
+                    }
+                    .accessibilityIdentifier("mindShowEntries")
+                    Toggle(isOn: $filters.groupsByArea) {
+                        Label("Group by life area", systemImage: "square.grid.3x3")
+                    }
+                    .accessibilityIdentifier("mindGroupByArea")
+                } header: {
+                    Text("Also")
+                } footer: {
+                    Text("Entries show as small grey dots beside what they mention. Tap one to read it.")
                 }
                 Section {
                     Stepper(

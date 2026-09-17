@@ -366,22 +366,24 @@ struct GraphServicesTests {
         #expect(!data.nodes.map(\.id).contains(ana.id))
     }
 
-    // Known limitation, locked in rather than left to surprise someone on a device: the
-    // standalone-node clause reads Entity.linkCount, a persisted, all-time count, so scrubbing
-    // asOf before every one of an entity's mentions still shows it as a dot once its lifetime
-    // count clears minimumLinkCount. asOf only ever removes edges, never this count.
-    @Test func globalGraphStandaloneNodeIgnoresAsOfScrubbing() throws {
+    // A node's size and the minimum read its mentions up to asOf, so scrubbing back before an
+    // entity's mentions takes it off the map (what replay needs).
+    @Test func globalGraphCountsOnlyMentionsUpToAsOf() throws {
         let cutoff = Date(timeIntervalSince1970: 10_000)
+        try harness.entry(entryDate: cutoff.addingTimeInterval(-1), mentions: [("Sarah", .person)])
         try harness.entry(entryDate: cutoff.addingTimeInterval(1), mentions: [("Sarah", .person)])
-        try harness.entry(entryDate: cutoff.addingTimeInterval(2), mentions: [("Sarah", .person)])
+        try harness.entry(entryDate: cutoff.addingTimeInterval(2), mentions: [("Tom", .person)])
+        try harness.entry(entryDate: cutoff.addingTimeInterval(3), mentions: [("Tom", .person)])
         harness.indexer.sweep(in: harness.context)
         let sarah = try harness.entity("Sarah")
-        #expect(sarah.linkCount == 2)
 
-        let data = services.globalGraph(asOf: cutoff, kinds: nil, minimumLinkCount: 2, in: harness.context)
+        let atCutoff = services.globalGraph(asOf: cutoff, kinds: nil, minimumLinkCount: 1, in: harness.context)
+        #expect(atCutoff.nodes.map(\.id) == [sarah.id])
+        #expect(atCutoff.nodes.first?.linkCount == 1)
+        #expect(services.globalGraph(asOf: cutoff, kinds: nil, minimumLinkCount: 2, in: harness.context).nodes.isEmpty)
 
-        #expect(data.nodes.map(\.id) == [sarah.id])
-        #expect(data.edges.isEmpty)
+        let later = services.globalGraph(asOf: cutoff.addingTimeInterval(10), kinds: nil, minimumLinkCount: 2, in: harness.context)
+        #expect(later.nodes.count == 2)
     }
 
     @Test func globalGraphKeepsAnIsolatedNodeAboveThresholdWithNoSurvivingEdge() throws {

@@ -290,7 +290,7 @@ struct AIDiagnosticsPrivacyTests {
         services.answer(pair, with: .skip, in: context)
         services.answer(pair, with: .notSame, in: context)
         services.recordMindFocused(source: .search, onMap: false)
-        services.recordMindFiltersChanged(kinds: 3, minimum: 1, nodes: 2)
+        services.recordMindFiltersChanged(kinds: 3, minimum: 1, entries: true, regions: true, nodes: 2)
         let globalData = services.globalGraph(kinds: nil, minimumLinkCount: 0, in: context)
         services.recordGraphRendered(GraphRenderStats(
             nodes: globalData.nodes.count, edges: globalData.edges.count, settleMilliseconds: nil,

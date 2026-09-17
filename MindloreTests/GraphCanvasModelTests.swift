@@ -1,4 +1,5 @@
 import Foundation
+import SwiftUI
 import Testing
 @testable import Mindlore
 
@@ -351,5 +352,96 @@ struct GraphCanvasModelTests {
         camera.cancelFlight()
         #expect(!camera.advance(now: 5))
         #expect(camera.pan == pan)
+    }
+
+    // MARK: - Lenses and entry dots
+
+    @Test func aPaintSetsFillsFadesAndRecomputesOnlyOnANewGeneration() {
+        let (simulation, nodes) = hub()
+        let cache = GraphDrawCache()
+        let paint = GraphPaint(generation: 1, palette: [.red, .blue], slotByID: [nodes[0].id: 1, nodes[1].id: 7], neutralUnslotted: true, faded: [nodes[2].id])
+        let plan = cache.plan(for: simulation, focusedID: nil, paint: paint)
+        #expect(plan.fills[0] == .slot(1))
+        #expect(plan.fills[1] == .neutral, "a slot outside the palette falls back")
+        #expect(plan.fills[3] == .neutral)
+        #expect(plan.fadedNodes == [2])
+
+        let unpainted = GraphDrawCache().plan(for: simulation, focusedID: nil)
+        #expect(unpainted.fills.allSatisfy { $0 == .kind(.person) })
+        #expect(unpainted.fadedNodes.isEmpty)
+
+        let before = cache.recomputeCount
+        var same = paint
+        same.faded = []
+        _ = cache.plan(for: simulation, focusedID: nil, paint: same)
+        #expect(cache.recomputeCount == before, "only the generation is compared")
+        same.generation = 2
+        _ = cache.plan(for: simulation, focusedID: nil, paint: same)
+        #expect(cache.recomputeCount == before + 1)
+    }
+
+    @Test func recencyGlowIsCappedAndGivesWayToFocus() {
+        let nodes = (0..<40).map { node(40 - $0) }
+        let simulation = GraphSimulation(nodes: nodes, edges: [EntityGraph.Edge(nodes[0].id, nodes[1].id, weight: 1)])
+        let paint = GraphPaint(generation: 1, glowing: Set(nodes.map(\.id)))
+        let plan = GraphDrawCache().plan(for: simulation, focusedID: nil, paint: paint)
+        #expect(plan.glowNodes == Array(0..<GraphDrawCache.glowCap))
+
+        let focused = GraphDrawCache().plan(for: simulation, focusedID: nodes[1].id, paint: paint)
+        #expect(focused.glowNodes == [1, 0])
+    }
+
+    @Test func entryDotsAreNeverLabelledOrGlowingAndTheirEdgesAreFaint() {
+        let person = node(5)
+        let entry = GraphSimulation.Node(id: UUID(), kind: .other, linkCount: 1, isEntry: true)
+        let other = node(2)
+        let simulation = GraphSimulation(nodes: [person, entry, other], edges: [
+            EntityGraph.Edge(entry.id, person.id, weight: 1, recency: 1),
+            EntityGraph.Edge(person.id, other.id, weight: 3, recency: 1),
+        ])
+        let entryEdge = simulation.allEdges().firstIndex { $0.a == entry.id || $0.b == entry.id }!
+        let personEdge = 1 - entryEdge
+
+        let plan = GraphDrawCache().plan(for: simulation, focusedID: person.id, paint: GraphPaint(generation: 1, glowing: [entry.id]))
+        #expect(plan.rankedLabels == [0, 2])
+        #expect(plan.glowNodes == [0, 2])
+        #expect(plan.litNodes == [0, 1, 2], "focus lights the entity's entries")
+        #expect(plan.fills[1] == .neutral)
+        #expect(plan.edgeStyles[entryEdge] == GraphEdgeStyle(widthBucket: 0, opacityBucket: 0))
+        #expect(plan.edgeStyles[personEdge] != GraphEdgeStyle(widthBucket: 0, opacityBucket: 0))
+        #expect(simulation.radius(of: entry.id) == GraphSimulation.entryRadius)
+    }
+
+    @Test func anEntityBeatsAnOverlappingEntryDotAndDotsNeedACloserTap() {
+        let circles: [(SIMD2<Double>, Double)] = [(SIMD2(0, 0), 5), (SIMD2(6, 0), 2.5)]
+        let isEntry: (Int) -> Bool = { $0 == 1 }
+        #expect(GraphHitTest.node(at: SIMD2(6, 0), count: 2, isEntry: isEntry) { circles[$0] } == 0,
+                "the dot is drawn later but sits inside the person's 12pt target")
+        let far: [(SIMD2<Double>, Double)] = [(SIMD2(0, 0), 5), (SIMD2(40, 0), 2.5)]
+        #expect(GraphHitTest.node(at: SIMD2(47, 0), count: 2, isEntry: isEntry) { far[$0] } == 1)
+        #expect(GraphHitTest.node(at: SIMD2(49, 0), count: 2, isEntry: isEntry) { far[$0] } == nil)
+    }
+
+    @Test func anEdgeToAnEntryFocusesItsEntityEnd() {
+        let person = node(1)
+        let entry = GraphSimulation.Node(id: UUID(), kind: .other, linkCount: 4, isEntry: true)
+        #expect(GraphHitTest.focusEnd(entry, person) == person)
+        #expect(GraphHitTest.focusEnd(person, entry) == person)
+        let big = node(9)
+        #expect(GraphHitTest.focusEnd(person, big) == big)
+    }
+
+    @Test func aFlightCanKeepTheZoomAndACentroidSkipsWhatIsOffTheMap() {
+        let camera = GraphCamera()
+        camera.setZoom(0.5, keeping: .zero, center: .zero)
+        camera.fly(to: SIMD2(100, 0), now: 0, zoom: camera.zoom)
+        camera.advance(now: 1)
+        #expect(camera.zoom == 0.5)
+        #expect(close(camera.screen(SIMD2(100, 0), center: .zero), .zero))
+
+        let (simulation, nodes) = hub()
+        let a = simulation.position(of: nodes[0].id)!, b = simulation.position(of: nodes[1].id)!
+        #expect(GraphHitTest.centroid(of: [nodes[0].id, nodes[1].id, UUID()], in: simulation) == (a + b) / 2)
+        #expect(GraphHitTest.centroid(of: [UUID()], in: simulation) == nil)
     }
 }

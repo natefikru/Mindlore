@@ -1,6 +1,13 @@
 import QuartzCore
 import SwiftUI
 
+struct GraphRegion: Identifiable, Equatable {
+    let id: String
+    let name: String
+    let point: SIMD2<Double>
+    let color: Color
+}
+
 // Mind's force-graph drawing surface. Touches no model type: everything it draws comes from the simulation itself and a namer closure, the
 // same "stay free of SwiftData" shape EntityChipIndex's consumers already follow.
 //
@@ -14,17 +21,21 @@ struct GraphCanvasView: View {
     var version: Int = 0
     let namer: (UUID) -> String?
     @Binding var focusedID: UUID?
-    // A centred subject, drawn distinctly and exempt from drag/long-press. Nothing passes one
-    // until A5b's area regions.
-    var anchoredID: UUID?
     // A group to bring forward (an area tile's entities); the rest fade while nothing is focused.
     var highlightedIDs: Set<UUID>?
+    // A lens's colours (nil: kind colours), and its name for the accessibility value.
+    var paint: GraphPaint?
+    // Life-area names drawn faintly at their spots while the map groups by area.
+    var regions: [GraphRegion] = []
+    var lensName = "kind"
     // Whether a focus that leaves the simulation is cleared. Mind keeps it, since a search result
     // can be focused while it's filtered off the map.
     var clearsMissingFocus = true
     // What overlays cover, so a focused node lands in the middle of what's left.
     var visibleInsets = EdgeInsets()
     var onNavigate: (UUID) -> Void = { _ in }
+    // A tapped entry dot. Dots never take focus.
+    var onOpenEntry: (UUID) -> Void = { _ in }
     // Called once per appearance with what the device gate reads.
     var onRendered: (GraphRenderStats) -> Void = { _ in }
 
@@ -35,6 +46,7 @@ struct GraphCanvasView: View {
 
     private enum SymbolID: Hashable {
         case label(UUID)
+        case region(String)
     }
 
     @State private var camera = GraphCamera()
@@ -56,9 +68,11 @@ struct GraphCanvasView: View {
 
     private static let focusDim = 0.15
     private static let highlightDim = 0.3
+    private static let neutralOpacity = 0.6
+    private static let regionOpacity = 0.35
 
     var body: some View {
-        let plan = cache.plan(for: simulation, focusedID: focusedID, highlighted: highlightedIDs)
+        let plan = cache.plan(for: simulation, focusedID: focusedID, highlighted: highlightedIDs, paint: paint)
         let labelIDs = labelSymbolIDs(plan)
 
         GeometryReader { geometry in
@@ -69,7 +83,7 @@ struct GraphCanvasView: View {
                     let frameStart = CACurrentMediaTime()
                     simulation.tick()
                     camera.advance(now: frameStart)
-                    draw(in: &context, center: center, plan: cache.plan(for: simulation, focusedID: focusedID, highlighted: highlightedIDs))
+                    draw(in: &context, center: center, plan: cache.plan(for: simulation, focusedID: focusedID, highlighted: highlightedIDs, paint: paint))
                     sampler.record(
                         frameStart: frameStart,
                         workSeconds: CACurrentMediaTime() - frameStart,
@@ -81,6 +95,12 @@ struct GraphCanvasView: View {
                             Text(name).font(.caption2).tag(SymbolID.label(id))
                         }
                     }
+                    ForEach(regions) { region in
+                        Text(region.name)
+                            .font(.title3.weight(.semibold))
+                            .foregroundStyle(region.color)
+                            .tag(SymbolID.region(region.id))
+                    }
                 }
             }
             .contentShape(Rectangle())
@@ -91,13 +111,16 @@ struct GraphCanvasView: View {
         }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Graph")
-        .accessibilityValue("nodes=\(simulation.nodeCount) highlighted=\(plan.hasFocus ? 0 : plan.highlightedNodes?.count ?? 0) focused=\(focusedID.flatMap(namer) ?? "none")")
+        .accessibilityValue(accessibilityValue(plan))
         .sensoryFeedback(.selection, trigger: focusedID) { _, new in new != nil }
         .onChange(of: focusedID) {
             flyToFocus()
             wake()
         }
-        .onChange(of: highlightedIDs) { wake() }
+        .onChange(of: highlightedIDs) {
+            flyToHighlight()
+            wake()
+        }
         .onChange(of: version) {
             if clearsMissingFocus, let focusedID, simulation.index(of: focusedID) == nil {
                 self.focusedID = nil
@@ -131,9 +154,25 @@ struct GraphCanvasView: View {
         .task(id: activityToken) { await watch() }
     }
 
+    // Entities and entry dots are counted apart, so `nodes=` means the same with dots on or off.
+    // Tests match its start and its end (`focused=`), so new fields go in the middle.
+    private func accessibilityValue(_ plan: GraphDrawPlan) -> String {
+        let entries = simulation.nodes.lazy.filter(\.isEntry).count
+        let highlighted = plan.hasFocus ? 0 : plan.highlightedNodes?.count ?? 0
+        return "nodes=\(simulation.nodeCount - entries) highlighted=\(highlighted) entries=\(entries) lens=\(lensName) focused=\(focusedID.flatMap(namer) ?? "none")"
+    }
+
     private func flyToFocus() {
         guard let focusedID, let position = simulation.position(of: focusedID) else { return }
         camera.fly(to: position, now: CACurrentMediaTime(), offset: visibleCenterOffset)
+    }
+
+    // A tile tap brings its group into view at the current zoom. Focus says more, so it wins.
+    private func flyToHighlight() {
+        guard focusedID == nil, let highlightedIDs,
+              let point = GraphHitTest.centroid(of: highlightedIDs, in: simulation)
+        else { return }
+        camera.fly(to: point, now: CACurrentMediaTime(), offset: visibleCenterOffset, zoom: camera.zoom)
     }
 
     private var visibleCenterOffset: SIMD2<Double> {
@@ -147,11 +186,15 @@ struct GraphCanvasView: View {
 
     private func labelSymbolIDs(_ plan: GraphDrawPlan) -> [UUID] {
         let nodes = simulation.nodes
-        var ids = plan.rankedLabels.map { nodes[$0].id }
-        if let anchoredID, simulation.index(of: anchoredID) != nil, !ids.contains(anchoredID) {
-            ids.append(anchoredID)
+        return plan.rankedLabels.map { nodes[$0].id }
+    }
+
+    private func color(_ fill: GraphFill) -> Color {
+        switch fill {
+        case .kind(let kind): kind.color
+        case .slot(let slot): paint.flatMap { $0.palette.indices.contains(slot) ? $0.palette[slot] : nil } ?? .gray
+        case .neutral: .gray
         }
-        return ids
     }
 
     private func draw(in context: inout GraphicsContext, center: SIMD2<Double>, plan: GraphDrawPlan) {
@@ -163,6 +206,15 @@ struct GraphCanvasView: View {
         func circle(_ index: Int, scale: Double = 1) -> CGRect {
             let r = simulation.radius(at: index) * zoom * scale
             return CGRect(x: screen[index].x - r, y: screen[index].y - r, width: r * 2, height: r * 2)
+        }
+
+        // Area names sit under everything else.
+        for region in regions {
+            guard let resolved = context.resolveSymbol(id: SymbolID.region(region.id)) else { continue }
+            let at = camera.screen(region.point, center: center)
+            var regionContext = context
+            regionContext.opacity = Self.regionOpacity
+            regionContext.draw(resolved, at: CGPoint(x: at.x, y: at.y))
         }
 
         // Edges: one path per style bucket, lit edges in their own paths per width.
@@ -196,7 +248,7 @@ struct GraphCanvasView: View {
 
         // Glow behind the lit nodes: a gradient fill, no blur filter.
         for index in plan.glowNodes {
-            let color = nodes[index].kind.color
+            let color = color(plan.fills[index])
             let rect = circle(index, scale: 2.2)
             context.fill(
                 Path(ellipseIn: rect),
@@ -209,44 +261,38 @@ struct GraphCanvasView: View {
             )
         }
 
-        // Nodes: one fill per kind, faded ones first so lit nodes sit on top.
-        var bright: [EntityKind: Path] = [:]
-        var faded: [EntityKind: Path] = [:]
-        var muted: [EntityKind: Path] = [:]
+        // Nodes: one path per colour and strength, dimmest first so lit nodes sit on top.
+        struct Bucket: Hashable {
+            let fill: GraphFill
+            let opacity: Double
+        }
+        var nodePaths: [Bucket: Path] = [:]
         for index in nodes.indices {
+            var opacity = 1.0
             if dimmed && !plan.litNodes.contains(index) {
-                faded[nodes[index].kind, default: Path()].addEllipse(in: circle(index))
+                opacity = Self.focusDim
             } else if !dimmed && !plan.isHighlighted(index) {
-                muted[nodes[index].kind, default: Path()].addEllipse(in: circle(index))
-            } else {
-                bright[nodes[index].kind, default: Path()].addEllipse(in: circle(index))
+                opacity = Self.highlightDim
             }
+            if plan.fadedNodes.contains(index) { opacity *= GraphPaint.fadedOpacity }
+            nodePaths[Bucket(fill: plan.fills[index], opacity: opacity), default: Path()].addEllipse(in: circle(index))
         }
-        for kind in EntityKind.allCases {
-            if let path = faded[kind] { context.fill(path, with: .color(kind.color.opacity(Self.focusDim))) }
-            if let path = muted[kind] { context.fill(path, with: .color(kind.color.opacity(Self.highlightDim))) }
+        for (bucket, path) in nodePaths.sorted(by: { $0.key.opacity < $1.key.opacity }) {
+            let base = color(bucket.fill)
+            context.fill(path, with: .color(base.opacity(bucket.opacity * (bucket.fill == .neutral ? Self.neutralOpacity : 1))))
         }
-        for kind in EntityKind.allCases {
-            if let path = bright[kind] { context.fill(path, with: .color(kind.color)) }
-        }
-        if let anchoredID, let index = simulation.index(of: anchoredID) {
-            context.stroke(Path(ellipseIn: circle(index)), with: .color(.primary), lineWidth: 3)
-        }
-        if let focusedIndex = plan.focusedIndex, nodes[focusedIndex].id != anchoredID {
+        if let focusedIndex = plan.focusedIndex {
             context.stroke(Path(ellipseIn: circle(focusedIndex)), with: .color(.primary), lineWidth: 2.5)
         }
 
         // Labels: a zoom-sized prefix of the ranked list, fading by rank, dimmed outside the focus.
         let budget = GraphLabels.budget(zoom: zoom)
-        var labelled = plan.rankedLabels.prefix(budget).enumerated().map { (index: $0.element, rank: $0.offset) }
-        if let anchoredID, let index = simulation.index(of: anchoredID), !labelled.contains(where: { $0.index == index }) {
-            labelled.append((index, 0))
-        }
-        for (index, rank) in labelled {
+        for (rank, index) in plan.rankedLabels.prefix(budget).enumerated() {
             guard let resolved = context.resolveSymbol(id: SymbolID.label(nodes[index].id)) else { continue }
             var opacity = GraphLabels.opacity(rank: rank, budget: budget)
             if dimmed && !plan.litNodes.contains(index) { opacity *= Self.focusDim }
             if !dimmed && !plan.isHighlighted(index) { opacity *= Self.highlightDim }
+            if plan.fadedNodes.contains(index) { opacity *= GraphPaint.fadedOpacity }
             var labelContext = context
             labelContext.opacity = opacity
             let r = simulation.radius(at: index) * zoom
@@ -320,14 +366,15 @@ struct GraphCanvasView: View {
 
     // MARK: - Hit-testing
 
-    private func nodeHit(_ point: SIMD2<Double>, center: SIMD2<Double>) -> UUID? {
-        let index = GraphHitTest.node(at: point, count: simulation.nodeCount) { index in
+    private func nodeHit(_ point: SIMD2<Double>, center: SIMD2<Double>) -> GraphSimulation.Node? {
+        let nodes = simulation.nodes
+        let index = GraphHitTest.node(at: point, count: nodes.count, isEntry: { nodes[$0].isEntry }) { index in
             (camera.screen(simulation.position(at: index), center: center), simulation.radius(at: index) * camera.zoom)
         }
-        return index.map { simulation.nodes[$0].id }
+        return index.map { nodes[$0] }
     }
 
-    // A tapped edge focuses its better-connected end.
+    // A tapped edge focuses its better-connected end, or its entity end when the other is a dot.
     private func edgeHit(_ point: SIMD2<Double>, center: SIMD2<Double>) -> UUID? {
         let pairs = simulation.edgeIndices
         let segments = pairs.map { pair in
@@ -336,7 +383,7 @@ struct GraphCanvasView: View {
         guard let position = GraphHitTest.edge(at: point, segments: segments) else { return nil }
         let nodes = simulation.nodes
         let a = nodes[pairs[position].a], b = nodes[pairs[position].b]
-        return a.linkCount >= b.linkCount ? a.id : b.id
+        return GraphHitTest.focusEnd(a, b).id
     }
 
     private static func vector(_ point: CGPoint) -> SIMD2<Double> {
@@ -358,9 +405,9 @@ struct GraphCanvasView: View {
                 if dragTarget == nil {
                     camera.cancelFlight()
                     let start = Self.vector(value.startLocation)
-                    if !activity.pinching, let hit = nodeHit(start, center: center), hit != anchoredID,
-                       let position = simulation.position(of: hit) {
-                        dragTarget = .node(hit)
+                    if !activity.pinching, let hit = nodeHit(start, center: center), !hit.isEntry,
+                       let position = simulation.position(of: hit.id) {
+                        dragTarget = .node(hit.id)
                         grabOffset = position - camera.world(start, center: center)
                         simulation.alphaTarget = GraphSimulation.dragAlphaTarget
                     } else {
@@ -419,8 +466,11 @@ struct GraphCanvasView: View {
         SpatialTapGesture()
             .onEnded { value in
                 let point = Self.vector(value.location)
-                if let id = nodeHit(point, center: center) {
-                    if focusedID == id {
+                if let hit = nodeHit(point, center: center) {
+                    let id = hit.id
+                    if hit.isEntry {
+                        onOpenEntry(id)
+                    } else if focusedID == id {
                         onNavigate(id)
                     } else {
                         focusedID = id
@@ -438,9 +488,10 @@ struct GraphCanvasView: View {
             .sequenced(before: DragGesture(minimumDistance: 0, coordinateSpace: .local))
             .onEnded { value in
                 guard case .second(true, let drag?) = value,
-                      let id = nodeHit(Self.vector(drag.location), center: center),
-                      id != anchoredID
+                      let hit = nodeHit(Self.vector(drag.location), center: center),
+                      !hit.isEntry
                 else { return }
+                let id = hit.id
                 simulation.unpin(id)
                 simulation.reheat(to: 0.1)
                 wake()

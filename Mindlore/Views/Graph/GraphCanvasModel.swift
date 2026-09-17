@@ -1,4 +1,5 @@
 import Foundation
+import SwiftUI
 
 // The parts of the graph canvas that aren't SwiftUI: the camera, what to draw for a given focus,
 // hit-testing, when to stop redrawing, and frame timing. The canvas holds the classes in @State,
@@ -37,9 +38,9 @@ nonisolated final class GraphCamera {
     }
 
     // Brings a world point to the view's centre plus `offset` (the middle of what overlays leave
-    // uncovered), zooming in to a readable level if the camera is further out.
-    func fly(to point: SIMD2<Double>, now: TimeInterval, offset: SIMD2<Double> = .zero) {
-        let targetZoom = Self.clamped(max(zoom, Self.readableZoom))
+    // uncovered), zooming in to a readable level if the camera is further out, or to `zoom`.
+    func fly(to point: SIMD2<Double>, now: TimeInterval, offset: SIMD2<Double> = .zero, zoom fixedZoom: Double? = nil) {
+        let targetZoom = Self.clamped(fixedZoom ?? max(zoom, Self.readableZoom))
         flight = Flight(fromPan: pan, toPan: offset - point * targetZoom, fromZoom: zoom, toZoom: targetZoom, start: now)
     }
 
@@ -102,6 +103,30 @@ nonisolated struct GraphEdgeStyle: Hashable, Sendable {
     var opacity: Double { [0.15, 0.25, 0.4, 0.6][opacityBucket] }
 }
 
+// A lens's colouring. Only `generation` goes into the draw cache's key, so a frame never compares
+// the maps; whoever builds a new paint bumps it.
+nonisolated struct GraphPaint: Sendable {
+    var generation: Int
+    // At most a handful of colours; a node's slot indexes into it.
+    var palette: [Color] = []
+    // Nodes missing here keep their kind colour, or neutral grey when `neutralUnslotted` is set.
+    var slotByID: [UUID: Int] = [:]
+    var neutralUnslotted = false
+    // Drawn at `fadedOpacity`.
+    var faded: Set<UUID> = []
+    // Glow while nothing is focused.
+    var glowing: Set<UUID> = []
+
+    static let fadedOpacity = 0.35
+}
+
+// Which colour a node takes.
+nonisolated enum GraphFill: Hashable, Sendable {
+    case kind(EntityKind)
+    case slot(Int)
+    case neutral
+}
+
 nonisolated struct GraphDrawPlan: Sendable {
     // Nil when nothing is focused or the focused id is no longer in the simulation.
     let focusedIndex: Int?
@@ -118,6 +143,10 @@ nonisolated struct GraphDrawPlan: Sendable {
     // A highlighted group (an area tile) as node indices, or nil. Ignored while something is
     // focused, since focus says more.
     var highlightedNodes: Set<Int>? = nil
+    // Per node index. Entry dots are always neutral.
+    var fills: [GraphFill] = []
+    // Node indices a lens fades.
+    var fadedNodes: Set<Int> = []
 
     static let empty = GraphDrawPlan(focusedIndex: nil, litNodes: [], litEdges: [], rankedLabels: [], glowNodes: [], edgeStyles: [])
 
@@ -135,29 +164,31 @@ nonisolated struct GraphDrawPlan: Sendable {
 nonisolated final class GraphDrawCache {
     static let labelCap = 60
     static let focusLabelCap = 24
+    static let glowCap = 25
 
     private struct Key: Equatable {
         let simulation: ObjectIdentifier
         let version: Int
         let focusedID: UUID?
         let highlighted: Set<UUID>?
+        let paint: Int?
     }
 
     private var key: Key?
     private var cached = GraphDrawPlan.empty
     private(set) var recomputeCount = 0
 
-    func plan(for simulation: GraphSimulation, focusedID: UUID?, highlighted: Set<UUID>? = nil) -> GraphDrawPlan {
-        let current = Key(simulation: ObjectIdentifier(simulation), version: simulation.topologyVersion, focusedID: focusedID, highlighted: highlighted)
+    func plan(for simulation: GraphSimulation, focusedID: UUID?, highlighted: Set<UUID>? = nil, paint: GraphPaint? = nil) -> GraphDrawPlan {
+        let current = Key(simulation: ObjectIdentifier(simulation), version: simulation.topologyVersion, focusedID: focusedID, highlighted: highlighted, paint: paint?.generation)
         if current == key { return cached }
         key = current
-        cached = Self.makePlan(simulation, focusedID: focusedID)
+        cached = Self.makePlan(simulation, focusedID: focusedID, paint: paint)
         cached.highlightedNodes = highlighted.map { Set($0.compactMap(simulation.index(of:))) }
         recomputeCount += 1
         return cached
     }
 
-    private static func makePlan(_ simulation: GraphSimulation, focusedID: UUID?) -> GraphDrawPlan {
+    private static func makePlan(_ simulation: GraphSimulation, focusedID: UUID?, paint: GraphPaint?) -> GraphDrawPlan {
         let nodes = simulation.nodes
         let sortKeys = nodes.map(\.id.uuidString)
         func ranksBefore(_ lhs: Int, _ rhs: Int) -> Bool {
@@ -165,7 +196,13 @@ nonisolated final class GraphDrawCache {
             return sortKeys[lhs] < sortKeys[rhs]
         }
 
-        let styles = simulation.edges.map { GraphEdgeStyle(weight: $0.weight, recency: $0.recency) }
+        // An entry's edges are always the thinnest and faintest, so the dots never out-draw the
+        // entities' own ties.
+        let styles = zip(simulation.edges, simulation.edgeIndices).map { edge, pair in
+            nodes[pair.a].isEntry || nodes[pair.b].isEntry
+                ? GraphEdgeStyle(widthBucket: 0, opacityBucket: 0)
+                : GraphEdgeStyle(weight: edge.weight, recency: edge.recency)
+        }
         let focusedIndex = focusedID.flatMap { simulation.index(of: $0) }
 
         var litNodes: Set<Int> = []
@@ -183,21 +220,40 @@ nonisolated final class GraphDrawCache {
                 }
                 litEdges.insert(position)
             }
-            let neighbours = litNodes.subtracting([focusedIndex]).sorted(by: ranksBefore)
+            let neighbours = litNodes.subtracting([focusedIndex]).filter { !nodes[$0].isEntry }.sorted(by: ranksBefore)
             head = [focusedIndex] + neighbours.prefix(focusLabelCap)
         }
 
         let headSet = Set(head)
-        let rest = nodes.indices.filter { !headSet.contains($0) }.sorted(by: ranksBefore)
+        let rest = nodes.indices.filter { !headSet.contains($0) && !nodes[$0].isEntry }.sorted(by: ranksBefore)
         let ranked = head + rest.prefix(max(0, labelCap - head.count))
+
+        var glow = head
+        if focusedIndex == nil, let paint, !paint.glowing.isEmpty {
+            glow = paint.glowing.compactMap { simulation.index(of: $0) }
+                .filter { !nodes[$0].isEntry }
+                .sorted(by: ranksBefore)
+                .prefix(glowCap)
+                .map { $0 }
+        }
+
+        let fills: [GraphFill] = nodes.map { node in
+            if node.isEntry { return .neutral }
+            guard let paint else { return .kind(node.kind) }
+            if let slot = paint.slotByID[node.id], paint.palette.indices.contains(slot) { return .slot(slot) }
+            return paint.neutralUnslotted ? .neutral : .kind(node.kind)
+        }
+        let faded = Set((paint?.faded ?? []).compactMap { simulation.index(of: $0) })
 
         return GraphDrawPlan(
             focusedIndex: focusedIndex,
             litNodes: litNodes,
             litEdges: litEdges,
             rankedLabels: ranked,
-            glowNodes: head,
-            edgeStyles: styles
+            glowNodes: glow,
+            edgeStyles: styles,
+            fills: fills,
+            fadedNodes: faded
         )
     }
 }
@@ -243,14 +299,39 @@ nonisolated enum GraphHitTest {
         return best?.index
     }
 
-    // The topmost (last drawn) node whose circle, at least 12pt, contains the point.
-    static func node(at point: SIMD2<Double>, count: Int, circle: (Int) -> (center: SIMD2<Double>, radius: Double)) -> Int? {
-        for index in stride(from: count - 1, through: 0, by: -1) {
-            let (center, radius) = circle(index)
-            let d = point - center
-            if (d * d).sum().squareRoot() <= max(radius, minimumNodeRadius) { return index }
+    static let entryTolerance: Double = 8
+
+    // Which end of a tapped edge takes focus: never an entry dot, else the better-connected one.
+    // The middle of the given nodes that are on the map, or nil with none.
+    static func centroid(of ids: Set<UUID>, in simulation: GraphSimulation) -> SIMD2<Double>? {
+        let points = ids.compactMap(simulation.position(of:))
+        guard !points.isEmpty else { return nil }
+        return points.reduce(.zero, +) / Double(points.count)
+    }
+
+    static func focusEnd(_ a: GraphSimulation.Node, _ b: GraphSimulation.Node) -> GraphSimulation.Node {
+        if a.isEntry != b.isEntry { return a.isEntry ? b : a }
+        return a.linkCount >= b.linkCount ? a : b
+    }
+
+    // The topmost (last drawn) entity whose circle, at least 12pt, contains the point. Entry dots
+    // are only considered when no entity is there, and only within 8pt, so a dot beside a person
+    // never takes the person's tap.
+    static func node(
+        at point: SIMD2<Double>,
+        count: Int,
+        isEntry: (Int) -> Bool = { _ in false },
+        circle: (Int) -> (center: SIMD2<Double>, radius: Double)
+    ) -> Int? {
+        func hit(entries: Bool, minimum: Double) -> Int? {
+            for index in stride(from: count - 1, through: 0, by: -1) where isEntry(index) == entries {
+                let (center, radius) = circle(index)
+                let d = point - center
+                if (d * d).sum().squareRoot() <= max(radius, minimum) { return index }
+            }
+            return nil
         }
-        return nil
+        return hit(entries: false, minimum: minimumNodeRadius) ?? hit(entries: true, minimum: entryTolerance)
     }
 }
 

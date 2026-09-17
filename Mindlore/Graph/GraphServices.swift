@@ -241,25 +241,14 @@ final class GraphServices {
 
     // MARK: - The picture
 
-    struct GraphData {
-        let nodes: [GraphSimulation.Node]
-        let edges: [EntityGraph.Edge]
-        // From the same in-memory Entity map resolvedLinks already built, so a view never has to
-        // fetch per node just to label it, the fetch-per-link anti-pattern the Phase 6 review
-        // already flagged once for mentionedWith.
-        let names: [UUID: String]
-    }
+    typealias GraphData = MindMap.Graph
 
-    private struct ResolvedGraph {
-        let byID: [UUID: Entity]
-        let links: [EntityGraph.LinkInput]
-    }
-
-    // One Entity fetch, one link fetch, one Entry fetch for dates, merges and hidden entities
-    // resolved through the same in-memory root(of:) walk mentionedWith already uses. globalGraph
-    // and primaryAreas share this; mentionedWith is left as its own method, since its "touching
-    // id, sorted, capped" step is a different shape.
-    private func resolvedLinks(in context: ModelContext) -> ResolvedGraph {
+    // One Entity fetch, one link fetch, one Entry fetch, with merges and hidden entities resolved
+    // through the same in-memory root(of:) walk mentionedWith uses (left as its own method, since
+    // its "touching id, sorted, capped" step is a different shape). Everything the map draws is
+    // built from this with MindMap's pure builders.
+    private func buildSnapshot(in context: ModelContext) -> MindMapSnapshot {
+        snapshotBuildCount += 1
         let entities = ((try? context.fetch(FetchDescriptor<Entity>())) ?? []).filter { !$0.isDeleted }
         let byID = Dictionary(uniqueKeysWithValues: entities.map { ($0.id, $0) })
 
@@ -274,77 +263,62 @@ final class GraphServices {
 
         let links = indexer.allLinks(in: context)
         let entryIDs = Set(links.compactMap(\.entryID))
-        let entryDates = Dictionary(uniqueKeysWithValues:
+        let entries = Dictionary(
             (((try? context.fetch(FetchDescriptor<Entry>(predicate: #Predicate { entryIDs.contains($0.id) }))) ?? [])
                 .filter { !$0.isDeleted }
-                .map { ($0.id, $0.entryDate) }))
+                .map { entry in
+                    (entry.id, MindMapSnapshot.EntryInfo(
+                        id: entry.id,
+                        date: entry.entryDate,
+                        areas: entry.insights?.areas ?? [],
+                        mood: entry.insights?.primaryMood?.category
+                    ))
+                }),
+            uniquingKeysWith: { first, _ in first }
+        )
 
         let inputs: [EntityGraph.LinkInput] = links.compactMap { link in
             guard let linkEntityID = link.entityID, let entryID = link.entryID,
-                  let entryDate = entryDates[entryID],
+                  let entry = entries[entryID],
                   let root = root(of: linkEntityID), root.isBrowsable
             else { return nil }
-            return .init(entryID: entryID, entityID: root.id, entryDate: entryDate)
+            return .init(entryID: entryID, entityID: root.id, entryDate: entry.date)
         }
 
-        return ResolvedGraph(byID: byID, links: inputs)
+        let browsable = Dictionary(uniqueKeysWithValues: entities.filter(\.isBrowsable).map {
+            ($0.id, MindMapSnapshot.EntityInfo(id: $0.id, name: $0.name, kind: $0.kind))
+        })
+        return MindMapSnapshot(entities: browsable, links: inputs, entries: entries)
     }
 
-    // Every browsable entity as of a given date, for Mind's map. A node appears
-    // either because a surviving edge touches it, or because it meets both minimumLinkCount and
-    // kinds on its own: the standalone clause's own kind check isn't redundant with `filtered`'s,
-    // since `filtered` only constrains edges, and without it a kind toggle would still leave that
-    // kind's edgeless nodes on screen.
+    // Kept per revision: the map asks on every refresh, and what it draws only moves when
+    // insights, moods, or the graph change, which all bump the revision.
+    func mapSnapshot(in context: ModelContext) -> MindMapSnapshot {
+        if let cached = snapshotCache, cached.revision == revision { return cached.snapshot }
+        let snapshot = buildSnapshot(in: context)
+        snapshotCache = (revision, snapshot)
+        return snapshot
+    }
+
+    @ObservationIgnored private var snapshotCache: (revision: Int, snapshot: MindMapSnapshot)?
+    // How many times the store was read for the map, for tests.
+    @ObservationIgnored private(set) var snapshotBuildCount = 0
+
+    // Every browsable entity as of a date. Always reads the store fresh (callers outside Mind
+    // don't bump the revision between their own writes).
     func globalGraph(asOf: Date = .now, kinds: Set<EntityKind>?, minimumLinkCount: Int, in context: ModelContext) -> GraphData {
-        let resolved = resolvedLinks(in: context)
-        let edges = EntityGraph.build(links: resolved.links, asOf: asOf)
-        let browsable = resolved.byID.values.filter(\.isBrowsable)
-        let nodeMap = Dictionary(uniqueKeysWithValues: browsable.map { ($0.id, EntityGraph.Node(kind: $0.kind, linkCount: $0.linkCount)) })
-        let filteredEdges = EntityGraph.filtered(edges: edges, nodes: nodeMap, kinds: kinds, minimumLinkCount: minimumLinkCount)
-
-        // The standalone check reads Entity.linkCount, a persisted, all-time count, the same
-        // field the edges' own node map above uses: asOf only ever excludes an edge (build's own
-        // date filter), never this count. An entity whose lifetime mentions already clear
-        // minimumLinkCount still shows as a dot at any asOf, even one before all of them
-        // happened; scrubbing further back can only ever remove edges, never a standalone node
-        // that way. Recomputing an asOf-scoped count here would fix that, at the cost of a second
-        // pass over every link per scrub; not done without a product call on whether it matters.
-        let edgeNodeIDs = Set(filteredEdges.flatMap { [$0.a, $0.b] })
-        let standaloneIDs = Set(browsable
-            .filter { $0.linkCount >= minimumLinkCount && (kinds?.contains($0.kind) ?? true) }
-            .map(\.id))
-
-        let nodes = edgeNodeIDs.union(standaloneIDs).compactMap { nodeID -> GraphSimulation.Node? in
-            resolved.byID[nodeID].map { GraphSimulation.Node(id: nodeID, kind: $0.kind, linkCount: $0.linkCount) }
-        }
-        let names = Dictionary(uniqueKeysWithValues: nodes.compactMap { node in resolved.byID[node.id].map { (node.id, $0.name) } })
-        return GraphData(nodes: nodes, edges: filteredEdges, names: names)
+        MindMap.graph(buildSnapshot(in: context), kinds: kinds, minimumLinkCount: minimumLinkCount, asOf: asOf)
     }
 
-    // Each browsable entity's life area on the map (EntityAreas), from the same resolved links
-    // the picture uses, so a merged entity counts the entries it absorbed.
-    func primaryAreas(in context: ModelContext) -> [UUID: LifeArea] {
-        if let cached = primaryAreasCache, cached.revision == revision { return cached.areas }
-        let areas = computePrimaryAreas(in: context)
-        primaryAreasCache = (revision, areas)
-        return areas
+    // Each browsable entity's life area on the map, so a merged entity counts the entries it
+    // absorbed.
+    func primaryAreas(asOf: Date = .now, in context: ModelContext) -> [UUID: LifeArea] {
+        MindMap.primaryAreas(mapSnapshot(in: context), asOf: asOf)
     }
 
-    // Kept per revision: the map asks on every refresh, and areas only move when insights or
-    // the graph change, which both bump the revision.
-    @ObservationIgnored private var primaryAreasCache: (revision: Int, areas: [UUID: LifeArea])?
-
-    private func computePrimaryAreas(in context: ModelContext) -> [UUID: LifeArea] {
-        let resolved = resolvedLinks(in: context)
-        let entryIDs = Set(resolved.links.map(\.entryID))
-        guard !entryIDs.isEmpty else { return [:] }
-        let entries = ((try? context.fetch(FetchDescriptor<Entry>(predicate: #Predicate { entryIDs.contains($0.id) }))) ?? [])
-            .filter { !$0.isDeleted }
-        let areasByEntry = Dictionary(entries.compactMap { entry -> (UUID, EntityAreas.EntryAreas)? in
-            guard let areas = entry.insights?.areas, !areas.isEmpty else { return nil }
-            return (entry.id, EntityAreas.EntryAreas(areas: areas, date: entry.entryDate))
-        }, uniquingKeysWith: { first, _ in first })
-        return EntityAreas.primaryAreas(links: resolved.links, areasByEntry: areasByEntry)
+    // A mood picked by hand changes what "Mood around" shows.
+    func moodsEdited() {
+        revision += 1
     }
 
     // MARK: - Mind
@@ -389,8 +363,22 @@ final class GraphServices {
         diagnostics.record("mind.focused", ["source": .string(source.rawValue), "onMap": .bool(onMap)])
     }
 
-    func recordMindFiltersChanged(kinds: Int, minimum: Int, nodes: Int) {
-        diagnostics.record("mind.filtersChanged", ["kinds": .int(kinds), "minimum": .int(minimum), "nodes": .int(nodes)])
+    func recordMindFiltersChanged(kinds: Int, minimum: Int, entries: Bool, regions: Bool, nodes: Int) {
+        diagnostics.record("mind.filtersChanged", [
+            "kinds": .int(kinds),
+            "minimum": .int(minimum),
+            "entries": .bool(entries),
+            "regions": .bool(regions),
+            "nodes": .int(nodes),
+        ])
+    }
+
+    func recordMindEntryOpened() {
+        diagnostics.record("mind.entryOpened", [:])
+    }
+
+    func recordMindLensChanged(_ lens: String) {
+        diagnostics.record("mind.lensChanged", ["lens": .string(lens)])
     }
 
     // Logged once per graph screen appearance, never per frame: the first settle after the

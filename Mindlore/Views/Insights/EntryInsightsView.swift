@@ -104,6 +104,7 @@ struct EntryInsightsView: View {
                     MoodPickerView(insights: insights) {
                         saver.noteChange()
                         saver.flush()
+                        graph.moodsEdited()
                         DiagnosticsLog.shared.record("insights.moodsEdited", ["id": .id(entry.id)])
                     }
                 }

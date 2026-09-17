@@ -63,7 +63,7 @@ struct DemoJournalTests {
     @Test func theLargeSeedStillMakesABusyMap() throws {
         let context = context()
         try DemoJournal.seedIfEmpty(count: 300, in: context, now: now)
-        let data = GraphServices(diagnostics: .disabled).globalGraph(kinds: nil, minimumLinkCount: 2, in: context)
+        let data = GraphServices(diagnostics: .disabled).globalGraph(asOf: now, kinds: nil, minimumLinkCount: 2, in: context)
         #expect(data.nodes.count >= 150, "\(data.nodes.count) nodes")
     }
 

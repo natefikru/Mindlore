@@ -8,6 +8,10 @@ nonisolated struct MindFilters: Hashable, Sendable {
 
     var kinds: Set<EntityKind> = Set(EntityKind.allCases)
     var minimumMentions = 2
+    // Entries as small grey dots beside what they mention.
+    var showsEntries = false
+    // Pulls each entity toward its life area's spot.
+    var groupsByArea = false
 
     static func defaultMinimum(browsableCount: Int) -> Int {
         browsableCount < largeJournal ? 1 : 2
