@@ -210,7 +210,7 @@ enum DemoJournal {
         ]
     }
 
-    // Pool sizes grow with the entry count, so 300 entries give a graph of roughly 300 nodes.
+    // Pool sizes (topics included) grow with the entry count, so 300 entries give a busy graph.
     private struct Cast {
         let people: [String]
         let places: [String]

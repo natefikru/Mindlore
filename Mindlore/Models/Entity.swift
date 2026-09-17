@@ -52,7 +52,7 @@ final class Entity {
     // Suggestion partners the user said were not the same thing.
     var notSameAs: [UUID] = []
 
-    // Denormalized so Connections can sort with a SortDescriptor. GraphIndexer.recount owns them.
+    // Denormalized so the map and Mind's panel read them without walking links. GraphIndexer.recount owns them.
     var linkCount: Int = 0
     var firstLinkedAt: Date?
     var lastLinkedAt: Date?

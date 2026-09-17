@@ -304,7 +304,7 @@ struct EntityPersistenceTests {
         #expect(!merged[0].hidden && !merged[0].isBrowsable)
     }
 
-    // What Connections sorts on. An entity that has never been linked has no lastLinkedAt and
+    // What a SortDescriptor over entities sees. An entity that has never been linked has no lastLinkedAt and
     // must not sort as if it were the most recent thing in the journal.
     @Test func entitiesSortByCountAndRecencyWithNeverLinkedOnesLast() throws {
         let container = try ModelContainerFactory.make(.inMemory)
