@@ -1,4 +1,4 @@
-# Mindlore Phase A: an app a journaler would actually use
+w# Mindlore Phase A: an app a journaler would actually use
 
 Branch: `feature/phase-a` from `main` at `1e87b05` (PR #3, the knowledge graph, merged). The graph
 plan and its review history are archived in `tasks/archive/knowledge-graph.md`.
@@ -477,10 +477,10 @@ the real key.
 
 ### A0: Groundwork
 - [x] Merge PR #3, branch from main, archive the graph plan.
-- [ ] `-seedDemoJournal <n>` (Debug only): a deterministic generator of entries with insights,
+- [x] `-seedDemoJournal <n>` (Debug only): a deterministic generator of entries with insights,
       indexed through the real `GraphIndexer`, always in its own named store. Tests: it creates
       `n` entries, indexing produces links for them, and it never opens the default store.
-- [ ] Carry the unrun graph device steps into A9's checklist (below).
+- [x] Carry the unrun graph device steps into A9's checklist (below).
 
 ### A1: Life areas replace themes
 - [ ] Delete `EntityKind.theme` and every theme path listed in the research summary. The label

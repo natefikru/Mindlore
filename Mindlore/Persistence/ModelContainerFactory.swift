@@ -17,6 +17,11 @@ enum StoreLocation: Equatable {
         if environment[xcTestConfigurationKey] != nil {
             return .inMemory
         }
+        #if DEBUG
+        if DemoJournal.requestedCount(in: arguments) != nil {
+            return .file(directory.appendingPathComponent(DemoJournal.storeFileName))
+        }
+        #endif
         return .default
     }
 }
