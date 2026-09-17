@@ -906,6 +906,11 @@ A5 (2026-09-17, build spec in `tasks/a5-mind-spec.md`):
   deleted views, which A9 rewrites.
 - The owner allowed the 300-entry seed on the phone for A5's device step, since no real journal
   lives there yet.
+- Device (2026-09-17, iPhone 17 Pro, run `a5-mind-1`, the scene-based 300-entry seed: 216
+  entities, 1154 links, seeded in 0.8 s; 170 nodes on the map at two mentions). The owner clicked
+  through Mind and liked it. Two sessions with enough interaction for a sample: frame p50 16.7 ms,
+  p95 17.2 and 18.4 ms, draw work p95 5.8 and 2.7 ms, first settle 4.8 s. No crashes. The short
+  sessions (10 to 18 frames) aren't meaningful samples.
 
 Owner answers after revision 1 (2026-09-17): the tab is Mind, a fresh install is fine, and Ask
 keeps saved conversations and opens a new one by default. Folded in above.
