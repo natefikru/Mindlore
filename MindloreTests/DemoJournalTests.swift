@@ -45,6 +45,28 @@ struct DemoJournalTests {
         }
     }
 
+    // A tag the text never mentions made the demo map look wrong under a tag's page.
+    @Test func everyTagIsAWordInItsEntryAndNeverAnAreaName() {
+        let areaNames = Set(LifeArea.allCases.map(\.rawValue))
+        let drafts = DemoJournal.makeEntries(count: 300, now: now)
+        #expect(drafts.allSatisfy { !$0.tags.isEmpty })
+        for draft in drafts {
+            for tag in draft.tags {
+                #expect(NameMatching.range(of: tag, in: draft.text) != nil, "\(tag) in \(draft.text)")
+                #expect(!areaNames.contains(tag))
+            }
+        }
+        #expect(DemoJournal.Topic.all.allSatisfy { topic in topic.tags.allSatisfy { NameMatching.range(of: $0, in: topic.sentence) != nil } })
+    }
+
+    // The 300-entry seed is what the device gate measures, so it has to stay a busy map.
+    @Test func theLargeSeedStillMakesABusyMap() throws {
+        let context = context()
+        try DemoJournal.seedIfEmpty(count: 300, in: context, now: now)
+        let data = GraphServices(diagnostics: .disabled).globalGraph(kinds: nil, minimumLinkCount: 2, in: context)
+        #expect(data.nodes.count >= 150, "\(data.nodes.count) nodes")
+    }
+
     @Test func everyEntryIsFiledUnderOneOrTwoAreas() throws {
         let drafts = DemoJournal.makeEntries(count: 200, now: now)
         #expect(drafts.allSatisfy { (1...2).contains($0.areas.count) && Set($0.areas).count == $0.areas.count })

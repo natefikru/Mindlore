@@ -90,7 +90,9 @@ enum DemoJournal {
         let organization = random.chance(0.3) ? random.skewedPick(from: cast.organizations) : nil
         let project = random.chance(0.3) ? random.skewedPick(from: cast.projects) : nil
         let event = random.chance(0.1) ? random.skewedPick(from: cast.events) : nil
-        let tags = random.distinctPicks(from: cast.tags, count: 1 + random.int(below: 3))
+        let topics = random.distinctPicks(from: cast.topics.map(\.sentence), count: 1 + random.int(below: 3))
+            .compactMap { sentence in cast.topics.first { $0.sentence == sentence } }
+        let tags = topics.flatMap(\.tags)
 
         var sentences: [String] = []
         let others = people.dropFirst().joined(separator: " and ")
@@ -103,6 +105,7 @@ enum DemoJournal {
         if let organization { sentences.append("Things at \(organization) were busy again.") }
         if let project { sentences.append("Made some progress on \(project), slower than I hoped.") }
         if let event { sentences.append("Still thinking about \(event).") }
+        sentences += topics.map(\.sentence)
         sentences.append(random.element(of: [
             "I felt better by the evening.",
             "Hard to switch off tonight.",
@@ -123,6 +126,7 @@ enum DemoJournal {
                                     .mind, .mind, .health, .health, .love, .play, .play, .home, .money]
         var areas = [random.element(of: weighted)]
         if project != nil { areas.append(.work) }
+        areas += topics.compactMap(\.area)
         if random.chance(0.25) { areas.append(random.element(of: weighted)) }
         areas = Array(areas.reduce(into: [LifeArea]()) { if !$0.contains($1) { $0.append($1) } }.prefix(LifeArea.maxPerEntry))
         return Draft(
@@ -160,6 +164,52 @@ enum DemoJournal {
         insights.mentions = draft.mentions
     }
 
+    // A sentence written around its tags, so every tag an entry carries is a word in it. No tag is
+    // a life area's name, since insights drop those.
+    struct Topic {
+        let sentence: String
+        let tags: [String]
+        var area: LifeArea?
+
+        static let all: [Topic] = [
+            Topic(sentence: "Slept badly, and the lack of sleep caught up with me.", tags: ["sleep"], area: .health),
+            Topic(sentence: "Went running before breakfast.", tags: ["running"], area: .health),
+            Topic(sentence: "Made a big pot of soup; cooking always calms me down.", tags: ["cooking"], area: .home),
+            Topic(sentence: "Stayed up reading a novel I can't put down.", tags: ["reading"], area: .play),
+            Topic(sentence: "Started planning the summer travel, which already feels good.", tags: ["travel", "planning"], area: .play),
+            Topic(sentence: "Put on some music and cleaned the kitchen.", tags: ["music"]),
+            Topic(sentence: "Did some writing before anyone else was up.", tags: ["writing"], area: .mind),
+            Topic(sentence: "Parenting felt hard today; bedtime took forever.", tags: ["parenting"], area: .family),
+            Topic(sentence: "Therapy was useful, we talked about old patterns.", tags: ["therapy"], area: .mind),
+            Topic(sentence: "A slow weekend, which I needed.", tags: ["weekend"], area: .play),
+            Topic(sentence: "Mornings are my best time lately.", tags: ["mornings"]),
+            Topic(sentence: "Burnout is creeping in again at the office.", tags: ["burnout"], area: .work),
+            Topic(sentence: "Wrote down three things for gratitude before bed.", tags: ["gratitude"], area: .mind),
+            Topic(sentence: "Still sorting boxes from moving.", tags: ["moving"], area: .home),
+            Topic(sentence: "Thinking about my career and where it is going.", tags: ["career"], area: .work),
+            Topic(sentence: "The dating app gave me one decent evening out.", tags: ["dating"], area: .love),
+            Topic(sentence: "Spent an hour in the garden pulling weeds.", tags: ["garden"], area: .play),
+            Topic(sentence: "Too much coffee again.", tags: ["coffee"], area: .health),
+            Topic(sentence: "Took long walks at lunch.", tags: ["walks"], area: .health),
+            Topic(sentence: "Trying to build better habits around my phone.", tags: ["habits", "phone"], area: .mind),
+            Topic(sentence: "Back-to-back meetings all afternoon.", tags: ["meetings"], area: .work),
+            Topic(sentence: "Two deadlines landed on the same day.", tags: ["deadlines"], area: .work),
+            Topic(sentence: "Learning a bit of guitar each night.", tags: ["learning"], area: .play),
+            Topic(sentence: "Chores took most of the evening.", tags: ["chores"], area: .home),
+            Topic(sentence: "The weather turned cold and grey.", tags: ["weather"]),
+            Topic(sentence: "Could not keep my focus on anything for long.", tags: ["focus"], area: .mind),
+            Topic(sentence: "Some anxiety before the call, then it went fine.", tags: ["anxiety"], area: .mind),
+            Topic(sentence: "Got some real rest this afternoon.", tags: ["rest"], area: .health),
+            Topic(sentence: "Watched two movies back to back.", tags: ["movies"], area: .play),
+            Topic(sentence: "Listened to podcasts on the commute.", tags: ["podcasts", "commute"]),
+            Topic(sentence: "Went over the budget and it looks tight.", tags: ["budget"], area: .money),
+            Topic(sentence: "Chatted with the neighbors over the fence.", tags: ["neighbors"], area: .home),
+            Topic(sentence: "Spent the morning volunteering at the food bank.", tags: ["volunteering"], area: .friends),
+            Topic(sentence: "The pets woke me up at five.", tags: ["pets"], area: .home),
+            Topic(sentence: "Two birthdays this week and no gifts yet.", tags: ["birthdays"], area: .family),
+        ]
+    }
+
     // Pool sizes grow with the entry count, so 300 entries give a graph of roughly 300 nodes.
     private struct Cast {
         let people: [String]
@@ -167,7 +217,7 @@ enum DemoJournal {
         let organizations: [String]
         let projects: [String]
         let events: [String]
-        let tags: [String]
+        let topics: [Topic]
 
         init(entryCount count: Int) {
             let firsts = ["Sarah", "Marcus", "Priya", "Daniel", "Lena", "Omar", "Grace", "Theo", "Nadia", "Julian",
@@ -198,14 +248,7 @@ enum DemoJournal {
             events = Array(["Spring Retreat", "Family Reunion", "Quarterly Offsite", "Book Club Night",
                             "Housewarming Party", "City Hackathon"]
                 .prefix(max(1, count / 20)))
-            tags = Array(["work", "family", "friends", "health", "sleep", "running", "cooking", "money", "reading",
-                          "travel", "music", "writing", "parenting", "therapy", "weekend", "mornings", "burnout",
-                          "gratitude", "moving", "career", "dating", "garden", "coffee", "walks", "habits",
-                          "planning", "meetings", "deadlines", "learning", "home", "chores", "weather", "focus",
-                          "phone", "social", "anxiety", "rest", "exercise", "creativity", "podcasts", "movies",
-                          "birthdays", "holidays", "pets", "neighbors", "commute", "budget", "goals", "memories",
-                          "volunteering"]
-                .prefix(max(6, count / 6)))
+            topics = Array(Topic.all.prefix(max(6, count / 6)))
         }
 
         private static func combine(_ stems: [String], _ kinds: [String], limit: Int) -> [String] {
