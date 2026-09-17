@@ -286,9 +286,15 @@ struct AIDiagnosticsPrivacyTests {
         // to plain ids first.
         let services = GraphServices(diagnostics: log)
         let localData = services.localGraph(around: namedID, depth: 2, in: context)
-        services.recordGraphRendered(nodes: localData.nodes.count, edges: localData.edges.count, settleMilliseconds: 12.5)
+        services.recordGraphRendered(GraphRenderStats(
+            nodes: localData.nodes.count, edges: localData.edges.count, settleMilliseconds: 12.5,
+            frameSamples: 300, frameP50Milliseconds: 8.3, frameP95Milliseconds: 11.2, workP95Milliseconds: 3.1
+        ))
         let globalData = services.globalGraph(kinds: nil, minimumLinkCount: 0, in: context)
-        services.recordGraphRendered(nodes: globalData.nodes.count, edges: globalData.edges.count, settleMilliseconds: 34.0)
+        services.recordGraphRendered(GraphRenderStats(
+            nodes: globalData.nodes.count, edges: globalData.edges.count, settleMilliseconds: nil,
+            frameSamples: 0, frameP50Milliseconds: nil, frameP95Milliseconds: nil, workP95Milliseconds: nil
+        ))
 
         let contents = file.contents()
         #expect(contents.contains("ai.keySaved"))

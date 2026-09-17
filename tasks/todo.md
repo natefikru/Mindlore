@@ -542,13 +542,13 @@ the real key.
   - `OpenAILiveTests`: an entry that settles a known loose end returns its handle in `resolved`
 
 ### A3: A warm graph
-- [ ] `GraphSimulation`: `alphaTarget`, `reheat`, `update(nodes:edges:)`.
-- [ ] Canvas: the redraw rule, focus dimming, weighted and recency edges, the glow symbol, the zoom
+- [x] `GraphSimulation`: `alphaTarget`, `reheat`, `update(nodes:edges:)`.
+- [x] Canvas: the redraw rule, focus dimming, weighted and recency edges, the glow symbol, the zoom
       label budget, the precomputed focus and label sets (no `@State` write in the draw closure),
       edge hit-testing, `flyTo`, and haptics.
-- [ ] `graph.rendered` redefined (first settle plus frame-time p50/p95).
-- [ ] `GlobalGraphView` stays wired for now, so the graph can be measured before Mind exists.
-- [ ] Tests:
+- [x] `graph.rendered` redefined (first settle plus frame-time p50/p95).
+- [x] `GlobalGraphView` stays wired for now, so the graph can be measured before Mind exists.
+- [x] Tests:
   - existing settle, determinism, pin, and spring tests still pass
   - drag reheat keeps alpha above the minimum while pinned and settles after release
   - `update` keeps surviving positions exactly and places new nodes near a neighbour
@@ -562,16 +562,17 @@ the real key.
       `GraphEngine` actor, then SpriteKit. Stop at the first step that passes.
 
 ### A4: Tabs and the record accessory
-- [ ] Device check first: the accessory under sheets, full-screen covers, and an overlay panel.
+- [x] Device check first: the accessory under sheets, full-screen covers, and an overlay panel.
       Write the result in the review log.
-- [ ] `AppRouter` (tab, Journal path, Mind path, jumps). Editor close rules move to "left
+- [x] `AppRouter` (tab, Journal path, Mind path, jumps). Editor close rules move to "left
       Journal's path".
-- [ ] `RecordingSession` extracted from `RecordingView` (start task, levels, recorder protocol),
+- [x] `RecordingSession` extracted from `RecordingView` (start task, levels, recorder protocol),
       owned by `RootView`. The recorder minimizes while recording, and discard works from there.
-- [ ] `TabView` (Journal, Mind placeholder, Ask placeholder). Record accessory with idle and
-      recording states. The loose-end prompt line in the recorder.
-- [ ] Journal: remove the Connections button. Add area chips on rows and the area filter row.
-- [ ] Tests:
+- [x] `TabView` (Journal, Mind placeholder, Ask placeholder). Record accessory with idle and
+      recording states.
+- [ ] The loose-end prompt line in the recorder (waits for A2's `LooseEndPrompter`).
+- [x] Journal: remove the Connections button. Add area chips on rows and the area filter row.
+- [x] Tests:
   - `RecordingSession` start/stop/discard with a fake recorder
   - minimizing keeps recording
   - finishing ingests once and routes to the entry, replacing the path
@@ -771,6 +772,60 @@ read-time `mergedIntoID` resolution exists as `EntityDirectory.root` and is used
 ranking, and its other readers (search panel counts, peek card) arrive in A5. The live OpenAI
 test for handles in `resolved` hasn't run (no key in this session). The loose-end row's
 identifier moved from the row to its label: on the row it overrode the menu button's own.
+
+A3 build (2026-09-17, lane `feature/phase-a-graph`). Built to a spec the owner approved after a
+sub-agent review (15 findings folded in). The draw cache keys on the simulation's own
+`topologyVersion`; the canvas also takes a `version` argument only so an in-place update
+re-renders it. The glow is a radial-gradient fill rather than a symbol (no blur, fewer moving
+parts). A tapped edge focuses its better-connected end, a placeholder for A5's shared-entries card.
+
+The demo journal found a bug that predates Phase A: at 225 nodes and 1897 edges the layout flew
+to a 2.5 million point extent (a blank screen), because every spring pulled at full strength on
+nodes with dozens of edges. Springs now use d3's `forceLink` defaults (strength 1 / min degree,
+split by degree), and repulsion falls off with distance like d3's `forceManyBody` instead of
+distance squared, which had left the settled graph packed into one blob. A unit test settles the
+real demo graph. `-seedDemoJournal 300` means 300 entries: the global graph at its default
+minimum of 2 mentions has 225 nodes, and that is the node count the gate reads.
+
+Code review (sub-agent, 10 findings, no crash paths). Fixed: a cancelled drag or pinch left the
+simulation warm and the canvas redrawing (cleanup now keys off `@GestureState`); pan and a
+simultaneous pinch overwrote each other; settle time was reported as about 0 on a return visit;
+glow was drawn for every neighbour of a hub (now capped at 25); a shaky tap pinned the node it
+focused (8pt drag threshold); a node that grew didn't make room (0.05 reheat); the sampler kept
+growing after reporting; the graph UI test raced the fly-to. Not changed: nothing covers a gesture
+cancel in a test, since XCUITest can't cancel a gesture.
+
+`GraphUITests.testConnectionsBrowseOpenAnEntryMergeAndUnmerge` fails at `entityMergeInto` on
+this branch and on A0 (`6d0735b`) alike, so it predates A3; A5 rewrites that test. For A9,
+CLAUDE.md's Graph paragraph still describes a rebuild on every change and a settle-only
+`graph.rendered`.
+
+Device gate: pending.
+
+A4 (lane 3, `feature/phase-a-shell`, build spec in `tasks/a4-shell-spec.md`):
+
+- Accessory check, on the simulator rather than the phone: sheets and full-screen covers hide the
+  accessory, pushed views keep it and the tab bar, and a panel inside a tab already lays out above
+  it. The keyboard case is left for the phone.
+- The spec review (17 findings) is folded into the spec. The main ones: start, finish, and discard
+  guard each other with a generation number; a blank entry deleted while the editor animates out
+  reads as no entry; `JournalRoute` compares by id alone.
+- Deviations: `isPresentingOverEditor` is gone, since nothing closes the editor on disappear any
+  more, so A6's "add the peek sheet to `isPresentingOverEditor`" has nothing to do. A jump waits for
+  full-screen covers (`AppRouter.setCover`) instead of closing them, because the page screen has
+  its own close rules. `LiveTranscriptionSession` didn't gain `Observable`; observation works
+  through the concrete types. Moving the close rules also fixed presence counting twice after a
+  cover over the editor, which left the entry "open" until relaunch.
+- UI tests run against `-uiTestingFakeRecorder`, a recorder that writes a second of silence.
+  Recordings share one folder across UI test stores, so a run killed mid-recording shows up as a
+  recovered entry in the next test.
+- Code review (10 findings, no crash paths), all fixed in "A4 review fixes".
+- Found, not fixed (outside this lane, gone in A5): inside Connections the entity page's
+  `EntityRoute` links push nothing, because Connections' path is typed `[ConnectionsPathItem]`.
+  "Merged into this" is dead there, and `GraphUITests` marks that step as an expected failure. The
+  test's `entityMergeInto` failure noted under A3 was a scroll issue and is fixed. The same run
+  found `PageOrderUITests.testClosingWithNoPagesLeavesNothingBehind` never tapped Scan; fixed.
+- Pending: the recorder's loose-end line (after A2), and the device steps.
 
 Owner answers after revision 1 (2026-09-17): the tab is Mind, a fresh install is fine, and Ask
 keeps saved conversations and opens a new one by default. Folded in above.

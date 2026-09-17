@@ -4,7 +4,8 @@ import SwiftData
 struct RootView: View {
     @Environment(\.scenePhase) private var scenePhase
     @State private var saver: EntrySaver
-    @State private var ingestor = RecordingIngestor()
+    @State private var ingestor: RecordingIngestor
+    @State private var recording: RecordingSession
     @State private var transcription: TranscriptionCoordinator
     @State private var presence: EditorPresence
     @State private var aiPass: AIPassTrigger
@@ -14,12 +15,15 @@ struct RootView: View {
     @State private var network = NetworkMonitor()
     @State private var indexing: GraphIndexingProgress?
     @State private var graph: GraphServices
+    @State private var router: AppRouter
+    @State private var confirmingDiscard = false
     private let context: ModelContext
 
     init(container: ModelContainer, settings: SettingsStore, accounts: ProviderAccountStore) {
         let context = container.mainContext
         self.context = context
-        _saver = State(initialValue: EntrySaver(context: context))
+        let saver = EntrySaver(context: context)
+        _saver = State(initialValue: saver)
         let http = accounts.http
         let presence = EditorPresence()
         let router = TranscriberRouter(settings: settings, accounts: accounts, http: http, onDevice: SpeechAnalyzerTranscriber())
@@ -73,6 +77,28 @@ struct RootView: View {
             autoApplyEntryDate: { settings.autoApplySuggestedEntryDate }
         )
 
+        let lifecycle = EditorLifecycle(
+            context: context,
+            saver: saver,
+            presence: presence,
+            aiPass: aiPass,
+            keepAudio: { settings.keepAudioAfterTranscription }
+        )
+        let appRouter = AppRouter(opened: lifecycle.opened, closed: lifecycle.closed)
+        _router = State(initialValue: appRouter)
+        let ingestor = RecordingIngestor()
+        _ingestor = State(initialValue: ingestor)
+        let fakeRecorder = UITestingRecorder.isEnabled
+        _recording = State(initialValue: RecordingSession(
+            context: context,
+            ingestor: ingestor,
+            makeRecorder: { fakeRecorder ? UITestingRecorder() as any AudioRecording : AudioRecorder() },
+            makeLiveSession: { SpeechAnalyzerLiveSession(locale: $0) },
+            speechEngine: { settings.speechEngine },
+            afterIngest: { await transcription.processQueue(context: context) },
+            onFinished: { appRouter.showEntry($0.id) }
+        ))
+
         _presence = State(initialValue: presence)
         _pageTranscription = State(initialValue: pageTranscription)
         _transcription = State(initialValue: transcription)
@@ -82,67 +108,91 @@ struct RootView: View {
     }
 
     var body: some View {
-        EntryListView()
-            .environment(saver)
-            .environment(ingestor)
-            .environment(transcription)
-            .environment(presence)
-            .environment(aiPass)
-            .environment(titles)
-            .environment(pageTranscription)
-            .environment(insights)
-            .environment(graph)
-            .overlay {
-                if let indexing {
-                    GraphIndexingOverlay(progress: indexing)
-                }
+        TabView(selection: $router.tab) {
+            Tab("Journal", systemImage: "book", value: AppTab.journal) {
+                EntryListView()
             }
-            .task {
-                await ingestor.ingestAll(in: .standard, context: context)
-                await transcription.processQueue(context: context)
+            Tab("Mind", systemImage: "circle.hexagongrid", value: AppTab.mind) {
+                MindPlaceholderView()
             }
-            .task {
-                await pageTranscription.processQueue(context: context)
+            Tab("Ask", systemImage: "bubble.left.and.text.bubble.right", value: AppTab.ask) {
+                AskPlaceholderView()
             }
-            // Titles and insights run in their own lane so a long transcription doesn't hold them up.
-            .task {
-                if aiPass.sweep(context: context) > 0 {
-                    try? context.saveStampingEntries()
-                }
-                // Before the AI queues, so the first request already carries the names the
-                // journal knows. On the first launch after the graph shipped this is the backfill,
-                // which a large journal is shown progress for rather than a frozen screen.
-                await graph.indexer.sweep(in: context) { done, total in
-                    indexing = GraphIndexingProgress.visible(done: done, total: total)
-                }
-                withAnimation { indexing = nil }
-                if LooseEnd.fade(in: context) > 0 {
-                    try? context.saveStampingEntries()
-                }
-                await titles.processQueue(context: context)
-                await insights.processQueue(context: context)
+        }
+        // The accessory and the recorder are handed the session directly rather than relying on
+        // the environment below reaching their separate hosting.
+        .tabViewBottomAccessory {
+            RecordAccessory(session: recording) { confirmingDiscard = true }
+        }
+        .fullScreenCover(isPresented: Binding(get: { recording.isExpanded }, set: { if !$0 { recording.close() } })) {
+            RecordingView()
+                .environment(recording)
+        }
+        .confirmationDialog("Discard this recording?", isPresented: $confirmingDiscard, titleVisibility: .visible) {
+            Button("Discard Recording", role: .destructive) { recording.discard() }
+                .accessibilityIdentifier("confirmDiscardRecordingButton")
+        }
+        .environment(saver)
+        .environment(transcription)
+        .environment(presence)
+        .environment(aiPass)
+        .environment(titles)
+        .environment(pageTranscription)
+        .environment(insights)
+        .environment(graph)
+        .environment(router)
+        .environment(recording)
+        .overlay {
+            if let indexing {
+                GraphIndexingOverlay(progress: indexing)
             }
-            .onChange(of: scenePhase) { _, phase in
-                DiagnosticsLog.shared.record("app.scenePhase", ["phase": .string(String(describing: phase))])
-                if phase != .active {
-                    saver.flush()
-                } else {
-                    Task { await transcription.processQueue(context: context) }
-                    Task {
-                        await titles.processQueue(context: context)
-                        await insights.processQueue(context: context)
-                    }
-                    Task { await pageTranscription.processQueue(context: context) }
-                }
+        }
+        .task {
+            await ingestor.ingestAll(in: .standard, context: context)
+            await transcription.processQueue(context: context)
+        }
+        .task {
+            await pageTranscription.processQueue(context: context)
+        }
+        // Titles and insights run in their own lane so a long transcription doesn't hold them up.
+        .task {
+            if aiPass.sweep(context: context) > 0 {
+                try? context.saveStampingEntries()
             }
-            .onChange(of: network.isConnected) { _, connected in
-                guard connected else { return }
-                Task { await transcription.networkBecameAvailable(context: context) }
-                Task { await pageTranscription.networkBecameAvailable(context: context) }
+            // Before the AI queues, so the first request already carries the names the
+            // journal knows. On the first launch after the graph shipped this is the backfill,
+            // which a large journal is shown progress for rather than a frozen screen.
+            await graph.indexer.sweep(in: context) { done, total in
+                indexing = GraphIndexingProgress.visible(done: done, total: total)
+            }
+            withAnimation { indexing = nil }
+            if LooseEnd.fade(in: context) > 0 {
+                try? context.saveStampingEntries()
+            }
+            await titles.processQueue(context: context)
+            await insights.processQueue(context: context)
+        }
+        .onChange(of: scenePhase) { _, phase in
+            DiagnosticsLog.shared.record("app.scenePhase", ["phase": .string(String(describing: phase))])
+            if phase != .active {
+                saver.flush()
+            } else {
+                Task { await transcription.processQueue(context: context) }
                 Task {
-                    await titles.networkBecameAvailable(context: context)
-                    await insights.networkBecameAvailable(context: context)
+                    await titles.processQueue(context: context)
+                    await insights.processQueue(context: context)
                 }
+                Task { await pageTranscription.processQueue(context: context) }
             }
+        }
+        .onChange(of: network.isConnected) { _, connected in
+            guard connected else { return }
+            Task { await transcription.networkBecameAvailable(context: context) }
+            Task { await pageTranscription.networkBecameAvailable(context: context) }
+            Task {
+                await titles.networkBecameAvailable(context: context)
+                await insights.networkBecameAvailable(context: context)
+            }
+        }
     }
 }
