@@ -56,7 +56,7 @@ struct DemoJournalTests {
                 #expect(!areaNames.contains(tag))
             }
         }
-        #expect(DemoJournal.Topic.all.allSatisfy { topic in topic.tags.allSatisfy { NameMatching.range(of: $0, in: topic.sentence) != nil } })
+        #expect(DemoJournal.Scene.weighted.flatMap(\.topics).allSatisfy { topic in topic.tags.allSatisfy { NameMatching.range(of: $0, in: topic.sentence) != nil } })
     }
 
     // The 300-entry seed is what the device gate measures, so it has to stay a busy map.
@@ -65,6 +65,36 @@ struct DemoJournalTests {
         try DemoJournal.seedIfEmpty(count: 300, in: context, now: now)
         let data = GraphServices(diagnostics: .disabled).globalGraph(kinds: nil, minimumLinkCount: 2, in: context)
         #expect(data.nodes.count >= 150, "\(data.nodes.count) nodes")
+    }
+
+    // A scene decides who, where, what, and how it felt together: a coworker only turns up at work,
+    // under their own organization, and the mood is one the text describes.
+    @Test func scenesKeepPeopleAndOrganizationsTogether() {
+        let drafts = DemoJournal.makeEntries(count: 300, now: now)
+        var orgsByPerson: [String: Set<String>] = [:]
+        for draft in drafts {
+            let orgs = draft.mentions.filter { $0.kind == .organization }.map(\.name)
+            guard let org = orgs.first, let lead = draft.mentions.first(where: { $0.kind == .person }) else { continue }
+            #expect(draft.areas.first == .work)
+            orgsByPerson[lead.name, default: []].insert(org)
+        }
+        #expect(!orgsByPerson.isEmpty)
+        #expect(orgsByPerson.values.allSatisfy { $0.count == 1 }, "a coworker works in one place")
+        let topicMoods = Set(DemoJournal.Scene.weighted.flatMap(\.topics).map(\.mood))
+        #expect(drafts.allSatisfy { topicMoods.contains($0.primaryMood) })
+    }
+
+    // Loose ends are sentences in the entry, and a settled one is settled in a later entry's words.
+    @Test func looseEndsAreWrittenIntoTheText() {
+        let drafts = DemoJournal.makeEntries(count: 120, now: now)
+        let opened = drafts.compactMap { draft in draft.opens.map { (draft, $0) } }
+        #expect(opened.count >= 15)
+        #expect(opened.allSatisfy { $0.0.text.contains($0.1.opened) })
+        let settling = drafts.filter { $0.settles != nil }
+        #expect(settling.count >= 5)
+        for draft in settling {
+            #expect(opened.contains { draft.text.contains($0.1.settled) })
+        }
     }
 
     @Test func everyEntryIsFiledUnderOneOrTwoAreas() throws {

@@ -6,6 +6,11 @@ import SwiftData
 // Debug build with `-seedDemoJournal <count>`: the app opens its own store, settings, and
 // Keychain service, fills the store once, and indexes it through the real GraphIndexer.
 // Release builds don't contain any of this.
+//
+// Each entry is a scene (a work day, a call with family, a run) that decides together who is in
+// it, where it happened, what it was about, and how it felt, so the names, tags, area, and mood
+// the insights carry are all things the text actually says. Loose ends are sentences in the text
+// too, and a later entry settles one by saying so.
 enum DemoJournal {
     static let argument = "-seedDemoJournal"
     static let storeFileName = "demo-journal.store"
@@ -22,12 +27,11 @@ enum DemoJournal {
     static func seedIfEmpty(count: Int, in context: ModelContext, now: Date = .now) throws -> Int {
         guard try context.fetchCount(FetchDescriptor<Entry>()) == 0 else { return 0 }
         let started = Date.now
-        for draft in makeEntries(count: count, now: now) {
-            insert(draft, in: context)
-        }
+        let drafts = makeEntries(count: count, now: now)
+        let entries = drafts.map { insert($0, in: context) }
         try context.save()
         GraphIndexer().sweep(in: context)
-        seedLooseEnds(in: context, now: now)
+        seedLooseEnds(drafts: drafts, entries: entries, in: context, now: now)
         try context.save()
         DiagnosticsLog.shared.record("demo.seeded", [
             "entries": .int(count),
@@ -36,28 +40,32 @@ enum DemoJournal {
         return count
     }
 
-    // Every sixth entry leaves something open about its first person. Half of those are settled
-    // four entries later; the rest stay open or, once old enough, fade.
-    private static func seedLooseEnds(in context: ModelContext, now: Date) {
-        let entries = (try? context.fetch(FetchDescriptor<Entry>(sortBy: [SortDescriptor(\.entryDate)]))) ?? []
-        var createdAt: [Int: UUID] = [:]
-        let templates = ["Waiting to hear back from %@", "Need to decide whether to call %@", "Promised %@ an answer by the weekend"]
-        for (index, entry) in entries.enumerated() {
+    // Writes the loose ends the drafts' own sentences describe. The writer's 42-day rule fades
+    // the old ones, so the recent ones are the ones left open.
+    private static func seedLooseEnds(drafts: [Draft], entries: [Entry], in context: ModelContext, now: Date) {
+        var created: [Int: UUID] = [:]
+        for (index, (draft, entry)) in zip(drafts, entries).enumerated() {
             var result = LooseEndResult()
-            if index % 6 == 0, let person = entry.insights?.mentions.first(where: { $0.kind == .person })?.name {
-                let text = String(format: templates[(index / 6) % templates.count], person)
-                result.new = [.init(text: text, about: [person])]
+            if let thread = draft.opens {
+                result.new = [.init(text: thread.looseEnd, about: [thread.person])]
             }
-            if index >= 4, (index - 4) % 12 == 0, let id = createdAt[index - 4] {
+            if let opener = draft.settles, let id = created[opener] {
                 result.resolved = [id]
             }
             guard !result.isEmpty else { continue }
             LooseEndWriter.apply(result, to: entry, in: context, now: now)
-            if !result.new.isEmpty {
+            if draft.opens != nil {
                 let entryID = entry.id
-                createdAt[index] = LooseEnd.all(in: context).first { $0.sourceEntryID == entryID }?.id
+                created[index] = LooseEnd.all(in: context).first { $0.sourceEntryID == entryID }?.id
             }
         }
+    }
+
+    struct Thread: Equatable {
+        let person: String
+        let opened: String
+        let looseEnd: String
+        let settled: String
     }
 
     struct Draft: Equatable {
@@ -70,6 +78,9 @@ enum DemoJournal {
         var areas: [LifeArea]
         var tags: [String]
         var mentions: [Mention]
+        // A thread this entry leaves open, and the index of an earlier entry whose thread it settles.
+        var opens: Thread?
+        var settles: Int?
     }
 
     // Deterministic for a given count and date: the same seed always writes the same journal.
@@ -77,73 +88,87 @@ enum DemoJournal {
         var random = SplitMix64(seed: UInt64(count))
         let cast = Cast(entryCount: count)
         let span: TimeInterval = 365 * 86_400
-        return (0..<count).map { index in
+        var drafts: [Draft] = []
+        var waiting: [(opener: Int, thread: Thread)] = []
+        for index in 0..<count {
             let offset = span * Double(count - index) / Double(count)
             let date = now.addingTimeInterval(-offset + Double(random.int(below: 6 * 3600)))
-            return draft(on: date, cast: cast, random: &random)
+            var draft = draft(on: date, cast: cast, random: &random)
+            // Every sixth entry leaves something open; every other one of those is settled four
+            // entries later, the rest are left to stay open or fade.
+            if let settling = waiting.first, index - settling.opener >= 4 {
+                waiting.removeFirst()
+                settle(settling.thread, opener: settling.opener, in: &draft)
+            } else if index % 6 == 0 {
+                let thread = cast.thread(for: draft, index: index)
+                draft.text += " " + thread.opened
+                draft.opens = thread
+                if index % 12 == 0 { waiting.append((index, thread)) }
+            }
+            drafts.append(draft)
+        }
+        return drafts.sorted { $0.date < $1.date }
+    }
+
+    private static func settle(_ thread: Thread, opener: Int, in draft: inout Draft) {
+        draft.text += " " + thread.settled
+        draft.settles = opener
+        if !draft.mentions.contains(where: { $0.name == thread.person }) {
+            draft.mentions.append(Mention(name: thread.person, kindRaw: MentionKind.person.rawValue))
         }
     }
 
     private static func draft(on date: Date, cast: Cast, random: inout SplitMix64) -> Draft {
-        let people = random.distinctPicks(from: cast.people, count: 1 + random.int(below: 3))
-        let place = random.chance(0.5) ? random.skewedPick(from: cast.places) : nil
-        let organization = random.chance(0.3) ? random.skewedPick(from: cast.organizations) : nil
-        let project = random.chance(0.3) ? random.skewedPick(from: cast.projects) : nil
-        let event = random.chance(0.1) ? random.skewedPick(from: cast.events) : nil
-        let topics = random.distinctPicks(from: cast.topics.map(\.sentence), count: 1 + random.int(below: 3))
-            .compactMap { sentence in cast.topics.first { $0.sentence == sentence } }
-        let tags = topics.flatMap(\.tags)
-
-        var sentences: [String] = []
+        let scene = random.element(of: Scene.weighted)
+        let pool = cast.people(for: scene.kind)
+        var people = random.distinctPicks(from: pool, count: 1 + random.int(below: scene.maxPeople))
+        if scene.kind == .love { people = [cast.partner] }
+        let lead = people[0]
+        let leadFirst = String(lead.split(separator: " ").first ?? "")
         let others = people.dropFirst().joined(separator: " and ")
-        sentences.append(random.element(of: [
-            "Had a long talk with \(people[0])\(others.isEmpty ? "" : ", then caught up with \(others)").",
-            "Spent most of the day with \(people[0])\(others.isEmpty ? "" : " and \(others)").",
-            "\(people[0]) called this morning\(others.isEmpty ? "" : ", and later I saw \(others)").",
-        ]))
-        if let place { sentences.append("We ended up at \(place) for a while.") }
-        if let organization { sentences.append("Things at \(organization) were busy again.") }
-        if let project { sentences.append("Made some progress on \(project), slower than I hoped.") }
+        let organization = scene.kind == .work ? cast.organization(of: lead) : nil
+        let places = cast.places(for: scene.kind)
+        let place = !places.isEmpty && random.chance(0.6) ? random.skewedPick(from: places) : nil
+        let project = !scene.projects.isEmpty && random.chance(0.4) ? random.element(of: Array(scene.projects.prefix(cast.projectLimit))) : nil
+        let event = !scene.events.isEmpty && random.chance(0.12) ? random.element(of: Array(scene.events.prefix(cast.eventLimit))) : nil
+        let topicCount = 1 + random.int(below: 2)
+        let topics = random.distinctPicks(from: scene.topics.map(\.sentence), count: topicCount)
+            .compactMap { sentence in scene.topics.first { $0.sentence == sentence } }
+
+        var sentences = [String(format: random.element(of: scene.openers), lead, organization ?? "")]
+        if !others.isEmpty { sentences.append("\(others) \(people.count > 2 ? "were" : "was") there too.") }
+        if let place { sentences.append(String(format: random.element(of: scene.placeLines), place)) }
+        if let project { sentences.append(String(format: random.element(of: scene.projectLines), project)) }
         if let event { sentences.append("Still thinking about \(event).") }
         sentences += topics.map(\.sentence)
-        sentences.append(random.element(of: [
-            "I felt better by the evening.",
-            "Hard to switch off tonight.",
-            "Not much else to say about today.",
-            "I want to remember how this felt.",
-        ]))
 
         var mentions = people.map { Mention(name: $0, kindRaw: MentionKind.person.rawValue) }
-        if let place { mentions.append(Mention(name: place, kindRaw: MentionKind.place.rawValue)) }
         if let organization { mentions.append(Mention(name: organization, kindRaw: MentionKind.organization.rawValue)) }
+        if let place { mentions.append(Mention(name: place, kindRaw: MentionKind.place.rawValue)) }
         if let project { mentions.append(Mention(name: project, kindRaw: MentionKind.project.rawValue)) }
         if let event { mentions.append(Mention(name: event, kindRaw: MentionKind.event.rawValue)) }
 
-        let primary = random.element(of: Mood.allCases)
-        let secondary = random.chance(0.4) ? random.element(of: Mood.allCases.filter { $0 != primary }) : nil
-        // Uneven on purpose, like a real journal: work and friends dominate, money is rare.
-        let weighted: [LifeArea] = [.work, .work, .work, .work, .friends, .friends, .friends, .family, .family,
-                                    .mind, .mind, .health, .health, .love, .play, .play, .home, .money]
-        var areas = [random.element(of: weighted)]
-        if project != nil { areas.append(.work) }
+        var areas = [scene.kind]
         areas += topics.compactMap(\.area)
-        if random.chance(0.25) { areas.append(random.element(of: weighted)) }
         areas = Array(areas.reduce(into: [LifeArea]()) { if !$0.contains($1) { $0.append($1) } }.prefix(LifeArea.maxPerEntry))
+
+        let moods = topics.map(\.mood)
         return Draft(
             date: date,
-            title: "\(date.formatted(.dateTime.weekday(.wide))) with \(people[0].split(separator: " ").first ?? "")",
+            title: "\(scene.title) with \(leadFirst)",
             text: sentences.joined(separator: " "),
-            summary: "Time with \(people[0])\(project.map { " and work on \($0)" } ?? "").",
-            primaryMood: primary,
-            secondaryMood: secondary,
+            summary: "\(scene.summary) with \(leadFirst)\(project.map { ", and \($0)" } ?? "").",
+            primaryMood: moods[0],
+            secondaryMood: moods.dropFirst().first { $0 != moods[0] },
             areas: areas,
-            tags: tags,
+            tags: topics.flatMap(\.tags),
             mentions: mentions
         )
     }
 
     // Past-dated and already past the automatic pass, so no AI job ever picks these up.
-    private static func insert(_ draft: Draft, in context: ModelContext) {
+    @discardableResult
+    private static func insert(_ draft: Draft, in context: ModelContext) -> Entry {
         let entry = Entry(createdAt: draft.date, source: .typed, text: draft.text)
         entry.title = draft.title
         entry.titleWasGenerated = true
@@ -162,62 +187,176 @@ enum DemoJournal {
         insights.areas = draft.areas
         insights.tags = draft.tags
         insights.mentions = draft.mentions
+        return entry
     }
 
     // A sentence written around its tags, so every tag an entry carries is a word in it. No tag is
-    // a life area's name, since insights drop those.
+    // a life area's name, since insights drop those. The mood is the one the sentence describes.
     struct Topic {
         let sentence: String
         let tags: [String]
+        let mood: Mood
         var area: LifeArea?
-
-        static let all: [Topic] = [
-            Topic(sentence: "Slept badly, and the lack of sleep caught up with me.", tags: ["sleep"], area: .health),
-            Topic(sentence: "Went running before breakfast.", tags: ["running"], area: .health),
-            Topic(sentence: "Made a big pot of soup; cooking always calms me down.", tags: ["cooking"], area: .home),
-            Topic(sentence: "Stayed up reading a novel I can't put down.", tags: ["reading"], area: .play),
-            Topic(sentence: "Started planning the summer travel, which already feels good.", tags: ["travel", "planning"], area: .play),
-            Topic(sentence: "Put on some music and cleaned the kitchen.", tags: ["music"]),
-            Topic(sentence: "Did some writing before anyone else was up.", tags: ["writing"], area: .mind),
-            Topic(sentence: "Parenting felt hard today; bedtime took forever.", tags: ["parenting"], area: .family),
-            Topic(sentence: "Therapy was useful, we talked about old patterns.", tags: ["therapy"], area: .mind),
-            Topic(sentence: "A slow weekend, which I needed.", tags: ["weekend"], area: .play),
-            Topic(sentence: "Mornings are my best time lately.", tags: ["mornings"]),
-            Topic(sentence: "Burnout is creeping in again at the office.", tags: ["burnout"], area: .work),
-            Topic(sentence: "Wrote down three things for gratitude before bed.", tags: ["gratitude"], area: .mind),
-            Topic(sentence: "Still sorting boxes from moving.", tags: ["moving"], area: .home),
-            Topic(sentence: "Thinking about my career and where it is going.", tags: ["career"], area: .work),
-            Topic(sentence: "The dating app gave me one decent evening out.", tags: ["dating"], area: .love),
-            Topic(sentence: "Spent an hour in the garden pulling weeds.", tags: ["garden"], area: .play),
-            Topic(sentence: "Too much coffee again.", tags: ["coffee"], area: .health),
-            Topic(sentence: "Took long walks at lunch.", tags: ["walks"], area: .health),
-            Topic(sentence: "Trying to build better habits around my phone.", tags: ["habits", "phone"], area: .mind),
-            Topic(sentence: "Back-to-back meetings all afternoon.", tags: ["meetings"], area: .work),
-            Topic(sentence: "Two deadlines landed on the same day.", tags: ["deadlines"], area: .work),
-            Topic(sentence: "Learning a bit of guitar each night.", tags: ["learning"], area: .play),
-            Topic(sentence: "Chores took most of the evening.", tags: ["chores"], area: .home),
-            Topic(sentence: "The weather turned cold and grey.", tags: ["weather"]),
-            Topic(sentence: "Could not keep my focus on anything for long.", tags: ["focus"], area: .mind),
-            Topic(sentence: "Some anxiety before the call, then it went fine.", tags: ["anxiety"], area: .mind),
-            Topic(sentence: "Got some real rest this afternoon.", tags: ["rest"], area: .health),
-            Topic(sentence: "Watched two movies back to back.", tags: ["movies"], area: .play),
-            Topic(sentence: "Listened to podcasts on the commute.", tags: ["podcasts", "commute"]),
-            Topic(sentence: "Went over the budget and it looks tight.", tags: ["budget"], area: .money),
-            Topic(sentence: "Chatted with the neighbors over the fence.", tags: ["neighbors"], area: .home),
-            Topic(sentence: "Spent the morning volunteering at the food bank.", tags: ["volunteering"], area: .friends),
-            Topic(sentence: "The pets woke me up at five.", tags: ["pets"], area: .home),
-            Topic(sentence: "Two birthdays this week and no gifts yet.", tags: ["birthdays"], area: .family),
-        ]
     }
 
-    // Pool sizes (topics included) grow with the entry count, so 300 entries give a busy graph.
-    private struct Cast {
-        let people: [String]
-        let places: [String]
-        let organizations: [String]
-        let projects: [String]
-        let events: [String]
+    struct Scene {
+        let kind: LifeArea
+        let title: String
+        let summary: String
+        var maxPeople = 2
+        // %1$@ is the lead person, %2$@ their organization (work only).
+        let openers: [String]
+        var placeLines: [String] = []
+        var projectLines: [String] = []
+        var projects: [String] = []
+        var events: [String] = []
         let topics: [Topic]
+
+        // Uneven on purpose, like a real journal: work and friends dominate, money is rare.
+        static let weighted: [Scene] = [work, work, work, work, friends, friends, friends, family, family,
+                                        mind, mind, health, health, love, love, play, play, home, money]
+
+        static let work = Scene(
+            kind: .work, title: "Work", summary: "A work day",
+            openers: ["Long day at %2$@. %1$@ and I went back and forth on the details.",
+                      "%1$@ pulled me into a meeting at %2$@ that ran an hour over.",
+                      "Pairing with %1$@ most of the afternoon at %2$@."],
+            projectLines: ["We made some progress on the %@, slower than I hoped.", "The %@ slipped another week."],
+            projects: ["Billing Redesign", "Onboarding Revamp", "Data Migration", "Search Rewrite"],
+            events: ["Quarterly Offsite", "City Hackathon"],
+            topics: [
+                Topic(sentence: "Back-to-back meetings until five.", tags: ["meetings"], mood: .tired),
+                Topic(sentence: "Two deadlines landed on the same day.", tags: ["deadlines"], mood: .stressed),
+                Topic(sentence: "Burnout is creeping in again.", tags: ["burnout"], mood: .burnedOut, area: .mind),
+                Topic(sentence: "Thinking about my career and where it is going.", tags: ["career"], mood: .uncertain),
+                Topic(sentence: "Shipping the thing we'd been stuck on felt great, and the team cheered.", tags: ["shipping"], mood: .proud),
+                Topic(sentence: "The feedback on my review was better than I feared.", tags: ["feedback"], mood: .relieved),
+                Topic(sentence: "Got interrupted every ten minutes and my focus never came back.", tags: ["focus"], mood: .frustrated),
+            ]
+        )
+
+        static let family = Scene(
+            kind: .family, title: "Family", summary: "Time with family",
+            openers: ["Called %1$@ this evening.", "%1$@ came over for dinner.", "Drove out to see %1$@."],
+            placeLines: ["We walked around %@ after lunch.", "Met at %@ halfway."],
+            events: ["Family Reunion", "Grandpa's Memorial"],
+            topics: [
+                Topic(sentence: "Parenting advice I didn't ask for, again.", tags: ["parenting"], mood: .irritated),
+                Topic(sentence: "Two birthdays this week and no gifts yet.", tags: ["birthdays"], mood: .stressed),
+                Topic(sentence: "We looked at old photos and laughed about the memories.", tags: ["memories"], mood: .nostalgic),
+                Topic(sentence: "The phone call ended better than it started.", tags: ["phone"], mood: .relieved),
+                Topic(sentence: "Their loneliness since the move stayed with me.", tags: ["loneliness"], mood: .sad),
+            ]
+        )
+
+        static let friends = Scene(
+            kind: .friends, title: "Coffee", summary: "Catching up",
+            maxPeople: 3,
+            openers: ["Met %1$@ for coffee.", "Caught up with %1$@ after work.", "%1$@ texted out of nowhere and we ended up getting dinner."],
+            placeLines: ["We sat at %@ until they closed.", "Ended up at %@ for a while."],
+            events: ["Book Club Night", "Housewarming Party"],
+            topics: [
+                Topic(sentence: "Too much coffee, too much talking, all good.", tags: ["coffee"], mood: .joyful),
+                Topic(sentence: "We took one of our long walks and talked about nothing, which was the point.", tags: ["walks"], mood: .connected),
+                Topic(sentence: "Spent the morning volunteering at the food bank together.", tags: ["volunteering"], mood: .grateful),
+                Topic(sentence: "We argued about movies for an hour.", tags: ["movies"], mood: .joyful, area: .play),
+                Topic(sentence: "They're going through a rough patch, so I mostly listened and offered support.", tags: ["support"], mood: .compassionate),
+            ]
+        )
+
+        static let love = Scene(
+            kind: .love, title: "Evening", summary: "An evening at home",
+            maxPeople: 1,
+            openers: ["Quiet evening with %1$@.", "%1$@ and I finally had a proper night in.", "Small fight with %1$@ about nothing, then we made up."],
+            topics: [
+                Topic(sentence: "We cooked together; cooking is still the best part of our week.", tags: ["cooking"], mood: .loved, area: .home),
+                Topic(sentence: "Started planning the summer travel, which already feels good.", tags: ["travel", "planning"], mood: .excited, area: .play),
+                Topic(sentence: "A slow weekend, which we both needed.", tags: ["weekend"], mood: .content),
+                Topic(sentence: "We talked about whether to have kids and didn't land anywhere.", tags: ["kids"], mood: .conflicted),
+            ]
+        )
+
+        static let health = Scene(
+            kind: .health, title: "Run", summary: "A run",
+            openers: ["Ran with %1$@ after work.", "%1$@ talked me into the early group run.", "Checkup with %1$@ this morning."],
+            placeLines: ["Did the loop around %@.", "Finished at %@ and stretched for a bit."],
+            projectLines: ["The %@ plan says ten miles this weekend.", "Behind on the %@ schedule."],
+            projects: ["Marathon Training"],
+            topics: [
+                Topic(sentence: "Slept badly, and the lack of sleep caught up with me.", tags: ["sleep"], mood: .tired),
+                Topic(sentence: "Went running before breakfast and felt great after.", tags: ["running"], mood: .energized),
+                Topic(sentence: "Got some real rest this afternoon.", tags: ["rest"], mood: .calm),
+                Topic(sentence: "The knee injury flared up again on the hills.", tags: ["injury"], mood: .frustrated),
+            ]
+        )
+
+        static let mind = Scene(
+            kind: .mind, title: "Session", summary: "A therapy session",
+            maxPeople: 1,
+            openers: ["Session with %1$@ today.", "Told %1$@ about the week and it came out messier than I expected."],
+            topics: [
+                Topic(sentence: "Therapy was useful, we talked about old patterns.", tags: ["therapy"], mood: .reflective),
+                Topic(sentence: "Wrote down three things for gratitude before bed.", tags: ["gratitude"], mood: .grateful),
+                Topic(sentence: "Some anxiety before the call, then it went fine.", tags: ["anxiety"], mood: .anxious),
+                Topic(sentence: "Trying to build better habits around my phone.", tags: ["habits", "phone"], mood: .hopeful),
+                Topic(sentence: "Did some writing before anyone else was up.", tags: ["writing"], mood: .calm),
+            ]
+        )
+
+        static let home = Scene(
+            kind: .home, title: "Home", summary: "Things around the house",
+            maxPeople: 1,
+            openers: ["%1$@ from downstairs stopped by.", "%1$@ came to look at the leak."],
+            placeLines: ["Picked up groceries at %@ on the way back."],
+            projectLines: ["Another weekend on the %@.", "The %@ is finally looking like something."],
+            projects: ["Kitchen Remodel", "Garden Beds"],
+            topics: [
+                Topic(sentence: "Chores took most of the evening.", tags: ["chores"], mood: .bored),
+                Topic(sentence: "Still sorting boxes from moving.", tags: ["moving"], mood: .overwhelmed),
+                Topic(sentence: "The pets woke me up at five.", tags: ["pets"], mood: .tired),
+                Topic(sentence: "Spent an hour in the garden pulling weeds.", tags: ["garden"], mood: .content, area: .play),
+                Topic(sentence: "Chatted with the neighbors over the fence.", tags: ["neighbors"], mood: .connected),
+            ]
+        )
+
+        static let play = Scene(
+            kind: .play, title: "Afternoon", summary: "A free afternoon",
+            openers: ["Spent the afternoon with %1$@.", "%1$@ dragged me to a show, glad they did."],
+            placeLines: ["Browsed %@ for an hour.", "Wandered through %@."],
+            projectLines: ["Put another hour into the %@.", "Picked the %@ back up after weeks away."],
+            projects: ["Novel Draft", "Photo Book", "Spanish Course"],
+            topics: [
+                Topic(sentence: "Stayed up reading a novel I can't put down.", tags: ["reading"], mood: .content),
+                Topic(sentence: "Put on some music and forgot about the week.", tags: ["music"], mood: .joyful),
+                Topic(sentence: "Learning a bit of guitar each night, badly.", tags: ["guitar", "learning"], mood: .curious),
+                Topic(sentence: "Listened to podcasts on the long drive.", tags: ["podcasts"], mood: .calm),
+            ]
+        )
+
+        static let money = Scene(
+            kind: .money, title: "Budget", summary: "Going over money",
+            maxPeople: 1,
+            openers: ["Sat down with %1$@ to go over the numbers.", "%1$@ helped me sort out the paperwork."],
+            projectLines: ["The %@ is due soon and I've barely started."],
+            projects: ["Tax Filing"],
+            topics: [
+                Topic(sentence: "Went over the budget and it looks tight.", tags: ["budget"], mood: .anxious),
+                Topic(sentence: "Paid off the last of the card debt.", tags: ["debt"], mood: .relieved),
+                Topic(sentence: "Rent is going up again.", tags: ["rent"], mood: .stressed, area: .home),
+            ]
+        )
+    }
+
+    // Pool sizes grow with the entry count, so 300 entries give a busy graph. People are split by
+    // the part of life they belong to, so a coworker always turns up at work and at the same
+    // organization.
+    private struct Cast {
+        let partner: String
+        private let pools: [LifeArea: [String]]
+        private let organizations: [String]
+        private let placesByKind: [LifeArea: [String]]
+        let projectLimit: Int
+        let eventLimit: Int
 
         init(entryCount count: Int) {
             let firsts = ["Sarah", "Marcus", "Priya", "Daniel", "Lena", "Omar", "Grace", "Theo", "Nadia", "Julian",
@@ -227,28 +366,69 @@ enum DemoJournal {
             let lasts = ["Kim", "Okafor", "Patel", "Brooks", "Nguyen", "Haddad", "Silva", "Novak", "Reyes", "Lindqvist",
                          "Mensah", "Costa", "Tanaka", "Walsh", "Moreau", "Ibrahim", "Fischer", "Diaz", "Chen", "Hart",
                          "Sato", "Russo", "Kowalski", "Abara", "Quinn", "Varga", "Ortiz", "Byrne", "Das", "Frost"]
-            let peopleCount = min(firsts.count * lasts.count, max(8, count * 45 / 100))
+            let peopleCount = min(firsts.count * lasts.count, max(16, count * 45 / 100))
             // The surname offset varies within each block of first names but stays unique per pair.
-            people = (0..<peopleCount).map { index in
+            let people = (0..<peopleCount).map { index in
                 let first = index % firsts.count
                 return "\(firsts[first]) \(lasts[(index / firsts.count + first * 7) % lasts.count])"
             }
-
-            let placeStems = ["Cedar", "Harbor", "Maple", "Union", "Lakeview", "Juniper", "Granite", "Willow"]
-            let placeKinds = ["Park", "Cafe", "Library", "Gym", "Market", "Station"]
-            places = Self.combine(placeStems, placeKinds, limit: max(4, count / 6))
+            partner = people[0]
+            // Work and friends get the most people; a therapist, a landlord, and an accountant are few.
+            let shares: [(LifeArea, Int)] = [(.work, 30), (.friends, 25), (.family, 15), (.health, 10), (.play, 10),
+                                             (.home, 4), (.mind, 3), (.money, 3)]
+            var pools: [LifeArea: [String]] = [:]
+            var cursor = 1
+            for (index, (area, share)) in shares.enumerated() {
+                let size = index == shares.count - 1 ? people.count - cursor : max(1, (people.count - 1) * share / 100)
+                pools[area] = Array(people[cursor..<min(people.count, cursor + size)])
+                cursor = min(people.count - 1, cursor + size)
+            }
+            pools[.love] = [partner]
+            self.pools = pools
 
             let orgStems = ["Acme", "Northwind", "Brightline", "Fieldstone", "Parallel", "Kestrel"]
             let orgKinds = ["Labs", "Health", "Studio", "Group"]
-            organizations = Self.combine(orgStems, orgKinds, limit: max(2, count / 12))
+            organizations = Self.combine(orgStems, orgKinds, limit: max(2, count / 40))
 
-            projects = Array(["Marathon Training", "Kitchen Remodel", "Novel Draft", "Garden Beds", "Side App",
-                              "Podcast Pilot", "Photo Book", "Spanish Course", "Job Search", "Tax Filing"]
-                .prefix(max(2, count / 12)))
-            events = Array(["Spring Retreat", "Family Reunion", "Quarterly Offsite", "Book Club Night",
-                            "Housewarming Party", "City Hackathon"]
-                .prefix(max(1, count / 20)))
-            topics = Array(Topic.all.prefix(max(6, count / 6)))
+            let stems = ["Cedar", "Harbor", "Maple", "Union", "Lakeview", "Juniper", "Granite", "Willow"]
+            let limit = max(2, count / 30)
+            placesByKind = [
+                .friends: Self.combine(stems, ["Cafe", "Park"], limit: limit),
+                .health: Self.combine(stems.reversed(), ["Park", "Gym"], limit: limit),
+                .family: Self.combine(stems, ["Station", "Park"], limit: max(1, limit / 2)),
+                .home: Self.combine(stems, ["Market"], limit: max(1, limit / 2)),
+                .play: Self.combine(stems, ["Library", "Bookshop"], limit: limit),
+            ]
+            projectLimit = max(1, count / 60)
+            eventLimit = max(1, count / 120)
+        }
+
+        func people(for area: LifeArea) -> [String] {
+            let pool = pools[area] ?? []
+            return pool.isEmpty ? [partner] : pool
+        }
+
+        func places(for area: LifeArea) -> [String] {
+            placesByKind[area] ?? []
+        }
+
+        func organization(of person: String) -> String {
+            organizations[abs(person.unicodeScalars.reduce(0) { $0 &* 31 &+ Int($1.value) }) % organizations.count]
+        }
+
+        // Something concrete a later entry could settle, about the entry's lead person.
+        func thread(for draft: Draft, index: Int) -> Thread {
+            let person = draft.mentions.first { $0.kind == .person }?.name ?? partner
+            let first = String(person.split(separator: " ").first ?? "")
+            let threads = [
+                Thread(person: person, opened: "Still waiting to hear back from \(first) about the plan.",
+                       looseEnd: "Hear back from \(first) about the plan", settled: "\(person) finally got back to me about the plan."),
+                Thread(person: person, opened: "I need to decide whether to take \(first) up on the offer.",
+                       looseEnd: "Decide on \(first)'s offer", settled: "Told \(person) yes, so that's decided."),
+                Thread(person: person, opened: "Promised \(first) I'd send the photos this week.",
+                       looseEnd: "Send \(first) the photos", settled: "Sent \(person) the photos at last."),
+            ]
+            return threads[(index / 6) % threads.count]
         }
 
         private static func combine(_ stems: [String], _ kinds: [String], limit: Int) -> [String] {
