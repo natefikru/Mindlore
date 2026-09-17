@@ -1,4 +1,4 @@
-w# Mindlore Phase A: an app a journaler would actually use
+# Mindlore Phase A: an app a journaler would actually use
 
 Branch: `feature/phase-a` from `main` at `1e87b05` (PR #3, the knowledge graph, merged). The graph
 plan and its review history are archived in `tasks/archive/knowledge-graph.md`.
