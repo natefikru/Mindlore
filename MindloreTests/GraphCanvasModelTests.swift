@@ -47,6 +47,23 @@ struct GraphCanvasModelTests {
         #expect(plan.rankedLabels.count == 7)
     }
 
+    // The draw closure indexes edgeStyles by edge position, so they must line up after any update.
+    @Test func edgeStylesLineUpWithEdgesAfterAnUpdate() {
+        let (simulation, nodes) = hub()
+        let cache = GraphDrawCache()
+        #expect(cache.plan(for: simulation, focusedID: nil).edgeStyles.count == simulation.edgeIndices.count)
+        let extra = node(2)
+        simulation.update(nodes: nodes + [extra], edges: simulation.allEdges() + [
+            EntityGraph.Edge(extra.id, nodes[5].id, weight: 3, recency: 0.1),
+            EntityGraph.Edge(extra.id, UUID(), weight: 1),
+        ])
+        let plan = cache.plan(for: simulation, focusedID: nil)
+        #expect(plan.edgeStyles.count == simulation.edgeIndices.count)
+        for (style, edge) in zip(plan.edgeStyles, simulation.allEdges()) {
+            #expect(style == GraphEdgeStyle(weight: edge.weight, recency: edge.recency))
+        }
+    }
+
     @Test func zoomNeverRecomputesThePlan() {
         let (simulation, _) = hub()
         let cache = GraphDrawCache()
@@ -110,6 +127,9 @@ struct GraphCanvasModelTests {
         let neighbourIDs = focused.rankedLabels[1...GraphDrawCache.focusLabelCap].map { simulation.nodes[$0].id }
         #expect(Set(neighbourIDs) == Set(spokes.suffix(GraphDrawCache.focusLabelCap).map(\.id)))
         #expect(focused.litNodes.count == 101)
+        // Only the focus and its capped head glow, not all 100 neighbours.
+        #expect(focused.glowNodes == Array(focused.rankedLabels.prefix(1 + GraphDrawCache.focusLabelCap)))
+        #expect(cache.plan(for: simulation, focusedID: nil).glowNodes.isEmpty)
     }
 
     @Test func edgeStylesFollowWeightAndRecency() {

@@ -110,9 +110,12 @@ nonisolated struct GraphDrawPlan: Sendable {
     let litEdges: Set<Int>
     // Node indices in label priority order: focus, its neighbours, then everything by size.
     let rankedLabels: [Int]
+    // The focus and its biggest neighbours (at most 1 + focusLabelCap), the only nodes that glow,
+    // so focusing a hub doesn't cost a gradient fill per neighbour every frame.
+    let glowNodes: [Int]
     let edgeStyles: [GraphEdgeStyle]
 
-    static let empty = GraphDrawPlan(focusedIndex: nil, litNodes: [], litEdges: [], rankedLabels: [], edgeStyles: [])
+    static let empty = GraphDrawPlan(focusedIndex: nil, litNodes: [], litEdges: [], rankedLabels: [], glowNodes: [], edgeStyles: [])
 
     var hasFocus: Bool { focusedIndex != nil }
 }
@@ -177,7 +180,14 @@ nonisolated final class GraphDrawCache {
         let rest = nodes.indices.filter { !headSet.contains($0) }.sorted(by: ranksBefore)
         let ranked = head + rest.prefix(max(0, labelCap - head.count))
 
-        return GraphDrawPlan(focusedIndex: focusedIndex, litNodes: litNodes, litEdges: litEdges, rankedLabels: ranked, edgeStyles: styles)
+        return GraphDrawPlan(
+            focusedIndex: focusedIndex,
+            litNodes: litNodes,
+            litEdges: litEdges,
+            rankedLabels: ranked,
+            glowNodes: head,
+            edgeStyles: styles
+        )
     }
 }
 

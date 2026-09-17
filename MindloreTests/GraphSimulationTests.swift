@@ -376,7 +376,7 @@ struct GraphSimulationTests {
         #expect(simulation.topologyVersion == version)
     }
 
-    @Test func updateTakesNewLinkCountsForSurvivorsWithoutReheating() {
+    @Test func updateTakesNewLinkCountsForSurvivors() {
         let nodes = makeNodes(2)
         let simulation = GraphSimulation(nodes: nodes, edges: [])
         _ = settle(simulation)
@@ -387,6 +387,17 @@ struct GraphSimulationTests {
         #expect(simulation.kind(of: nodes[0].id) == .project)
         #expect(simulation.radius(of: nodes[0].id) == GraphSimulation.radius(linkCount: 25))
         #expect(simulation.topologyVersion == version + 1)
+        // A grown node gets a small nudge to make room, not the full update reheat.
+        #expect(simulation.alpha == GraphSimulation.resizeReheat)
+    }
+
+    @Test func updateWithOnlyAKindChangeStaysSettled() {
+        let nodes = makeNodes(2)
+        let simulation = GraphSimulation(nodes: nodes, edges: [])
+        _ = settle(simulation)
+        let renamedKind = GraphSimulation.Node(id: nodes[0].id, kind: .place, linkCount: nodes[0].linkCount)
+        simulation.update(nodes: [renamedKind, nodes[1]], edges: [])
+        #expect(simulation.kind(of: nodes[0].id) == .place)
         #expect(simulation.settled)
     }
 

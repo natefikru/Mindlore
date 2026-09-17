@@ -40,6 +40,7 @@ nonisolated final class GraphSimulation {
     static let goldenAngle: Double = Double.pi * (3 - sqrt(5))
     static let dragAlphaTarget: Double = 0.3
     static let updateReheat: Double = 0.3
+    static let resizeReheat: Double = 0.05
 
     let alphaMin: Double = 0.001
     let alphaDecay: Double = 1 - pow(0.001, 1.0 / 300.0)
@@ -210,6 +211,8 @@ nonisolated final class GraphSimulation {
             placed[index] = true
         }
 
+        let indexByIDBefore = indexByID
+        let radiiBefore = radii
         nodes = unique
         indexByID = map
         edges = resolved.edges
@@ -221,8 +224,14 @@ nonisolated final class GraphSimulation {
         pinned = newPinned
         anchored = newAnchored
         pinPoints = newPinPoints
+        let radiiChanged = newRadii != unique.map { node in indexByIDBefore[node.id].map { radiiBefore[$0] } ?? -1 }
         topologyVersion += 1
-        if shapeChanged { reheat(to: Self.updateReheat) }
+        if shapeChanged {
+            reheat(to: Self.updateReheat)
+        } else if radiiChanged {
+            // A node that grew needs room, but not a jolt.
+            reheat(to: Self.resizeReheat)
+        }
     }
 
     // MARK: - Geometry
