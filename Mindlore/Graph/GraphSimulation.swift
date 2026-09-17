@@ -29,6 +29,13 @@ nonisolated final class GraphSimulation {
         let b: Int
     }
 
+    // d3's link defaults, per edge: strength 1 / min(degree) so a hub's many springs don't add up
+    // to an overshoot, and a bias that moves the lower-degree end more.
+    private struct SpringShape {
+        let strength: Double
+        let biasTowardB: Double
+    }
+
     // d3's own default phyllotaxis constant, reused for the zero-distance fallback direction too.
     static let goldenAngle: Double = Double.pi * (3 - sqrt(5))
     static let dragAlphaTarget: Double = 0.3
@@ -48,6 +55,7 @@ nonisolated final class GraphSimulation {
     // Only edges whose ends are both nodes, in the same order as `edgeIndices`.
     private(set) var edges: [EntityGraph.Edge]
     private(set) var edgeIndices: [EdgeIndex]
+    private var springShapes: [SpringShape]
     private var indexByID: [UUID: Int]
 
     private var positions: [SIMD2<Double>]
@@ -65,6 +73,7 @@ nonisolated final class GraphSimulation {
         indexByID = map
         self.edges = resolved.edges
         edgeIndices = resolved.indices
+        springShapes = Self.springShapes(resolved.indices, nodeCount: unique.count)
         positions = unique.indices.map(Self.phyllotaxis)
         velocities = Array(repeating: .zero, count: unique.count)
         radii = unique.map { Self.radius(linkCount: $0.linkCount) }
@@ -205,6 +214,7 @@ nonisolated final class GraphSimulation {
         indexByID = map
         edges = resolved.edges
         edgeIndices = resolved.indices
+        springShapes = Self.springShapes(resolved.indices, nodeCount: unique.count)
         positions = newPositions
         velocities = newVelocities
         radii = newRadii
@@ -255,6 +265,18 @@ nonisolated final class GraphSimulation {
         return (kept, indices)
     }
 
+    private static func springShapes(_ indices: [EdgeIndex], nodeCount: Int) -> [SpringShape] {
+        var degree = [Int](repeating: 0, count: nodeCount)
+        for pair in indices {
+            degree[pair.a] += 1
+            degree[pair.b] += 1
+        }
+        return indices.map { pair in
+            let a = Double(degree[pair.a]), b = Double(degree[pair.b])
+            return SpringShape(strength: 1 / min(a, b), biasTowardB: a / (a + b))
+        }
+    }
+
     // MARK: - Ticking
 
     func tick() {
@@ -294,9 +316,11 @@ nonisolated final class GraphSimulation {
         return SIMD2(dx / distance, dy / distance)
     }
 
-    // Every unpinned pair pushes apart. Applied as a positive push-apart magnitude directly
-    // (rather than d3's own negative-charge convention, which encodes the same repulsion through
-    // its own force-application sign) scaled by alpha so it fades with everything else.
+    // Every unpinned pair pushes apart with strength / distance, d3's forceManyBody falloff. An
+    // inverse-square falloff was too weak at range: the 300-entry demo graph packed into one
+    // blob held apart only by collision. Applied as a positive push-apart magnitude directly
+    // (rather than d3's negative-charge convention) and scaled by alpha so it fades with
+    // everything else.
     private func applyRepulsion() {
         guard nodes.count > 1 else { return }
         let strength = 30.0 * alpha
@@ -307,23 +331,26 @@ nonisolated final class GraphSimulation {
                 let dy = positions[i].y - positions[j].y
                 let distance = (dx * dx + dy * dy).squareRoot()
                 let dir = direction(i, j, dx: dx, dy: dy, distance: distance)
-                let magnitude = strength / pow(max(distance, 1), 2)
+                let magnitude = strength / max(distance, 1)
                 if !pinned[i] { velocities[i] += dir * magnitude }
                 if !pinned[j] { velocities[j] -= dir * magnitude }
             }
         }
     }
 
-    // Every edge pulls its two ends toward targetDistance(weight:). Both ends take half the
-    // correction unless one is pinned or anchored, in which case the unpinned end takes it whole.
+    // Every edge pulls its two ends toward targetDistance(weight:), scaled by 1 / min(degree) the
+    // way d3's forceLink is; without that, a node with dozens of edges takes dozens of full-size
+    // corrections a tick and the 300-entry demo graph flew apart. The ends share the correction
+    // by degree (the busier end moves less) unless one is pinned or anchored, in which case the
+    // unpinned end takes it whole.
     private func applySprings() {
-        for (edge, pair) in zip(edges, edgeIndices) {
+        for ((edge, pair), shape) in zip(zip(edges, edgeIndices), springShapes) {
             let i = pair.a, j = pair.b
             let dx = positions[j].x - positions[i].x
             let dy = positions[j].y - positions[i].y
             let distance = (dx * dx + dy * dy).squareRoot()
             let dir = direction(i, j, dx: dx, dy: dy, distance: distance)
-            let magnitude = alpha * (distance - Self.targetDistance(weight: edge.weight)) * 0.3
+            let magnitude = alpha * (distance - Self.targetDistance(weight: edge.weight)) * shape.strength
             let correction = dir * magnitude
 
             let iFixed = pinned[i], jFixed = pinned[j]
@@ -333,8 +360,8 @@ nonisolated final class GraphSimulation {
             } else if jFixed {
                 velocities[i] += correction
             } else {
-                velocities[i] += correction * 0.5
-                velocities[j] -= correction * 0.5
+                velocities[i] += correction * (1 - shape.biasTowardB)
+                velocities[j] -= correction * shape.biasTowardB
             }
         }
     }

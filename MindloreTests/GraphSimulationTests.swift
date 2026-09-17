@@ -1,4 +1,5 @@
 import Foundation
+import SwiftData
 import SwiftUI
 import Testing
 @testable import Mindlore
@@ -435,5 +436,28 @@ struct GraphSimulationTests {
     @Test func entityKindColorsAreEightDistinctValues() {
         let colors = Set(EntityKind.allCases.map { $0.color.description })
         #expect(colors.count == EntityKind.allCases.count)
+    }
+}
+
+// The simulation over the real 300-entry demo graph, the one the device gate measures.
+@MainActor
+struct DemoGraphSimulationTests {
+    @Test func theDemoGraphSettlesWithFinitePositions() throws {
+        let container = try ModelContainerFactory.make(.inMemory)
+        let context = container.mainContext
+        try DemoJournal.seedIfEmpty(count: 300, in: context, now: Date(timeIntervalSince1970: 1_800_000_000))
+        let data = GraphServices().globalGraph(kinds: nil, minimumLinkCount: 2, in: context)
+        let simulation = GraphSimulation(nodes: GraphSimulation.Node.layoutOrdered(data.nodes), edges: data.edges)
+        var ticks = 0
+        while !simulation.settled, ticks < 2000 {
+            simulation.tick()
+            ticks += 1
+        }
+        let positions = (0..<simulation.nodeCount).map { simulation.position(at: $0) }
+        let extent = positions.map { max(abs($0.x), abs($0.y)) }.max() ?? 0
+        #expect(simulation.nodeCount > 50)
+        #expect(simulation.settled)
+        #expect(positions.allSatisfy { $0.x.isFinite && $0.y.isFinite })
+        #expect(extent < 1000)
     }
 }
