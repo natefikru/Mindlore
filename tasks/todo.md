@@ -257,7 +257,7 @@ measurement says otherwise.
      `@Observable` would invalidate every view that watches it. Tests step it with an injected
      clock, and only the simulation itself is claimed to be deterministic.
   3. A SpriteKit (`SpriteView`) renderer reading the same positions.
-- **Region force** (the optional anchor pull for area regions) moves to A5b along with the other
+- **Region force** (the optional pull toward each area's spot) moves to A5b along with the other
   map extras.
 - **Demo journal:** a Debug-only launch argument `-seedDemoJournal <n>` builds `n` entries with
   hand-written insights (moods, areas, tags, mentions) and runs them through the real
@@ -605,12 +605,13 @@ Build spec: `tasks/a5-mind-spec.md`.
       recording accessory over the panel.
 
 ### A5b: Map extras
-- [ ] Lenses: kind (default), mood around, recency.
-- [ ] Replay, with links fetched once.
-- [ ] Entries as nodes.
-- [ ] Area regions: the anchor force in `GraphSimulation`, pulling each area's entities together
-      (the area-of-entity rule and tile highlighting landed in A5).
-- [ ] Tests:
+Build spec: `tasks/a5b-map-extras-spec.md`.
+- [x] Lenses: kind (default), mood around, recency.
+- [x] Replay, with links fetched once.
+- [x] Entries as nodes.
+- [x] Area regions: a region force in `GraphSimulation`, pulling each area's entities toward a
+      fixed spot (the area-of-entity rule and tile highlighting landed in A5).
+- [x] Tests:
   - the mood-around average
   - the anchor force pulls toward its point and leaves determinism intact
   - replay issues no fetch per step
@@ -911,6 +912,47 @@ A5 (2026-09-17, build spec in `tasks/a5-mind-spec.md`):
   through Mind and liked it. Two sessions with enough interaction for a sample: frame p50 16.7 ms,
   p95 17.2 and 18.4 ms, draw work p95 5.8 and 2.7 ms, first settle 4.8 s. No crashes. The short
   sessions (10 to 18 frames) aren't meaningful samples.
+
+A5b (2026-09-17, build spec in `tasks/a5b-map-extras-spec.md`):
+
+- Spec review (16 findings) folded into the spec. The main ones:
+  - Region spots moved on every replay step. They're now fixed per visible area and sized by
+    the journal's entity count.
+  - Entry dots cost more than first estimated. The cap is now 100, and dots don't push each
+    other apart.
+  - A mood edited by hand never bumped the graph revision.
+  - Replay steps re-rendered all of Mind.
+- One snapshot per graph revision (`GraphServices.mapSnapshot`) feeds everything the map draws,
+  through the pure `MindMap` builders. A node's size and the minimum now count only mentions up
+  to the map's date. On the live map, that means a mention in a future-dated entry doesn't count
+  yet. The old test that pinned "standalone nodes ignore asOf" was rewritten.
+- Deviations:
+  - The snapshot keeps future-dated entries, and each builder filters by its own date, so a
+    cached snapshot doesn't go stale as the clock moves.
+  - `GraphSimulation.anchor` and the canvas's `anchoredID` were deleted. Nothing used them after
+    the local graph went.
+  - The canvas's `nodes=` still counts entities only, and dots are counted separately in
+    `entries=`.
+- Code review (9 findings). Fixed:
+  - The launch sweep never bumped the revision, so a map cached mid-sweep stayed sparse.
+  - An update with reordered nodes could put regions on the wrong nodes.
+  - Every replay step rewrote the paint.
+  - The camera re-flew to a highlighted area on every step.
+  - A lens picked mid-replay painted today.
+  - The lens in `graph.rendered` is now typed.
+
+  Not changed: a replay drops pins and rebuilds the layout, which the spec accepts.
+- Simulator screenshots found what no test had: the grouped map didn't read as groups.
+  - The pull went from 0.06 to 0.15. A probe on the 300-entry demo map puts 165 of 170 nodes
+    nearest their own area's spot (157 at 0.06), and a settled map regroups in about 250 ticks.
+  - Area names now sit over the map, outside their clusters, and turning grouping on zooms out
+    to fit.
+  - The filters sheet puts Entries and Group by life area first, since the medium detent hid
+    them.
+- Tests: 860 unit tests pass. `GraphUITests` (including the new lenses, dots, and regions test
+  and the replay test), `GraphScreenshotTests.testDemoJournalMind` (new lens, dots, regions, and
+  replay shots), and `ReadModeUITests` pass. The dot test taps the point the canvas reports
+  under `-uiTesting`, so it goes through the real hit rule.
 
 Owner answers after revision 1 (2026-09-17): the tab is Mind, a fresh install is fine, and Ask
 keeps saved conversations and opens a new one by default. Folded in above.
