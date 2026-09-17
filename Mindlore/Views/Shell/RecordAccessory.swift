@@ -52,7 +52,7 @@ struct RecordAccessory: View {
             }
             .padding(.horizontal)
             .contextMenu {
-                if session.isRecording {
+                if session.isRecording && !session.isFinishing {
                     Button(isCapturing ? "Pause" : "Resume", systemImage: isCapturing ? "pause" : "record.circle") {
                         session.togglePause()
                     }

@@ -77,7 +77,7 @@ final class RecordingSession {
         status = .starting
         isExpanded = true
         let generation = generation
-        startTask = Task { await self.start(recorder, generation: generation) }
+        startTask = Task { [weak self] in await self?.start(recorder, generation: generation) }
     }
 
     func minimize() {
@@ -139,8 +139,11 @@ final class RecordingSession {
     // One step of the monitor: the waveform's next sample, and a gap the transcriber never heard.
     func sample() {
         guard let recorder else { return }
-        levels.removeFirst()
-        levels.append(recorder.level)
+        // A paused waveform holds still rather than scrolling silence.
+        if recorder.state == .recording {
+            levels.removeFirst()
+            levels.append(recorder.level)
+        }
         // Audio the transcriber never saw means its text covers less than the recording.
         if let gap = recorder.audioGap {
             liveSession?.markUnhealthy(gap)

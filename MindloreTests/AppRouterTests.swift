@@ -89,6 +89,28 @@ struct AppRouterTests {
         #expect(router.dismissPresentationsToken == token + 1)
     }
 
+    // The page screen is a full-screen cover with its own close rules, so a jump waits for it.
+    @Test func aJumpWaitsForFullScreenCoversToClose() {
+        let log = Log()
+        let router = router(log)
+        let open = UUID(), shown = UUID()
+        router.journalPath = [JournalRoute(entryID: open)]
+        router.setCover("pageOrder", open: true)
+        router.setCover("editor", open: true)
+
+        router.showEntry(shown)
+        #expect(router.journalPath == [JournalRoute(entryID: open)])
+        #expect(log.closed.isEmpty)
+
+        router.setCover("pageOrder", open: false)
+        #expect(router.journalPath == [JournalRoute(entryID: open)])
+
+        router.setCover("editor", open: false)
+        #expect(router.journalPath == [JournalRoute(entryID: shown)])
+        #expect(log.closed == [open])
+        #expect(router.pendingEntryID == nil)
+    }
+
     @Test func showingAnEntryThatStartedAsANewRouteKeepsItOpen() {
         let log = Log()
         let router = router(log)

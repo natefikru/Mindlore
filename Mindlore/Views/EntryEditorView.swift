@@ -167,6 +167,9 @@ struct EntryEditorView: View {
         }
         // Full-screen covers stay: they hide the tab bar, so no jump can start under them, and
         // closing the page screen from outside would skip its own close rules.
+        .onChange(of: editingPages || viewingPage != nil) { _, open in
+            router.setCover("editor-\(newEntryID?.uuidString ?? currentEntry?.id.uuidString ?? "")", open: open)
+        }
         .onChange(of: router.dismissPresentationsToken) {
             editingDate = false
             showingInsights = false

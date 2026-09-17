@@ -108,6 +108,12 @@ struct EntryListView: View {
                     PageOrderView(entry: entry) { entry in router.showEntry(entry.id) }
                 }
             }
+            .onChange(of: pageOrder != nil) { _, open in
+                router.setCover("pageOrder", open: open)
+            }
+            .onChange(of: settings.hiddenLifeAreas) {
+                if JournalFilter.active(pickedArea, hidden: settings.hiddenLifeAreas) == nil { pickedArea = nil }
+            }
             .onChange(of: router.dismissPresentationsToken) {
                 showingSettings = false
                 insightsEntry = nil
@@ -189,10 +195,11 @@ private struct JournalEntryDestination: View {
     @Environment(\.modelContext) private var modelContext
 
     var body: some View {
-        if route.isNew {
-            EntryEditorView(entry: EditorLifecycle.entry(route.entryID, in: modelContext), newEntryID: route.entryID)
-        } else if let entry = EditorLifecycle.entry(route.entryID, in: modelContext) {
-            EntryEditorView(entry: entry)
+        // One branch for new and existing routes: JournalRoute compares by id alone, so SwiftUI may
+        // hand this view either form of the same route, and the editor's identity must not flip.
+        let entry = EditorLifecycle.entry(route.entryID, in: modelContext)
+        if route.isNew || entry != nil {
+            EntryEditorView(entry: entry, newEntryID: route.entryID)
         } else {
             ContentUnavailableView("This entry was deleted", systemImage: "trash")
         }
@@ -288,7 +295,6 @@ private struct EntryRow: View {
         .modelContainer(container)
         .environment(EntrySaver(context: container.mainContext))
         .environment(GraphServices())
-        .environment(RecordingIngestor())
         .environment(TranscriptionCoordinator())
         .environment(EditorPresence())
         .environment(AppRouter(opened: { _ in }, closed: { _ in }))

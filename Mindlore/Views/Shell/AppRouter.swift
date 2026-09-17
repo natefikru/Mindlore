@@ -33,6 +33,10 @@ final class AppRouter {
     }
     // Sheets close when this changes, so a jump never lands underneath one.
     private(set) var dismissPresentationsToken = 0
+    // Full-screen covers can't be closed from outside (the page screen has its own close rules),
+    // so a jump waits until the last one is gone.
+    @ObservationIgnored private var openCovers: Set<String> = []
+    @ObservationIgnored private(set) var pendingEntryID: UUID?
 
     @ObservationIgnored private let opened: (UUID) -> Void
     @ObservationIgnored private let closed: (UUID) -> Void
@@ -45,9 +49,24 @@ final class AppRouter {
     // Replaces Journal's path rather than appending, so a finished recording never lands on top of
     // another open entry.
     func showEntry(_ id: UUID) {
+        guard openCovers.isEmpty else {
+            pendingEntryID = id
+            return
+        }
         dismissPresentationsToken += 1
         tab = .journal
         journalPath = [JournalRoute(entryID: id)]
+    }
+
+    func setCover(_ name: String, open: Bool) {
+        if open {
+            openCovers.insert(name)
+        } else {
+            openCovers.remove(name)
+        }
+        guard openCovers.isEmpty, let pending = pendingEntryID else { return }
+        pendingEntryID = nil
+        showEntry(pending)
     }
 
     private func reportChanges(from old: [JournalRoute]) {

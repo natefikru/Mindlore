@@ -61,7 +61,7 @@ final class RecordingUITests: XCTestCase {
         let discardItem = app.buttons["Discard Recording"]
         XCTAssertTrue(discardItem.waitForExistence(timeout: 5))
         discardItem.tap()
-        let confirm = app.buttons["Discard Recording"]
+        let confirm = app.buttons["confirmDiscardRecordingButton"]
         XCTAssertTrue(confirm.waitForExistence(timeout: 5))
         confirm.tap()
 

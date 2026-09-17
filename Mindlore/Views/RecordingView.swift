@@ -52,6 +52,7 @@ struct RecordingView: View {
             }
             .confirmationDialog("Discard this recording?", isPresented: $confirmingDiscard, titleVisibility: .visible) {
                 Button("Discard Recording", role: .destructive) { session.discard() }
+                    .accessibilityIdentifier("confirmDiscardRecordingButton")
             }
         }
         .interactiveDismissDisabled()
@@ -80,7 +81,7 @@ struct RecordingView: View {
                     .foregroundStyle(isCapturing ? Color.primary : Color.white)
             }
             .accessibilityLabel(isCapturing ? "Pause" : "Resume")
-            .disabled(!session.isRecording || session.recorder?.isResuming == true)
+            .disabled(!session.isRecording || session.isFinishing || session.recorder?.isResuming == true)
             .padding(.bottom, 48)
         }
     }
@@ -90,6 +91,7 @@ struct RecordingView: View {
     }
 
     private var statusText: String {
+        if session.isFinishing { return "Saving…" }
         guard let recorder = session.recorder, session.isRecording else { return "Starting…" }
         if recorder.isResuming {
             return "Resuming…"

@@ -27,6 +27,7 @@ final class FakeRecorder: AudioRecording {
     @ObservationIgnored private(set) var discardCount = 0
     @ObservationIgnored private(set) var discardedARunningRecording = false
     @ObservationIgnored private var blocked: CheckedContinuation<Void, Never>?
+    @ObservationIgnored private var blockWaiters: [CheckedContinuation<Void, Never>] = []
     @ObservationIgnored private var continuation: AsyncStream<AVAudioPCMBuffer>.Continuation?
     @ObservationIgnored private let directory: RecordingsDirectory
     @ObservationIgnored private let id = UUID()
@@ -41,13 +42,24 @@ final class FakeRecorder: AudioRecording {
         switch startBehavior {
         case .deny: throw AudioRecorder.RecorderError.permissionDenied
         case .fail: throw AudioRecorder.RecorderError.couldNotStart
-        case .block: await withCheckedContinuation { blocked = $0 }
+        case .block:
+            await withCheckedContinuation { continuation in
+                blocked = continuation
+                blockWaiters.forEach { $0.resume() }
+                blockWaiters = []
+            }
         case .succeed: break
         }
         let (stream, continuation) = AsyncStream<AVAudioPCMBuffer>.makeStream()
         buffers = stream
         self.continuation = continuation
         state = .recording
+    }
+
+    // Returns once start() is parked, so unblock() has something to resume.
+    func waitUntilBlocked() async {
+        guard blocked == nil else { return }
+        await withCheckedContinuation { blockWaiters.append($0) }
     }
 
     func unblock() {
@@ -89,6 +101,7 @@ final class RecordingSessionHarness {
     var afterIngestCount = 0
     var startBehavior: FakeRecorder.StartBehavior = .succeed
     var liveText = ""
+    var makeLive: (() -> any LiveTranscriptionSession)?
     private(set) var session: RecordingSession!
 
     init(engine: SpeechEngine = .onDeviceLive, diagnostics: DiagnosticsLog = .disabled) throws {
@@ -108,6 +121,7 @@ final class RecordingSessionHarness {
                 return recorder
             },
             makeLiveSession: { [unowned self] _ in
+                if let makeLive = self.makeLive { return makeLive() }
                 let live = FakeLiveSession()
                 live.finalizedText = self.liveText
                 self.liveSessions.append(live)
@@ -186,7 +200,7 @@ struct RecordingSessionTests {
         harness.session.begin()
         #expect(harness.session.status == .starting)
         let start = try #require(harness.session.startTask)
-        await Task.yield()
+        await harness.recorders[0].waitUntilBlocked()
 
         harness.session.close()
         #expect(harness.session.status == .idle)
@@ -225,7 +239,8 @@ struct RecordingSessionTests {
         let harness = try RecordingSessionHarness()
         harness.startBehavior = .block
         harness.session.begin()
-        await Task.yield()
+        let start = try #require(harness.session.startTask)
+        await harness.recorders[0].waitUntilBlocked()
 
         await harness.session.finish()
         #expect(harness.session.status == .starting)
@@ -233,16 +248,21 @@ struct RecordingSessionTests {
 
         harness.session.discard()
         harness.recorders[0].unblock()
+        await start.value
+        #expect(harness.recorders[0].discardedARunningRecording)
     }
 
     @Test func discardIsIgnoredWhileFinishing() async throws {
         let harness = try RecordingSessionHarness()
+        let live = ParkingLiveSession()
+        harness.makeLive = { live }
         await harness.beginAndWait()
 
         let finishing = Task { await harness.session.finish() }
-        await Task.yield()
+        await live.waitUntilFinishing()
         #expect(harness.session.isFinishing)
         harness.session.discard()
+        live.release()
         await finishing.value
 
         #expect(harness.recorders[0].discardCount == 0)
@@ -309,5 +329,39 @@ struct RecordingSessionTests {
         #expect(contents.contains("recording.minimized"))
         #expect(contents.contains("live.availability"))
         #expect(!contents.contains(DiagnosticsPrivacyTests.sentinel))
+    }
+}
+
+// A live session whose finish() parks until released, so a test can act while a recording is
+// finishing.
+@MainActor
+final class ParkingLiveSession: LiveTranscriptionSession {
+    let volatileText = ""
+    let finalizedText = ""
+    let isHealthy = true
+    private var parked: CheckedContinuation<Void, Never>?
+    private var waiters: [CheckedContinuation<Void, Never>] = []
+
+    func start() async throws {}
+    func feed(_ buffer: AVAudioPCMBuffer) {}
+    func markUnhealthy(_ reason: String) {}
+
+    func finish() async -> String? {
+        await withCheckedContinuation { continuation in
+            parked = continuation
+            waiters.forEach { $0.resume() }
+            waiters = []
+        }
+        return nil
+    }
+
+    func waitUntilFinishing() async {
+        guard parked == nil else { return }
+        await withCheckedContinuation { waiters.append($0) }
+    }
+
+    func release() {
+        parked?.resume()
+        parked = nil
     }
 }

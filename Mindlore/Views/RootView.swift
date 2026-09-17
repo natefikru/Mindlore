@@ -120,22 +120,19 @@ struct RootView: View {
             }
         }
         // The accessory and the recorder are handed the session directly rather than relying on
-        // the environment below reaching the accessory's hosting.
+        // the environment below reaching their separate hosting.
         .tabViewBottomAccessory {
             RecordAccessory(session: recording) { confirmingDiscard = true }
-                .environment(recording)
-                .environment(router)
         }
         .fullScreenCover(isPresented: Binding(get: { recording.isExpanded }, set: { if !$0 { recording.close() } })) {
             RecordingView()
                 .environment(recording)
-                .environment(router)
         }
         .confirmationDialog("Discard this recording?", isPresented: $confirmingDiscard, titleVisibility: .visible) {
             Button("Discard Recording", role: .destructive) { recording.discard() }
+                .accessibilityIdentifier("confirmDiscardRecordingButton")
         }
         .environment(saver)
-        .environment(ingestor)
         .environment(transcription)
         .environment(presence)
         .environment(aiPass)

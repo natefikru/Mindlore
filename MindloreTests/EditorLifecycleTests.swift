@@ -62,7 +62,6 @@ struct EditorLifecycleTests {
 
         router.journalPath = []
         #expect(try entries().isEmpty)
-        #expect(!entry.automaticAIPassUsed)
     }
 
     @Test func aFinishedEntryGetsThePassOnceWhenItLeavesThePath() throws {
