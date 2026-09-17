@@ -21,8 +21,8 @@ extension XCUIElement {
     // A tap that misses clears the focus, which is harmless, and nothing taps a focused node a
     // second time, so this never navigates away.
     @discardableResult
-    func tapUntilGraphFocuses(step: CGFloat = 18, rings: Int = 6) -> String? {
-        let center = coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+    func tapUntilGraphFocuses(from origin: CGVector = CGVector(dx: 0.5, dy: 0.5), step: CGFloat = 18, rings: Int = 6) -> String? {
+        let center = coordinate(withNormalizedOffset: origin)
         var offsets: [CGVector] = [.zero]
         for ring in 1...rings {
             let radius = CGFloat(ring) * step

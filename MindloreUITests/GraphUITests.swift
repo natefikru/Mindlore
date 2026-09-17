@@ -37,12 +37,43 @@ final class GraphUITests: XCTestCase {
         editor.coordinate(withNormalizedOffset: CGVector(dx: 0.95, dy: 0.5)).tap()
     }
 
-    // Connections lives on the Mind tab until the Mind graph replaces it.
-    private func openConnections() {
+    private var canvas: XCUIElement { app.descendants(matching: .any)["mindGraphCanvas"] }
+
+    private func openMind() {
         app.tabBars.buttons["Mind"].tap()
-        let button = app.buttons["connectionsButton"]
-        XCTAssertTrue(button.waitForExistence(timeout: 5))
-        button.tap()
+        XCTAssertTrue(canvas.waitForExistence(timeout: 5))
+    }
+
+    private func waitFor(_ format: String, _ args: CVarArg..., on element: XCUIElement, timeout: TimeInterval = 5) {
+        let predicate = NSPredicate(format: format, argumentArray: args)
+        wait(for: [expectation(for: predicate, evaluatedWith: element)], timeout: timeout)
+    }
+
+    // Searches from the panel and returns the row, without tapping it.
+    private func search(_ text: String) -> XCUIElement {
+        let field = app.textFields["mindSearchField"]
+        XCTAssertTrue(field.waitForExistence(timeout: 5))
+        field.tap()
+        field.typeText(text)
+        return app.buttons["mindRow-\(text)"]
+    }
+
+    // Search, tap the row, and open the page from its card.
+    private func openPage(_ name: String) {
+        let row = search(name)
+        XCTAssertTrue(row.waitForExistence(timeout: 5), "row for \(name)")
+        row.tap()
+        let open = app.buttons["entityPeekOpen"]
+        XCTAssertTrue(open.waitForExistence(timeout: 5))
+        open.tap()
+        XCTAssertTrue(app.navigationBars[name].waitForExistence(timeout: 5))
+    }
+
+    // Leaves the finished stub entry and returns to the journal list.
+    private func finishAndLeave() {
+        finishEntryAndOpenInsights()
+        app.buttons["Done"].tap() // insights sheet -> editor
+        goBack() // editor -> list
     }
 
     private func goBack() {
@@ -132,83 +163,78 @@ final class GraphUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["entityBio"].label.contains("(edited)"))
         XCTAssertFalse(app.staticTexts["entityBioDrafted"].exists)
     }
-    // The global graph on the stub's entry: lower the mention filter so its one-mention entities
-    // show, then focus by tapping, drag, and pinch, and the canvas keeps answering.
+    // The stub's entry puts Sarah, Tom, and the river tag on the map, all with one mention, which a
+    // young journal shows by default. Focus by tapping, drag and pinch, clear, and filter.
     @MainActor
-    func testGlobalGraphFocusesATappedNodeAndKeepsResponding() throws {
-        finishEntryAndOpenInsights()
-        app.buttons["Done"].tap()
-        goBack()
+    func testMindFocusesATappedNodeAndKeepsResponding() throws {
+        finishAndLeave()
+        openMind()
+        waitFor("value BEGINSWITH 'nodes=3 '", on: canvas)
 
-        openConnections()
-        let graphButton = app.buttons["Graph"]
-        XCTAssertTrue(graphButton.waitForExistence(timeout: 5))
-        graphButton.tap()
-
-        app.buttons["globalGraphFilters"].tap()
-        let stepper = app.steppers["globalGraphMinimumLinkCount"]
-        XCTAssertTrue(stepper.waitForExistence(timeout: 5))
-        stepper.buttons.element(boundBy: 0).tap()
-        stepper.buttons.element(boundBy: 0).tap()
-        app.buttons["Done"].tap()
-
-        let canvas = app.descendants(matching: .any)["globalGraphCanvas"]
-        XCTAssertTrue(canvas.waitForExistence(timeout: 5))
-        let populated = expectation(for: NSPredicate(format: "value BEGINSWITH 'nodes=' AND NOT (value BEGINSWITH 'nodes=0 ')"), evaluatedWith: canvas)
-        wait(for: [populated], timeout: 5)
-
-        let focus = canvas.tapUntilGraphFocuses()
+        // With nothing focused, the layout sits in the middle of what the panel leaves uncovered.
+        let focus = canvas.tapUntilGraphFocuses(from: CGVector(dx: 0.5, dy: 0.35))
         XCTAssertNotNil(focus, "no tap landed on a node or edge: \(String(describing: canvas.value))")
+        XCTAssertTrue(app.descendants(matching: .any)["entityPeekCard"].waitForExistence(timeout: 5))
+        let panel = app.descendants(matching: .any)["mindSearchPanel"]
+        XCTAssertEqual(panel.value as? String, "stop=peek")
 
-        // Fly-to centred the focused node once its 0.35 s flight lands; drag it, then pinch in and
-        // back out, and it stays focused.
         sleep(1)
-        let center = canvas.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+        let center = canvas.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.3))
         center.press(forDuration: 0.05, thenDragTo: center.withOffset(CGVector(dx: 60, dy: 40)))
         canvas.pinch(withScale: 1.8, velocity: 1)
         canvas.pinch(withScale: 0.3, velocity: -1)
         XCTAssertEqual(canvas.graphFocus, focus)
 
-        // Zoomed back out, a tap in the far corner is clear of every node and edge and clears the
-        // focus.
-        canvas.coordinate(withNormalizedOffset: CGVector(dx: 0.05, dy: 0.95)).tap()
-        let cleared = expectation(for: NSPredicate(format: "value ENDSWITH 'focused=none'"), evaluatedWith: canvas)
-        wait(for: [cleared], timeout: 5)
+        // Zoomed out, a tap at the left edge above the card is clear of every node and edge.
+        canvas.coordinate(withNormalizedOffset: CGVector(dx: 0.03, dy: 0.2)).tap()
+        waitFor("value ENDSWITH 'focused=none'", on: canvas)
+        XCTAssertFalse(app.descendants(matching: .any)["entityPeekCard"].waitForExistence(timeout: 2))
+
+        // Switching people off drops Sarah and Tom without replacing the canvas.
+        app.buttons["mindFilters"].tap()
+        let people = app.switches["mindKind-person"]
+        XCTAssertTrue(people.waitForExistence(timeout: 5))
+        people.coordinate(withNormalizedOffset: CGVector(dx: 0.95, dy: 0.5)).tap()
+        app.buttons["Done"].tap()
+        waitFor("value BEGINSWITH 'nodes=1 '", on: canvas)
     }
 
-    // The Connections screen: browse, open an entry preview, merge, and unmerge, with the
-    // merge surviving a relaunch. Stub only, same reason as above.
+    // Search, the card, the page, an entry preview, a merge that refocuses the map on the winner,
+    // a relaunch, and an unmerge from "Merged into this". Stub only, same reason as above.
     @MainActor
-    func testConnectionsBrowseOpenAnEntryMergeAndUnmerge() throws {
-        finishEntryAndOpenInsights()
-        app.buttons["Done"].tap() // insights sheet -> editor
-        goBack() // editor -> list (already finished, so no Done button; autosave covers it)
+    func testMindSearchOpenMergeAndUnmerge() throws {
+        finishAndLeave()
+        openMind()
 
-        openConnections()
-        let sarahRow = app.buttons["connectionRow-Sarah"]
+        // The stub's loose end is about Sarah.
+        let sarahRow = search("Sarah")
         XCTAssertTrue(sarahRow.waitForExistence(timeout: 5))
+        XCTAssertTrue(app.descendants(matching: .any)["mindRowOpen-Sarah"].exists, "Sarah's row counts her open loose end")
         sarahRow.tap()
+        XCTAssertTrue(app.descendants(matching: .any)["entityPeekCard"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.descendants(matching: .any)["entityPeekLooseEnd"].waitForExistence(timeout: 5))
+        // The card never starts a bio draft; the stub would answer one at once.
+        XCTAssertFalse(app.descendants(matching: .any)["entityPeekBio"].waitForExistence(timeout: 3))
+        waitFor("value ENDSWITH 'focused=Sarah'", on: canvas)
 
+        app.buttons["entityPeekOpen"].tap()
         XCTAssertTrue(app.descendants(matching: .any)["entityPage"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["entityBioDrafted"].waitForExistence(timeout: 10), "opening the page drafts the bio")
+        XCTAssertTrue(app.descendants(matching: .any)["entityLooseEnds"].waitForExistence(timeout: 5))
         let summary = app.buttons["entityEntriesSummary"]
-        XCTAssertTrue(summary.waitForExistence(timeout: 5))
+        scrollToElement(summary, in: app.collectionViews.firstMatch)
         XCTAssertTrue(summary.label.contains("1 mentioned entry"), summary.label)
         summary.tap()
         let entryRow = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'entityEntryRow-'")).firstMatch
         XCTAssertTrue(entryRow.waitForExistence(timeout: 5))
-        // The expanded row lands near the bottom edge; bring it up before tapping.
         app.collectionViews.firstMatch.swipeUp()
         entryRow.tap()
         XCTAssertTrue(app.descendants(matching: .any)["entryPreview"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label CONTAINS 'Met Sarah'")).firstMatch.waitForExistence(timeout: 5))
-        app.buttons["Done"].tap() // entry preview -> entity page
+        app.buttons["Done"].tap() // entry preview -> Sarah's page
+        goBack() // Sarah's page -> map
 
-        goBack() // Sarah's page -> Connections list
-        let tomRow = app.buttons["connectionRow-Tom"]
-        XCTAssertTrue(tomRow.waitForExistence(timeout: 5))
-        tomRow.tap()
-        XCTAssertTrue(app.descendants(matching: .any)["entityPage"].waitForExistence(timeout: 5))
-
+        openPage("Tom")
         let mergeInto = app.buttons["entityMergeInto"]
         scrollToElement(mergeInto, in: app.collectionViews.firstMatch)
         mergeInto.tap()
@@ -218,27 +244,22 @@ final class GraphUITests: XCTestCase {
         app.buttons["confirmMergeButton"].firstMatch.tap()
         // The route follows the merge: this is Sarah's page now, not Tom's.
         XCTAssertTrue(app.navigationBars["Sarah"].waitForExistence(timeout: 5))
+        goBack() // Sarah's page -> map, focused on the winner
+        waitFor("value ENDSWITH 'focused=Sarah'", on: canvas)
 
-        goBack() // Sarah's page -> Connections list
-        XCTAssertFalse(app.buttons["connectionRow-Tom"].waitForExistence(timeout: 3), "Tom merged away, so no longer browsable")
-        XCTAssertTrue(app.buttons["connectionRow-Sarah"].waitForExistence(timeout: 5))
-        app.buttons["Done"].tap() // Connections -> Mind
-
-        // Relaunching, the merge survives.
+        // Relaunching, the merge survives. Tom is Sarah's alias now, so searching him finds her.
         app.terminate()
         app.launch()
-        openConnections()
-        XCTAssertFalse(app.buttons["connectionRow-Tom"].waitForExistence(timeout: 3))
-        let sarahAgain = app.buttons["connectionRow-Sarah"]
+        openMind()
+        XCTAssertTrue(search("Tom").waitForExistence(timeout: 3) == false, "Tom merged away")
+        let sarahAgain = app.buttons["mindRow-Sarah"]
         XCTAssertTrue(sarahAgain.waitForExistence(timeout: 5))
         sarahAgain.tap()
+        app.buttons["entityPeekOpen"].tap()
+        XCTAssertTrue(app.navigationBars["Sarah"].waitForExistence(timeout: 5))
 
-        // Undo the merge from "Merged into this". Known broken inside Connections: its path is typed
-        // [ConnectionsPathItem], so the page's EntityRoute links push nothing. A5 replaces Connections.
-        XCTExpectFailure("EntityRoute links are dead inside ConnectionsView's typed path", strict: false)
         let mergedInRow = app.buttons["mergedInRow-Tom"]
         scrollToElement(mergedInRow, in: app.collectionViews.firstMatch)
-        // Tapped while the list is still settling, the row only highlights.
         wait(for: [expectation(for: NSPredicate(format: "isHittable == true"), evaluatedWith: mergedInRow)], timeout: 5)
         mergedInRow.tap()
         XCTAssertTrue(app.navigationBars["Tom"].waitForExistence(timeout: 5))
@@ -248,23 +269,17 @@ final class GraphUITests: XCTestCase {
         unmerge.tap()
 
         goBack() // Tom's page -> Sarah's page
-        goBack() // Sarah's page -> Connections list
-        XCTAssertTrue(app.buttons["connectionRow-Tom"].waitForExistence(timeout: 5), "unmerge restored Tom")
-        app.buttons["Done"].tap() // Connections -> Mind
+        goBack() // Sarah's page -> map
+        XCTAssertTrue(search("Tom").waitForExistence(timeout: 5), "unmerge restored Tom")
     }
-    // The Review section: a suggestion appears when two names look alike, "Not the same"
-    // dismisses it, and the refresh keyed on graph.revision actually drops it (not just that
-    // editor.suggestions(in:) would, which EntityPageEditTests already covers).
-    @MainActor
-    func testReviewSuggestionNotTheSameRemovesThePair() throws {
-        finishEntryAndOpenInsights()
-        app.buttons["Done"].tap() // insights sheet -> editor
-        goBack() // editor -> list
 
-        openConnections()
-        let tomRow = app.buttons["connectionRow-Tom"]
-        XCTAssertTrue(tomRow.waitForExistence(timeout: 5))
-        tomRow.tap()
+    // The review card: a suggestion appears when two names look alike, "Not the same" dismisses
+    // it, and both stay.
+    @MainActor
+    func testReviewCardNotTheSameRemovesThePair() throws {
+        finishAndLeave()
+        openMind()
+        openPage("Tom")
 
         // Renaming Tom to "Sara" makes him look like Sarah, so a suggestion appears.
         app.buttons["entityRename"].tap()
@@ -273,17 +288,60 @@ final class GraphUITests: XCTestCase {
         renameField.doubleTap()
         renameField.typeText("Sara")
         app.buttons["entityRenameSave"].tap()
+        goBack() // Sara's page -> map
 
-        goBack() // Sara's page -> Connections list
+        // Choosing Tom cleared the search and lowered the panel; focusing the field raises it.
+        app.textFields["mindSearchField"].tap()
         let notTheSame = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'reviewNotSame-'")).firstMatch
-        XCTAssertTrue(notTheSame.waitForExistence(timeout: 5), "Sara and Sarah look alike enough to suggest")
+        XCTAssertTrue(notTheSame.waitForExistence(timeout: 5), "Sara and Sarah look alike enough to ask")
         notTheSame.tap()
 
-        // The pair is gone, and neither name merged into the other.
-        let stillSuggested = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'reviewNotSame-'")).firstMatch
-        XCTAssertFalse(stillSuggested.waitForExistence(timeout: 5))
-        XCTAssertTrue(app.buttons["connectionRow-Sara"].exists)
-        XCTAssertTrue(app.buttons["connectionRow-Sarah"].exists)
-        app.buttons["Done"].tap() // Connections -> Mind
+        let stillAsked = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'reviewNotSame-'")).firstMatch
+        XCTAssertFalse(stillAsked.waitForExistence(timeout: 3))
+        XCTAssertTrue(app.buttons["mindRow-Sara"].exists)
+        XCTAssertTrue(app.buttons["mindRow-Sarah"].exists)
+    }
+
+    // An area tile brings its entities forward; a second tap clears it. The stub files the entry
+    // under Friends.
+    @MainActor
+    func testAreaTileHighlightsItsEntities() throws {
+        finishAndLeave()
+        openMind()
+        waitFor("value BEGINSWITH 'nodes=3 '", on: canvas)
+        XCTAssertTrue((canvas.value as? String)?.contains("highlighted=0") == true)
+
+        let friends = app.buttons["areaTile-friends"]
+        XCTAssertTrue(friends.waitForExistence(timeout: 5))
+        friends.tap()
+        waitFor("value CONTAINS 'highlighted=3'", on: canvas)
+        friends.tap()
+        waitFor("value CONTAINS 'highlighted=0'", on: canvas)
+    }
+
+    // From an entry's read view: the name's card, its page, then Show in Mind. Mind opens focused
+    // on Sarah, and Journal still has the entry open.
+    @MainActor
+    func testShowInMindFromTheEditor() throws {
+        finishAndLeave()
+        app.staticTexts.matching(NSPredicate(format: "label CONTAINS 'Met Sarah'")).firstMatch.tap()
+        let readText = app.staticTexts["entryReadText"]
+        let sarah = readText.links["Sarah"]
+        XCTAssertTrue(sarah.waitForExistence(timeout: 10))
+        sarah.tap()
+        let open = app.buttons["entityPeekOpen"]
+        XCTAssertTrue(open.waitForExistence(timeout: 5))
+        open.tap()
+        let showInMind = app.buttons["entityShowInMind"]
+        XCTAssertTrue(app.descendants(matching: .any)["entityPage"].waitForExistence(timeout: 5))
+        scrollToElement(showInMind, in: app.collectionViews.firstMatch)
+        showInMind.tap()
+
+        XCTAssertTrue(canvas.waitForExistence(timeout: 5))
+        waitFor("value ENDSWITH 'focused=Sarah'", on: canvas)
+        XCTAssertTrue(app.tabBars.buttons["Mind"].isSelected)
+
+        app.tabBars.buttons["Journal"].tap()
+        XCTAssertTrue(readText.waitForExistence(timeout: 5), "the entry is still open on Journal")
     }
 }
