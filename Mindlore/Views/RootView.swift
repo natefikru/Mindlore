@@ -14,12 +14,14 @@ struct RootView: View {
     @State private var network = NetworkMonitor()
     @State private var indexing: GraphIndexingProgress?
     @State private var graph: GraphServices
+    @State private var router: AppRouter
     private let context: ModelContext
 
     init(container: ModelContainer, settings: SettingsStore, accounts: ProviderAccountStore) {
         let context = container.mainContext
         self.context = context
-        _saver = State(initialValue: EntrySaver(context: context))
+        let saver = EntrySaver(context: context)
+        _saver = State(initialValue: saver)
         let http = accounts.http
         let presence = EditorPresence()
         let router = TranscriberRouter(settings: settings, accounts: accounts, http: http, onDevice: SpeechAnalyzerTranscriber())
@@ -73,6 +75,15 @@ struct RootView: View {
             autoApplyEntryDate: { settings.autoApplySuggestedEntryDate }
         )
 
+        let lifecycle = EditorLifecycle(
+            context: context,
+            saver: saver,
+            presence: presence,
+            aiPass: aiPass,
+            keepAudio: { settings.keepAudioAfterTranscription }
+        )
+        _router = State(initialValue: AppRouter(opened: lifecycle.opened, closed: lifecycle.closed))
+
         _presence = State(initialValue: presence)
         _pageTranscription = State(initialValue: pageTranscription)
         _transcription = State(initialValue: transcription)
@@ -92,6 +103,7 @@ struct RootView: View {
             .environment(pageTranscription)
             .environment(insights)
             .environment(graph)
+            .environment(router)
             .overlay {
                 if let indexing {
                     GraphIndexingOverlay(progress: indexing)

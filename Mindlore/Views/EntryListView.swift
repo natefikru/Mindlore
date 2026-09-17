@@ -9,10 +9,9 @@ struct EntryListView: View {
     // Backdated entries share noon of their day, so createdAt keeps their order stable.
     @Query(sort: [SortDescriptor(\Entry.entryDate, order: .reverse), SortDescriptor(\Entry.createdAt, order: .reverse)])
     private var entries: [Entry]
-    @State private var path: [Entry] = []
+    @Environment(AppRouter.self) private var router
     @State private var showingSettings = false
     @State private var showingConnections = false
-    @State private var writingNewEntry = false
     @State private var recording = false
     @State private var pageOrder: PageOrderTarget?
     @State private var insightsEntry: Entry?
@@ -31,7 +30,8 @@ struct EntryListView: View {
     }
 
     var body: some View {
-        NavigationStack(path: $path) {
+        @Bindable var router = router
+        NavigationStack(path: $router.journalPath) {
             List {
                 ForEach(entries) { entry in
                     // Pages still being gathered reopen the page screen, not the editor.
@@ -43,7 +43,7 @@ struct EntryListView: View {
                         }
                         .foregroundStyle(.primary)
                     } else {
-                        NavigationLink(value: entry) {
+                        NavigationLink(value: JournalRoute(entryID: entry.id)) {
                             EntryRow(entry: entry, isAnalyzing: isAnalyzing(entry))
                         }
                         .contextMenu {
@@ -68,11 +68,8 @@ struct EntryListView: View {
                 }
             }
             .navigationTitle("Mindlore")
-            .navigationDestination(for: Entry.self) { entry in
-                EntryEditorView(entry: entry)
-            }
-            .navigationDestination(isPresented: $writingNewEntry) {
-                EntryEditorView(entry: nil)
+            .navigationDestination(for: JournalRoute.self) { route in
+                JournalEntryDestination(route: route)
             }
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
@@ -98,7 +95,7 @@ struct EntryListView: View {
                 ConnectionsView()
             }
             .fullScreenCover(isPresented: $recording) {
-                RecordingView { entry in path.append(entry) }
+                RecordingView { entry in router.showEntry(entry.id) }
             }
             .sheet(item: $insightsEntry) { entry in
                 EntryInsightsView(entry: entry)
@@ -106,16 +103,21 @@ struct EntryListView: View {
             .fullScreenCover(item: $pageOrder) { target in
                 switch target {
                 case .new:
-                    PageOrderView(entry: nil) { entry in path.append(entry) }
+                    PageOrderView(entry: nil) { entry in router.showEntry(entry.id) }
                 case .existing(let entry):
-                    PageOrderView(entry: entry) { entry in path.append(entry) }
+                    PageOrderView(entry: entry) { entry in router.showEntry(entry.id) }
                 }
+            }
+            .onChange(of: router.dismissPresentationsToken) {
+                showingSettings = false
+                showingConnections = false
+                insightsEntry = nil
             }
         }
     }
 
     private var newTypedEntryButton: some View {
-        Button("New Written Entry", systemImage: "square.and.pencil") { writingNewEntry = true }
+        Button("New Written Entry", systemImage: "square.and.pencil") { router.journalPath.append(.new()) }
             .accessibilityIdentifier("newEntryButton")
     }
 
@@ -139,6 +141,22 @@ struct EntryListView: View {
         saver.flush()
         graph.entriesDeleted(in: modelContext)
         saver.flush()
+    }
+}
+
+// Resolves a route to its entry each time it's shown, so a deleted entry never reaches the editor.
+private struct JournalEntryDestination: View {
+    let route: JournalRoute
+    @Environment(\.modelContext) private var modelContext
+
+    var body: some View {
+        if route.isNew {
+            EntryEditorView(entry: EditorLifecycle.entry(route.entryID, in: modelContext), newEntryID: route.entryID)
+        } else if let entry = EditorLifecycle.entry(route.entryID, in: modelContext) {
+            EntryEditorView(entry: entry)
+        } else {
+            ContentUnavailableView("This entry was deleted", systemImage: "trash")
+        }
     }
 }
 
@@ -231,6 +249,7 @@ private struct EntryRow: View {
         .environment(RecordingIngestor())
         .environment(TranscriptionCoordinator())
         .environment(EditorPresence())
+        .environment(AppRouter(opened: { _ in }, closed: { _ in }))
         .environment(ProviderAccountStore(settings: SettingsStore(store: UserDefaults(suiteName: "preview")!)))
         .environment(PageTranscriptionCoordinator(resolve: { .failure(AIJobFailure(raw: "settings.aiOff")) }))
         .environment(AIPassTrigger(settings: SettingsStore(store: UserDefaults(suiteName: "preview")!), presence: EditorPresence(), titleUsable: { false }))

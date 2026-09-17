@@ -7,12 +7,14 @@ struct EntryEditorView: View {
     @Environment(GraphServices.self) private var graph
     @Environment(SettingsStore.self) private var settings
     @Environment(TranscriptionCoordinator.self) private var transcription
-    @Environment(EditorPresence.self) private var presence
     @Environment(AIPassTrigger.self) private var aiPass
     @Environment(PageTranscriptionCoordinator.self) private var pageTranscription
     @Environment(ProviderAccountStore.self) private var accounts
     @Environment(InsightsCoordinator.self) private var insightsCoordinator
-    @State private var entry: Entry?
+    @Environment(AppRouter.self) private var router
+    @State private var currentEntry: Entry?
+    // The id a new entry is created with, so the close rules find it when its route leaves the path.
+    private let newEntryID: UUID?
     @State private var editingDate = false
     @State private var editingPages = false
     @State private var viewingPage: Int?
@@ -32,8 +34,16 @@ struct EntryEditorView: View {
 
     static let fallbackNoticeSeconds = 8.0
 
-    init(entry: Entry?) {
-        _entry = State(initialValue: entry)
+    init(entry: Entry?, newEntryID: UUID? = nil) {
+        _currentEntry = State(initialValue: entry)
+        self.newEntryID = newEntryID
+    }
+
+    // The close rules run when the route leaves the path, while this view is still animating out,
+    // and may delete a blank entry under it. A deleted entry reads as no entry.
+    private var entry: Entry? {
+        guard let currentEntry, !currentEntry.isDeleted, currentEntry.modelContext != nil else { return nil }
+        return currentEntry
     }
 
     var body: some View {
@@ -150,18 +160,17 @@ struct EntryEditorView: View {
                     .presentationDetents([.medium, .large])
             }
         }
+        // Opening and closing (presence, delete-if-blank, the AI pass) belong to the route, in
+        // EditorLifecycle, so a tab switch or a cover over the editor never closes the entry.
         .onAppear {
-            if let entry {
-                presence.open(entry.id)
-            } else {
-                focusAtEndToken += 1
-            }
+            if entry == nil { focusAtEndToken += 1 }
         }
-        // A full-screen cover removes the presenting view, which would otherwise run the editor's
-        // close rules (delete-if-blank, discard audio, fire the AI pass) while the entry is still open.
-        .onDisappear {
-            guard !isPresentingOverEditor else { return }
-            close()
+        // Full-screen covers stay: they hide the tab bar, so no jump can start under them, and
+        // closing the page screen from outside would skip its own close rules.
+        .onChange(of: router.dismissPresentationsToken) {
+            editingDate = false
+            showingInsights = false
+            reviewingCleanup = false
         }
     }
 
@@ -297,10 +306,6 @@ struct EntryEditorView: View {
         }
     }
 
-    private var isPresentingOverEditor: Bool {
-        editingPages || viewingPage != nil || showingInsights || reviewingCleanup || editingDate
-    }
-
     private func insightsState(for entry: Entry) -> InsightsPresentation.State {
         InsightsPresentation.state(.init(
             isDraft: entry.isDraft,
@@ -409,12 +414,12 @@ struct EntryEditorView: View {
                     entry.text = newValue
                     entry.userDidEditText()
                 } else {
-                    guard !newValue.isEmpty else { return }
+                    guard !newValue.isEmpty, let newEntryID else { return }
                     let created = Entry(text: newValue)
+                    created.id = newEntryID
                     created.isDraft = true
                     modelContext.insert(created)
-                    entry = created
-                    presence.open(created.id)
+                    currentEntry = created
                     DiagnosticsLog.shared.record("entry.created", ["id": .id(created.id), "source": .string(created.source.rawValue)])
                 }
                 saver.noteChange()
@@ -431,13 +436,13 @@ struct EntryEditorView: View {
                     guard entry.title != newValue else { return }
                     entry.userDidEditTitle(newValue)
                 } else {
-                    guard !newValue.isEmpty else { return }
+                    guard !newValue.isEmpty, let newEntryID else { return }
                     let created = Entry()
+                    created.id = newEntryID
                     created.isDraft = true
                     created.userDidEditTitle(newValue)
                     modelContext.insert(created)
-                    entry = created
-                    presence.open(created.id)
+                    currentEntry = created
                     DiagnosticsLog.shared.record("entry.created", ["id": .id(created.id), "source": .string(created.source.rawValue)])
                 }
                 saver.noteChange()
@@ -522,30 +527,6 @@ struct EntryEditorView: View {
             }
         }
         .buttonStyle(.borderless)
-    }
-
-    private func close() {
-        // If the view is still on screen (a cancelled back swipe), dropping the reference means
-        // the next keystroke creates a fresh entry instead of writing to a deleted one.
-        if let entry {
-            presence.close(entry.id)
-            let id = entry.id
-            let hadAudio = entry.audioData != nil
-            let deleted = Entry.editorDidClose(entry, keepAudio: settings.keepAudioAfterTranscription, in: modelContext)
-            DiagnosticsLog.shared.record("editor.closed", [
-                "id": .id(id),
-                "deleted": .bool(deleted),
-                "audioDiscarded": .bool(hadAudio && (deleted || entry.audioData == nil)),
-                "characters": .int(deleted ? 0 : entry.text.count),
-            ])
-            if deleted {
-                self.entry = nil
-            } else {
-                aiPass.fire(for: entry, at: .editorClosed)
-            }
-        }
-        saver.flush()
-        aiPass.onFlagged?()
     }
 }
 
