@@ -65,6 +65,8 @@ private struct EntityPage: View {
     @State private var collidingEdit: ((Bool) -> GraphEditor.EditOutcome)?
     @State private var repointing: MentionRef?
     @State private var previewingRow: EntityPagePresentation.EntryRow?
+    @State private var showsEntries = false
+    @State private var showsAllPartners = false
     @State private var coOccurring: [EntityPagePresentation.CoOccurrenceRow] = []
     @State private var localGraphRoute: LocalGraphRoute?
 
@@ -99,7 +101,7 @@ private struct EntityPage: View {
                 if !showsLoser { graph.pageOpened(id, in: modelContext) }
             }
             .task(id: graph.revision) {
-                coOccurring = EntityPagePresentation.coOccurrenceRows(graph.mentionedWith(of: id, in: modelContext))
+                coOccurring = EntityPagePresentation.coOccurrenceRows(graph.mentionedWith(of: id, in: modelContext, limit: .max))
             }
             .sheet(isPresented: $editingBio) {
                 BioEditorSheet(initial: entity.bio ?? "") { text in
@@ -366,65 +368,104 @@ private struct EntityPage: View {
             .accessibilityIdentifier("entityBioDraft")
     }
 
+    // One row that says how many entries mention them and expands in place, so a busy person's
+    // page isn't a wall of entries. In place rather than pushed, so the three stacks that push
+    // entity pages need no new route type.
     @ViewBuilder
     private var entriesSection: some View {
-        let rows = entryRows
-        if !rows.isEmpty {
-            Section("Entries") {
-                ForEach(rows) { row in
-                    VStack(alignment: .leading, spacing: 4) {
-                        Button {
-                            saver.flush()
-                            previewingRow = row
-                        } label: {
-                            VStack(alignment: .leading, spacing: 4) {
-                                HStack(alignment: .firstTextBaseline) {
-                                    Text(row.heading).font(.headline)
-                                    Spacer()
-                                    if row.guessed != nil {
-                                        Text("Guessed")
-                                            .font(.caption)
-                                            .foregroundStyle(.orange)
-                                    }
-                                }
-                                Text(row.date.formatted(date: .abbreviated, time: .omitted))
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                                if let sentence = row.sentence {
-                                    Text(sentence)
-                                        .font(.subheadline)
-                                        .foregroundStyle(.secondary)
-                                        .lineLimit(3)
-                                }
-                            }
+        let mine = links.filter { $0.entityID == id && !$0.isDeleted }
+        let count = Set(mine.compactMap(\.entryID)).count
+        if count > 0 {
+            let guessed = Set(mine.filter(\.inferred).compactMap(\.entryID)).count
+            Section {
+                Button {
+                    withAnimation { showsEntries.toggle() }
+                } label: {
+                    HStack {
+                        Text(count == 1 ? "1 mentioned entry" : "\(count) mentioned entries")
+                            .foregroundStyle(.primary)
+                        Spacer()
+                        if guessed > 0 {
+                            Text("\(guessed) guessed").foregroundStyle(.orange)
                         }
-                        .buttonStyle(.plain)
-                        .accessibilityIdentifier("entityEntryRow-\(row.id)")
-                        if let guessed = row.guessed {
-                            Button("Not them") { repointing = guessed }
-                                .buttonStyle(.borderless)
-                                .font(.subheadline)
-                                .accessibilityIdentifier("entityNotThem")
-                        }
+                        Image(systemName: "chevron.right")
+                            .font(.footnote.weight(.semibold))
+                            .foregroundStyle(.tertiary)
+                            .rotationEffect(.degrees(showsEntries ? 90 : 0))
+                    }
+                }
+                .tint(.primary)
+                .accessibilityIdentifier("entityEntriesSummary")
+                if showsEntries {
+                    ForEach(entryRows) { row in
+                        entryRow(row)
                     }
                 }
             }
         }
     }
 
+    private func entryRow(_ row: EntityPagePresentation.EntryRow) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Button {
+                saver.flush()
+                previewingRow = row
+            } label: {
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack(alignment: .firstTextBaseline) {
+                        Text(row.heading).font(.headline)
+                        Spacer()
+                        if row.guessed != nil {
+                            Text("Guessed")
+                                .font(.caption)
+                                .foregroundStyle(.orange)
+                        }
+                    }
+                    Text(row.date.formatted(date: .abbreviated, time: .omitted))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    if let sentence = row.sentence {
+                        Text(sentence)
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(3)
+                    }
+                }
+            }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("entityEntryRow-\(row.id)")
+            if let guessed = row.guessed {
+                Button("Not them") { repointing = guessed }
+                    .buttonStyle(.borderless)
+                    .font(.subheadline)
+                    .accessibilityIdentifier("entityNotThem")
+            }
+        }
+    }
+
+    // The strongest few partners inline and the rest one tap away, so the page agrees with the
+    // graph, which draws every partner.
     @ViewBuilder
     private var mentionedWithSection: some View {
         if !coOccurring.isEmpty {
             Section("Mentioned with") {
-                ForEach(coOccurring) { row in
+                ForEach(showsAllPartners ? coOccurring[...] : coOccurring.prefix(Self.inlinePartners)) { row in
                     NavigationLink(value: EntityRoute(id: row.id)) {
                         Label(row.name, systemImage: row.kind.symbol)
                     }
                     .accessibilityIdentifier("mentionedWithRow-\(row.name)")
                 }
+                if coOccurring.count > Self.inlinePartners {
+                    Button(showsAllPartners ? "Show fewer" : "Show all \(coOccurring.count)") {
+                        withAnimation { showsAllPartners.toggle() }
+                    }
+                    .accessibilityIdentifier("mentionedWithSeeAll")
+                }
             }
         }
     }
+
+    private static let inlinePartners = 8
 
     @ViewBuilder
     private var mergedInSection: some View {

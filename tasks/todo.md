@@ -554,7 +554,7 @@ the real key.
   - `update` keeps surviving positions exactly and places new nodes near a neighbour
   - focus and label sets change only on focus or zoom changes
   - edge hit-testing geometry
-- [ ] **Device gate:** seed 300 nodes and record `graph.rendered` p95. Write the result in the
+- [x] **Device gate:** seed 300 nodes and record `graph.rendered` p95. Write the result in the
       review log and decide on A3b.
 
 ### A3b (only if the gate fails): performance
@@ -778,12 +778,38 @@ focused (8pt drag threshold); a node that grew didn't make room (0.05 reheat); t
 growing after reporting; the graph UI test raced the fly-to. Not changed: nothing covers a gesture
 cancel in a test, since XCUITest can't cancel a gesture.
 
-`GraphUITests.testConnectionsBrowseOpenAnEntryMergeAndUnmerge` fails at `entityMergeInto` on
-this branch and on A0 (`6d0735b`) alike, so it predates A3; A5 rewrites that test. For A9,
+`GraphUITests.testConnectionsBrowseOpenAnEntryMergeAndUnmerge` failed at `entityMergeInto` on
+this branch and on A0 (`6d0735b`) alike. A1 added a scroll there; it now fails later, at
+`entityUnmerge`, on the landed A3 commit (`65cb856`) as well: after a relaunch, tapping Tom under
+"Merged into this" highlights the row and pushes nothing. That's a real Connections bug, left
+for A5, which deletes Connections and rewrites the test. For A9,
 CLAUDE.md's Graph paragraph still describes a rebuild on every change and a settle-only
 `graph.rendered`.
 
-Device gate: pending.
+Device gate (2026-09-17, iPhone 17 Pro, run `a3-gate-1`, `-seedDemoJournal 300`, 223 to 224
+nodes and 2770 to 2784 edges at the default minimum of 2 mentions). Nine `graph.rendered` events
+from the owner's session of dragging, panning, pinching, and focusing:
+- frame interval p50 16.7 to 17.4 ms, p95 17.6 to 18.3 ms (65 to 306 samples each)
+- draw-closure work p95 9.0 to 11.1 ms
+- first settle 1.1 to 5.0 s
+
+p95 stays under the 20 ms gate on every sample, so **A3b is not needed** and the simulation stays
+on the main actor with Canvas. One caveat: the app doesn't set
+`CADisableMinimumFrameDurationOnPhone`, so iOS holds it to 60 Hz and the gate measured a 16.7 ms
+budget. At ProMotion's 120 Hz the budget is 8.3 ms and today's ~9 ms of work would drop frames.
+If the Mind tab should run at 120 Hz, that's the plist key plus A3b's first step (Barnes-Hut),
+measured the same way.
+
+Owner feedback from the same session, handled in this lane (`EntityView` is outside the lane's
+file list; no other lane touches it before A5):
+- The bubbles were too big to read the graph. Radius is now 3.5 + 1.4 sqrt(mentions), capped at
+  16 (was 6 + 4 sqrt, capped at 28).
+- The entity page's "Mentioned with" missed partners the graph showed: it listed the top 8 only.
+  It now shows the top 8 and "Show all N", which expands in place.
+- The entries list is now one "N mentioned entries" row (with a guessed count) that expands in
+  place, which needs no new route type in the three stacks that push entity pages.
+- Entries that didn't make sense under a tag: the demo seeder picks tags at random and never
+  writes them into the text, so this is demo data, not the app.
 
 Owner answers after revision 1 (2026-09-17): the tab is Mind, a fresh install is fine, and Ask
 keeps saved conversations and opens a new one by default. Folded in above.

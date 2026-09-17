@@ -236,8 +236,10 @@ nonisolated final class GraphSimulation {
 
     // MARK: - Geometry
 
+    // Kept small so a 200-node graph reads as a map rather than a wall of discs: 5pt for a
+    // single mention, 16pt at about 80.
     static func radius(linkCount: Int) -> Double {
-        min(28, 6 + sqrt(Double(max(linkCount, 1))) * 4)
+        min(16, 3.5 + sqrt(Double(max(linkCount, 1))) * 1.4)
     }
 
     static func targetDistance(weight: Double) -> Double {

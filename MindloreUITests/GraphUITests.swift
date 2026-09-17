@@ -182,8 +182,14 @@ final class GraphUITests: XCTestCase {
         sarahRow.tap()
 
         XCTAssertTrue(app.descendants(matching: .any)["entityPage"].waitForExistence(timeout: 5))
+        let summary = app.buttons["entityEntriesSummary"]
+        XCTAssertTrue(summary.waitForExistence(timeout: 5))
+        XCTAssertTrue(summary.label.contains("1 mentioned entry"), summary.label)
+        summary.tap()
         let entryRow = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'entityEntryRow-'")).firstMatch
         XCTAssertTrue(entryRow.waitForExistence(timeout: 5))
+        // The expanded row lands near the bottom edge; bring it up before tapping.
+        app.collectionViews.firstMatch.swipeUp()
         entryRow.tap()
         XCTAssertTrue(app.descendants(matching: .any)["entryPreview"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label CONTAINS 'Met Sarah'")).firstMatch.waitForExistence(timeout: 5))
