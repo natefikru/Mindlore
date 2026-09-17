@@ -34,6 +34,15 @@ struct EntityNameRangesTests {
         #expect(zip(matches, matches.dropFirst()).allSatisfy { $0.range.upperBound <= $1.range.lowerBound })
     }
 
+    @Test func aCapitalisedNameNeedsACapitalInTheText() {
+        let will = UUID()
+        let result = linked("I will call Will. WILL answered, may be later.", [
+            .init(entityID: will, kind: .person, names: ["Will"]),
+            .init(entityID: tom, kind: .place, names: ["may"]),
+        ])
+        #expect(result.map(\.0) == ["Will", "WILL", "may"])
+    }
+
     @Test func oneLetterAndEmptyNamesAreSkipped() {
         #expect(linked("A day with J and a walk.", [.init(entityID: tom, kind: .person, names: ["J", "", " "])]).isEmpty)
     }

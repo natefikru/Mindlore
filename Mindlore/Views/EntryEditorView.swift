@@ -33,7 +33,7 @@ struct EntryEditorView: View {
     @State private var focusAtEndToken = 0
     // Past entries open read-only; Edit switches to typing. Decided once when the editor opens.
     @State private var isReading: Bool
-    private let openedForReading: Bool
+    @State private var openedForReading: Bool
     // Edit asks the text view, once it exists, to take focus with the caret at the end.
     @State private var focusWhenEditorAppears = false
     // The read text with names linked, and the text it was built from, so stale links never show.
@@ -46,7 +46,7 @@ struct EntryEditorView: View {
         _currentEntry = State(initialValue: entry)
         self.newEntryID = newEntryID
         _isReading = State(initialValue: opensForReading)
-        openedForReading = opensForReading
+        _openedForReading = State(initialValue: opensForReading)
     }
 
     // The close rules run when the route leaves the path, while this view is still animating out,

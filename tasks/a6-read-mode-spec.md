@@ -29,13 +29,14 @@ holds:
 - `textReviewPending`
 - a photo entry whose pages aren't confirmed
 - `AIPassTrigger.offersDone(entry, automationStartedAt:)` is true
-- the route asked for typing (`JournalRoute.opensForTyping`, set by a finished recording's jump,
-  so a live-text recording always lands in the editor, even with automation off)
+- the route didn't ask for reading: `JournalRoute.opensForReading` is set by the list row from this
+  rule when tapped, and is false for new routes and for jumps (a finished recording or page set),
+  so a live-text recording always lands in the editor, even with automation off
 - the text is empty after trimming
 
 The mode is decided when the editor is created (`@State`) and only ever flips automatically one
 way: if the entry starts awaiting text, needs page review, becomes a draft, or its text empties
-while reading (Edit pages, Replace with page transcription), it switches to typing. Done on a
+while reading (Edit pages restarting the entry), it switches to typing. Done on a
 finished entry doesn't flip it to reading, so the insights UI test that keeps typing after Done
 still works.
 
@@ -187,3 +188,12 @@ builds on this file instead of a second card.
 - The loose-end line on the card (after A2).
 - Names in the list preview and in Ask answers.
 - A long-press fallback on names in the editable view.
+
+## Code review (after building)
+
+One real bug: the editor's "opened for reading" was a plain property, recomputed as the entry
+changed, so finishing a draft grew a second Done. The decision now travels on the route, made by
+the list row at tap time, and the editor holds it in `@State`. Also fixed: capitalised names only
+link where the text capitalises them ("I will call Will"), the card shows "No longer in your
+journal" instead of spinning when its entity can't load, and two UI test waits. Not changed: link
+building fetches every link and entity per open, fine at 300 entries.

@@ -19,7 +19,10 @@ nonisolated enum EntityNameRanges {
         var found: [Match] = []
         for candidate in candidates {
             for name in Set(candidate.names.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }) where name.count > 1 {
+                let capitalised = name.first?.isUppercase == true
                 for range in NameMatching.ranges(of: name, in: text) where isWholeCharacters(range, in: text) {
+                    // "Will" and "May" are names only when written as names, not in "I will" or "may".
+                    if capitalised && text[range].first?.isUppercase != true { continue }
                     found.append(Match(range: range, entityID: candidate.entityID))
                 }
             }

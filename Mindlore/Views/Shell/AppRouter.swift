@@ -11,15 +11,17 @@ enum AppTab: Hashable {
 nonisolated struct JournalRoute: Hashable, Sendable {
     let entryID: UUID
     var isNew = false
-    // Set by a finished recording, so its entry lands in the editor rather than read mode.
-    var opensForTyping = false
+    // Decided when the route is made (a list row knows its entry; a finished recording or page set
+    // lands for typing), so the editor never re-decides while the entry changes under it.
+    var opensForReading = false
 
     static func new() -> JournalRoute {
         JournalRoute(entryID: UUID(), isNew: true)
     }
 
     // An entry that started as a new route is the same entry once it exists, so showing it again
-    // doesn't close and reopen it.
+    // doesn't close and reopen it. For the same reason a route that differs only in
+    // `opensForReading` replaces an open one without changing the open editor's mode.
     static func == (lhs: JournalRoute, rhs: JournalRoute) -> Bool { lhs.entryID == rhs.entryID }
     func hash(into hasher: inout Hasher) { hasher.combine(entryID) }
 }
@@ -50,8 +52,8 @@ final class AppRouter {
 
     // Replaces Journal's path rather than appending, so a finished recording never lands on top of
     // another open entry.
-    func showEntry(_ id: UUID, forTyping: Bool = false) {
-        let route = JournalRoute(entryID: id, opensForTyping: forTyping)
+    func showEntry(_ id: UUID, forReading: Bool = false) {
+        let route = JournalRoute(entryID: id, opensForReading: forReading)
         guard openCovers.isEmpty else {
             pendingRoute = route
             return
@@ -69,7 +71,7 @@ final class AppRouter {
         }
         guard openCovers.isEmpty, let pending = pendingRoute else { return }
         pendingRoute = nil
-        showEntry(pending.entryID, forTyping: pending.opensForTyping)
+        showEntry(pending.entryID, forReading: pending.opensForReading)
     }
 
     private func reportChanges(from old: [JournalRoute]) {

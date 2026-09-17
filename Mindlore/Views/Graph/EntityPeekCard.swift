@@ -34,6 +34,7 @@ struct EntityPeekCard: View {
     @Environment(GraphServices.self) private var graph
     @Query private var matches: [Entity]
     @State private var summary: EntityPeekPresentation.Summary?
+    @State private var loaded = false
 
     init(route: EntityRoute, open: @escaping (EntityRoute) -> Void) {
         self.route = route
@@ -54,9 +55,10 @@ struct EntityPeekCard: View {
                 content(id: id)
                     .task(id: PeekKey(id: id, revision: graph.revision)) {
                         summary = EntityPeekPresentation.load(id, graph: graph, in: modelContext)
+                        loaded = true
                     }
             case .gone:
-                ContentUnavailableView("No longer in your journal", systemImage: "person.crop.circle.badge.questionmark")
+                gone
             }
         }
         .toolbar(.hidden, for: .navigationBar)
@@ -94,10 +96,16 @@ struct EntityPeekCard: View {
             }
             .padding(20)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        } else if loaded {
+            gone
         } else {
             ProgressView()
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
+    }
+
+    private var gone: some View {
+        ContentUnavailableView("No longer in your journal", systemImage: "person.crop.circle.badge.questionmark")
     }
 
     private func details(_ summary: EntityPeekPresentation.Summary) -> String {

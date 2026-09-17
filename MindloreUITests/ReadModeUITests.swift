@@ -72,7 +72,9 @@ final class ReadModeUITests: XCTestCase {
 
         let card = app.descendants(matching: .any).matching(identifier: "entityPeekCard").firstMatch
         XCTAssertTrue(card.waitForExistence(timeout: 5))
-        XCTAssertTrue(app.staticTexts.matching(identifier: "entityPeekName").firstMatch.label.contains("Sarah"))
+        let name = app.staticTexts.matching(identifier: "entityPeekName").firstMatch
+        XCTAssertTrue(name.waitForExistence(timeout: 5), "the card has loaded")
+        XCTAssertTrue(name.label.contains("Sarah"))
         // The stub drafts a bio the moment a page opens, so none appearing means the card didn't ask.
         XCTAssertFalse(app.staticTexts["entityPeekBio"].waitForExistence(timeout: 3))
 
@@ -81,7 +83,7 @@ final class ReadModeUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["entityBioDrafted"].waitForExistence(timeout: 10))
 
         // Back on the card, the drafted bio shows.
-        app.navigationBars.buttons.element(boundBy: 0).tap()
+        app.navigationBars["Sarah"].buttons.element(boundBy: 0).tap()
         XCTAssertTrue(app.staticTexts["entityPeekBio"].waitForExistence(timeout: 5))
 
         // Closing the card leaves the entry open for reading.

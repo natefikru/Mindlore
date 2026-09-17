@@ -111,19 +111,21 @@ struct AppRouterTests {
         #expect(router.pendingRoute == nil)
     }
 
-    @Test func aRecordingOpensForTypingWithoutChangingWhichRouteItIs() {
+    // New routes and jumps open for typing unless asked; the flag isn't part of which route it is.
+    @Test func routesOpenForTypingUnlessAskedAndTheModeIsntPartOfEquality() {
         let log = Log()
         let router = router(log)
         let id = UUID()
 
-        router.showEntry(id, forTyping: true)
-        #expect(router.journalPath.first?.opensForTyping == true)
-        #expect(router.journalPath == [JournalRoute(entryID: id)])
+        #expect(JournalRoute.new().opensForReading == false)
+        router.showEntry(id)
+        #expect(router.journalPath.first?.opensForReading == false)
+        #expect(router.journalPath == [JournalRoute(entryID: id, opensForReading: true)])
 
         router.setCover("pageOrder", open: true)
-        router.showEntry(UUID(), forTyping: true)
+        router.showEntry(UUID(), forReading: true)
         router.setCover("pageOrder", open: false)
-        #expect(router.journalPath.first?.opensForTyping == true)
+        #expect(router.journalPath.first?.opensForReading == true)
     }
 
     @Test func showingAnEntryThatStartedAsANewRouteKeepsItOpen() {

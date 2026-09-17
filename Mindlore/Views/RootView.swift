@@ -96,7 +96,7 @@ struct RootView: View {
             makeLiveSession: { SpeechAnalyzerLiveSession(locale: $0) },
             speechEngine: { settings.speechEngine },
             afterIngest: { await transcription.processQueue(context: context) },
-            onFinished: { appRouter.showEntry($0.id, forTyping: true) }
+            onFinished: { appRouter.showEntry($0.id) }
         ))
 
         _presence = State(initialValue: presence)

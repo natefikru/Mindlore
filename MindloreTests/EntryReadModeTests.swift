@@ -12,17 +12,13 @@ struct EntryReadModeTests {
         return entry
     }
 
-    private func reads(_ entry: Entry?, typing: Bool = false, automation: Date? = Date(timeIntervalSince1970: 1_000)) -> Bool {
-        EntryReadMode.opensForReading(entry, routeWantsTyping: typing, automationStartedAt: automation)
+    private func reads(_ entry: Entry, automation: Date? = Date(timeIntervalSince1970: 1_000)) -> Bool {
+        EntryReadMode.opensForReading(entry, automationStartedAt: automation)
     }
 
     @Test func aFinishedEntryOpensForReading() {
         #expect(reads(finished()))
         #expect(reads(finished(), automation: nil))
-    }
-
-    @Test func aNewRouteOpensForTyping() {
-        #expect(!reads(nil))
     }
 
     @Test func workInProgressOpensForTyping() {
@@ -51,11 +47,6 @@ struct EntryReadModeTests {
         #expect(!reads(entry))
         // Made before automation started, it has no pass to offer, so it reads.
         #expect(reads(entry, automation: Date(timeIntervalSince1970: 9_000)))
-    }
-
-    @Test func aRouteThatAsksForTypingGetsIt() {
-        #expect(!reads(finished(source: .voice), typing: true))
-        #expect(!reads(finished(source: .voice), typing: true, automation: nil))
     }
 
     @Test func mustTypeCoversEveryStateThatNeedsTheEditor() {
