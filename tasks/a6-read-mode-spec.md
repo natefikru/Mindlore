@@ -127,8 +127,8 @@ Unit (Swift Testing):
   - a finished typed entry reads
   - drafts, awaiting text, page review pending, unconfirmed pages, and empty text type
   - an entry still offering Done types
-  - a live-text recording before its pass types, including with automation off; after its pass it
-    reads
+  - a route that asks for typing types (a finished recording), including with automation off
+- `AppRouterTests`: `showEntry(_:forTyping:)` sets the flag, and it doesn't affect route equality
 - `EntityNameRangesTests`
   - longest overlapping name wins
   - aliases and `writtenSurface` match
