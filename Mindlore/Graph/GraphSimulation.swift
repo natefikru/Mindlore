@@ -73,7 +73,7 @@ nonisolated final class GraphSimulation {
     private var regionsByID: [UUID: SIMD2<Double>]
     private var regionPoints: [SIMD2<Double>?]
 
-    static let regionStrength: Double = 0.06
+    static let regionStrength: Double = 0.15
 
     init(nodes: [Node], edges: [EntityGraph.Edge], regions: [UUID: SIMD2<Double>] = [:]) {
         let unique = Self.deduplicated(nodes)
@@ -409,8 +409,9 @@ nonisolated final class GraphSimulation {
         }
     }
 
-    // Each unpinned node with an area point is pulled toward it, six times as hard as gravity:
-    // enough for areas to gather, weak enough that springs still draw cross-area pairs together.
+    // Each unpinned node with an area point is pulled toward it, 15 times as hard as gravity. On
+    // the 300-entry demo map that leaves 165 of 170 nodes nearest their own area's spot (0.06
+    // left 157), while springs still draw cross-area pairs toward each other.
     private func applyRegions() {
         let strength = Self.regionStrength * alpha
         for index in 0..<nodes.count where !pinned[index] {

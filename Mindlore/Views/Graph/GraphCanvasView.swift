@@ -79,7 +79,7 @@ struct GraphCanvasView: View {
     private static let focusDim = 0.15
     private static let highlightDim = 0.3
     private static let neutralOpacity = 0.6
-    private static let regionOpacity = 0.35
+    private static let regionOpacity = 0.8
 
     var body: some View {
         let plan = cache.plan(for: simulation, focusedID: focusedID, highlighted: highlightedIDs, paint: paint)
@@ -107,7 +107,7 @@ struct GraphCanvasView: View {
                     }
                     ForEach(regions) { region in
                         Text(region.name)
-                            .font(.title3.weight(.semibold))
+                            .font(.headline)
                             .foregroundStyle(region.color)
                             .tag(SymbolID.region(region.id))
                     }
@@ -130,6 +130,10 @@ struct GraphCanvasView: View {
         }
         .onChange(of: highlightedIDs) { wake() }
         .onChange(of: highlightGroup) { flyToHighlight() }
+        .onChange(of: regions.map(\.id)) { _, ids in
+            if !ids.isEmpty, focusedID == nil { fitRegions() }
+            wake()
+        }
         .onChange(of: version) {
             if clearsMissingFocus, let focusedID, simulation.index(of: focusedID) == nil {
                 self.focusedID = nil
@@ -196,6 +200,19 @@ struct GraphCanvasView: View {
         camera.fly(to: point, now: CACurrentMediaTime(), offset: visibleCenterOffset, zoom: camera.zoom)
     }
 
+    // Grouping spreads the map over a circle of area spots; zoom out so all of them show.
+    private func fitRegions() {
+        let extent = regions.map { ($0.point * $0.point).sum().squareRoot() }.max() ?? 0
+        let width = Double(size.width - visibleInsets.leading - visibleInsets.trailing)
+        let height = Double(size.height - visibleInsets.top - visibleInsets.bottom)
+        guard extent > 0, width > 0, height > 0 else { return }
+        let zoom = min(1, min(width, height) / (2 * (extent + GraphCanvasView.regionMargin)))
+        camera.fly(to: .zero, now: CACurrentMediaTime(), offset: visibleCenterOffset, zoom: zoom)
+    }
+
+    private static let regionLabelOffset: Double = 90
+    private static let regionMargin: Double = 120
+
     private var visibleCenterOffset: SIMD2<Double> {
         SIMD2(
             Double(visibleInsets.leading - visibleInsets.trailing) / 2,
@@ -227,15 +244,6 @@ struct GraphCanvasView: View {
         func circle(_ index: Int, scale: Double = 1) -> CGRect {
             let r = simulation.radius(at: index) * zoom * scale
             return CGRect(x: screen[index].x - r, y: screen[index].y - r, width: r * 2, height: r * 2)
-        }
-
-        // Area names sit under everything else.
-        for region in regions {
-            guard let resolved = context.resolveSymbol(id: SymbolID.region(region.id)) else { continue }
-            let at = camera.screen(region.point, center: center)
-            var regionContext = context
-            regionContext.opacity = Self.regionOpacity
-            regionContext.draw(resolved, at: CGPoint(x: at.x, y: at.y))
         }
 
         // Edges: one path per style bucket, lit edges in their own paths per width.
@@ -304,6 +312,18 @@ struct GraphCanvasView: View {
         }
         if let focusedIndex = plan.focusedIndex {
             context.stroke(Path(ellipseIn: circle(focusedIndex)), with: .color(.primary), lineWidth: 2.5)
+        }
+
+        // Area names sit over the nodes, since they're the map's legend while it groups by area.
+        for region in regions {
+            guard let resolved = context.resolveSymbol(id: SymbolID.region(region.id)) else { continue }
+            // Just outside the cluster, away from the middle.
+            let length = (region.point * region.point).sum().squareRoot()
+            let outward = length > 0 ? region.point / length * Self.regionLabelOffset : SIMD2(0, -Self.regionLabelOffset)
+            let at = camera.screen(region.point + outward, center: center)
+            var regionContext = context
+            regionContext.opacity = Self.regionOpacity
+            regionContext.draw(resolved, at: CGPoint(x: at.x, y: at.y))
         }
 
         // Labels: a zoom-sized prefix of the ranked list, fading by rank, dimmed outside the focus.
