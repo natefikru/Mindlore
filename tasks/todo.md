@@ -585,36 +585,32 @@ the real key.
       minimized.
 
 ### A5: Mind tab, search panel, peek card
-- [ ] `MindView` with the engine, the draggable panel, and the focus loop with breadcrumbs.
-- [ ] Search panel: search and fly-to, area tiles with region highlighting, segments, rows, the
-      single review card, and the Hidden section.
-- [ ] `EntityPeekCard` (overlay in Mind, sheet with its own stack elsewhere), the loose-ends
+Build spec: `tasks/a5-mind-spec.md`.
+- [x] `MindView` with the engine, the draggable panel, and the focus loop with breadcrumbs.
+- [x] Search panel: search and fly-to, area tiles with highlighting (the area-of-entity rule moved
+      up from A5b; regions stay there), segments, rows, the single review card, and the Hidden
+      section.
+- [x] `EntityPeekCard` as an overlay in Mind (the sheet form landed in A6), the loose-ends
       section on `EntityView`, and "Show in Mind" through `AppRouter`.
-- [ ] The live filters menu (kinds, minimum mentions) through `update`.
-- [ ] Delete the Connections, GlobalGraph, and LocalGraph views. Move the name filter to
-      `EntitySearch`. Rewrite `GraphUITests` and `GraphScreenshotTests` against the Mind tab.
-      `testConnectionsBrowseOpenAnEntryMergeAndUnmerge` already fails before Phase A (checked on
-      `6d0735b`): after unmerging Tom from Sarah's page, Tom's row doesn't come back in
-      Connections. Find out whether it's a refresh or a data problem, and make the Mind version
-      of the test cover unmerge.
-- [ ] Tests:
-  - search result row data (last mentioned, loose-end count through merges)
-  - the review card picks one question and advances after an answer
-  - peek card data for merged and hidden entities
-  - the card never calls `pageOpened`
-  - UI tests: open Mind, search "Sarah", the card shows, open the page, merge from there, and
-    the graph refocuses on the winner
+- [x] The live filters sheet (kinds, minimum mentions) through `update`.
+- [x] Delete the Connections, GlobalGraph, and LocalGraph views. Move the name filter to
+      `EntitySearch`. Rewrite `GraphUITests` and `GraphScreenshotTests` against the Mind tab,
+      with merge, relaunch, and unmerge covered and no expected failure.
+- [x] Tests: search rows (last mentioned, loose-end counts through merges), the review queue,
+      peek data for merged and hidden entities, the card never drafting a bio (UI), and the Mind
+      UI tests.
+- [x] Demo seeder: tags come from the entry text.
 - [ ] Device: smoothness by eye with the 300-node seed, focus and breadcrumbs, a filter change
-      without a jump, the panel's three stops with the keyboard up.
+      without a jump, the panel's three stops with the keyboard up, Show in Mind, and the
+      recording accessory over the panel.
 
 ### A5b: Map extras
 - [ ] Lenses: kind (default), mood around, recency.
 - [ ] Replay, with links fetched once.
 - [ ] Entries as nodes.
-- [ ] Area regions: the anchor force in `GraphSimulation`, the area-of-entity rule, and area tiles
-      highlighting a region.
+- [ ] Area regions: the anchor force in `GraphSimulation`, pulling each area's entities together
+      (the area-of-entity rule and tile highlighting landed in A5).
 - [ ] Tests:
-  - the area-of-entity rule (most common area, ties broken by recency)
   - the mood-around average
   - the anchor force pulls toward its point and leaves determinism intact
   - replay issues no fetch per step
@@ -879,6 +875,37 @@ A6 (lane 3, build spec in `tasks/a6-read-mode-spec.md`):
   two UI test waits. All fixed.
 - The card's loose-end line and the recorder's prompt line landed after A2 (`looseEnds.prompted`
   logs the id only).
+
+A5 (2026-09-17, build spec in `tasks/a5-mind-spec.md`):
+
+- Spec review (15 findings) folded into the spec. The main ones: a Show in Mind jump into a Mind
+  tab never opened was lost (the router now holds the request until Mind takes it, and the canvas
+  flies to a focus it was built with); the keyboard would have resized the map; a merge made from
+  the review card left the trail on the loser (the trail is normalised through
+  `EntityDirectory.root` after every refresh); marking a loose end Done didn't change the refresh
+  key.
+- The unmerge failure carried since A0 was the path type: `ConnectionsPathItem` made every
+  `EntityRoute` link on an entity page dead, so the test never reached Tom's page. Mind's stack
+  is `[EntityRoute]`, and the rewritten test merges, relaunches, and unmerges with no expected
+  failure. `MindDirectoryTests` checks that unmerge gives Tom back his rows and mention count.
+- Deviations: the area-of-entity rule and tile highlighting moved up from A5b (the tiles need
+  them); the filters are a small sheet, not a menu, since a stepper doesn't fit a menu; a young
+  journal (under 60 browsable entities) shows single mentions by default, so a fresh install
+  isn't an empty map; the card is 200 pt tall, not 180, to fit the loose-end line and a bio.
+- Simulator screenshots found two layout bugs before any test did: the `GeometryReader` shrank
+  with the keyboard, so the panel never reached full and results sat below the screen; and the
+  map centred behind the panel. Both fixed.
+- The demo seeder now takes tags from about 35 topic sentences that contain them, never an area
+  name.
+- Code review (11 findings, none high). Fixed: the panel drag measured a moving header; an
+  off-map crumb read "…"; the fly-to offset ignored the status and tab bars; the entity page
+  split loose ends on every render; a hidden area's highlight couldn't be cleared; a failed
+  "Same" still logged; primary areas are cached per revision; a review answer refreshed twice;
+  the Which one card now names its entry's date; stale Connections comments. Not changed: no UI
+  test for Which one or Skip (unit tests cover both); CLAUDE.md's Graph section still names the
+  deleted views, which A9 rewrites.
+- The owner allowed the 300-entry seed on the phone for A5's device step, since no real journal
+  lives there yet.
 
 Owner answers after revision 1 (2026-09-17): the tab is Mind, a fresh install is fine, and Ask
 keeps saved conversations and opens a new one by default. Folded in above.
