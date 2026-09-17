@@ -600,7 +600,7 @@ Build spec: `tasks/a5-mind-spec.md`.
       peek data for merged and hidden entities, the card never drafting a bio (UI), and the Mind
       UI tests.
 - [x] Demo seeder: tags come from the entry text.
-- [ ] Device: smoothness by eye with the 300-node seed, focus and breadcrumbs, a filter change
+- [x] Device: smoothness by eye with the 300-node seed, focus and breadcrumbs, a filter change
       without a jump, the panel's three stops with the keyboard up, Show in Mind, and the
       recording accessory over the panel.
 
