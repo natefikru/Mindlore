@@ -153,13 +153,17 @@ final class GraphUITests: XCTestCase {
         let focus = canvas.tapUntilGraphFocuses()
         XCTAssertNotNil(focus, "no tap landed on a node or edge: \(String(describing: canvas.value))")
 
-        // Fly-to centred the focused node; drag it, then pinch, and it stays focused.
+        // Fly-to centred the focused node once its 0.35 s flight lands; drag it, then pinch in and
+        // back out, and it stays focused.
+        sleep(1)
         let center = canvas.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
         center.press(forDuration: 0.05, thenDragTo: center.withOffset(CGVector(dx: 60, dy: 40)))
         canvas.pinch(withScale: 1.8, velocity: 1)
+        canvas.pinch(withScale: 0.3, velocity: -1)
         XCTAssertEqual(canvas.graphFocus, focus)
 
-        // A tap far from everything clears the focus.
+        // Zoomed back out, a tap in the far corner is clear of every node and edge and clears the
+        // focus.
         canvas.coordinate(withNormalizedOffset: CGVector(dx: 0.05, dy: 0.95)).tap()
         let cleared = expectation(for: NSPredicate(format: "value ENDSWITH 'focused=none'"), evaluatedWith: canvas)
         wait(for: [cleared], timeout: 5)

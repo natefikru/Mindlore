@@ -37,8 +37,15 @@ struct GraphCanvasView: View {
     @State private var isIdle = false
     @State private var activityToken = 0
     @State private var dragTarget: DragTarget?
-    @State private var panAtGestureStart: SIMD2<Double> = .zero
+    // Where the finger was last frame (a pan applies deltas, so a simultaneous pinch's own pan
+    // correction survives) and, for a node drag, the grab point's offset from the node centre.
+    @State private var lastTranslation: SIMD2<Double> = .zero
+    @State private var grabOffset: SIMD2<Double> = .zero
     @State private var zoomAtGestureStart: Double?
+    // SwiftUI resets these when a gesture ends or is cancelled (onEnded never runs on a cancel),
+    // so the cleanup keys off them rather than off onEnded.
+    @GestureState private var dragLive = false
+    @GestureState private var pinchLive = false
 
     private static let focusDim = 0.15
 
@@ -58,7 +65,7 @@ struct GraphCanvasView: View {
                     sampler.record(
                         frameStart: frameStart,
                         workSeconds: CACurrentMediaTime() - frameStart,
-                        interacting: activity.gestureActive || camera.isFlying
+                        interacting: !activity.reported && (activity.gestureActive || camera.isFlying)
                     )
                 } symbols: {
                     ForEach(labelIDs, id: \.self) { id in
@@ -90,12 +97,24 @@ struct GraphCanvasView: View {
             }
             wake()
         }
+        .onChange(of: dragLive) { _, live in
+            if !live { endDrag() }
+        }
+        .onChange(of: pinchLive) { _, live in
+            if !live { endPinch() }
+        }
         .onAppear {
-            activity = Activity(appearedAt: CACurrentMediaTime())
+            // Settle time only means something when the layout is still moving at appearance; a
+            // return visit to an already settled graph reports none.
+            activity = Activity(appearedAt: CACurrentMediaTime(), measuresSettle: !simulation.settled)
             sampler = FrameTimeSampler()
             wake()
         }
-        .onDisappear { report() }
+        .onDisappear {
+            endDrag()
+            endPinch()
+            report()
+        }
         .task(id: activityToken) { await watch() }
     }
 
@@ -147,7 +166,7 @@ struct GraphCanvasView: View {
         }
 
         // Glow behind the lit nodes: a gradient fill, no blur filter.
-        for index in plan.litNodes {
+        for index in plan.glowNodes {
             let color = nodes[index].kind.color
             let rect = circle(index, scale: 2.2)
             context.fill(
@@ -209,11 +228,15 @@ struct GraphCanvasView: View {
         var pinching = false
         var lastActive: TimeInterval
         let appearedAt: TimeInterval
+        // Off for an appearance that starts settled. A drag before the first settle holds the
+        // layout warm, so the settle time then includes that drag.
+        let measuresSettle: Bool
         var settleSeconds: Double?
         var reported = false
 
-        init(appearedAt: TimeInterval = CACurrentMediaTime()) {
+        init(appearedAt: TimeInterval = CACurrentMediaTime(), measuresSettle: Bool = true) {
             self.appearedAt = appearedAt
+            self.measuresSettle = measuresSettle
             lastActive = appearedAt
         }
 
@@ -235,7 +258,7 @@ struct GraphCanvasView: View {
             let settled = simulation.settled
             let active = GraphRedraw.isActive(settled: settled, gestureActive: activity.gestureActive, flying: camera.isFlying)
             if active { activity.lastActive = now }
-            if settled, activity.settleSeconds == nil {
+            if settled, activity.measuresSettle, activity.settleSeconds == nil {
                 activity.settleSeconds = now - activity.appearedAt
             }
             if sampler.isComplete { report() }
@@ -291,42 +314,53 @@ struct GraphCanvasView: View {
     // A hit at the drag's start pins that node for the rest of the drag, sticky after release,
     // and holds the simulation warm so its neighbours follow; a miss pans the canvas instead. A
     // hit on the anchored subject is treated as a miss too, since dragging it would move the one
-    // point the view promises stays still.
+    // point the view promises stays still, and so is a drag that starts during a pinch. The
+    // 8pt threshold keeps a slightly shaky tap from pinning the node it focuses.
     private func dragGesture(center: SIMD2<Double>) -> some Gesture {
-        DragGesture(minimumDistance: 2, coordinateSpace: .local)
+        DragGesture(minimumDistance: 8, coordinateSpace: .local)
+            .updating($dragLive) { _, live, _ in live = true }
             .onChanged { value in
+                let translation = SIMD2(Double(value.translation.width), Double(value.translation.height))
                 if dragTarget == nil {
                     camera.cancelFlight()
-                    if let hit = nodeHit(Self.vector(value.startLocation), center: center), hit != anchoredID {
+                    let start = Self.vector(value.startLocation)
+                    if !activity.pinching, let hit = nodeHit(start, center: center), hit != anchoredID,
+                       let position = simulation.position(of: hit) {
                         dragTarget = .node(hit)
+                        grabOffset = position - camera.world(start, center: center)
                         simulation.alphaTarget = GraphSimulation.dragAlphaTarget
                     } else {
                         dragTarget = .canvas
-                        panAtGestureStart = camera.pan
                     }
+                    lastTranslation = .zero
                     activity.dragging = true
                     wake()
                 }
                 switch dragTarget {
                 case .node(let id):
-                    simulation.pin(id, at: camera.world(Self.vector(value.location), center: center))
+                    simulation.pin(id, at: camera.world(Self.vector(value.location), center: center) + grabOffset)
                 case .canvas, nil:
-                    camera.pan = panAtGestureStart + SIMD2(Double(value.translation.width), Double(value.translation.height))
+                    camera.pan += translation - lastTranslation
                 }
+                lastTranslation = translation
             }
-            .onEnded { _ in
-                if case .node = dragTarget {
-                    simulation.alphaTarget = 0
-                }
-                dragTarget = nil
-                activity.dragging = false
-                wake()
-            }
+    }
+
+    // Runs when the drag ends or is cancelled, and on disappear.
+    private func endDrag() {
+        guard dragTarget != nil || activity.dragging else { return }
+        if case .node = dragTarget {
+            simulation.alphaTarget = 0
+        }
+        dragTarget = nil
+        activity.dragging = false
+        wake()
     }
 
     // Zooms around where the pinch started, so the node under the fingers stays under them.
     private func magnifyGesture(center: SIMD2<Double>) -> some Gesture {
         MagnifyGesture()
+            .updating($pinchLive) { _, live, _ in live = true }
             .onChanged { value in
                 if zoomAtGestureStart == nil {
                     zoomAtGestureStart = camera.zoom
@@ -336,11 +370,13 @@ struct GraphCanvasView: View {
                 }
                 camera.setZoom((zoomAtGestureStart ?? 1) * Double(value.magnification), keeping: Self.vector(value.startLocation), center: center)
             }
-            .onEnded { _ in
-                zoomAtGestureStart = nil
-                activity.pinching = false
-                wake()
-            }
+    }
+
+    private func endPinch() {
+        guard zoomAtGestureStart != nil || activity.pinching else { return }
+        zoomAtGestureStart = nil
+        activity.pinching = false
+        wake()
     }
 
     // A tap on a node focuses it; a second tap on the focused node navigates. A tap on an edge
