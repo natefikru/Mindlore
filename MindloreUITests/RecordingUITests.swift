@@ -1,6 +1,6 @@
 import XCTest
 
-// Recording from the tab bar's accessory, with the fake recorder standing in for the microphone.
+// Recording from Journal's microphone, minimized into the tab bar's accessory, with the fake recorder standing in for the microphone.
 // Real capture, locking, and interruptions are device steps (tasks/smoke-test.md).
 final class RecordingUITests: XCTestCase {
     private var app: XCUIApplication!
@@ -46,7 +46,8 @@ final class RecordingUITests: XCTestCase {
         // Finishing lands on the new entry, on the Journal tab.
         XCTAssertTrue(app.textViews["entryEditor"].waitForExistence(timeout: 10))
         XCTAssertTrue(app.tabBars.buttons["Journal"].isSelected)
-        XCTAssertTrue(app.buttons["newVoiceEntryButton"].waitForExistence(timeout: 5))
+        // The accessory is only there while a recording runs.
+        XCTAssertFalse(app.buttons["recordingAccessory"].exists)
 
         app.navigationBars.buttons.element(boundBy: 0).tap()
         XCTAssertTrue(app.descendants(matching: .any)["entryRow"].waitForExistence(timeout: 5))

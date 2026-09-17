@@ -14,6 +14,7 @@ struct EntryListView: View {
     @State private var pageOrder: PageOrderTarget?
     @State private var insightsEntry: Entry?
     @State private var pickedArea: LifeArea?
+    @Environment(RecordingSession.self) private var recording
     @Environment(InsightsCoordinator.self) private var insightsCoordinator
 
     enum PageOrderTarget: Identifiable {
@@ -70,7 +71,7 @@ struct EntryListView: View {
                     ContentUnavailableView(
                         "No entries yet",
                         systemImage: "book.closed",
-                        description: Text("Tap Record to speak an entry, or the pencil to write one.")
+                        description: Text("Tap the microphone to speak an entry, or the pencil to write one.")
                     )
                 } else if shownEntries.isEmpty, let area = activeArea {
                     ContentUnavailableView {
@@ -88,13 +89,17 @@ struct EntryListView: View {
                 ToolbarItem(placement: .topBarLeading) {
                     Button("Settings", systemImage: "gearshape") { showingSettings = true }
                 }
-                // Recording lives in the tab bar's accessory, reachable from every tab.
+                // Voice sits outermost, in the easiest-to-reach position. A running recording shows in
+                // the tab bar's accessory.
                 ToolbarItemGroup(placement: .topBarTrailing) {
                     if DocumentCameraView.isSupported || FakePages.isEnabled {
                         Button("Photograph Pages", systemImage: "camera") { pageOrder = .new }
                             .accessibilityIdentifier("newPhotoEntryButton")
                     }
                     newTypedEntryButton
+                    Button("New Voice Entry", systemImage: "mic") { recording.begin() }
+                        .disabled(recording.status != .idle)
+                        .accessibilityIdentifier("newVoiceEntryButton")
                 }
             }
             .sheet(isPresented: $showingSettings) {
@@ -301,6 +306,15 @@ private struct EntryRow: View {
         .environment(TranscriptionCoordinator())
         .environment(EditorPresence())
         .environment(AppRouter(opened: { _ in }, closed: { _ in }))
+        .environment(RecordingSession(
+            context: container.mainContext,
+            ingestor: RecordingIngestor(),
+            makeRecorder: { AudioRecorder() },
+            makeLiveSession: { SpeechAnalyzerLiveSession(locale: $0) },
+            speechEngine: { .onDevice },
+            afterIngest: {},
+            onFinished: { _ in }
+        ))
         .environment(ProviderAccountStore(settings: SettingsStore(store: UserDefaults(suiteName: "preview")!)))
         .environment(PageTranscriptionCoordinator(resolve: { .failure(AIJobFailure(raw: "settings.aiOff")) }))
         .environment(AIPassTrigger(settings: SettingsStore(store: UserDefaults(suiteName: "preview")!), presence: EditorPresence(), titleUsable: { false }))

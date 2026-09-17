@@ -126,7 +126,9 @@ struct RootView: View {
         }
         // The accessory and the recorder are handed the session directly rather than relying on
         // the environment below reaching their separate hosting.
-        .tabViewBottomAccessory {
+        // Only while a recording runs, so it follows the user across tabs. Record itself sits in
+        // Journal's toolbar.
+        .tabViewBottomAccessory(isEnabled: recording.status != .idle) {
             RecordAccessory(session: recording) { confirmingDiscard = true }
         }
         .fullScreenCover(isPresented: Binding(get: { recording.isExpanded }, set: { if !$0 { recording.close() } })) {

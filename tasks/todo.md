@@ -581,7 +581,7 @@ the real key.
   - the area filter predicate
   - UI tests: recording still produces an entry through the accessory
   - existing identifiers still pass
-- [ ] Device: record, switch tabs, lock the phone, come back, finish. Siri interruption while
+- [x] Device: record, switch tabs, lock the phone, come back, finish. Siri interruption while
       minimized.
 
 ### A5: Mind tab, search panel, peek card
@@ -831,7 +831,10 @@ A4 (lane 3, `feature/phase-a-shell`, build spec in `tasks/a4-shell-spec.md`):
   A likely cause of the unmerge item in A5's checklist. The
   test's `entityMergeInto` failure noted under A3 was a scroll issue and is fixed. The same run
   found `PageOrderUITests.testClosingWithNoPagesLeavesNothingBehind` never tapped Scan; fixed.
-- Pending: the recorder's loose-end line (after A2), and the device steps.
+- Device steps passed on the phone (2026-09-17): recording across tabs and a lock, a Siri
+  interruption while minimized, and A6's read mode and card. Owner change after using it: Record
+  stays the microphone in Journal's toolbar, as before A4. The tab bar's accessory appears only
+  while a recording runs, so a recording still follows the user across tabs.
 
 A6 (lane 3, build spec in `tasks/a6-read-mode-spec.md`):
 

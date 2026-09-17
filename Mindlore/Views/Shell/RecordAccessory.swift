@@ -1,24 +1,14 @@
 import SwiftUI
 
-// The tab bar's accessory: Record when idle, the running recording otherwise. It keeps no state,
-// because the system can draw it in both the expanded and the inline placement.
+// The tab bar's accessory while a recording runs. It keeps no state, because the system can draw
+// it in both the expanded and the inline placement.
 struct RecordAccessory: View {
     let session: RecordingSession
     let onDiscard: () -> Void
     @Environment(\.tabViewBottomAccessoryPlacement) private var placement
 
     var body: some View {
-        if session.status == .idle {
-            Button {
-                session.begin()
-            } label: {
-                Label("Record", systemImage: "mic.fill")
-                    .frame(maxWidth: .infinity)
-                    .contentShape(Rectangle())
-            }
-            .accessibilityLabel("New Voice Entry")
-            .accessibilityIdentifier("newVoiceEntryButton")
-        } else {
+        if session.status != .idle {
             HStack(spacing: 12) {
                 Button {
                     session.expand()
