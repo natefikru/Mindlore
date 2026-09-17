@@ -72,6 +72,41 @@ final class GraphScreenshotTests: XCTestCase {
         canvas.pinch(withScale: 2, velocity: 1)
         sleep(2)
         attach("mind-zoomed")
+
+        // A5b: the lenses, entry dots, area regions, and a replay mid-run, zoomed back out.
+        canvas.pinch(withScale: 0.4, velocity: -1)
+        canvas.coordinate(withNormalizedOffset: CGVector(dx: 0.03, dy: 0.2)).tap()
+        for (lens, name) in [("Mood around", "mind-lens-mood"), ("Recent", "mind-lens-recent")] {
+            app.buttons["mindLens"].tap()
+            app.buttons[lens].tap()
+            sleep(2)
+            attach(name)
+        }
+        app.buttons["mindLens"].tap()
+        app.buttons["Kinds"].tap()
+
+        app.buttons["mindFilters"].tap()
+        let entries = app.switches["mindShowEntries"]
+        XCTAssertTrue(entries.waitForExistence(timeout: 5))
+        entries.coordinate(withNormalizedOffset: CGVector(dx: 0.95, dy: 0.5)).tap()
+        app.buttons["Done"].tap()
+        sleep(6)
+        attach("mind-entries")
+
+        app.buttons["mindFilters"].tap()
+        let regions = app.switches["mindGroupByArea"]
+        XCTAssertTrue(regions.waitForExistence(timeout: 5))
+        entries.coordinate(withNormalizedOffset: CGVector(dx: 0.95, dy: 0.5)).tap()
+        regions.coordinate(withNormalizedOffset: CGVector(dx: 0.95, dy: 0.5)).tap()
+        app.buttons["Done"].tap()
+        sleep(8)
+        attach("mind-regions")
+
+        app.buttons["mindReplay"].tap()
+        sleep(5)
+        attach("mind-replay-midway")
+        sleep(7)
+        attach("mind-replay-done")
     }
 
     @MainActor

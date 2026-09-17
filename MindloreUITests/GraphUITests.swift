@@ -319,6 +319,66 @@ final class GraphUITests: XCTestCase {
         waitFor("value CONTAINS 'highlighted=0'", on: canvas)
     }
 
+    // Lenses recolour without touching the node set; the entry dot and area grouping come from
+    // the filters; a tap on the dot opens the entry for reading on Journal.
+    @MainActor
+    func testMindLensesEntriesAndRegions() throws {
+        finishAndLeave()
+        openMind()
+        waitFor("value BEGINSWITH 'nodes=3 '", on: canvas)
+
+        app.buttons["mindLens"].tap()
+        app.buttons["Mood around"].tap()
+        waitFor("value CONTAINS 'lens=mood'", on: canvas)
+        XCTAssertTrue(app.descendants(matching: .any)["mindLensLegend"].waitForExistence(timeout: 5))
+        app.buttons["mindLens"].tap()
+        app.buttons["Recent"].tap()
+        waitFor("value CONTAINS 'lens=recency'", on: canvas)
+        app.buttons["mindLens"].tap()
+        app.buttons["Kinds"].tap()
+        waitFor("value CONTAINS 'lens=kind'", on: canvas)
+        XCTAssertFalse(app.descendants(matching: .any)["mindLensLegend"].exists)
+
+        app.buttons["mindFilters"].tap()
+        for id in ["mindShowEntries", "mindGroupByArea"] {
+            let toggle = app.switches[id]
+            XCTAssertTrue(toggle.waitForExistence(timeout: 5))
+            toggle.coordinate(withNormalizedOffset: CGVector(dx: 0.95, dy: 0.5)).tap()
+        }
+        app.buttons["Done"].tap()
+        waitFor("value BEGINSWITH 'nodes=3 ' AND value CONTAINS 'entries=1'", on: canvas)
+
+        // Lowered, the panel covers as little of the map as it can; the canvas reports the dot's
+        // spot once the regrouped layout settles.
+        let panel = app.descendants(matching: .any)["mindSearchPanel"]
+        let grabber = panel.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.02))
+        grabber.press(forDuration: 0.1, thenDragTo: grabber.withOffset(CGVector(dx: 0, dy: 500)))
+        waitFor("value == 'stop=peek'", on: panel)
+        waitFor("value CONTAINS 'entryDot='", on: canvas, timeout: 20)
+        let value = try XCTUnwrap(canvas.value as? String)
+        let token = try XCTUnwrap(value.split(separator: " ").first { $0.hasPrefix("entryDot=") })
+        let parts = token.dropFirst("entryDot=".count).split(separator: ",").compactMap { Double($0) }
+        XCTAssertEqual(parts.count, 2)
+        canvas.coordinate(withNormalizedOffset: CGVector(dx: parts[0], dy: parts[1])).tap()
+        XCTAssertTrue(app.staticTexts["entryReadText"].waitForExistence(timeout: 5), "the dot opened its entry for reading")
+    }
+
+    // Replay runs to the end on its own and hands back the same map.
+    @MainActor
+    func testMindReplayRunsAndEnds() throws {
+        finishAndLeave()
+        openMind()
+        waitFor("value BEGINSWITH 'nodes=3 '", on: canvas)
+        let play = app.buttons["mindReplay"]
+        waitFor("isEnabled == true", on: play)
+        play.tap()
+        waitFor("value CONTAINS 'replay=on'", on: canvas)
+        XCTAssertTrue(app.buttons["mindReplayStop"].exists)
+        waitFor("value CONTAINS 'replay=off'", on: canvas, timeout: 20)
+        waitFor("value BEGINSWITH 'nodes=3 '", on: canvas)
+        XCTAssertTrue(play.exists)
+    }
+
     // From an entry's read view: the name's card, its page, then Show in Mind. Mind opens focused
     // on Sarah, and Journal still has the entry open.
     @MainActor
