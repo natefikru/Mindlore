@@ -11,8 +11,6 @@ struct EntryListView: View {
     private var entries: [Entry]
     @Environment(AppRouter.self) private var router
     @State private var showingSettings = false
-    @State private var showingConnections = false
-    @Environment(RecordingSession.self) private var recording
     @State private var pageOrder: PageOrderTarget?
     @State private var insightsEntry: Entry?
     @Environment(InsightsCoordinator.self) private var insightsCoordinator
@@ -63,7 +61,7 @@ struct EntryListView: View {
                     ContentUnavailableView(
                         "No entries yet",
                         systemImage: "book.closed",
-                        description: Text("Tap the microphone to speak an entry, or the pencil to write one.")
+                        description: Text("Tap Record to speak an entry, or the pencil to write one.")
                     )
                 }
             }
@@ -75,27 +73,17 @@ struct EntryListView: View {
                 ToolbarItem(placement: .topBarLeading) {
                     Button("Settings", systemImage: "gearshape") { showingSettings = true }
                 }
-                ToolbarItem(placement: .topBarLeading) {
-                    Button("Connections", systemImage: "person.2") { showingConnections = true }
-                }
-                // Voice sits outermost, in the easiest-to-reach position.
+                // Recording lives in the tab bar's accessory, reachable from every tab.
                 ToolbarItemGroup(placement: .topBarTrailing) {
                     if DocumentCameraView.isSupported || FakePages.isEnabled {
                         Button("Photograph Pages", systemImage: "camera") { pageOrder = .new }
                             .accessibilityIdentifier("newPhotoEntryButton")
                     }
                     newTypedEntryButton
-                    newVoiceEntryButton
                 }
             }
             .sheet(isPresented: $showingSettings) {
                 SettingsView()
-            }
-            .sheet(isPresented: $showingConnections) {
-                ConnectionsView()
-            }
-            .fullScreenCover(isPresented: Binding(get: { recording.isExpanded }, set: { if !$0 { recording.close() } })) {
-                RecordingView()
             }
             .sheet(item: $insightsEntry) { entry in
                 EntryInsightsView(entry: entry)
@@ -110,7 +98,6 @@ struct EntryListView: View {
             }
             .onChange(of: router.dismissPresentationsToken) {
                 showingSettings = false
-                showingConnections = false
                 insightsEntry = nil
             }
         }
@@ -119,11 +106,6 @@ struct EntryListView: View {
     private var newTypedEntryButton: some View {
         Button("New Written Entry", systemImage: "square.and.pencil") { router.journalPath.append(.new()) }
             .accessibilityIdentifier("newEntryButton")
-    }
-
-    private var newVoiceEntryButton: some View {
-        Button("New Voice Entry", systemImage: "mic") { recording.begin() }
-            .accessibilityIdentifier("newVoiceEntryButton")
     }
 
     // AI work the user should be able to see from the list, without opening the entry.
