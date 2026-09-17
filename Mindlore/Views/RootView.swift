@@ -173,6 +173,7 @@ struct RootView: View {
                 indexing = GraphIndexingProgress.visible(done: done, total: total)
             }
             withAnimation { indexing = nil }
+            graph.sweepFinished()
             if LooseEnd.fade(in: context) > 0 {
                 try? context.saveStampingEntries()
             }

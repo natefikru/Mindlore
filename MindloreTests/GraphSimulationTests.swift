@@ -239,6 +239,17 @@ struct GraphSimulationTests {
         #expect(simulation.alpha == GraphSimulation.updateReheat, "clearing regions regroups too")
     }
 
+    @Test func regionsFollowTheNodeNotTheCallersOrder() {
+        let nodes = makeNodes(2)
+        let simulation = GraphSimulation(nodes: nodes, edges: [])
+        _ = settle(simulation)
+        let far = SIMD2<Double>(600, 0)
+        simulation.update(nodes: nodes.reversed(), edges: [], regions: [nodes[0].id: far])
+        _ = settle(simulation)
+        let pulled = simulation.position(of: nodes[0].id)!, free = simulation.position(of: nodes[1].id)!
+        #expect(pulled.x > free.x + 200, "the region went to nodes[0], not to whatever sat at index 0")
+    }
+
     @Test func newWeightsOnTheSameNodesOnlyNudge() {
         let nodes = makeNodes(3)
         let simulation = GraphSimulation(nodes: nodes, edges: [EntityGraph.Edge(nodes[0].id, nodes[1].id, weight: 1, recency: 1)])

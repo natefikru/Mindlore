@@ -129,6 +129,18 @@ struct MindMapSnapshotTests {
         #expect(graph.snapshotBuildCount == builds + 1)
     }
 
+    // The launch sweep writes links behind GraphServices' back; its end bumps the revision so a
+    // snapshot cached before it is rebuilt.
+    @Test func theLaunchSweepRefreshesACachedSnapshot() async throws {
+        let harness = try GraphHarness()
+        let graph = GraphServices(diagnostics: .disabled)
+        try harness.entry(mentions: [("Sarah", .person)])
+        #expect(graph.mapSnapshot(in: harness.context).links.isEmpty)
+        _ = await graph.indexer.sweep(in: harness.context) { _, _ in }
+        graph.sweepFinished()
+        #expect(graph.mapSnapshot(in: harness.context).links.count == 1)
+    }
+
     @Test func aFutureDatedMentionDoesNotCountOnTheLiveMapYet() throws {
         let harness = try GraphHarness()
         let graph = GraphServices(diagnostics: .disabled)

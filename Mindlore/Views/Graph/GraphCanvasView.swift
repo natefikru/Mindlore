@@ -23,11 +23,14 @@ struct GraphCanvasView: View {
     @Binding var focusedID: UUID?
     // A group to bring forward (an area tile's entities); the rest fade while nothing is focused.
     var highlightedIDs: Set<UUID>?
+    // Names the highlighted group; the camera flies to the group only when this changes, not
+    // when the group's members do (a replay step, a filter change).
+    var highlightGroup: String?
     // A lens's colours (nil: kind colours), and its name for the accessibility value.
     var paint: GraphPaint?
     // Life-area names drawn faintly at their spots while the map groups by area.
     var regions: [GraphRegion] = []
-    var lensName = "kind"
+    var lens: MindLens = .kind
     // A replay is moving the map: keep drawing, and measure it.
     var animating = false
     // Whether a focus that leaves the simulation is cleared. Mind keeps it, since a search result
@@ -56,6 +59,11 @@ struct GraphCanvasView: View {
     @State private var sampler = FrameTimeSampler()
     @State private var activity = Activity()
     @State private var isIdle = false
+    @State private var size: CGSize = .zero
+    // UI tests only: where the first entry dot sits once the layout settles, so a test can tap it
+    // through the real hit rule.
+    @State private var entryDot: String?
+    private static let reportsEntryDot = ProcessInfo.processInfo.arguments.contains(StoreLocation.uiTestingArgument)
     @State private var activityToken = 0
     @State private var dragTarget: DragTarget?
     // Where the finger was last frame (a pan applies deltas, so a simultaneous pinch's own pan
@@ -111,6 +119,7 @@ struct GraphCanvasView: View {
             .simultaneousGesture(tapGesture(center: center))
             .simultaneousGesture(longPressGesture(center: center))
         }
+        .onGeometryChange(for: CGSize.self, of: \.size) { size = $0 }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Graph")
         .accessibilityValue(accessibilityValue(plan))
@@ -119,10 +128,8 @@ struct GraphCanvasView: View {
             flyToFocus()
             wake()
         }
-        .onChange(of: highlightedIDs) {
-            flyToHighlight()
-            wake()
-        }
+        .onChange(of: highlightedIDs) { wake() }
+        .onChange(of: highlightGroup) { flyToHighlight() }
         .onChange(of: version) {
             if clearsMissingFocus, let focusedID, simulation.index(of: focusedID) == nil {
                 self.focusedID = nil
@@ -173,7 +180,7 @@ struct GraphCanvasView: View {
     private func accessibilityValue(_ plan: GraphDrawPlan) -> String {
         let entries = simulation.nodes.lazy.filter(\.isEntry).count
         let highlighted = plan.hasFocus ? 0 : plan.highlightedNodes?.count ?? 0
-        return "nodes=\(simulation.nodeCount - entries) highlighted=\(highlighted) entries=\(entries) lens=\(lensName) replay=\(animating ? "on" : "off") focused=\(focusedID.flatMap(namer) ?? "none")"
+        return "nodes=\(simulation.nodeCount - entries) highlighted=\(highlighted) entries=\(entries) lens=\(lens.rawValue) replay=\(animating ? "on" : "off")\(entryDot.map { " entryDot=\($0)" } ?? "") focused=\(focusedID.flatMap(namer) ?? "none")"
     }
 
     private func flyToFocus() {
@@ -356,6 +363,7 @@ struct GraphCanvasView: View {
             let settled = simulation.settled
             let active = GraphRedraw.isActive(settled: settled, gestureActive: activity.gestureActive, flying: camera.isFlying)
             if active { activity.lastActive = now }
+            if settled, !camera.isFlying, Self.reportsEntryDot { noteEntryDot() }
             if settled, activity.measuresSettle, activity.settleSeconds == nil {
                 activity.settleSeconds = now - activity.appearedAt
             }
@@ -366,6 +374,16 @@ struct GraphCanvasView: View {
             }
             try? await Task.sleep(for: .milliseconds(250))
         }
+    }
+
+    private func noteEntryDot() {
+        var point: String?
+        if let dot = simulation.nodes.firstIndex(where: \.isEntry), size.width > 0, size.height > 0 {
+            let center = SIMD2(Double(size.width) / 2, Double(size.height) / 2)
+            let screen = camera.screen(simulation.position(at: dot), center: center)
+            point = String(format: "%.4f,%.4f", screen.x / Double(size.width), screen.y / Double(size.height))
+        }
+        if point != entryDot { entryDot = point }
     }
 
     private func report() {
@@ -380,7 +398,7 @@ struct GraphCanvasView: View {
             frameP95Milliseconds: FrameTimeSampler.percentile(sampler.intervals, 0.95).map { $0 * 1000 },
             workP95Milliseconds: FrameTimeSampler.percentile(sampler.workTimes, 0.95).map { $0 * 1000 },
             entryNodes: simulation.nodes.lazy.filter(\.isEntry).count,
-            lens: lensName,
+            lens: lens,
             replay: activity.measuresReplay
         ))
     }

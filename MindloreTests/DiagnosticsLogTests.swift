@@ -295,7 +295,7 @@ struct AIDiagnosticsPrivacyTests {
         services.recordGraphRendered(GraphRenderStats(
             nodes: globalData.nodes.count, edges: globalData.edges.count, settleMilliseconds: nil,
             frameSamples: 0, frameP50Milliseconds: nil, frameP95Milliseconds: nil, workP95Milliseconds: nil,
-            entryNodes: 1, lens: MindLens.mood.rawValue, replay: true
+            entryNodes: 1, lens: .mood, replay: true
         ))
 
         // A5b: lenses, entry dots, regions, and a replay over the same data, with the renamed

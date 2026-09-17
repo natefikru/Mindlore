@@ -1,7 +1,7 @@
 import SwiftUI
 
 // How Mind colours its map. A lens changes paint only, never which nodes are on the map.
-enum MindLens: String, CaseIterable, Sendable {
+nonisolated enum MindLens: String, CaseIterable, Sendable {
     case kind, mood, recency
 
     var title: String {
@@ -22,6 +22,7 @@ enum MindLens: String, CaseIterable, Sendable {
 
     // The paint for the nodes on the map, or nil for plain kind colours. `onMap` is the entity
     // ids the simulation holds (entry dots are always grey and never need a slot).
+    @MainActor
     func paint(_ snapshot: MindMapSnapshot, onMap: Set<UUID>, asOf: Date, generation: Int) -> GraphPaint? {
         switch self {
         case .kind:
@@ -47,6 +48,7 @@ enum MindLens: String, CaseIterable, Sendable {
     }
 
     // The mood categories the paint uses, in their own order, for the legend.
+    @MainActor
     static func moodsShown(in paint: GraphPaint?) -> [MoodCategory] {
         guard let paint else { return [] }
         let used = Set(paint.slotByID.values)

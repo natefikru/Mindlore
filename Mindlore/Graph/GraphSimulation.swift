@@ -172,8 +172,9 @@ nonisolated final class GraphSimulation {
         let sameEdges = Set(resolved.edges) == Set(edges)
         let sameRegions = regions == regionsByID
         regionsByID = regions
-        regionPoints = unique.map { regions[$0.id] }
         if sameNodes && sameEdges {
+            // The arrays keep their own order here, whatever order the caller used.
+            regionPoints = nodes.map { regions[$0.id] }
             if !sameRegions {
                 topologyVersion += 1
                 reheat(to: Self.updateReheat)
@@ -235,6 +236,7 @@ nonisolated final class GraphSimulation {
         radii = newRadii
         pinned = newPinned
         pinPoints = newPinPoints
+        regionPoints = unique.map { regions[$0.id] }
         let radiiChanged = newRadii != unique.map { node in indexByIDBefore[node.id].map { radiiBefore[$0] } ?? -1 }
         topologyVersion += 1
         if shapeChanged || !sameRegions {

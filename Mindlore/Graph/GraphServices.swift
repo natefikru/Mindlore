@@ -316,6 +316,11 @@ final class GraphServices {
         MindMap.primaryAreas(mapSnapshot(in: context), asOf: asOf)
     }
 
+    // The launch sweep writes links without going through here; the map has to hear about it.
+    func sweepFinished() {
+        revision += 1
+    }
+
     // A mood picked by hand changes what "Mood around" shows.
     func moodsEdited() {
         revision += 1
@@ -401,7 +406,7 @@ final class GraphServices {
             "edges": .int(stats.edges),
             "frameSamples": .int(stats.frameSamples),
             "entryNodes": .int(stats.entryNodes),
-            "lens": .string(stats.lens),
+            "lens": .string(stats.lens.rawValue),
             "replay": .bool(stats.replay),
         ]
         let optional: [(String, Double?)] = [

@@ -132,9 +132,10 @@ struct MindView: View {
                     }
                 ),
                 highlightedIDs: highlightedIDs,
+                highlightGroup: highlightedArea?.rawValue,
                 paint: paint,
                 regions: regionLabels,
-                lensName: lens.rawValue,
+                lens: lens,
                 animating: player.isRunning,
                 clearsMissingFocus: false,
                 visibleInsets: visibleInsets(available: available, safeArea: safeArea),
@@ -371,13 +372,22 @@ struct MindView: View {
         }
     }
 
-    // Rebuilds the lens paint for what the simulation holds now.
-    private func repaint(_ snapshot: MindMapSnapshot? = nil, asOf: Date = .now) {
+    // Rebuilds the lens paint for what the simulation holds now, at the replay's date while one
+    // runs. Only a paint that differs is written, so a replay step doesn't re-render Mind.
+    private func repaint(_ snapshot: MindMapSnapshot? = nil, asOf: Date? = nil) {
         guard let simulation else { return }
+        if lens == .kind {
+            if paint != nil { paint = nil }
+            return
+        }
         let snapshot = snapshot ?? graph.mapSnapshot(in: modelContext)
         let onMap = Set(simulation.nodes.lazy.filter { !$0.isEntry }.map(\.id))
+        let date = asOf ?? player.asOf ?? .now
+        guard let new = lens.paint(snapshot, onMap: onMap, asOf: date, generation: paintGeneration + 1),
+              !(paint?.sameColours(as: new) ?? false)
+        else { return }
         paintGeneration += 1
-        paint = lens.paint(snapshot, onMap: onMap, asOf: asOf, generation: paintGeneration)
+        paint = new
     }
 
     // MARK: - Replay
@@ -468,19 +478,6 @@ private struct MindFiltersView: View {
     var body: some View {
         NavigationStack {
             Form {
-                Section("Show") {
-                    ForEach(EntityKind.allCases, id: \.self) { kind in
-                        Toggle(isOn: Binding(
-                            get: { filters.kinds.contains(kind) },
-                            set: { on in
-                                if on { filters.kinds.insert(kind) } else { filters.kinds.remove(kind) }
-                            }
-                        )) {
-                            Label(kind.heading, systemImage: kind.symbol)
-                        }
-                        .accessibilityIdentifier("mindKind-\(kind.rawValue)")
-                    }
-                }
                 Section {
                     Toggle(isOn: $filters.showsEntries) {
                         Label("Entries", systemImage: "circle.fill")
@@ -494,6 +491,19 @@ private struct MindFiltersView: View {
                     Text("Also")
                 } footer: {
                     Text("Entries show as small grey dots beside what they mention. Tap one to read it.")
+                }
+                Section("Show") {
+                    ForEach(EntityKind.allCases, id: \.self) { kind in
+                        Toggle(isOn: Binding(
+                            get: { filters.kinds.contains(kind) },
+                            set: { on in
+                                if on { filters.kinds.insert(kind) } else { filters.kinds.remove(kind) }
+                            }
+                        )) {
+                            Label(kind.heading, systemImage: kind.symbol)
+                        }
+                        .accessibilityIdentifier("mindKind-\(kind.rawValue)")
+                    }
                 }
                 Section {
                     Stepper(

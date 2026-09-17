@@ -118,6 +118,12 @@ nonisolated struct GraphPaint: Sendable {
     var glowing: Set<UUID> = []
 
     static let fadedOpacity = 0.35
+
+    // Everything but the generation.
+    func sameColours(as other: GraphPaint) -> Bool {
+        palette == other.palette && slotByID == other.slotByID && neutralUnslotted == other.neutralUnslotted
+            && faded == other.faded && glowing == other.glowing
+    }
 }
 
 // Which colour a node takes.
@@ -398,8 +404,7 @@ nonisolated struct GraphRenderStats: Equatable, Sendable {
     let frameP95Milliseconds: Double?
     let workP95Milliseconds: Double?
     var entryNodes = 0
-    // The lens's raw value, a fixed vocabulary.
-    var lens = "kind"
+    var lens: MindLens = .kind
     // Whether the sample was taken during a replay.
     var replay = false
 }
