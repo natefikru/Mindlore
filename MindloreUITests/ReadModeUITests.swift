@@ -59,4 +59,34 @@ final class ReadModeUITests: XCTestCase {
         goBack()
         XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label CONTAINS 'Later it rained.'")).firstMatch.waitForExistence(timeout: 5))
     }
+
+    // A tapped name shows its card without drafting a bio; only opening the page drafts one.
+    @MainActor
+    func testTappingANameShowsItsCardAndOpenLeadsToThePage() throws {
+        finishAndReopen()
+
+        let sarah = readText.links["Sarah"]
+        XCTAssertTrue(sarah.waitForExistence(timeout: 10), "the entry's link to Sarah")
+        XCTAssertFalse(readText.links["river"].exists, "tags aren't linked")
+        sarah.tap()
+
+        let card = app.descendants(matching: .any).matching(identifier: "entityPeekCard").firstMatch
+        XCTAssertTrue(card.waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts.matching(identifier: "entityPeekName").firstMatch.label.contains("Sarah"))
+        // The stub drafts a bio the moment a page opens, so none appearing means the card didn't ask.
+        XCTAssertFalse(app.staticTexts["entityPeekBio"].waitForExistence(timeout: 3))
+
+        app.buttons["entityPeekOpen"].tap()
+        XCTAssertTrue(app.descendants(matching: .any)["entityPage"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["entityBioDrafted"].waitForExistence(timeout: 10))
+
+        // Back on the card, the drafted bio shows.
+        app.navigationBars.buttons.element(boundBy: 0).tap()
+        XCTAssertTrue(app.staticTexts["entityPeekBio"].waitForExistence(timeout: 5))
+
+        // Closing the card leaves the entry open for reading.
+        card.swipeDown(velocity: .fast)
+        XCTAssertTrue(readText.waitForExistence(timeout: 5))
+        XCTAssertFalse(card.exists)
+    }
 }

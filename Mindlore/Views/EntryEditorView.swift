@@ -204,7 +204,13 @@ struct EntryEditorView: View {
         .onChange(of: editingPages || viewingPage != nil) { _, open in
             router.setCover("editor-\(newEntryID?.uuidString ?? currentEntry?.id.uuidString ?? "")", open: open)
         }
+        // A tapped name. Presenting it touches nothing about the entry's close rules, which only run
+        // when the route leaves Journal's path.
+        .sheet(item: $peekTarget) { target in
+            EntityPeekSheet(entityID: target.id)
+        }
         .onChange(of: router.dismissPresentationsToken) {
+            peekTarget = nil
             editingDate = false
             showingInsights = false
             reviewingCleanup = false
