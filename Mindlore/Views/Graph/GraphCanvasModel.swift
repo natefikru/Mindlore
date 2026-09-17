@@ -397,6 +397,11 @@ nonisolated struct GraphRenderStats: Equatable, Sendable {
     let frameP50Milliseconds: Double?
     let frameP95Milliseconds: Double?
     let workP95Milliseconds: Double?
+    var entryNodes = 0
+    // The lens's raw value, a fixed vocabulary.
+    var lens = "kind"
+    // Whether the sample was taken during a replay.
+    var replay = false
 }
 
 nonisolated extension GraphSimulation.Node {

@@ -13,3 +13,11 @@ struct MindFiltersTests {
         #expect(MindFilters().kinds == Set(EntityKind.allCases))
     }
 }
+
+struct MindFiltersToggleTests {
+    @Test func entriesAndRegionsStartOff() {
+        let filters = MindFilters()
+        #expect(!filters.showsEntries)
+        #expect(!filters.groupsByArea)
+    }
+}

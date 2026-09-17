@@ -294,8 +294,25 @@ struct AIDiagnosticsPrivacyTests {
         let globalData = services.globalGraph(kinds: nil, minimumLinkCount: 0, in: context)
         services.recordGraphRendered(GraphRenderStats(
             nodes: globalData.nodes.count, edges: globalData.edges.count, settleMilliseconds: nil,
-            frameSamples: 0, frameP50Milliseconds: nil, frameP95Milliseconds: nil, workP95Milliseconds: nil
+            frameSamples: 0, frameP50Milliseconds: nil, frameP95Milliseconds: nil, workP95Milliseconds: nil,
+            entryNodes: 1, lens: MindLens.mood.rawValue, replay: true
         ))
+
+        // A5b: lenses, entry dots, regions, and a replay over the same data, with the renamed
+        // Work area as a region label.
+        let snapshot = services.mapSnapshot(in: context)
+        let filters = MindFilters(kinds: Set(EntityKind.allCases), minimumMentions: 0, showsEntries: true, groupsByArea: true)
+        let frame = MindView.frame(snapshot, filters: filters, visibleAreas: settings.visibleLifeAreas, asOf: .distantFuture)
+        for lens in MindLens.allCases {
+            _ = lens.paint(snapshot, onMap: Set(frame.nodes.map(\.id)), asOf: .distantFuture, generation: 1)
+        }
+        services.recordMindLensChanged(MindLens.recency.rawValue)
+        let player = MindReplayPlayer()
+        player.start(now: .distantFuture) { services.mapSnapshot(in: context) }
+        _ = player.step(elapsed: 5)
+        player.stop()
+        services.recordMindReplayed(steps: 100, durationMilliseconds: 10_000, stepP95Milliseconds: 3, finished: true, nodes: frame.nodes.count)
+        services.recordMindEntryOpened()
 
         let contents = file.contents()
         #expect(contents.contains("ai.keySaved"))
@@ -306,7 +323,8 @@ struct AIDiagnosticsPrivacyTests {
         #expect(contents.contains("looseEnds.faded"))
         for event in ["graph.indexed", "graph.entityEdited", "graph.hidden", "graph.suggestionDismissed",
                       "graph.merged", "graph.unmerged", "graph.repointed", "graph.rendered",
-                      "mind.reviewAnswered", "mind.focused", "mind.filtersChanged"] {
+                      "mind.reviewAnswered", "mind.focused", "mind.filtersChanged",
+                      "mind.lensChanged", "mind.replayed", "mind.entryOpened"] {
             #expect(contents.contains(event), "\(event) was never exercised")
         }
         #expect(contents.contains("title.failed"))

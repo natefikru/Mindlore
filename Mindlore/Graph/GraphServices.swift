@@ -373,6 +373,17 @@ final class GraphServices {
         ])
     }
 
+    func recordMindReplayed(steps: Int, durationMilliseconds: Double, stepP95Milliseconds: Double?, finished: Bool, nodes: Int) {
+        var fields: [String: DiagnosticValue] = [
+            "steps": .int(steps),
+            "durationMilliseconds": .double(durationMilliseconds),
+            "finished": .bool(finished),
+            "nodes": .int(nodes),
+        ]
+        if let stepP95Milliseconds { fields["stepP95Milliseconds"] = .double(stepP95Milliseconds) }
+        diagnostics.record("mind.replayed", fields)
+    }
+
     func recordMindEntryOpened() {
         diagnostics.record("mind.entryOpened", [:])
     }
@@ -389,6 +400,9 @@ final class GraphServices {
             "nodes": .int(stats.nodes),
             "edges": .int(stats.edges),
             "frameSamples": .int(stats.frameSamples),
+            "entryNodes": .int(stats.entryNodes),
+            "lens": .string(stats.lens),
+            "replay": .bool(stats.replay),
         ]
         let optional: [(String, Double?)] = [
             ("settleMilliseconds", stats.settleMilliseconds),

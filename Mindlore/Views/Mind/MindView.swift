@@ -24,6 +24,9 @@ struct MindView: View {
     @State private var lens: MindLens = .kind
     @State private var paint: GraphPaint?
     @State private var paintGeneration = 0
+    @State private var player = MindReplayPlayer()
+    @State private var replayTask: Task<Void, Never>?
+    @State private var replayAvailable = false
 
     static let cardHeight: CGFloat = 200
     private static let topBarHeight: CGFloat = 52
@@ -75,6 +78,8 @@ struct MindView: View {
             // The keyboard never resizes the map or the panel's stops; only the panel's list
             // makes room for it.
             .ignoresSafeArea(.keyboard)
+            // Nobody watches a replay from another tab.
+            .onDisappear { endReplay(finished: false) }
             .toolbar(.hidden, for: .navigationBar)
             .navigationDestination(for: EntityRoute.self) { EntityView(route: $0) }
         }
@@ -83,7 +88,14 @@ struct MindView: View {
             trail.replace(loser, with: winner)
         })
         .task(id: RefreshKey(filters: filters, revision: graph.revision)) { refresh() }
-        .onChange(of: router.mindFocusRequest?.token) { takeFocusRequest() }
+        .onChange(of: router.mindFocusRequest?.token) {
+            // Ending the replay refreshes, and the refresh takes the request.
+            if player.isRunning { endReplay(finished: false) } else { takeFocusRequest() }
+        }
+        // Nor from under a pushed page.
+        .onChange(of: router.mindPath.isEmpty) { _, empty in
+            if !empty { endReplay(finished: false) }
+        }
         .onChange(of: router.dismissPresentationsToken) { showingFilters = false }
         .onChange(of: lens) {
             repaint()
@@ -123,6 +135,7 @@ struct MindView: View {
                 paint: paint,
                 regions: regionLabels,
                 lensName: lens.rawValue,
+                animating: player.isRunning,
                 clearsMissingFocus: false,
                 visibleInsets: visibleInsets(available: available, safeArea: safeArea),
                 onNavigate: { router.mindPath.append(EntityRoute(id: $0)) },
@@ -161,6 +174,12 @@ struct MindView: View {
                 }
             }
             Spacer(minLength: 0)
+            MindReplayControls(
+                player: player,
+                available: replayAvailable,
+                play: startReplay,
+                stop: { endReplay(finished: false) }
+            )
             Menu {
                 Picker("Colour by", selection: $lens) {
                     ForEach(MindLens.allCases, id: \.self) { lens in
@@ -285,8 +304,14 @@ struct MindView: View {
     // The first load builds the simulation; every change after that updates it in place, so
     // surviving nodes keep their spots and new ones grow out of their neighbours.
     private func refresh() {
+        // During a replay the steps own the map; a graph change only re-reads its data.
+        if player.isRunning {
+            player.refetch()
+            return
+        }
         let now = Date.now
         let snapshot = graph.mapSnapshot(in: modelContext)
+        replayAvailable = MindReplay(snapshot: snapshot, end: now) != nil
         if loadedFilters == nil {
             let minimum = MindFilters.defaultMinimum(browsableCount: snapshot.entities.count)
             if minimum != filters.minimumMentions {
@@ -353,6 +378,51 @@ struct MindView: View {
         let onMap = Set(simulation.nodes.lazy.filter { !$0.isEntry }.map(\.id))
         paintGeneration += 1
         paint = lens.paint(snapshot, onMap: onMap, asOf: asOf, generation: paintGeneration)
+    }
+
+    // MARK: - Replay
+
+    private func startReplay() {
+        guard !player.isRunning,
+              player.start(now: .now, fetch: { graph.mapSnapshot(in: modelContext) })
+        else { return }
+        replayTask = Task { await runReplay() }
+    }
+
+    // Steps the map every 100 ms off a monotonic clock until the replay's end.
+    private func runReplay() async {
+        let clock = ContinuousClock()
+        let began = clock.now
+        while !Task.isCancelled {
+            let stepStart = clock.now
+            guard let step = player.step(elapsed: (stepStart - began).seconds) else { return }
+            let frame = Self.frame(step.snapshot, filters: filters, visibleAreas: settings.visibleLifeAreas, asOf: step.asOf)
+            show(frame, snapshot: step.snapshot, asOf: step.asOf)
+            player.noteStep(seconds: (clock.now - stepStart).seconds)
+            if step.finished {
+                endReplay(finished: true)
+                return
+            }
+            try? await Task.sleep(for: MindReplay.stepInterval)
+        }
+    }
+
+    // Every way out comes through here, once: the map goes back to today in place.
+    private func endReplay(finished: Bool) {
+        guard player.isRunning else { return }
+        replayTask?.cancel()
+        replayTask = nil
+        let steps = player.stepSeconds
+        let duration = player.startedAt.map { (ContinuousClock.now - $0).seconds } ?? 0
+        player.stop()
+        graph.recordMindReplayed(
+            steps: steps.count,
+            durationMilliseconds: duration * 1000,
+            stepP95Milliseconds: FrameTimeSampler.percentile(steps, 0.95).map { $0 * 1000 },
+            finished: finished,
+            nodes: simulation?.nodeCount ?? 0
+        )
+        refresh()
     }
 
     // A tapped entry dot opens the entry on the Journal tab, for reading when it's finished.
@@ -444,5 +514,12 @@ private struct MindFiltersView: View {
                 }
             }
         }
+    }
+}
+
+private extension Duration {
+    var seconds: Double {
+        let parts = components
+        return Double(parts.seconds) + Double(parts.attoseconds) / 1e18
     }
 }

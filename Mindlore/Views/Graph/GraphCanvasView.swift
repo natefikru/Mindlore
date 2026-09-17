@@ -28,6 +28,8 @@ struct GraphCanvasView: View {
     // Life-area names drawn faintly at their spots while the map groups by area.
     var regions: [GraphRegion] = []
     var lensName = "kind"
+    // A replay is moving the map: keep drawing, and measure it.
+    var animating = false
     // Whether a focus that leaves the simulation is cleared. Mind keeps it, since a search result
     // can be focused while it's filtered off the map.
     var clearsMissingFocus = true
@@ -127,6 +129,16 @@ struct GraphCanvasView: View {
             }
             wake()
         }
+        .onChange(of: animating) { _, on in
+            if on {
+                // A fresh sample, so a replay is measured even after earlier touches reported.
+                activity = Activity(appearedAt: CACurrentMediaTime(), measuresSettle: false)
+                activity.measuresReplay = true
+                sampler = FrameTimeSampler()
+            }
+            activity.animating = on
+            wake()
+        }
         .onChange(of: dragLive) { _, live in
             if !live { endDrag() }
         }
@@ -137,6 +149,8 @@ struct GraphCanvasView: View {
             // Settle time only means something when the layout is still moving at appearance; a
             // return visit to an already settled graph reports none.
             activity = Activity(appearedAt: CACurrentMediaTime(), measuresSettle: !simulation.settled)
+            activity.animating = animating
+            activity.measuresReplay = animating
             sampler = FrameTimeSampler()
             // A canvas built with a focus already set (a jump into Mind) centres it too; without
             // one, the first appearance centres the layout in the uncovered part.
@@ -159,7 +173,7 @@ struct GraphCanvasView: View {
     private func accessibilityValue(_ plan: GraphDrawPlan) -> String {
         let entries = simulation.nodes.lazy.filter(\.isEntry).count
         let highlighted = plan.hasFocus ? 0 : plan.highlightedNodes?.count ?? 0
-        return "nodes=\(simulation.nodeCount - entries) highlighted=\(highlighted) entries=\(entries) lens=\(lensName) focused=\(focusedID.flatMap(namer) ?? "none")"
+        return "nodes=\(simulation.nodeCount - entries) highlighted=\(highlighted) entries=\(entries) lens=\(lensName) replay=\(animating ? "on" : "off") focused=\(focusedID.flatMap(namer) ?? "none")"
     }
 
     private func flyToFocus() {
@@ -313,6 +327,9 @@ struct GraphCanvasView: View {
         let measuresSettle: Bool
         var settleSeconds: Double?
         var reported = false
+        // Set while a replay runs; `measuresReplay` marks a sample that started with one.
+        var animating = false
+        var measuresReplay = false
 
         init(appearedAt: TimeInterval = CACurrentMediaTime(), measuresSettle: Bool = true) {
             self.appearedAt = appearedAt
@@ -320,7 +337,8 @@ struct GraphCanvasView: View {
             lastActive = appearedAt
         }
 
-        var gestureActive: Bool { dragging || pinching }
+        // Anything that keeps the canvas drawing besides the layout's own motion.
+        var gestureActive: Bool { dragging || pinching || animating }
     }
 
     // Every change that can move something comes through here.
@@ -360,7 +378,10 @@ struct GraphCanvasView: View {
             frameSamples: sampler.intervals.count,
             frameP50Milliseconds: FrameTimeSampler.percentile(sampler.intervals, 0.5).map { $0 * 1000 },
             frameP95Milliseconds: FrameTimeSampler.percentile(sampler.intervals, 0.95).map { $0 * 1000 },
-            workP95Milliseconds: FrameTimeSampler.percentile(sampler.workTimes, 0.95).map { $0 * 1000 }
+            workP95Milliseconds: FrameTimeSampler.percentile(sampler.workTimes, 0.95).map { $0 * 1000 },
+            entryNodes: simulation.nodes.lazy.filter(\.isEntry).count,
+            lens: lensName,
+            replay: activity.measuresReplay
         ))
     }
 
