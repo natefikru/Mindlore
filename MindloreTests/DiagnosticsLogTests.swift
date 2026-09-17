@@ -183,6 +183,7 @@ struct AIDiagnosticsPrivacyTests {
         // Settings and keys: prompt wording and the key itself pass through here.
         let settings = SettingsStore(store: FakeKeyValueStore(), diagnostics: log)
         settings.customInsightPrompts = [CustomInsightPrompt(id: UUID(), name: "Name \(sentinel)", instructions: "Ask about \(sentinel)", enabled: true)]
+        settings.rename(.work, to: "Work \(sentinel)")
         let errorBody = #"{"error":{"message":"your text \#(sentinel) was rejected","code":"invalid_value"}}"#
         let http = FakeHTTPClient(
             .success(HTTPResponse(status: 400, headers: [:], data: Data(errorBody.utf8))),
@@ -217,7 +218,7 @@ struct AIDiagnosticsPrivacyTests {
         // Insights: sentinel text in, sentinel-laden result out, and a failing run.
         let generator = FakeTextGenerator()
         generator.results = [
-            .success(#"{"summary":"About \#(sentinel)","primaryMood":"calm","themes":["\#(sentinel)"],"tags":["\#(sentinel)"],"mentions":[{"name":"\#(sentinel)","kind":"person"}],"openThreads":["\#(sentinel)"]}"#),
+            .success(#"{"summary":"About \#(sentinel)","primaryMood":"calm","lifeAreas":["work"],"tags":["\#(sentinel)"],"mentions":[{"name":"\#(sentinel)","kind":"person"}],"openThreads":["\#(sentinel)"]}"#),
             .failure(AIError.badRequest(code: "invalid_value")),
         ]
         let insights = InsightsCoordinator(

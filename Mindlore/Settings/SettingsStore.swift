@@ -21,7 +21,7 @@ final class SettingsStore {
         static let insightsTrigger = "insightsTrigger"
         static let insightSummary = "insightSummary"
         static let insightMoods = "insightMoods"
-        static let insightThemes = "insightThemes"
+        static let insightLifeAreas = "insightLifeAreas"
         static let insightTags = "insightTags"
         static let insightMentions = "insightMentions"
         static let insightOpenThreads = "insightOpenThreads"
@@ -30,6 +30,8 @@ final class SettingsStore {
         static let suggestEntryDates = "suggestEntryDates"
         static let autoApplySuggestedEntryDate = "autoApplySuggestedEntryDate"
         static let customInsightPrompts = "customInsightPrompts"
+        static let lifeAreaNames = "lifeAreaNames"
+        static let hiddenLifeAreas = "hiddenLifeAreas"
     }
 
     @ObservationIgnored private let store: any KeyValueStore
@@ -123,7 +125,7 @@ final class SettingsStore {
 
     var insightSummary: Bool { didSet { write(insightSummary, Key.insightSummary, logged: .bool(insightSummary)) } }
     var insightMoods: Bool { didSet { write(insightMoods, Key.insightMoods, logged: .bool(insightMoods)) } }
-    var insightThemes: Bool { didSet { write(insightThemes, Key.insightThemes, logged: .bool(insightThemes)) } }
+    var insightLifeAreas: Bool { didSet { write(insightLifeAreas, Key.insightLifeAreas, logged: .bool(insightLifeAreas)) } }
     var insightTags: Bool { didSet { write(insightTags, Key.insightTags, logged: .bool(insightTags)) } }
     var insightMentions: Bool { didSet { write(insightMentions, Key.insightMentions, logged: .bool(insightMentions)) } }
     var insightOpenThreads: Bool { didSet { write(insightOpenThreads, Key.insightOpenThreads, logged: .bool(insightOpenThreads)) } }
@@ -135,6 +137,42 @@ final class SettingsStore {
     // Prompt names and instructions are the user's own words, so only the change is logged.
     var customInsightPrompts: [CustomInsightPrompt] {
         didSet { writeJSON(customInsightPrompts, Key.customInsightPrompts) }
+    }
+
+    // Renames are the user's own words, so only the change is logged. Keyed by raw value; the
+    // model and storage always use raw values.
+    var lifeAreaNames: [String: String] {
+        didSet { writeJSON(lifeAreaNames, Key.lifeAreaNames) }
+    }
+
+    // A hidden area drops out of chips and filters, but entries keep it, so showing it again
+    // brings its entries back.
+    var hiddenLifeAreas: Set<String> {
+        didSet { writeJSON(hiddenLifeAreas, Key.hiddenLifeAreas) }
+    }
+
+    func name(of area: LifeArea) -> String {
+        let custom = lifeAreaNames[area.rawValue]?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return custom.isEmpty ? area.defaultName : custom
+    }
+
+    func rename(_ area: LifeArea, to name: String) {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        let stored = trimmed.isEmpty || trimmed == area.defaultName ? nil : String(trimmed.prefix(30))
+        guard lifeAreaNames[area.rawValue] != stored else { return }
+        lifeAreaNames[area.rawValue] = stored
+    }
+
+    func isHidden(_ area: LifeArea) -> Bool {
+        hiddenLifeAreas.contains(area.rawValue)
+    }
+
+    func setHidden(_ area: LifeArea, _ hidden: Bool) {
+        if hidden { hiddenLifeAreas.insert(area.rawValue) } else { hiddenLifeAreas.remove(area.rawValue) }
+    }
+
+    var visibleLifeAreas: [LifeArea] {
+        LifeArea.allCases.filter { !isHidden($0) }
     }
 
     // Reads go through object(forKey:) so a missing key means "use the default" rather than false.
@@ -175,7 +213,7 @@ final class SettingsStore {
         insightsTrigger = string(Key.insightsTrigger).flatMap(InsightsTrigger.init(rawValue:)) ?? .automatic
         insightSummary = bool(Key.insightSummary, true)
         insightMoods = bool(Key.insightMoods, true)
-        insightThemes = bool(Key.insightThemes, true)
+        insightLifeAreas = bool(Key.insightLifeAreas, true)
         insightTags = bool(Key.insightTags, true)
         insightMentions = bool(Key.insightMentions, true)
         insightOpenThreads = bool(Key.insightOpenThreads, true)
@@ -184,6 +222,8 @@ final class SettingsStore {
         suggestEntryDates = bool(Key.suggestEntryDates, true)
         autoApplySuggestedEntryDate = bool(Key.autoApplySuggestedEntryDate, false)
         customInsightPrompts = json(Key.customInsightPrompts, [])
+        lifeAreaNames = json(Key.lifeAreaNames, [:])
+        hiddenLifeAreas = json(Key.hiddenLifeAreas, [])
     }
 
     // Called once per launch. Entries created before this moment never get an automatic AI pass.

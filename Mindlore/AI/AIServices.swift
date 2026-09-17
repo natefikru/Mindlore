@@ -63,7 +63,7 @@ extension AIServices {
         InsightSections(
             summary: settings.insightSummary,
             moods: settings.insightMoods,
-            themes: settings.insightThemes,
+            lifeAreas: settings.insightLifeAreas,
             tags: settings.insightTags,
             mentions: settings.insightMentions,
             openThreads: settings.insightOpenThreads,

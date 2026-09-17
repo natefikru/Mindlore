@@ -14,17 +14,16 @@ final class EntryInsights {
     var secondaryMoodsRaw: [String] = []
     // Set when the user picks the moods themselves, so the screen can say so and a rerun can warn.
     var moodsEditedByUser: Bool = false
-    var themes: [String] = []
+    var areasRaw: [String] = []
     var tags: [String] = []
     var mentionsData: Data?
     var openThreads: [String] = []
     var cleanedText: String?
     var cleanedTextSkippedReasonRaw: String?
     var customCardsData: Data?
-    // How many of the journal's own tags, themes, and names went with the request, for the
+    // How many of the journal's own tags and names went with the request, for the
     // disclosure screen. Zero for insights made before those were sent.
     var sentTagCount: Int = 0
-    var sentThemeCount: Int = 0
     var sentNameCount: Int = 0
 
     init(generatedAt: Date = .now, modelUsed: String = "", sourceTextHash: String = "") {
@@ -45,6 +44,11 @@ final class EntryInsights {
         primaryMoodRaw = primary?.rawValue
         secondaryMoodsRaw = Array(secondary.filter { $0 != primary }.prefix(2)).map(\.rawValue)
         moodsEditedByUser = editedByUser
+    }
+
+    var areas: [LifeArea] {
+        get { areasRaw.compactMap(LifeArea.init(rawValue:)) }
+        set { areasRaw = newValue.map(\.rawValue) }
     }
 
     var mentions: [Mention] {

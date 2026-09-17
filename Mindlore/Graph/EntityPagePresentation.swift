@@ -39,8 +39,8 @@ nonisolated enum EntityPagePresentation {
 
     // A fresh, single-mention, never-touched name is worth double-checking: dictation is the
     // likeliest source of a wrong spelling, and nobody has confirmed this one is right yet.
-    // Restricted to the kinds bio auto-drafting already limits itself to (5a): tags and themes
-    // rarely appear word for word, so a misspelling there isn't the scenario this is for.
+    // Restricted to the kinds bio auto-drafting already limits itself to (5a): tags rarely
+    // appear word for word, so a misspelling there isn't the scenario this is for.
     static func showsSpellingPrompt(confirmedByUser: Bool, linkCount: Int, kind: EntityKind) -> Bool {
         !confirmedByUser && linkCount <= 1 && EntityBioDrafter.automaticKinds.contains(kind)
     }

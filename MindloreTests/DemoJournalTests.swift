@@ -45,6 +45,16 @@ struct DemoJournalTests {
         }
     }
 
+    @Test func everyEntryIsFiledUnderOneOrTwoAreas() throws {
+        let drafts = DemoJournal.makeEntries(count: 200, now: now)
+        #expect(drafts.allSatisfy { (1...2).contains($0.areas.count) && Set($0.areas).count == $0.areas.count })
+        #expect(Set(drafts.flatMap(\.areas)).count == LifeArea.allCases.count)
+
+        let context = context()
+        try DemoJournal.seedIfEmpty(count: 20, in: context, now: now)
+        #expect(try context.fetch(FetchDescriptor<EntryInsights>()).allSatisfy { !$0.areas.isEmpty })
+    }
+
     @Test func frequentPeopleHaveVariedSurnames() {
         let people = DemoJournal.makeEntries(count: 1200, now: now)
             .flatMap(\.mentions).filter { $0.kind == .person }.map(\.name)

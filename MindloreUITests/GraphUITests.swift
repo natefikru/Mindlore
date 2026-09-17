@@ -61,6 +61,7 @@ final class GraphUITests: XCTestCase {
         XCTAssertTrue(ready.waitForExistence(timeout: 90))
         ready.tap()
         XCTAssertTrue(app.staticTexts["Summary"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.descendants(matching: .any)["lifeArea-friends"].waitForExistence(timeout: 5), "the stub files the entry under friends")
     }
 
     @MainActor
@@ -194,7 +195,9 @@ final class GraphUITests: XCTestCase {
         tomRow.tap()
         XCTAssertTrue(app.descendants(matching: .any)["entityPage"].waitForExistence(timeout: 5))
 
-        app.buttons["entityMergeInto"].tap()
+        let mergeInto = app.buttons["entityMergeInto"]
+        scrollToElement(mergeInto, in: app.collectionViews.firstMatch)
+        mergeInto.tap()
         let candidate = app.buttons["mergeCandidate-Sarah"]
         XCTAssertTrue(candidate.waitForExistence(timeout: 5))
         candidate.tap()

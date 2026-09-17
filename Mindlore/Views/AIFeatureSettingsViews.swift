@@ -177,7 +177,11 @@ struct InsightsSettingsView: View {
             Section("What to generate") {
                 Toggle("Summary", isOn: $settings.insightSummary).accessibilityIdentifier("insightSummaryToggle")
                 Toggle("Moods", isOn: $settings.insightMoods).accessibilityIdentifier("insightMoodsToggle")
-                Toggle("Themes", isOn: $settings.insightThemes).accessibilityIdentifier("insightThemesToggle")
+                Toggle("Life areas", isOn: $settings.insightLifeAreas).accessibilityIdentifier("insightLifeAreasToggle")
+                if settings.insightLifeAreas {
+                    NavigationLink("Edit life areas") { LifeAreasSettingsView() }
+                        .accessibilityIdentifier("editLifeAreasLink")
+                }
                 Toggle("Tags", isOn: $settings.insightTags).accessibilityIdentifier("insightTagsToggle")
                 Toggle("People and places", isOn: $settings.insightMentions).accessibilityIdentifier("insightMentionsToggle")
                 Toggle("Open threads", isOn: $settings.insightOpenThreads).accessibilityIdentifier("insightOpenThreadsToggle")

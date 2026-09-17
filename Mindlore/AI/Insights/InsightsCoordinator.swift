@@ -75,7 +75,8 @@ final class InsightsCoordinator {
 
         repeat {
             needsAnotherPass = false
-            let descriptor = FetchDescriptor<Entry>(predicate: #Predicate { $0.insightsPending }, sortBy: [SortDescriptor(\.createdAt)])
+            // Journal order, so an entry is analyzed after the ones it follows.
+            let descriptor = FetchDescriptor<Entry>(predicate: #Predicate { $0.insightsPending }, sortBy: [SortDescriptor(\.entryDate)])
             for entry in (try? context.fetch(descriptor)) ?? [] {
                 let manual = manualRuns.contains(entry.id)
                 // Insights may run while the entry is open: they never change its text, and a finished
@@ -100,6 +101,29 @@ final class InsightsCoordinator {
         diagnostics.record("insights.requested", ["id": .id(entry.id), "trigger": "runAI"])
         await processQueue(context: context)
     }
+
+    #if DEBUG
+    // For checking how life areas spread over a real journal. Costs one request per entry.
+    @discardableResult
+    func regenerateEverything(context: ModelContext) async -> Int {
+        let entries = ((try? context.fetch(FetchDescriptor<Entry>())) ?? []).filter(Self.canRunAI)
+        for entry in entries {
+            entry.automaticAIPassUsed = true
+            AIJobPolicy.manualReset(.insights, entry)
+            failedThisSession.remove(entry.id)
+            manualRuns.insert(entry.id)
+        }
+        try? save(context, Set(entries.map(\.persistentModelID)))
+        diagnostics.record("insights.requested", ["count": .int(entries.count), "trigger": "regenerateEverything"])
+        await processQueue(context: context)
+        // A pass already running picks these up instead; wait for it rather than report early.
+        let ids = Set(entries.map(\.id))
+        while !manualRuns.isDisjoint(with: ids) {
+            try? await Task.sleep(for: .milliseconds(300))
+        }
+        return entries.count
+    }
+    #endif
 
     // Work that stopped because the phone was offline picks up as soon as the network is back,
     // without waiting for the next launch. Stored failures still gate what may run.
@@ -156,7 +180,6 @@ final class InsightsCoordinator {
             "attempt": .int(entry.insightsAttempts),
             "customPrompts": .int(plan.customKeys.count),
             "knownTags": .int(plan.vocabularySent.tags.count),
-            "knownThemes": .int(plan.vocabularySent.themes.count),
             "knownNames": .int(plan.vocabularySent.named.count),
         ])
 
@@ -196,7 +219,7 @@ final class InsightsCoordinator {
         insights.sourceTextHash = analyzedHash
         insights.summary = result.summary
         insights.setMoods(primary: result.primaryMood, secondary: result.secondaryMoods, editedByUser: false)
-        insights.themes = result.themes
+        insights.areas = result.areas
         insights.tags = result.tags
         insights.mentions = result.mentions
         insights.openThreads = result.openThreads
@@ -204,7 +227,6 @@ final class InsightsCoordinator {
         insights.cleanedTextSkippedReasonRaw = plan.cleanedTextSkippedReason
         insights.customResults = result.custom
         insights.sentTagCount = plan.vocabularySent.tags.count
-        insights.sentThemeCount = plan.vocabularySent.themes.count
         insights.sentNameCount = plan.vocabularySent.named.count
         AIJobPolicy.recordSuccess(.insights, current)
 

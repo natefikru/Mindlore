@@ -71,9 +71,8 @@ nonisolated enum EntityResolver {
     // A value matches its own kind, and either side may be `other`: an untouched `other` gets
     // upgraded, and a mention typed `other` joins whatever is already there.
     //
-    // Tags and themes are outside that. They are labels for an entry, not named things, and
-    // the Review list only ever offers to merge them by hand when they are written
-    // identically. Letting `other` reach them would do that merge silently.
+    // Tags are outside that. They are labels for an entry, not named things, and letting
+    // `other` reach them would merge a name into a label silently.
     private static func matches(kind: EntityKind, _ candidate: Candidate) -> Bool {
         if candidate.kind == kind { return true }
         if isLabel(kind) || isLabel(candidate.kind) { return false }
@@ -88,7 +87,7 @@ nonisolated enum EntityResolver {
     }
 
     static func isLabel(_ kind: EntityKind) -> Bool {
-        kind == .tag || kind == .theme
+        kind == .tag
     }
 
     // Two live entities can share a key after a rename collision the user pushed through.

@@ -73,12 +73,13 @@ struct OpenAILiveTests {
         let response = try await generator.generate(plan.request)
         let result = try InsightsPromptBuilder.parse(response.text, plan: plan)
 
-        print("LIVE insights tokens in \(response.inputTokens ?? -1) out \(response.outputTokens ?? -1) mood \(String(describing: result.primaryMood)) tags \(result.tags) mentions \(result.mentions.map(\.kindRaw)) custom \(result.custom.count)")
+        print("LIVE insights tokens in \(response.inputTokens ?? -1) out \(response.outputTokens ?? -1) mood \(String(describing: result.primaryMood)) areas \(result.areas.map(\.rawValue)) tags \(result.tags) mentions \(result.mentions.map(\.kindRaw)) custom \(result.custom.count)")
         #expect(result.summary != nil)
         #expect(result.primaryMood != nil)
         #expect(result.mentions.contains { $0.name.lowercased().contains("sarah") && $0.kind == .person })
         #expect(result.cleanedText?.isEmpty == false)
         #expect(!result.openThreads.isEmpty)
+        #expect((1...LifeArea.maxPerEntry).contains(result.areas.count), "every entry with content is filed")
     }
     // The journal's own names, against the real model, at the real cap of 50. A name is written
     // as the entry writes it, a garbled one takes the listed spelling, and nothing on the list
@@ -86,7 +87,7 @@ struct OpenAILiveTests {
     @Test func knownNamesFixSpellingWithoutRewritingOrInventing() async throws {
         let decoys: [InsightsPromptBuilder.KnownEntity] = (1...48).map { .init(name: "Decoy Person \($0)", kind: .person) }
         let named = [InsightsPromptBuilder.KnownEntity(name: "Sarah Kim", kind: .person), .init(name: "Harbor Coffee", kind: .place)] + decoys
-        let vocabulary = InsightsPromptBuilder.JournalVocabulary(tags: ["work", "friends"], themes: ["new beginnings"], named: named)
+        let vocabulary = InsightsPromptBuilder.JournalVocabulary(tags: ["work", "friends"], named: named)
         let generator = OpenAICompatibleTextGenerator(baseURL: baseURL, apiKey: key, http: http, jsonModeMemory: JSONModeMemory())
 
         func mentions(_ text: String, _ vocabulary: InsightsPromptBuilder.JournalVocabulary) async throws -> ([Mention], Int) {

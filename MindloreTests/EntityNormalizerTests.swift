@@ -65,12 +65,9 @@ struct EntityNormalizerTests {
         #expect(EntityNormalizer.key(for: "Aunt May", kind: .other) == "aunt may")
     }
 
-    @Test func tagsAndThemesNormalizeLikeEverythingElse() {
+    @Test func tagsNormalizeLikeEverythingElse() {
         #expect(EntityNormalizer.key(for: "Work", kind: .tag) == "work")
-        #expect(EntityNormalizer.key(for: "  career anxiety ", kind: .theme) == "career anxiety")
-        // A tag and a theme written the same way produce the same key, which is what
-        // lets the Review list offer to merge them.
-        #expect(EntityNormalizer.key(for: "Career Anxiety", kind: .tag) == EntityNormalizer.key(for: "career anxiety", kind: .theme))
+        #expect(EntityNormalizer.key(for: "  career anxiety ", kind: .tag) == "career anxiety")
     }
 
     @Test func tokensSplitOnSpacesOnly() {
