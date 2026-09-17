@@ -337,11 +337,25 @@ final class GraphServices {
         return GraphData(nodes: nodes, edges: filteredEdges, names: names)
     }
 
-    // Logged once per graph screen appearance and once per control change that rebuilds the
-    // simulation, never once per frame: settle time over hundreds of ticks is the expected,
-    // useful signal, and per-frame draw cost stays a manual, on-device observation instead.
-    func recordGraphRendered(nodes: Int, edges: Int, settleMilliseconds: Double) {
-        diagnostics.record("graph.rendered", ["nodes": .int(nodes), "edges": .int(edges), "settleMilliseconds": .double(settleMilliseconds)])
+    // Logged once per graph screen appearance, never per frame: the first settle after the
+    // screen appeared, and frame-interval and draw-work percentiles over up to 5 seconds of
+    // interaction, which is what the Phase A device gate reads.
+    func recordGraphRendered(_ stats: GraphRenderStats) {
+        var fields: [String: DiagnosticValue] = [
+            "nodes": .int(stats.nodes),
+            "edges": .int(stats.edges),
+            "frameSamples": .int(stats.frameSamples),
+        ]
+        let optional: [(String, Double?)] = [
+            ("settleMilliseconds", stats.settleMilliseconds),
+            ("frameP50Milliseconds", stats.frameP50Milliseconds),
+            ("frameP95Milliseconds", stats.frameP95Milliseconds),
+            ("workP95Milliseconds", stats.workP95Milliseconds),
+        ]
+        for (key, value) in optional {
+            if let value { fields[key] = .double(value) }
+        }
+        diagnostics.record("graph.rendered", fields)
     }
 
     // MARK: - Co-occurrence

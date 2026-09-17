@@ -16,6 +16,48 @@ extension MoodCategory {
     }
 }
 
+extension LifeArea {
+    var color: Color {
+        switch self {
+        case .work: .blue
+        case .money: .green
+        case .health: .red
+        case .mind: .indigo
+        case .family: .orange
+        case .love: .pink
+        case .friends: .yellow
+        case .play: .purple
+        case .home: .brown
+        }
+    }
+}
+
+// An entry's life areas as small labelled capsules, with the user's names and without hidden areas.
+struct LifeAreaChips: View {
+    @Environment(SettingsStore.self) private var settings
+    let areas: [LifeArea]
+
+    var body: some View {
+        FlowLayout(spacing: 6) {
+            ForEach(areas.filter { !settings.isHidden($0) }, id: \.self) { area in
+                HStack(spacing: 5) {
+                    Image(systemName: area.symbol)
+                        .foregroundStyle(area.color)
+                    Text(settings.name(of: area))
+                }
+                .font(.subheadline)
+                .lineLimit(1)
+                .fixedSize()
+                .padding(.horizontal, 10)
+                .padding(.vertical, 5)
+                .background(.quaternary, in: Capsule())
+                .accessibilityElement(children: .combine)
+                .accessibilityIdentifier("lifeArea-\(area.rawValue)")
+            }
+        }
+    }
+}
+
 extension MentionKind {
     var symbol: String { EntityKind(self).symbol }
     var heading: String { EntityKind(self).heading }
@@ -31,7 +73,6 @@ extension EntityKind {
         case .event: "calendar"
         case .other: "tag"
         case .tag: "number"
-        case .theme: "quote.bubble"
         }
     }
 
@@ -45,11 +86,10 @@ extension EntityKind {
         case .event: "Events"
         case .other: "Other"
         case .tag: "Tags"
-        case .theme: "Themes"
         }
     }
 
-    // The graph canvas's node fill, and any kind legend beside it. Eight fixed, visually distinct
+    // The graph canvas's node fill, and any kind legend beside it. Seven fixed, visually distinct
     // colours; never derived from anything else, so a kind's colour stays stable across a session.
     var color: Color {
         switch self {
@@ -59,7 +99,6 @@ extension EntityKind {
         case .project: .orange
         case .event: .red
         case .tag: .teal
-        case .theme: .indigo
         case .other: .gray
         }
     }
@@ -74,7 +113,6 @@ extension EntityKind {
         case .event: "Event"
         case .other: "Other"
         case .tag: "Tag"
-        case .theme: "Theme"
         }
     }
 }

@@ -136,8 +136,8 @@ nonisolated enum RepointChoices {
     // The same rule the resolver uses: a kind matches itself, and `other` matches any mention.
     static func accepts(_ candidate: EntityKind, for kind: EntityKind) -> Bool {
         switch kind {
-        case .tag, .theme: candidate == kind
-        default: candidate == kind || candidate == .other || (kind == .other && candidate != .tag && candidate != .theme)
+        case .tag: candidate == kind
+        default: candidate == kind || candidate == .other || (kind == .other && candidate != .tag)
         }
     }
 }

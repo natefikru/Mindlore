@@ -90,6 +90,38 @@ struct EntityGraphTests {
         #expect(forward == backward)
     }
 
+    // MARK: - recency
+
+    @Test func recencyIsOneForAnEntrySharedToday() {
+        let entry = UUID()
+        let edges = EntityGraph.build(links: [link(entry, UUID(), now), link(entry, UUID(), now)], asOf: now)
+        #expect(abs(edges[0].recency - 1.0) < 0.0001)
+    }
+
+    @Test func recencyIsHalfAtOneHalfLife() {
+        let entry = UUID()
+        let halfLife: TimeInterval = 90 * 86400
+        let date = now.addingTimeInterval(-halfLife)
+        let edges = EntityGraph.build(links: [link(entry, UUID(), date), link(entry, UUID(), date)], asOf: now, halfLife: halfLife)
+        #expect(abs(edges[0].recency - 0.5) < 0.0001)
+    }
+
+    // Two shared entries sum into weight, but recency is the most recent one alone.
+    @Test func recencyIsTheLatestSharedEntryNotTheSum() {
+        let old = UUID(), recent = UUID()
+        let a = UUID(), b = UUID()
+        let halfLife: TimeInterval = 90 * 86400
+        let oldDate = now.addingTimeInterval(-2 * halfLife)
+        let recentDate = now.addingTimeInterval(-halfLife)
+        let edges = EntityGraph.build(
+            links: [link(old, a, oldDate), link(old, b, oldDate), link(recent, a, recentDate), link(recent, b, recentDate)],
+            asOf: now,
+            halfLife: halfLife
+        )
+        #expect(abs(edges[0].weight - 0.75) < 0.0001)
+        #expect(abs(edges[0].recency - 0.5) < 0.0001)
+    }
+
     // MARK: - neighbourhood
 
     @Test func neighbourhoodDepthZeroIsEmpty() {

@@ -483,19 +483,19 @@ the real key.
 - [x] Carry the unrun graph device steps into A9's checklist (below).
 
 ### A1: Life areas replace themes
-- [ ] Delete `EntityKind.theme` and every theme path listed in the research summary. The label
+- [x] Delete `EntityKind.theme` and every theme path listed in the research summary. The label
       rule becomes tag-only.
-- [ ] Delete `EntryInsights.themes` and `sentThemeCount`, `InsightSections.themes`, the
+- [x] Delete `EntryInsights.themes` and `sentThemeCount`, `InsightSections.themes`, the
       `insightThemes` setting and toggle, the theme card, and the stub value.
-- [ ] Add `LifeArea`, `EntryInsights.areasRaw`, the prompt field and guidance, parsing, the
+- [x] Add `LifeArea`, `EntryInsights.areasRaw`, the prompt field and guidance, parsing, the
       `lifeAreas` section toggle, and the area card on the insights sheet.
-- [ ] Settings: area rename and hide. Debug only: distribution readout and "Regenerate insights
+- [x] Settings: area rename and hide. Debug only: distribution readout and "Regenerate insights
       for every entry" (oldest first).
-- [ ] Delete `SchemaMigrationTests` and the v1/v2 fixture stores.
-- [ ] Fix the tests that assume eight kinds (`entityKindColorsAreEightDistinctValues`) and the
+- [x] Delete `SchemaMigrationTests` and the v1/v2 fixture stores.
+- [x] Fix the tests that assume eight kinds (`entityKindColorsAreEightDistinctValues`) and the
       graph privacy case.
-- [ ] The seeder writes areas.
-- [ ] Tests:
+- [x] The seeder writes areas.
+- [x] Tests:
   - theme tests removed or rewritten as tag-only
   - `LifeAreaTests` (list pinned, parsing drops unknowns, dedupes, caps at 2)
   - prompt includes the enumeration and the Mind rule
@@ -542,13 +542,13 @@ the real key.
   - `OpenAILiveTests`: an entry that settles a known loose end returns its handle in `resolved`
 
 ### A3: A warm graph
-- [ ] `GraphSimulation`: `alphaTarget`, `reheat`, `update(nodes:edges:)`.
-- [ ] Canvas: the redraw rule, focus dimming, weighted and recency edges, the glow symbol, the zoom
+- [x] `GraphSimulation`: `alphaTarget`, `reheat`, `update(nodes:edges:)`.
+- [x] Canvas: the redraw rule, focus dimming, weighted and recency edges, the glow symbol, the zoom
       label budget, the precomputed focus and label sets (no `@State` write in the draw closure),
       edge hit-testing, `flyTo`, and haptics.
-- [ ] `graph.rendered` redefined (first settle plus frame-time p50/p95).
-- [ ] `GlobalGraphView` stays wired for now, so the graph can be measured before Mind exists.
-- [ ] Tests:
+- [x] `graph.rendered` redefined (first settle plus frame-time p50/p95).
+- [x] `GlobalGraphView` stays wired for now, so the graph can be measured before Mind exists.
+- [x] Tests:
   - existing settle, determinism, pin, and spring tests still pass
   - drag reheat keeps alpha above the minimum while pinned and settles after release
   - `update` keeps surviving positions exactly and places new nodes near a neighbour
@@ -592,6 +592,10 @@ the real key.
 - [ ] The live filters menu (kinds, minimum mentions) through `update`.
 - [ ] Delete the Connections, GlobalGraph, and LocalGraph views. Move the name filter to
       `EntitySearch`. Rewrite `GraphUITests` and `GraphScreenshotTests` against the Mind tab.
+      `testConnectionsBrowseOpenAnEntryMergeAndUnmerge` already fails before Phase A (checked on
+      `6d0735b`): after unmerging Tom from Sarah's page, Tom's row doesn't come back in
+      Connections. Find out whether it's a refresh or a data problem, and make the Mind version
+      of the test cover unmerge.
 - [ ] Tests:
   - search result row data (last mentioned, loose-end count through merges)
   - the review card picks one question and advances after an answer
@@ -739,6 +743,47 @@ all folded into revision 2):
     A5b. The review also suggested cutting the 3D spike, replay, lenses, and area rename/hide;
     they stay, since the owner asked for them, but the map extras now come after the core Mind
     tab works.
+
+A1 build (sub-agent review of the working tree, 2026-09-17; 10 findings, no data or build
+bugs). Fixed: tag examples no longer name areas and tags are told not to repeat one; a tag's page
+shows its kind as text instead of a one-option picker; area renames save as they're typed and
+skip no-op writes; the Debug regenerate waits for its own entries; a real drifted-date repair
+test replaces the fixture one; the queue's entryDate order is pinned by a test; CLAUDE.md no
+longer mentions themes. Not changed: old theme rows (a fresh install covers them); rename privacy
+(the privacy test already renames an area to the sentinel). The Debug distribution lives on the
+Life areas screen, reached from the insights settings while areas are on. Also fixed after the
+owner saw it on the simulator: the area chip rendered as a tall empty yellow capsule; it's now a
+grey capsule with a coloured icon, like the tag chips. `OpenAILiveTests`' area check hasn't run
+yet (no key in this session).
+
+A3 build (2026-09-17, lane `feature/phase-a-graph`). Built to a spec the owner approved after a
+sub-agent review (15 findings folded in). The draw cache keys on the simulation's own
+`topologyVersion`; the canvas also takes a `version` argument only so an in-place update
+re-renders it. The glow is a radial-gradient fill rather than a symbol (no blur, fewer moving
+parts). A tapped edge focuses its better-connected end, a placeholder for A5's shared-entries card.
+
+The demo journal found a bug that predates Phase A: at 225 nodes and 1897 edges the layout flew
+to a 2.5 million point extent (a blank screen), because every spring pulled at full strength on
+nodes with dozens of edges. Springs now use d3's `forceLink` defaults (strength 1 / min degree,
+split by degree), and repulsion falls off with distance like d3's `forceManyBody` instead of
+distance squared, which had left the settled graph packed into one blob. A unit test settles the
+real demo graph. `-seedDemoJournal 300` means 300 entries: the global graph at its default
+minimum of 2 mentions has 225 nodes, and that is the node count the gate reads.
+
+Code review (sub-agent, 10 findings, no crash paths). Fixed: a cancelled drag or pinch left the
+simulation warm and the canvas redrawing (cleanup now keys off `@GestureState`); pan and a
+simultaneous pinch overwrote each other; settle time was reported as about 0 on a return visit;
+glow was drawn for every neighbour of a hub (now capped at 25); a shaky tap pinned the node it
+focused (8pt drag threshold); a node that grew didn't make room (0.05 reheat); the sampler kept
+growing after reporting; the graph UI test raced the fly-to. Not changed: nothing covers a gesture
+cancel in a test, since XCUITest can't cancel a gesture.
+
+`GraphUITests.testConnectionsBrowseOpenAnEntryMergeAndUnmerge` fails at `entityMergeInto` on
+this branch and on A0 (`6d0735b`) alike, so it predates A3; A5 rewrites that test. For A9,
+CLAUDE.md's Graph paragraph still describes a rebuild on every change and a settle-only
+`graph.rendered`.
+
+Device gate: pending.
 
 Owner answers after revision 1 (2026-09-17): the tab is Mind, a fresh install is fine, and Ask
 keeps saved conversations and opens a new one by default. Folded in above.

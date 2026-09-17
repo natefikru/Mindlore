@@ -26,7 +26,7 @@ nonisolated struct UITestingHTTPClient: HTTPClient {
             let completion: [String: Any] = ["model": "stub", "choices": [["message": ["content": page], "finish_reason": "stop"]]]
             json = String(decoding: (try? JSONSerialization.data(withJSONObject: completion)) ?? Data(), as: UTF8.self)
         } else if let body, let text = String(data: body, encoding: .utf8), text.contains("journal_insights") {
-            let insights = #"{"summary":"A walk by the river with Sarah.","primaryMood":"calm","secondaryMoods":["grateful"],"themes":["a walk"],"tags":["river"],"mentions":[{"name":"Sarah","kind":"person"},{"name":"Tom","kind":"person"}],"openThreads":["Call the landlord"],"cleanedText":null,"writtenDate":null}"#
+            let insights = #"{"summary":"A walk by the river with Sarah.","primaryMood":"calm","secondaryMoods":["grateful"],"lifeAreas":["friends"],"tags":["river"],"mentions":[{"name":"Sarah","kind":"person"},{"name":"Tom","kind":"person"}],"openThreads":["Call the landlord"],"cleanedText":null,"writtenDate":null}"#
             let completion: [String: Any] = ["model": "stub", "choices": [["message": ["content": insights], "finish_reason": "stop"]]]
             json = String(decoding: (try? JSONSerialization.data(withJSONObject: completion)) ?? Data(), as: UTF8.self)
         } else if let body, let text = String(data: body, encoding: .utf8), text.contains(EntityBioDrafter.schemaName) {

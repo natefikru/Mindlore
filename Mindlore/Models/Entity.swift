@@ -1,10 +1,10 @@
 import Foundation
 import SwiftData
 
-// What an entity is. A superset of MentionKind so tags and themes are nodes too, which is what
-// lets a person and a theme share an edge. Raw values are stored, so never rename one.
+// What an entity is. A superset of MentionKind so tags are nodes too, which is what lets a
+// person and a tag share an edge. Raw values are stored, so never rename one.
 nonisolated enum EntityKind: String, CaseIterable, Sendable {
-    case person, place, organization, project, event, other, tag, theme
+    case person, place, organization, project, event, other, tag
 
     init(_ mention: MentionKind) {
         self = EntityKind(rawValue: mention.rawValue) ?? .other
@@ -15,8 +15,8 @@ nonisolated enum EntityLinkSource: String, CaseIterable, Sendable {
     case ai, user
 }
 
-// One person, place, organization, project, event, tag, or theme, gathered from the mentions,
-// tags, and themes EntryInsights already stores. Follows the same CloudKit schema rules as Entry.
+// One person, place, organization, project, event, or tag, gathered from the mentions and tags
+// EntryInsights already stores. Follows the same CloudKit schema rules as Entry.
 @Model
 final class Entity {
     var id: UUID = UUID()

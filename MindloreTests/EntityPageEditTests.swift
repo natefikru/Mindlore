@@ -18,8 +18,7 @@ struct EntityPageEditTests {
     @Test func kindsStayInTheirFamily() {
         #expect(GraphEditor.kinds(changeableFrom: .person) == [.person, .place, .organization, .project, .event, .other])
         #expect(GraphEditor.kinds(changeableFrom: .other) == [.person, .place, .organization, .project, .event, .other])
-        #expect(GraphEditor.kinds(changeableFrom: .tag) == [.tag, .theme])
-        #expect(GraphEditor.kinds(changeableFrom: .theme) == [.tag, .theme])
+        #expect(GraphEditor.kinds(changeableFrom: .tag) == [.tag])
     }
 
     @Test func aPersonCannotBecomeATag() throws {
@@ -312,6 +311,6 @@ struct EntityPageEditTests {
         #expect(RepointChoices.accepts(.place, for: .other))
         #expect(!RepointChoices.accepts(.tag, for: .other))
         #expect(RepointChoices.accepts(.tag, for: .tag))
-        #expect(!RepointChoices.accepts(.theme, for: .tag))
+        #expect(!RepointChoices.accepts(.other, for: .tag))
     }
 }

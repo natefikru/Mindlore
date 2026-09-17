@@ -12,8 +12,9 @@ struct GlobalGraphView: View {
     @State private var asOf = Date.now
     @State private var showingFilters = false
     @State private var simulation: GraphSimulation?
+    @State private var version = 0
     @State private var nameByID: [UUID: String] = [:]
-    @State private var settleTask: Task<Void, Never>?
+    @State private var focusedID: UUID?
 
     private struct RebuildKey: Equatable {
         let kinds: Set<EntityKind>
@@ -25,9 +26,14 @@ struct GlobalGraphView: View {
     var body: some View {
         Group {
             if let simulation {
-                GraphCanvasView(simulation: simulation, namer: { nameByID[$0] }) { id in
-                    path.append(.entity(EntityRoute(id: id)))
-                }
+                GraphCanvasView(
+                    simulation: simulation,
+                    version: version,
+                    namer: { nameByID[$0] },
+                    focusedID: $focusedID,
+                    onNavigate: { path.append(.entity(EntityRoute(id: $0))) },
+                    onRendered: { graph.recordGraphRendered($0) }
+                )
                 .accessibilityIdentifier("globalGraphCanvas")
             } else {
                 ProgressView()
@@ -48,32 +54,23 @@ struct GlobalGraphView: View {
         .sheet(isPresented: $showingFilters) {
             GlobalGraphFiltersView(kinds: $kinds, minimumLinkCount: $minimumLinkCount, asOf: $asOf)
         }
-        .task(id: RebuildKey(kinds: kinds, minimumLinkCount: minimumLinkCount, asOf: asOf, revision: graph.revision)) { rebuild() }
-        .onDisappear { settleTask?.cancel() }
+        .task(id: RebuildKey(kinds: kinds, minimumLinkCount: minimumLinkCount, asOf: asOf, revision: graph.revision)) { refresh() }
     }
 
-    // A full re-init every control change, the same as the local graph's depth toggle: nothing
-    // in this phase updates a running simulation's node/edge set in place. Keyed on graph.revision
-    // too, so a merge or rename made from a node pushed onto this same stack rebuilds the picture
-    // once the user pops back to it, rather than showing a stale name or a since-merged node.
-    private func rebuild() {
-        settleTask?.cancel()
+    // The first load builds the simulation; every control change after that updates it in place,
+    // so surviving nodes keep their spots and new ones grow out of their neighbours. Keyed on
+    // graph.revision too, so a merge or rename made from a node pushed onto this same stack
+    // updates the picture once the user pops back to it, rather than showing a stale name or a
+    // since-merged node.
+    private func refresh() {
         let data = graph.globalGraph(asOf: asOf, kinds: kinds, minimumLinkCount: minimumLinkCount, in: modelContext)
+        let nodes = GraphSimulation.Node.layoutOrdered(data.nodes)
         nameByID = data.names
-        let built = GraphSimulation(nodes: data.nodes, edges: data.edges)
-        simulation = built
-        let start = Date.now
-        settleTask = Task {
-            await Self.waitForSettle(built)
-            guard !Task.isCancelled else { return }
-            graph.recordGraphRendered(nodes: data.nodes.count, edges: data.edges.count, settleMilliseconds: Date.now.timeIntervalSince(start) * 1000)
-        }
-    }
-
-    private static func waitForSettle(_ simulation: GraphSimulation) async {
-        while !simulation.settled {
-            try? await Task.sleep(nanoseconds: 50_000_000)
-            if Task.isCancelled { return }
+        if let simulation {
+            simulation.update(nodes: nodes, edges: data.edges)
+            version = simulation.topologyVersion
+        } else {
+            simulation = GraphSimulation(nodes: nodes, edges: data.edges)
         }
     }
 }

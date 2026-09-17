@@ -18,8 +18,9 @@ struct LocalGraphView: View {
     @Environment(GraphServices.self) private var graph
     @State private var depth = 1
     @State private var simulation: GraphSimulation?
+    @State private var version = 0
     @State private var nameByID: [UUID: String] = [:]
-    @State private var settleTask: Task<Void, Never>?
+    @State private var focusedID: UUID?
     @State private var path: [EntityRoute] = []
 
     private struct RebuildKey: Equatable {
@@ -31,9 +32,15 @@ struct LocalGraphView: View {
         NavigationStack(path: $path) {
             Group {
                 if let simulation {
-                    GraphCanvasView(simulation: simulation, namer: { nameByID[$0] }, anchoredID: subjectID) { id in
-                        path.append(EntityRoute(id: id))
-                    }
+                    GraphCanvasView(
+                        simulation: simulation,
+                        version: version,
+                        namer: { nameByID[$0] },
+                        focusedID: $focusedID,
+                        anchoredID: subjectID,
+                        onNavigate: { path.append(EntityRoute(id: $0)) },
+                        onRendered: { graph.recordGraphRendered($0) }
+                    )
                     .accessibilityIdentifier("localGraphCanvas")
                 } else {
                     ProgressView()
@@ -58,34 +65,26 @@ struct LocalGraphView: View {
             .environment(\.entityRouteReplacer, EntityRouteReplacer { loser, winner in
                 path = EntityPagePresentation.replacing(loser, with: winner, in: path)
             })
-            .task(id: RebuildKey(depth: depth, revision: graph.revision)) { rebuild() }
-            .onDisappear { settleTask?.cancel() }
+            .task(id: RebuildKey(depth: depth, revision: graph.revision)) { refresh() }
         }
     }
 
-    // A full re-init, not a live re-force, since the node set itself changes with depth, and
-    // keyed on graph.revision too, so a merge or rename made from a node pushed off this sheet's
-    // own stack (its entityRouteReplacer keeps the id right; this is what keeps the picture and
-    // its labels from going stale once the user pops back to it) rebuilds the picture as well.
-    private func rebuild() {
-        settleTask?.cancel()
+    // Built once, then updated in place when the depth changes, so the extended ring grows out of
+    // the neighbours already on screen and the anchored subject stays put. Keyed on
+    // graph.revision too, so a merge or rename made from a node pushed off this sheet's own stack
+    // (its entityRouteReplacer keeps the id right; this is what keeps the picture and its labels
+    // from going stale once the user pops back to it) updates the picture as well.
+    private func refresh() {
         let data = graph.localGraph(around: subjectID, depth: depth, in: modelContext)
+        let nodes = GraphSimulation.Node.layoutOrdered(data.nodes)
         nameByID = data.names
-        let built = GraphSimulation(nodes: data.nodes, edges: data.edges)
-        built.anchor(subjectID, at: .zero)
-        simulation = built
-        let start = Date.now
-        settleTask = Task {
-            await Self.waitForSettle(built)
-            guard !Task.isCancelled else { return }
-            graph.recordGraphRendered(nodes: data.nodes.count, edges: data.edges.count, settleMilliseconds: Date.now.timeIntervalSince(start) * 1000)
-        }
-    }
-
-    private static func waitForSettle(_ simulation: GraphSimulation) async {
-        while !simulation.settled {
-            try? await Task.sleep(nanoseconds: 50_000_000)
-            if Task.isCancelled { return }
+        if let simulation {
+            simulation.update(nodes: nodes, edges: data.edges)
+            version = simulation.topologyVersion
+        } else {
+            let built = GraphSimulation(nodes: nodes, edges: data.edges)
+            built.anchor(subjectID, at: .zero)
+            simulation = built
         }
     }
 }

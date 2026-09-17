@@ -96,7 +96,7 @@ struct SettingsStoreTests {
         #expect(settings.textModel == "gpt-5.6-luna")
         #expect(settings.fallBackToOnDevice)
         #expect(settings.insightsTrigger == .automatic)
-        #expect(settings.insightSummary && settings.insightMoods && settings.insightThemes && settings.insightTags)
+        #expect(settings.insightSummary && settings.insightMoods && settings.insightLifeAreas && settings.insightTags)
         #expect(settings.insightMentions && settings.insightOpenThreads && settings.insightCleanedText)
         #expect(settings.autoApplyCleanedText == false)
         #expect(settings.suggestEntryDates)

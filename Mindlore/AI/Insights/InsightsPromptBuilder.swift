@@ -4,7 +4,7 @@ import Foundation
 nonisolated struct InsightSections: Equatable, Sendable {
     var summary = true
     var moods = true
-    var themes = true
+    var lifeAreas = true
     var tags = true
     var mentions = true
     var openThreads = true
@@ -13,7 +13,7 @@ nonisolated struct InsightSections: Equatable, Sendable {
     var customPrompts: [CustomInsightPrompt] = []
 
     var isEmpty: Bool {
-        !summary && !moods && !themes && !tags && !mentions && !openThreads && !cleanedText && customPrompts.allSatisfy { !$0.enabled }
+        !summary && !moods && !lifeAreas && !tags && !mentions && !openThreads && !cleanedText && customPrompts.allSatisfy { !$0.enabled }
     }
 }
 
@@ -37,7 +37,7 @@ nonisolated struct InsightsResult: Equatable, Sendable {
     var summary: String?
     var primaryMood: Mood?
     var secondaryMoods: [Mood] = []
-    var themes: [String] = []
+    var areas: [LifeArea] = []
     var tags: [String] = []
     var mentions: [Mention] = []
     var openThreads: [String] = []
@@ -46,7 +46,7 @@ nonisolated struct InsightsResult: Equatable, Sendable {
     var custom: [CustomInsightResult] = []
 
     var sectionsReturned: Int {
-        [summary != nil, primaryMood != nil, !themes.isEmpty, !tags.isEmpty, !mentions.isEmpty, !openThreads.isEmpty, cleanedText != nil].filter { $0 }.count + custom.count
+        [summary != nil, primaryMood != nil, !areas.isEmpty, !tags.isEmpty, !mentions.isEmpty, !openThreads.isEmpty, cleanedText != nil].filter { $0 }.count + custom.count
     }
 }
 
@@ -57,9 +57,7 @@ nonisolated enum InsightsPromptBuilder {
     static let maxInputCharacters = 40_000
     static let maxCleanedTextCharacters = 12_000
     static let maxExistingTags = 50
-    static let maxExistingThemes = 50
     static let maxKnownEntities = 50
-    static let maxThemes = 4
     static let maxTags = 8
     static let maxSecondaryMoods = 2
 
@@ -67,10 +65,9 @@ nonisolated enum InsightsPromptBuilder {
     static let maxVocabularyItemCharacters = 60
 
     // What this journal already calls things. Sent so the model reuses the user's own words
-    // instead of inventing a near-duplicate of a tag, theme, or person they already have.
+    // instead of inventing a near-duplicate of a tag or person they already have.
     struct JournalVocabulary: Equatable, Sendable {
         var tags: [String] = []
-        var themes: [String] = []
         var named: [KnownEntity] = []
 
         static let empty = JournalVocabulary()
@@ -115,15 +112,17 @@ nonisolated enum InsightsPromptBuilder {
             }.joined(separator: "\n")
             guidance.append("Moods come only from this list. Leave moods empty rather than guess.\n\(vocabulary)")
         }
-        if sections.themes {
-            properties.append(.init("themes", .array(.string(), description: "One to four short phrases naming what the entry is about. A short entry still has at least one.")))
-            sent.themes = listed(vocabulary.themes, cap: maxExistingThemes)
-            if !sent.themes.isEmpty {
-                guidance.append("Themes already used in this journal, one per line. Reuse one when it fits instead of inventing a near-duplicate.\n" + sent.themes.map { "- \($0)" }.joined(separator: "\n"))
-            }
+        if sections.lifeAreas {
+            properties.append(.init("lifeAreas", .array(.enumeration(LifeArea.allCases.map(\.rawValue)), description: "The one or two areas of life this entry is about. Never empty for an entry with content.")))
+            let areas = LifeArea.allCases.map { "- \($0.rawValue): \($0.meaning)" }.joined(separator: "\n")
+            guidance.append("""
+            Life areas come only from this list. Pick the one area the entry is mostly about; add a \
+            second only when the entry is clearly about both. Pick mind only when the entry is about \
+            the writer's inner life itself, not just because it is written reflectively.
+            """ + "\n" + areas)
         }
         if sections.tags {
-            properties.append(.init("tags", .array(.string(), description: "One to \(maxTags) short lowercase labels for grouping entries with others, like work or family.")))
+            properties.append(.init("tags", .array(.string(), description: "One to \(maxTags) short lowercase labels for grouping entries with others, like running or renovation. More specific than life areas; never repeat a life area as a tag.")))
             sent.tags = listed(vocabulary.tags, cap: maxExistingTags)
             if !sent.tags.isEmpty {
                 guidance.append("Tags already used in this journal, one per line. Reuse one when it fits instead of inventing a near-duplicate.\n" + sent.tags.map { "- \($0)" }.joined(separator: "\n"))
@@ -189,7 +188,7 @@ nonisolated enum InsightsPromptBuilder {
         and do not use diagnostic language. Do not restate the entry back. Use the writer's language.
 
         Fill in every field the entry supports, however short it is: a one-line entry still has a summary, \
-        usually a mood, and often a theme or a tag. Leave a field empty only when the entry genuinely \
+        usually a mood, a life area, and often a tag. Leave a field empty only when the entry genuinely \
         contains nothing for it, such as no named people for mentions.
         """
         if !guidance.isEmpty {
@@ -262,7 +261,11 @@ nonisolated enum InsightsPromptBuilder {
             secondary.append(mood)
         }
         result.secondaryMoods = Array(secondary.prefix(maxSecondaryMoods))
-        result.themes = Array(unique(strings("themes")).prefix(maxThemes))
+        var areas: [LifeArea] = []
+        for area in strings("lifeAreas").compactMap({ LifeArea(rawValue: $0.lowercased()) }) where !areas.contains(area) {
+            areas.append(area)
+        }
+        result.areas = Array(areas.prefix(LifeArea.maxPerEntry))
         result.tags = Array(unique(strings("tags").map { $0.lowercased() }).prefix(maxTags))
         result.openThreads = unique(strings("openThreads"))
 

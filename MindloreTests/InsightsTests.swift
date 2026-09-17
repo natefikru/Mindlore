@@ -42,7 +42,7 @@ struct InsightsPromptBuilderTests {
         let plan = InsightsPromptBuilder.plan(text: "I walked to the river.", source: .voice, sections: InsightSections(), vocabulary: .init(tags: ["work", "family"]), model: "gpt-test")
         let properties = try schemaProperties(plan)
 
-        #expect(Set(properties.keys) == ["summary", "primaryMood", "secondaryMoods", "themes", "tags", "mentions", "openThreads", "cleanedText"])
+        #expect(Set(properties.keys) == ["summary", "primaryMood", "secondaryMoods", "lifeAreas", "tags", "mentions", "openThreads", "cleanedText"])
         // Not nullable: every entry gets a mood, with neutral as the fallback.
         #expect((properties["primaryMood"]?["enum"] as? [Any])?.count == Mood.allCases.count)
         #expect(properties["primaryMood"]?["type"] as? String == "string")
@@ -79,9 +79,9 @@ struct InsightsPromptBuilderTests {
         let plan = InsightsPromptBuilder.plan(text: "x", source: .voice, sections: sections, vocabulary: .init(tags: ["work"]), model: "m")
         let properties = try schemaProperties(plan)
 
-        #expect(Set(properties.keys) == ["summary", "themes", "mentions", "openThreads"])
+        #expect(Set(properties.keys) == ["summary", "lifeAreas", "mentions", "openThreads"])
         #expect(!plan.request.system.contains("Moods come only"))
-        #expect(!plan.request.system.contains("work"))
+        #expect(!plan.request.system.contains("Tags already used"))
     }
 
     @Test func longVoiceEntriesSkipCleanupWithAReason() throws {
@@ -124,7 +124,7 @@ struct InsightsPromptBuilderTests {
         let response = """
         ```json
         {"summary":"  A walk.  ","primaryMood":"calm","secondaryMoods":["calm","grateful","ecstatic","hopeful","tired"],
-         "themes":["river","River","walking","sleep","work","extra"],"tags":["Nature","nature","  WALKS "],
+         "lifeAreas":["friends","Friends","planet","health","work"],"tags":["Nature","nature","  WALKS "],
          "mentions":[{"name":"Sarah","kind":"person"},{"name":"sarah","kind":"person"},{"name":"Mars","kind":"planet"},{"name":"","kind":"place"}],
          "openThreads":[],"cleanedText":"I walked.","\(key)":"The light","writtenDate":"2025-03-03"}
         ```
@@ -134,7 +134,7 @@ struct InsightsPromptBuilderTests {
         #expect(result.summary == "A walk.")
         #expect(result.primaryMood == .calm)
         #expect(result.secondaryMoods == [.grateful, .hopeful])
-        #expect(result.themes == ["river", "walking", "sleep", "work"])
+        #expect(result.areas == [.friends, .health])
         #expect(result.tags == ["nature", "walks"])
         #expect(result.mentions == [Mention(name: "Sarah", kindRaw: "person")])
         #expect(result.openThreads.isEmpty)
@@ -146,7 +146,7 @@ struct InsightsPromptBuilderTests {
 
     @Test func nullsLeaveFieldsEmptyAndBadJSONThrows() throws {
         let plan = InsightsPromptBuilder.plan(text: "x", source: .typed, sections: InsightSections(), vocabulary: .empty, model: "m")
-        let result = try InsightsPromptBuilder.parse(#"{"summary":null,"primaryMood":null,"secondaryMoods":[],"themes":[],"tags":[],"mentions":[],"openThreads":[],"writtenDate":null}"#, plan: plan)
+        let result = try InsightsPromptBuilder.parse(#"{"summary":null,"primaryMood":null,"secondaryMoods":[],"lifeAreas":[],"tags":[],"mentions":[],"openThreads":[],"writtenDate":null}"#, plan: plan)
         #expect(result == InsightsResult())
         #expect(throws: AIError.invalidResponse) { try InsightsPromptBuilder.parse("no json", plan: plan) }
     }
@@ -207,11 +207,28 @@ final class InsightsHarness {
         return entry
     }
 
-    static let fullResponse = #"{"summary":"A river walk.","primaryMood":"calm","secondaryMoods":["grateful"],"themes":["walking"],"tags":["nature"],"mentions":[{"name":"Sarah","kind":"person"}],"openThreads":["Call Sarah"],"cleanedText":"I walked to the river, and it was calm.","writtenDate":"2025-03-03"}"#
+    static let fullResponse = #"{"summary":"A river walk.","primaryMood":"calm","secondaryMoods":["grateful"],"lifeAreas":["health"],"tags":["nature"],"mentions":[{"name":"Sarah","kind":"person"}],"openThreads":["Call Sarah"],"cleanedText":"I walked to the river, and it was calm.","writtenDate":"2025-03-03"}"#
 }
 
 @MainActor
 struct InsightsCoordinatorTests {
+    // Journal order, not arrival order: an entry backdated before another is analyzed first.
+    @Test func theQueueRunsInEntryDateOrder() async throws {
+        let harness = try InsightsHarness()
+        let later = try harness.entry("written later")
+        later.entryDate = Date(timeIntervalSince1970: 9_000)
+        let earlier = Entry(createdAt: Date(timeIntervalSince1970: 6_000), text: "written earlier")
+        earlier.entryDate = Date(timeIntervalSince1970: 1_000)
+        earlier.insightsPending = true
+        harness.context.insert(earlier)
+        try harness.context.save()
+        harness.generator.results = [.success(InsightsHarness.fullResponse), .success(InsightsHarness.fullResponse)]
+
+        await harness.coordinator.processQueue(context: harness.context)
+
+        #expect(harness.generator.requests.map(\.user) == ["written earlier", "written later"])
+    }
+
     @Test func writesInsightsForAPendingEntryWithoutTouchingItsText() async throws {
         let harness = try InsightsHarness()
         let entry = try harness.entry("i walked to the river and it was calm")
@@ -223,7 +240,7 @@ struct InsightsCoordinatorTests {
         let insights = try #require(entry.insights)
         #expect(insights.summary == "A river walk.")
         #expect(insights.primaryMood == .calm && insights.secondaryMoods == [.grateful])
-        #expect(insights.themes == ["walking"] && insights.tags == ["nature"])
+        #expect(insights.areas == [.health] && insights.tags == ["nature"])
         #expect(insights.mentions == [Mention(name: "Sarah", kindRaw: "person")])
         #expect(insights.openThreads == ["Call Sarah"])
         #expect(insights.modelUsed == "openai:insights-model")
@@ -510,7 +527,7 @@ struct AutomaticInsightsTriggerTests {
         settings.insightsTrigger = .manual
         #expect(!AIServices.automaticInsightsUsable(settings: settings, accounts: accounts))
         settings.insightsTrigger = .automatic
-        for keyPath in [\SettingsStore.insightSummary, \.insightMoods, \.insightThemes, \.insightTags, \.insightMentions, \.insightOpenThreads, \.insightCleanedText] {
+        for keyPath in [\SettingsStore.insightSummary, \.insightMoods, \.insightLifeAreas, \.insightTags, \.insightMentions, \.insightOpenThreads, \.insightCleanedText] {
             settings[keyPath: keyPath] = false
         }
         #expect(!AIServices.automaticInsightsUsable(settings: settings, accounts: accounts))
