@@ -31,12 +31,19 @@ struct EntryEditorView: View {
     @State private var editorFocused = false
     // Bumped to put the caret at the end, for taps in the blank space under the text.
     @State private var focusAtEndToken = 0
+    // Past entries open read-only; Edit switches to typing. Decided once when the editor opens.
+    @State private var isReading: Bool
+    private let openedForReading: Bool
+    // Edit asks the text view, once it exists, to take focus with the caret at the end.
+    @State private var focusWhenEditorAppears = false
 
     static let fallbackNoticeSeconds = 8.0
 
-    init(entry: Entry?, newEntryID: UUID? = nil) {
+    init(entry: Entry?, newEntryID: UUID? = nil, opensForReading: Bool = false) {
         _currentEntry = State(initialValue: entry)
         self.newEntryID = newEntryID
+        _isReading = State(initialValue: opensForReading)
+        openedForReading = opensForReading
     }
 
     // The close rules run when the route leaves the path, while this view is still animating out,
@@ -51,23 +58,32 @@ struct EntryEditorView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
                     header
-                    // The text view grows with its text and never ends shorter than the screen, so the
-                    // whole entry scrolls as one and a tap below short text still lands in the text.
-                    GrowingTextEditor(
-                        text: textBinding,
-                        isFocused: editorFocused,
-                        focusAtEndToken: focusAtEndToken,
-                        onFocusChange: { editorFocused = $0 }
-                    )
-                    .padding(.horizontal)
-                    .accessibilityIdentifier("entryEditor")
-                    // Tapping under the text continues the entry, rather than doing nothing or
-                    // dropping the caret at the start.
-                    Color.clear
-                        .frame(minHeight: max(120, proxy.size.height / 2))
-                        .contentShape(Rectangle())
-                        .onTapGesture { focusAtEndToken += 1 }
-                        .accessibilityHidden(true)
+                    if isReading, let entry {
+                        readBody(for: entry)
+                    } else {
+                        // The text view grows with its text and never ends shorter than the screen, so the
+                        // whole entry scrolls as one and a tap below short text still lands in the text.
+                        GrowingTextEditor(
+                            text: textBinding,
+                            isFocused: editorFocused,
+                            focusAtEndToken: focusAtEndToken,
+                            onFocusChange: { editorFocused = $0 }
+                        )
+                        .padding(.horizontal)
+                        .accessibilityIdentifier("entryEditor")
+                        .onAppear {
+                            guard focusWhenEditorAppears else { return }
+                            focusWhenEditorAppears = false
+                            focusAtEndToken += 1
+                        }
+                        // Tapping under the text continues the entry, rather than doing nothing or
+                        // dropping the caret at the start.
+                        Color.clear
+                            .frame(minHeight: max(120, proxy.size.height / 2))
+                            .contentShape(Rectangle())
+                            .onTapGesture { focusAtEndToken += 1 }
+                            .accessibilityHidden(true)
+                    }
                 }
             }
             .scrollDismissesKeyboard(.interactively)
@@ -77,10 +93,20 @@ struct EntryEditorView: View {
         .toolbar {
             if let entry {
                 ToolbarItemGroup(placement: .topBarTrailing) {
-                    if AIPassTrigger.offersDone(entry, automationStartedAt: settings.automationStartedAt) {
+                    if isReading {
+                        Button("Edit") {
+                            focusWhenEditorAppears = true
+                            isReading = false
+                        }
+                        .accessibilityIdentifier("editEntryButton")
+                    } else if AIPassTrigger.offersDone(entry, automationStartedAt: settings.automationStartedAt) {
                         Button("Done") { finish(entry) }
                             .fontWeight(.semibold)
                             .accessibilityIdentifier("finishEntryButton")
+                    } else if openedForReading {
+                        Button("Done") { stopEditing(entry) }
+                            .fontWeight(.semibold)
+                            .accessibilityIdentifier("doneEditingButton")
                     }
                     Button {
                         showingInsights = true
@@ -165,6 +191,11 @@ struct EntryEditorView: View {
         .onAppear {
             if entry == nil { focusAtEndToken += 1 }
         }
+        // One way only: an entry that needs the editor again (new pages, text to review) stops
+        // being read, and never flips back by itself.
+        .onChange(of: entry.map(EntryReadMode.mustType) ?? true) { _, mustType in
+            if mustType && isReading { isReading = false }
+        }
         // Full-screen covers stay: they hide the tab bar, so no jump can start under them, and
         // closing the page screen from outside would skip its own close rules.
         .onChange(of: editingPages || viewingPage != nil) { _, open in
@@ -233,13 +264,22 @@ struct EntryEditorView: View {
                     .padding(.horizontal)
                     .padding(.top, 8)
             }
-            TextField(entry.map(\.displayTitle) ?? "Title", text: titleBinding)
-                .font(.title3.weight(.semibold))
-                .padding(.horizontal, 21)
-                .padding(.top, 8)
-                .submitLabel(.next)
-                .onSubmit { focusAtEndToken += 1 }
-                .accessibilityIdentifier("entryTitleField")
+            if isReading, let entry {
+                Text(entry.displayTitle)
+                    .font(.title3.weight(.semibold))
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 21)
+                    .padding(.top, 8)
+                    .accessibilityIdentifier("entryTitleText")
+            } else {
+                TextField(entry.map(\.displayTitle) ?? "Title", text: titleBinding)
+                    .font(.title3.weight(.semibold))
+                    .padding(.horizontal, 21)
+                    .padding(.top, 8)
+                    .submitLabel(.next)
+                    .onSubmit { focusAtEndToken += 1 }
+                    .accessibilityIdentifier("entryTitleField")
+            }
             if let entry, entry.awaitingText, entry.text.isEmpty {
                 Text(entry.source == .photo ? "Text from your pages will appear here. You can also start typing." : "Text from your recording will appear here. You can also start typing.")
                     .font(.subheadline)
@@ -384,12 +424,32 @@ struct EntryEditorView: View {
         DiagnosticsLog.shared.record("cleanup.reverted", ["id": .id(entry.id)])
     }
 
+    private func readBody(for entry: Entry) -> some View {
+        Text(entry.text)
+            .font(.body)
+            .textSelection(.enabled)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 21)
+            .padding(.top, 8)
+            .padding(.bottom, 48)
+            .accessibilityIdentifier("entryReadText")
+    }
+
+    // Done after Edit on an entry that opened for reading: back to reading, unless it now needs the editor.
+    private func stopEditing(_ entry: Entry) {
+        editorFocused = false
+        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+        saver.flush()
+        if !EntryReadMode.mustType(entry) { isReading = true }
+    }
+
     // Done: the entry is finished, so its automatic pass runs now. Leaving without Done keeps a draft.
     private func finish(_ entry: Entry) {
         // A draft becomes finished; anything else Done is offered on already is, and only needs its pass.
         let wasDraft = entry.finishDraft()
         editorFocused = false
         UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+        if openedForReading && !EntryReadMode.mustType(entry) { isReading = true }
         guard aiPass.fire(for: entry, at: .finished) || wasDraft else { return }
         saver.noteChange()
         saver.flush()

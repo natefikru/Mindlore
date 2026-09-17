@@ -11,6 +11,8 @@ enum AppTab: Hashable {
 nonisolated struct JournalRoute: Hashable, Sendable {
     let entryID: UUID
     var isNew = false
+    // Set by a finished recording, so its entry lands in the editor rather than read mode.
+    var opensForTyping = false
 
     static func new() -> JournalRoute {
         JournalRoute(entryID: UUID(), isNew: true)
@@ -36,7 +38,7 @@ final class AppRouter {
     // Full-screen covers can't be closed from outside (the page screen has its own close rules),
     // so a jump waits until the last one is gone.
     @ObservationIgnored private var openCovers: Set<String> = []
-    @ObservationIgnored private(set) var pendingEntryID: UUID?
+    @ObservationIgnored private(set) var pendingRoute: JournalRoute?
 
     @ObservationIgnored private let opened: (UUID) -> Void
     @ObservationIgnored private let closed: (UUID) -> Void
@@ -48,14 +50,15 @@ final class AppRouter {
 
     // Replaces Journal's path rather than appending, so a finished recording never lands on top of
     // another open entry.
-    func showEntry(_ id: UUID) {
+    func showEntry(_ id: UUID, forTyping: Bool = false) {
+        let route = JournalRoute(entryID: id, opensForTyping: forTyping)
         guard openCovers.isEmpty else {
-            pendingEntryID = id
+            pendingRoute = route
             return
         }
         dismissPresentationsToken += 1
         tab = .journal
-        journalPath = [JournalRoute(entryID: id)]
+        journalPath = [route]
     }
 
     func setCover(_ name: String, open: Bool) {
@@ -64,9 +67,9 @@ final class AppRouter {
         } else {
             openCovers.remove(name)
         }
-        guard openCovers.isEmpty, let pending = pendingEntryID else { return }
-        pendingEntryID = nil
-        showEntry(pending)
+        guard openCovers.isEmpty, let pending = pendingRoute else { return }
+        pendingRoute = nil
+        showEntry(pending.entryID, forTyping: pending.opensForTyping)
     }
 
     private func reportChanges(from old: [JournalRoute]) {

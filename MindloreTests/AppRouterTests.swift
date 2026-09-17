@@ -108,7 +108,22 @@ struct AppRouterTests {
         router.setCover("editor", open: false)
         #expect(router.journalPath == [JournalRoute(entryID: shown)])
         #expect(log.closed == [open])
-        #expect(router.pendingEntryID == nil)
+        #expect(router.pendingRoute == nil)
+    }
+
+    @Test func aRecordingOpensForTypingWithoutChangingWhichRouteItIs() {
+        let log = Log()
+        let router = router(log)
+        let id = UUID()
+
+        router.showEntry(id, forTyping: true)
+        #expect(router.journalPath.first?.opensForTyping == true)
+        #expect(router.journalPath == [JournalRoute(entryID: id)])
+
+        router.setCover("pageOrder", open: true)
+        router.showEntry(UUID(), forTyping: true)
+        router.setCover("pageOrder", open: false)
+        #expect(router.journalPath.first?.opensForTyping == true)
     }
 
     @Test func showingAnEntryThatStartedAsANewRouteKeepsItOpen() {

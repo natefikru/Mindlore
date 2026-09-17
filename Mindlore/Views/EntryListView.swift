@@ -193,13 +193,18 @@ struct EntryListView: View {
 private struct JournalEntryDestination: View {
     let route: JournalRoute
     @Environment(\.modelContext) private var modelContext
+    @Environment(SettingsStore.self) private var settings
 
     var body: some View {
         // One branch for new and existing routes: JournalRoute compares by id alone, so SwiftUI may
         // hand this view either form of the same route, and the editor's identity must not flip.
         let entry = EditorLifecycle.entry(route.entryID, in: modelContext)
         if route.isNew || entry != nil {
-            EntryEditorView(entry: entry, newEntryID: route.entryID)
+            EntryEditorView(
+                entry: entry,
+                newEntryID: route.entryID,
+                opensForReading: EntryReadMode.opensForReading(entry, routeWantsTyping: route.opensForTyping, automationStartedAt: settings.automationStartedAt)
+            )
         } else {
             ContentUnavailableView("This entry was deleted", systemImage: "trash")
         }
