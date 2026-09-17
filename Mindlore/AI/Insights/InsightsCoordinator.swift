@@ -164,9 +164,12 @@ final class InsightsCoordinator {
         let revision = entry.contentRevision
         // Before the graph exists there are no entities to read, so tags are counted off the
         // insights themselves. Once it exists, an empty list means the user hid them all.
-        let vocabulary = self.vocabulary(context, sections)
+        var vocabulary = self.vocabulary(context, sections)
             ?? .init(tags: sections.tags ? Self.topTags(in: context) : [])
-        let plan = InsightsPromptBuilder.plan(text: analyzedText, source: source, sections: sections, vocabulary: vocabulary, model: generator.model)
+        if sections.looseEnds {
+            vocabulary.looseEnds = LooseEndWriter.candidates(for: entry, in: context)
+        }
+        let plan = InsightsPromptBuilder.plan(text: analyzedText, source: source, sections: sections, vocabulary: vocabulary, model: generator.model, entryDate: entry.entryDate, calendar: calendar)
 
         AIJobPolicy.recordAttempt(.insights, entry)
         try? save(context, [id])
@@ -181,6 +184,7 @@ final class InsightsCoordinator {
             "customPrompts": .int(plan.customKeys.count),
             "knownTags": .int(plan.vocabularySent.tags.count),
             "knownNames": .int(plan.vocabularySent.named.count),
+            "knownLooseEnds": .int(plan.vocabularySent.looseEnds.count),
         ])
 
         let result: InsightsResult
@@ -222,12 +226,12 @@ final class InsightsCoordinator {
         insights.areas = result.areas
         insights.tags = result.tags
         insights.mentions = result.mentions
-        insights.openThreads = result.openThreads
         insights.cleanedText = result.cleanedText
         insights.cleanedTextSkippedReasonRaw = plan.cleanedTextSkippedReason
         insights.customResults = result.custom
         insights.sentTagCount = plan.vocabularySent.tags.count
         insights.sentNameCount = plan.vocabularySent.named.count
+        insights.sentLooseEndCount = plan.vocabularySent.looseEnds.filter { !$0.own }.count
         AIJobPolicy.recordSuccess(.insights, current)
 
         // Suggestions and cleanup only act on the exact text that was analyzed.
@@ -252,6 +256,16 @@ final class InsightsCoordinator {
             }
         }
         onInsightsWritten(current, context)
+        if sections.looseEnds {
+            let outcome = LooseEndWriter.apply(result.looseEnds, to: current, in: context)
+            diagnostics.record("looseEnds.written", [
+                "id": .id(entryID),
+                "created": .int(outcome.created),
+                "createdFaded": .int(outcome.createdFaded),
+                "mentioned": .int(outcome.mentioned),
+                "resolved": .int(outcome.resolved),
+            ])
+        }
         // Writing insights or a suggestion isn't an edit to the entry; applying cleanup is.
         try? save(context, changedEntry ? [] : [id])
         diagnostics.record(isCurrent ? "insights.completed" : "insights.stale", [

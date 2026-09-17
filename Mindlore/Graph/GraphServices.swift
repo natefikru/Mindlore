@@ -493,8 +493,9 @@ final class GraphServices {
         revision += 1
     }
 
-    // The counters are dated by the entry, so moving one moves them.
-    func entryDateChanged(in context: ModelContext) {
+    // The counters and the entry's loose ends are dated by the entry, so moving one moves them.
+    func entryDateChanged(for entry: Entry, in context: ModelContext) {
+        LooseEnd.redate(forEntry: entry, in: context)
         indexer.recount(in: context)
         revision += 1
     }

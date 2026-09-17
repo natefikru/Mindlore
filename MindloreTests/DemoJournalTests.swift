@@ -55,6 +55,16 @@ struct DemoJournalTests {
         #expect(try context.fetch(FetchDescriptor<EntryInsights>()).allSatisfy { !$0.areas.isEmpty })
     }
 
+    @Test func looseEndsAreSpreadAcrossTheJournalInEveryState() throws {
+        let context = context()
+        try DemoJournal.seedIfEmpty(count: 300, in: context, now: now)
+        let all = LooseEnd.all(in: context)
+        let byStatus = Dictionary(grouping: all, by: \.status).mapValues(\.count)
+        #expect(all.count >= 40)
+        #expect(byStatus[.open, default: 0] > 0 && byStatus[.faded, default: 0] > 0 && byStatus[.resolved, default: 0] > 0)
+        #expect(all.allSatisfy { !$0.entityIDs.isEmpty }, "each is about its entry's first person")
+    }
+
     @Test func frequentPeopleHaveVariedSurnames() {
         let people = DemoJournal.makeEntries(count: 1200, now: now)
             .flatMap(\.mentions).filter { $0.kind == .person }.map(\.name)

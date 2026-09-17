@@ -194,12 +194,15 @@ struct GraphServicesTests {
         harness.indexer.sweep(in: harness.context)
 
         let moved = Date(timeIntervalSince1970: 50_000)
+        let looseEnd = LooseEnd(text: "Call Sarah", sourceEntryID: entry.id, sourceEntryDate: entry.entryDate)
+        harness.context.insert(looseEnd)
         entry.entryDate = moved
-        services.entryDateChanged(in: harness.context)
+        services.entryDateChanged(for: entry, in: harness.context)
 
         let sarah = try harness.entity("Sarah")
         #expect(sarah.firstLinkedAt == moved)
         #expect(sarah.lastLinkedAt == moved)
+        #expect(looseEnd.sourceEntryDate == moved && looseEnd.createdAt == moved && looseEnd.lastMentionedAt == moved)
         #expect(services.revision == 1)
     }
 

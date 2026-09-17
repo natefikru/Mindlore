@@ -27,11 +27,37 @@ enum DemoJournal {
         }
         try context.save()
         GraphIndexer().sweep(in: context)
+        seedLooseEnds(in: context, now: now)
+        try context.save()
         DiagnosticsLog.shared.record("demo.seeded", [
             "entries": .int(count),
             "milliseconds": .int(Int(Date.now.timeIntervalSince(started) * 1000)),
         ])
         return count
+    }
+
+    // Every sixth entry leaves something open about its first person. Half of those are settled
+    // four entries later; the rest stay open or, once old enough, fade.
+    private static func seedLooseEnds(in context: ModelContext, now: Date) {
+        let entries = (try? context.fetch(FetchDescriptor<Entry>(sortBy: [SortDescriptor(\.entryDate)]))) ?? []
+        var createdAt: [Int: UUID] = [:]
+        let templates = ["Waiting to hear back from %@", "Need to decide whether to call %@", "Promised %@ an answer by the weekend"]
+        for (index, entry) in entries.enumerated() {
+            var result = LooseEndResult()
+            if index % 6 == 0, let person = entry.insights?.mentions.first(where: { $0.kind == .person })?.name {
+                let text = String(format: templates[(index / 6) % templates.count], person)
+                result.new = [.init(text: text, about: [person])]
+            }
+            if index >= 4, (index - 4) % 12 == 0, let id = createdAt[index - 4] {
+                result.resolved = [id]
+            }
+            guard !result.isEmpty else { continue }
+            LooseEndWriter.apply(result, to: entry, in: context, now: now)
+            if !result.new.isEmpty {
+                let entryID = entry.id
+                createdAt[index] = LooseEnd.all(in: context).first { $0.sourceEntryID == entryID }?.id
+            }
+        }
     }
 
     struct Draft: Equatable {

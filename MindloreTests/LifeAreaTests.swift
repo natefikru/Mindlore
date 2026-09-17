@@ -36,6 +36,17 @@ struct LifeAreaTests {
         #expect(try InsightsPromptBuilder.parse(#"{"lifeAreas":"work"}"#, plan: plan).areas.isEmpty)
     }
 
+    @Test func tagsThatRepeatAnAreaAreDropped() throws {
+        let plan = InsightsPromptBuilder.plan(text: "x", source: .typed, sections: InsightSections(), vocabulary: .empty, model: "m")
+        let result = try InsightsPromptBuilder.parse(#"{"lifeAreas":["friends"],"tags":["Friends","moving","work"]}"#, plan: plan)
+        #expect(result.tags == ["moving"])
+
+        var noAreas = InsightSections()
+        noAreas.lifeAreas = false
+        let without = InsightsPromptBuilder.plan(text: "x", source: .typed, sections: noAreas, vocabulary: .empty, model: "m")
+        #expect(try InsightsPromptBuilder.parse(#"{"tags":["friends","moving"]}"#, plan: without).tags == ["friends", "moving"], "with areas off, the tag is the only place it can go")
+    }
+
     @Test func storedAreasReadBackAndIgnoreUnknownValues() {
         let insights = EntryInsights()
         insights.areas = [.mind, .love]

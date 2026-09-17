@@ -166,6 +166,9 @@ struct RootView: View {
                 indexing = GraphIndexingProgress.visible(done: done, total: total)
             }
             withAnimation { indexing = nil }
+            if LooseEnd.fade(in: context) > 0 {
+                try? context.saveStampingEntries()
+            }
             await titles.processQueue(context: context)
             await insights.processQueue(context: context)
         }

@@ -66,7 +66,7 @@ extension AIServices {
             lifeAreas: settings.insightLifeAreas,
             tags: settings.insightTags,
             mentions: settings.insightMentions,
-            openThreads: settings.insightOpenThreads,
+            looseEnds: settings.insightLooseEnds,
             cleanedText: settings.insightCleanedText,
             suggestEntryDates: settings.suggestEntryDates,
             customPrompts: settings.customInsightPrompts

@@ -184,7 +184,7 @@ struct EntryEditorView: View {
             if let entry {
                 EntryDateSheet(entry: entry) {
                     saver.noteChange()
-                    graph.entryDateChanged(in: modelContext)
+                    graph.entryDateChanged(for: entry, in: modelContext)
                 }
                     .presentationDetents([.medium, .large])
             }
@@ -365,7 +365,7 @@ struct EntryEditorView: View {
             textReviewPending: entry.textReviewPending,
             hasText: !entry.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
             hasInsights: entry.insights != nil,
-            insightsAreEmpty: entry.insights.map(EntryInsightsView.isEmpty) ?? false,
+            insightsAreEmpty: entry.insights.map { EntryInsightsView.isEmpty($0, in: modelContext) } ?? false,
             insightsAreCurrent: entry.insights?.isCurrent(for: entry) ?? false,
             running: insightsCoordinator.isRunning(entry),
             failure: AIJobPolicy.failure(.insights, entry),

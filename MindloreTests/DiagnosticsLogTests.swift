@@ -218,7 +218,7 @@ struct AIDiagnosticsPrivacyTests {
         // Insights: sentinel text in, sentinel-laden result out, and a failing run.
         let generator = FakeTextGenerator()
         generator.results = [
-            .success(#"{"summary":"About \#(sentinel)","primaryMood":"calm","lifeAreas":["work"],"tags":["\#(sentinel)"],"mentions":[{"name":"\#(sentinel)","kind":"person"}],"openThreads":["\#(sentinel)"]}"#),
+            .success(#"{"summary":"About \#(sentinel)","primaryMood":"calm","lifeAreas":["work"],"tags":["\#(sentinel)"],"mentions":[{"name":"\#(sentinel)","kind":"person"}],"looseEnds":[{"text":"Call \#(sentinel)","about":["\#(sentinel)"],"due":null,"sameAs":null}]}"#),
             .failure(AIError.badRequest(code: "invalid_value")),
         ]
         let insights = InsightsCoordinator(
@@ -232,7 +232,9 @@ struct AIDiagnosticsPrivacyTests {
         entry.insightsPending = true
         await insights.processQueue(context: context)
         #expect(entry.insights?.summary?.contains(sentinel) == true)
+        #expect(LooseEnd.all(in: context).contains { $0.text.contains(sentinel) })
         await insights.runAI(for: entry, context: context)
+        #expect(LooseEnd.fade(in: context, now: .distantFuture, diagnostics: log) > 0)
 
         // Titles, including a generator that throws a DecodingError carrying the sentinel.
         let titles = TitleCoordinator(
@@ -299,6 +301,8 @@ struct AIDiagnosticsPrivacyTests {
         #expect(contents.contains("pages.transcription.completed"))
         #expect(contents.contains("insights.completed"))
         #expect(contents.contains("insights.failed"))
+        #expect(contents.contains("looseEnds.written"))
+        #expect(contents.contains("looseEnds.faded"))
         for event in ["graph.indexed", "graph.entityEdited", "graph.hidden", "graph.suggestionDismissed",
                       "graph.merged", "graph.unmerged", "graph.repointed", "graph.rendered"] {
             #expect(contents.contains(event), "\(event) was never exercised")
