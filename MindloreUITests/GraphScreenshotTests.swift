@@ -33,38 +33,45 @@ final class GraphScreenshotTests: XCTestCase {
         XCTAssertTrue(chip.exists, "chip: \(identifier)")
     }
 
-    // The 300-entry demo journal's global graph at rest, focused, and zoomed, for looking at by
-    // eye. The demo seed only runs outside -uiTesting, so this launch uses the demo store alone.
+    // The 300-entry demo journal on the Mind tab at rest, with the panel up, focused, and zoomed,
+    // for looking at by eye. The demo seed only runs outside -uiTesting, so this launch uses the
+    // demo store alone.
     @MainActor
-    func testDemoJournalGlobalGraph() throws {
+    func testDemoJournalMind() throws {
         app.launchArguments = ["-seedDemoJournal", "300"]
         app.launchEnvironment = [:]
         app.launch()
 
-        // Connections lives on the Mind tab until the Mind graph replaces it.
         let mind = app.tabBars.buttons["Mind"]
         XCTAssertTrue(mind.waitForExistence(timeout: 60))
         mind.tap()
-        let connections = app.buttons["connectionsButton"]
-        XCTAssertTrue(connections.waitForExistence(timeout: 10))
-        connections.tap()
-        let graphButton = app.buttons["Graph"]
-        XCTAssertTrue(graphButton.waitForExistence(timeout: 10))
-        graphButton.tap()
 
-        let canvas = app.descendants(matching: .any)["globalGraphCanvas"]
+        let canvas = app.descendants(matching: .any)["mindGraphCanvas"]
         XCTAssertTrue(canvas.waitForExistence(timeout: 10))
         XCTAssertGreaterThan(canvas.graphNodeCount ?? 0, 50)
         sleep(6)
-        attach("demo-graph-rest")
+        attach("mind-rest-panel-half")
 
-        XCTAssertNotNil(canvas.tapUntilGraphFocuses())
+        app.buttons["areaTile-work"].tap()
         sleep(2)
-        attach("demo-graph-focused")
+        attach("mind-area-work")
+        app.buttons["areaTile-work"].tap()
+
+        let field = app.textFields["mindSearchField"]
+        field.tap()
+        field.typeText("Sarah")
+        sleep(1)
+        attach("mind-search-keyboard")
+        let row = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'mindRow-Sarah'")).firstMatch
+        XCTAssertTrue(row.waitForExistence(timeout: 5))
+        row.tap()
+        XCTAssertTrue(app.descendants(matching: .any)["entityPeekCard"].waitForExistence(timeout: 5))
+        sleep(2)
+        attach("mind-focused-card")
 
         canvas.pinch(withScale: 2, velocity: 1)
         sleep(2)
-        attach("demo-graph-zoomed")
+        attach("mind-zoomed")
     }
 
     @MainActor

@@ -256,10 +256,9 @@ final class GraphServices {
     }
 
     // One Entity fetch, one link fetch, one Entry fetch for dates, merges and hidden entities
-    // resolved through the same in-memory root(of:) walk mentionedWith already uses. localGraph
-    // and globalGraph share this so the fetch-once discipline isn't duplicated a third time;
-    // mentionedWith is left as its own method, since its "touching id, sorted, capped" step is a
-    // different shape from either graph method's output.
+    // resolved through the same in-memory root(of:) walk mentionedWith already uses. globalGraph
+    // and primaryAreas share this; mentionedWith is left as its own method, since its "touching
+    // id, sorted, capped" step is a different shape.
     private func resolvedLinks(in context: ModelContext) -> ResolvedGraph {
         let entities = ((try? context.fetch(FetchDescriptor<Entity>())) ?? []).filter { !$0.isDeleted }
         let byID = Dictionary(uniqueKeysWithValues: entities.map { ($0.id, $0) })
@@ -291,22 +290,7 @@ final class GraphServices {
         return ResolvedGraph(byID: byID, links: inputs)
     }
 
-    // Depth 1 (direct co-mentions) or 2 (their partners too) around one entity, for the entity
-    // page's "Graph" sheet. A subject with no co-occurrence still returns a single-node,
-    // zero-edge GraphData, so the view can show the lone subject rather than an error.
-    func localGraph(around id: UUID, depth: Int, in context: ModelContext) -> GraphData {
-        let resolved = resolvedLinks(in: context)
-        let edges = EntityGraph.build(links: resolved.links)
-        let nodeIDs = EntityGraph.neighbourhood(of: id, in: edges, depth: depth).union([id])
-        let filteredEdges = edges.filter { nodeIDs.contains($0.a) && nodeIDs.contains($0.b) }
-        let nodes = nodeIDs.compactMap { nodeID -> GraphSimulation.Node? in
-            resolved.byID[nodeID].map { GraphSimulation.Node(id: nodeID, kind: $0.kind, linkCount: $0.linkCount) }
-        }
-        let names = Dictionary(uniqueKeysWithValues: nodes.compactMap { node in resolved.byID[node.id].map { (node.id, $0.name) } })
-        return GraphData(nodes: nodes, edges: filteredEdges, names: names)
-    }
-
-    // Every browsable entity as of a given date, for Connections' "Graph" screen. A node appears
+    // Every browsable entity as of a given date, for Mind's map. A node appears
     // either because a surviving edge touches it, or because it meets both minimumLinkCount and
     // kinds on its own: the standalone clause's own kind check isn't redundant with `filtered`'s,
     // since `filtered` only constrains edges, and without it a kind toggle would still leave that
@@ -350,6 +334,52 @@ final class GraphServices {
             return (entry.id, EntityAreas.EntryAreas(areas: areas, date: entry.entryDate))
         }, uniquingKeysWith: { first, _ in first })
         return EntityAreas.primaryAreas(links: resolved.links, areasByEntry: areasByEntry)
+    }
+
+    // MARK: - Mind
+
+    enum ReviewAnswer: Equatable {
+        case same, notSame, skip
+        case whichOne(UUID)
+
+        var logName: String {
+            switch self {
+            case .same: "same"
+            case .notSame: "notSame"
+            case .skip: "skip"
+            case .whichOne: "whichOne"
+            }
+        }
+    }
+
+    // One tap on Mind's review card. "Same" merges the first into the second, as the old review
+    // list did; skipping writes nothing. Callers flush EntrySaver first.
+    func answer(_ question: ReviewQueue.Question, with answer: ReviewAnswer, in context: ModelContext) {
+        switch (question, answer) {
+        case (.same(let a, let b), .same):
+            _ = merge(a, into: b, in: context)
+        case (.same(let a, let b), .notSame):
+            markNotSame(a, b, in: context)
+        case (.whichOne(let unsure), .whichOne(let id)):
+            _ = repoint(unsure.mention, to: .existing(id), addingAlias: false, in: context)
+        case (_, .skip):
+            break
+        default:
+            return
+        }
+        diagnostics.record("mind.reviewAnswered", ["kind": .string(answer.logName)])
+    }
+
+    enum FocusSource: String {
+        case node, search, crumb, showInMind
+    }
+
+    func recordMindFocused(source: FocusSource, onMap: Bool) {
+        diagnostics.record("mind.focused", ["source": .string(source.rawValue), "onMap": .bool(onMap)])
+    }
+
+    func recordMindFiltersChanged(kinds: Int, minimum: Int, nodes: Int) {
+        diagnostics.record("mind.filtersChanged", ["kinds": .int(kinds), "minimum": .int(minimum), "nodes": .int(nodes)])
     }
 
     // Logged once per graph screen appearance, never per frame: the first settle after the

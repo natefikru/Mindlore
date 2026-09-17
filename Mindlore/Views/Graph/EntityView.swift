@@ -51,6 +51,7 @@ private struct EntityPage: View {
     @Environment(\.entityRouteReplacer) private var routeReplacer
     @Environment(EntrySaver.self) private var saver
     @Environment(GraphServices.self) private var graph
+    @Environment(AppRouter.self) private var router
     @Environment(SettingsStore.self) private var settings
     @Environment(ProviderAccountStore.self) private var accounts
     @Query private var matches: [Entity]
@@ -68,7 +69,6 @@ private struct EntityPage: View {
     @State private var showsEntries = false
     @State private var showsAllPartners = false
     @State private var coOccurring: [EntityPagePresentation.CoOccurrenceRow] = []
-    @State private var localGraphRoute: LocalGraphRoute?
 
     init(id: UUID, showsLoser: Bool) {
         self.id = id
@@ -120,9 +120,6 @@ private struct EntityPage: View {
             }
             .sheet(item: $previewingRow) { row in
                 EntryPreview(entryID: row.id)
-            }
-            .sheet(item: $localGraphRoute) { route in
-                LocalGraphView(subjectID: route.id)
             }
             .sheet(isPresented: $renaming) {
                 RenameEntitySheet(initial: entity.name, kind: entity.kind, defaultsToKeepingOldName: hasVoiceSourcedLink) { name, keepOldName in
@@ -284,8 +281,10 @@ private struct EntityPage: View {
 
     private func actionsSection(_ entity: Entity) -> some View {
         Section {
-            Button("Graph") { localGraphRoute = LocalGraphRoute(id: id) }
-                .accessibilityIdentifier("entityGraph")
+            if !entity.hidden {
+                Button("Show in Mind") { router.showInMind(id) }
+                    .accessibilityIdentifier("entityShowInMind")
+            }
             Button("Merge into…") { merging = true }
                 .accessibilityIdentifier("entityMergeInto")
             Button(entity.hidden ? "Unhide" : "Hide") {

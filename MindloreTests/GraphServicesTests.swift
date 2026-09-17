@@ -273,61 +273,20 @@ struct GraphServicesTests {
 
     // MARK: - 7.2: The picture's data
 
-    @Test func localGraphDepthOneIncludesOnlyDirectCoMentions() throws {
-        try harness.entry(mentions: [("Sarah", .person), ("Tom", .person)])
-        try harness.entry(mentions: [("Tom", .person), ("Ana", .person)])
-        harness.indexer.sweep(in: harness.context)
-        let sarah = try harness.entity("Sarah")
-        let tom = try harness.entity("Tom")
-        let ana = try harness.entity("Ana")
-
-        let data = services.localGraph(around: sarah.id, depth: 1, in: harness.context)
-
-        #expect(Set(data.nodes.map(\.id)) == [sarah.id, tom.id])
-        #expect(!data.nodes.map(\.id).contains(ana.id))
-        #expect(data.edges.count == 1)
-        #expect(Set([data.edges[0].a, data.edges[0].b]) == [sarah.id, tom.id])
-    }
-
-    @Test func localGraphDepthTwoIncludesTheNeighboursNeighbour() throws {
-        try harness.entry(mentions: [("Sarah", .person), ("Tom", .person)])
-        try harness.entry(mentions: [("Tom", .person), ("Ana", .person)])
-        harness.indexer.sweep(in: harness.context)
-        let sarah = try harness.entity("Sarah")
-        let tom = try harness.entity("Tom")
-        let ana = try harness.entity("Ana")
-
-        let data = services.localGraph(around: sarah.id, depth: 2, in: harness.context)
-
-        #expect(Set(data.nodes.map(\.id)) == [sarah.id, tom.id, ana.id])
-        #expect(data.edges.count == 2)
-    }
-
-    @Test func localGraphWithNoCoOccurrenceReturnsOneNodeAndNoEdges() throws {
-        try harness.entry(mentions: [("Sarah", .person)])
-        harness.indexer.sweep(in: harness.context)
-        let sarah = try harness.entity("Sarah")
-
-        let data = services.localGraph(around: sarah.id, depth: 2, in: harness.context)
-
-        #expect(data.nodes.map(\.id) == [sarah.id])
-        #expect(data.edges.isEmpty)
-    }
-
-    @Test func localGraphNeverShowsAHiddenPartner() throws {
+    @Test func theMapNeverShowsAHiddenPartner() throws {
         try harness.entry(mentions: [("Sarah", .person), ("Tom", .person)])
         harness.indexer.sweep(in: harness.context)
         let sarah = try harness.entity("Sarah")
         let tom = try harness.entity("Tom")
         services.setHidden(true, on: tom.id, in: harness.context)
 
-        let data = services.localGraph(around: sarah.id, depth: 2, in: harness.context)
+        let data = services.globalGraph(kinds: nil, minimumLinkCount: 0, in: harness.context)
 
         #expect(data.nodes.map(\.id) == [sarah.id])
         #expect(data.edges.isEmpty)
     }
 
-    @Test func localGraphResolvesAMergedPartnerToItsWinner() throws {
+    @Test func theMapResolvesAMergedPartnerToItsWinner() throws {
         try harness.entry(mentions: [("Sarah", .person), ("Tom", .person)])
         harness.indexer.sweep(in: harness.context)
         let sarah = try harness.entity("Sarah")
@@ -337,7 +296,7 @@ struct GraphServicesTests {
         try harness.context.save()
         _ = services.merge(tom.id, into: lewis.id, in: harness.context)
 
-        let data = services.localGraph(around: sarah.id, depth: 2, in: harness.context)
+        let data = services.globalGraph(kinds: nil, minimumLinkCount: 0, in: harness.context)
 
         #expect(Set(data.nodes.map(\.id)) == [sarah.id, lewis.id])
         #expect(!data.nodes.map(\.id).contains(tom.id))

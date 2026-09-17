@@ -280,16 +280,17 @@ struct AIDiagnosticsPrivacyTests {
         _ = graph.vocabulary(in: context)
         graph.sweep(in: context)
 
-        // The picture: local and global graph reads over entities named with the sentinel, and
-        // the render event they both log. graph.rendered only ever carries counts and a duration,
-        // but this proves it, over data that would leak if anything upstream forgot to resolve
-        // to plain ids first.
+        // Mind: the map, the panel's rows, a review answer, and the focus and filter events,
+        // over entities named with the sentinel. They carry counts and kinds only, but this proves
+        // it over data that would leak if anything upstream forgot to resolve to plain ids first.
         let services = GraphServices(diagnostics: log)
-        let localData = services.localGraph(around: namedID, depth: 2, in: context)
-        services.recordGraphRendered(GraphRenderStats(
-            nodes: localData.nodes.count, edges: localData.edges.count, settleMilliseconds: 12.5,
-            frameSamples: 300, frameP50Milliseconds: 8.3, frameP95Milliseconds: 11.2, workP95Milliseconds: 3.1
-        ))
+        _ = services.primaryAreas(in: context)
+        _ = MindDirectory.rows(in: context)
+        let pair = ReviewQueue.Question.same(a: namedID, b: second.id)
+        services.answer(pair, with: .skip, in: context)
+        services.answer(pair, with: .notSame, in: context)
+        services.recordMindFocused(source: .search, onMap: false)
+        services.recordMindFiltersChanged(kinds: 3, minimum: 1, nodes: 2)
         let globalData = services.globalGraph(kinds: nil, minimumLinkCount: 0, in: context)
         services.recordGraphRendered(GraphRenderStats(
             nodes: globalData.nodes.count, edges: globalData.edges.count, settleMilliseconds: nil,
@@ -304,7 +305,8 @@ struct AIDiagnosticsPrivacyTests {
         #expect(contents.contains("looseEnds.written"))
         #expect(contents.contains("looseEnds.faded"))
         for event in ["graph.indexed", "graph.entityEdited", "graph.hidden", "graph.suggestionDismissed",
-                      "graph.merged", "graph.unmerged", "graph.repointed", "graph.rendered"] {
+                      "graph.merged", "graph.unmerged", "graph.repointed", "graph.rendered",
+                      "mind.reviewAnswered", "mind.focused", "mind.filtersChanged"] {
             #expect(contents.contains(event), "\(event) was never exercised")
         }
         #expect(contents.contains("title.failed"))

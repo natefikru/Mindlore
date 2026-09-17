@@ -29,6 +29,8 @@ struct EntityPeekSheet: View {
 // never calls pageOpened, so looking at a card never starts a bio draft.
 struct EntityPeekCard: View {
     let route: EntityRoute
+    // Mind shows a focused entity's card even when its filters leave the entity off the map.
+    var showsMapHint = false
     let open: (EntityRoute) -> Void
     @Environment(\.modelContext) private var modelContext
     @Environment(GraphServices.self) private var graph
@@ -36,8 +38,9 @@ struct EntityPeekCard: View {
     @State private var summary: EntityPeekPresentation.Summary?
     @State private var loaded = false
 
-    init(route: EntityRoute, open: @escaping (EntityRoute) -> Void) {
+    init(route: EntityRoute, showsMapHint: Bool = false, open: @escaping (EntityRoute) -> Void) {
         self.route = route
+        self.showsMapHint = showsMapHint
         self.open = open
         let id = route.id
         _matches = Query(filter: #Predicate<Entity> { $0.id == id })
@@ -87,6 +90,12 @@ struct EntityPeekCard: View {
                 Text(details(summary))
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
+                if showsMapHint {
+                    Text("Not on the map with these filters")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .accessibilityIdentifier("entityPeekOffMap")
+                }
                 if let looseEnd = summary.openLooseEnd {
                     Label(looseEnd, systemImage: "circle.dashed")
                         .font(.subheadline)

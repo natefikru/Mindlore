@@ -87,6 +87,49 @@ struct GraphCanvasModelTests {
         #expect(plan.focusedIndex == simulation.index(of: nodes[1].id))
     }
 
+    // An area tile brings a group forward; focus says more, so it still lights its own set.
+    @Test func aHighlightMarksItsNodesAndFocusStillLights() {
+        let (simulation, nodes) = hub()
+        let cache = GraphDrawCache()
+        let group: Set<UUID> = [nodes[0].id, nodes[1].id, UUID()]
+
+        let plan = cache.plan(for: simulation, focusedID: nil, highlighted: group)
+        #expect(plan.highlightedNodes?.count == 2, "an id off the map is ignored")
+        #expect(plan.isHighlighted(simulation.index(of: nodes[0].id)!))
+        #expect(!plan.isHighlighted(simulation.index(of: nodes[4].id)!))
+
+        let focused = cache.plan(for: simulation, focusedID: nodes[4].id, highlighted: group)
+        #expect(focused.hasFocus)
+        #expect(focused.litNodes.contains(simulation.index(of: nodes[5].id)!))
+
+        let none = cache.plan(for: simulation, focusedID: nil)
+        #expect(none.highlightedNodes == nil)
+        #expect(none.isHighlighted(0))
+    }
+
+    @Test func thePlanRecomputesOnAHighlightChangeOnly() {
+        let (simulation, nodes) = hub()
+        let cache = GraphDrawCache()
+        let group: Set<UUID> = [nodes[0].id]
+        _ = cache.plan(for: simulation, focusedID: nil, highlighted: group)
+        _ = cache.plan(for: simulation, focusedID: nil, highlighted: group)
+        #expect(cache.recomputeCount == 1)
+        _ = cache.plan(for: simulation, focusedID: nil, highlighted: [nodes[1].id])
+        _ = cache.plan(for: simulation, focusedID: nil, highlighted: nil)
+        #expect(cache.recomputeCount == 3)
+    }
+
+    // A focused node lands in the middle of what the panel and card leave uncovered.
+    @Test func aFlightCanLandOffCentre() {
+        let camera = GraphCamera()
+        let center = SIMD2<Double>(200, 400)
+        let point = SIMD2<Double>(30, -20)
+        let offset = SIMD2<Double>(0, -150)
+        camera.fly(to: point, now: 0, offset: offset)
+        camera.advance(now: 10)
+        #expect(close(camera.screen(point, center: center), center + offset))
+    }
+
     @Test func noFocusAndAMissingFocusLightNothing() {
         let (simulation, _) = hub()
         let cache = GraphDrawCache()

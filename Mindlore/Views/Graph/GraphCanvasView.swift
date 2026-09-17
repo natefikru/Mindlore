@@ -1,8 +1,7 @@
 import QuartzCore
 import SwiftUI
 
-// The shared force-graph drawing surface LocalGraphView and GlobalGraphView both embed. Touches
-// no model type: everything it draws comes from the simulation itself and a namer closure, the
+// Mind's force-graph drawing surface. Touches no model type: everything it draws comes from the simulation itself and a namer closure, the
 // same "stay free of SwiftData" shape EntityChipIndex's consumers already follow.
 //
 // It keeps redrawing while the simulation moves, a finger is down, or the camera flies, and stops
@@ -15,8 +14,16 @@ struct GraphCanvasView: View {
     var version: Int = 0
     let namer: (UUID) -> String?
     @Binding var focusedID: UUID?
-    // The local graph's centred subject, drawn distinctly and exempt from drag/long-press.
+    // A centred subject, drawn distinctly and exempt from drag/long-press. Nothing passes one
+    // until A5b's area regions.
     var anchoredID: UUID?
+    // A group to bring forward (an area tile's entities); the rest fade while nothing is focused.
+    var highlightedIDs: Set<UUID>?
+    // Whether a focus that leaves the simulation is cleared. Mind keeps it, since a search result
+    // can be focused while it's filtered off the map.
+    var clearsMissingFocus = true
+    // What overlays cover, so a focused node lands in the middle of what's left.
+    var visibleInsets = EdgeInsets()
     var onNavigate: (UUID) -> Void = { _ in }
     // Called once per appearance with what the device gate reads.
     var onRendered: (GraphRenderStats) -> Void = { _ in }
@@ -48,9 +55,10 @@ struct GraphCanvasView: View {
     @GestureState private var pinchLive = false
 
     private static let focusDim = 0.15
+    private static let highlightDim = 0.3
 
     var body: some View {
-        let plan = cache.plan(for: simulation, focusedID: focusedID)
+        let plan = cache.plan(for: simulation, focusedID: focusedID, highlighted: highlightedIDs)
         let labelIDs = labelSymbolIDs(plan)
 
         GeometryReader { geometry in
@@ -61,7 +69,7 @@ struct GraphCanvasView: View {
                     let frameStart = CACurrentMediaTime()
                     simulation.tick()
                     camera.advance(now: frameStart)
-                    draw(in: &context, center: center, plan: cache.plan(for: simulation, focusedID: focusedID))
+                    draw(in: &context, center: center, plan: cache.plan(for: simulation, focusedID: focusedID, highlighted: highlightedIDs))
                     sampler.record(
                         frameStart: frameStart,
                         workSeconds: CACurrentMediaTime() - frameStart,
@@ -83,16 +91,15 @@ struct GraphCanvasView: View {
         }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Graph")
-        .accessibilityValue("nodes=\(simulation.nodeCount) focused=\(focusedID.flatMap(namer) ?? "none")")
+        .accessibilityValue("nodes=\(simulation.nodeCount) highlighted=\(plan.hasFocus ? 0 : plan.highlightedNodes?.count ?? 0) focused=\(focusedID.flatMap(namer) ?? "none")")
         .sensoryFeedback(.selection, trigger: focusedID) { _, new in new != nil }
-        .onChange(of: focusedID) { _, new in
-            if let new, let position = simulation.position(of: new) {
-                camera.fly(to: position, now: CACurrentMediaTime())
-            }
+        .onChange(of: focusedID) {
+            flyToFocus()
             wake()
         }
+        .onChange(of: highlightedIDs) { wake() }
         .onChange(of: version) {
-            if let focusedID, simulation.index(of: focusedID) == nil {
+            if clearsMissingFocus, let focusedID, simulation.index(of: focusedID) == nil {
                 self.focusedID = nil
             }
             wake()
@@ -108,6 +115,12 @@ struct GraphCanvasView: View {
             // return visit to an already settled graph reports none.
             activity = Activity(appearedAt: CACurrentMediaTime(), measuresSettle: !simulation.settled)
             sampler = FrameTimeSampler()
+            // A canvas built with a focus already set (a jump into Mind) centres it too; without
+            // one, the first appearance centres the layout in the uncovered part.
+            if focusedID == nil, camera.pan == .zero {
+                camera.pan = visibleCenterOffset
+            }
+            flyToFocus()
             wake()
         }
         .onDisappear {
@@ -116,6 +129,18 @@ struct GraphCanvasView: View {
             report()
         }
         .task(id: activityToken) { await watch() }
+    }
+
+    private func flyToFocus() {
+        guard let focusedID, let position = simulation.position(of: focusedID) else { return }
+        camera.fly(to: position, now: CACurrentMediaTime(), offset: visibleCenterOffset)
+    }
+
+    private var visibleCenterOffset: SIMD2<Double> {
+        SIMD2(
+            Double(visibleInsets.leading - visibleInsets.trailing) / 2,
+            Double(visibleInsets.top - visibleInsets.bottom) / 2
+        )
     }
 
     // MARK: - Drawing
@@ -142,7 +167,8 @@ struct GraphCanvasView: View {
 
         // Edges: one path per style bucket, lit edges in their own paths per width.
         let buckets = GraphEdgeStyle.bucketCount
-        var edgePaths = Array(repeating: Path(), count: buckets * buckets)
+        // A second set of slots holds edges that leave a highlighted group, drawn fainter.
+        var edgePaths = Array(repeating: Path(), count: 2 * buckets * buckets)
         var litPaths = Array(repeating: Path(), count: buckets)
         for (position, pair) in simulation.edgeIndices.enumerated() {
             let style = plan.edgeStyles[position]
@@ -150,15 +176,18 @@ struct GraphCanvasView: View {
                 litPaths[style.widthBucket].move(to: point(pair.a))
                 litPaths[style.widthBucket].addLine(to: point(pair.b))
             } else {
-                let slot = style.widthBucket * buckets + style.opacityBucket
+                let outside = !dimmed && !(plan.isHighlighted(pair.a) && plan.isHighlighted(pair.b))
+                let slot = (outside ? buckets * buckets : 0) + style.widthBucket * buckets + style.opacityBucket
                 edgePaths[slot].move(to: point(pair.a))
                 edgePaths[slot].addLine(to: point(pair.b))
             }
         }
         let edgeFade = dimmed ? Self.focusDim : 1
         for (slot, path) in edgePaths.enumerated() where !path.isEmpty {
-            let style = GraphEdgeStyle(widthBucket: slot / buckets, opacityBucket: slot % buckets)
-            context.stroke(path, with: .color(.secondary.opacity(style.opacity * edgeFade)), lineWidth: style.lineWidth)
+            let local = slot % (buckets * buckets)
+            let fade = slot >= buckets * buckets ? Self.focusDim : edgeFade
+            let style = GraphEdgeStyle(widthBucket: local / buckets, opacityBucket: local % buckets)
+            context.stroke(path, with: .color(.secondary.opacity(style.opacity * fade)), lineWidth: style.lineWidth)
         }
         for (width, path) in litPaths.enumerated() where !path.isEmpty {
             let style = GraphEdgeStyle(widthBucket: width, opacityBucket: 0)
@@ -183,15 +212,19 @@ struct GraphCanvasView: View {
         // Nodes: one fill per kind, faded ones first so lit nodes sit on top.
         var bright: [EntityKind: Path] = [:]
         var faded: [EntityKind: Path] = [:]
+        var muted: [EntityKind: Path] = [:]
         for index in nodes.indices {
             if dimmed && !plan.litNodes.contains(index) {
                 faded[nodes[index].kind, default: Path()].addEllipse(in: circle(index))
+            } else if !dimmed && !plan.isHighlighted(index) {
+                muted[nodes[index].kind, default: Path()].addEllipse(in: circle(index))
             } else {
                 bright[nodes[index].kind, default: Path()].addEllipse(in: circle(index))
             }
         }
         for kind in EntityKind.allCases {
             if let path = faded[kind] { context.fill(path, with: .color(kind.color.opacity(Self.focusDim))) }
+            if let path = muted[kind] { context.fill(path, with: .color(kind.color.opacity(Self.highlightDim))) }
         }
         for kind in EntityKind.allCases {
             if let path = bright[kind] { context.fill(path, with: .color(kind.color)) }
@@ -213,6 +246,7 @@ struct GraphCanvasView: View {
             guard let resolved = context.resolveSymbol(id: SymbolID.label(nodes[index].id)) else { continue }
             var opacity = GraphLabels.opacity(rank: rank, budget: budget)
             if dimmed && !plan.litNodes.contains(index) { opacity *= Self.focusDim }
+            if !dimmed && !plan.isHighlighted(index) { opacity *= Self.highlightDim }
             var labelContext = context
             labelContext.opacity = opacity
             let r = simulation.radius(at: index) * zoom

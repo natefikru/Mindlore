@@ -118,7 +118,7 @@ struct RootView: View {
                 EntryListView()
             }
             Tab("Mind", systemImage: "circle.hexagongrid", value: AppTab.mind) {
-                MindPlaceholderView()
+                MindView()
             }
             Tab("Ask", systemImage: "bubble.left.and.text.bubble.right", value: AppTab.ask) {
                 AskPlaceholderView()

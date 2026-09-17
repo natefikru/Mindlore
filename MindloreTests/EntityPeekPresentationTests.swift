@@ -71,4 +71,24 @@ struct EntityPeekPresentationTests {
         let withLooseEnds = try #require(EntityPeekPresentation.load(winner.id, graph: graph, in: context, now: now))
         #expect(withLooseEnds.openLooseEnd == "Sarah's reply on the lease")
     }
+
+    // A hidden entity still has a card (it can be focused from search), and a merged loser's
+    // route reads as the winner.
+    @Test func hiddenEntitiesSummariseAndLosersResolveToTheWinner() throws {
+        let container = try ModelContainerFactory.make(.inMemory)
+        let context = container.mainContext
+        let graph = GraphServices()
+        let hidden = Entity(name: "Old Job", key: "old job", kind: .organization)
+        hidden.hidden = true
+        let winner = Entity(name: "Sarah", key: "sarah", kind: .person)
+        let loser = Entity(name: "Sara", key: "sara", kind: .person)
+        [hidden, winner, loser].forEach(context.insert)
+        try context.save()
+        _ = graph.merge(loser.id, into: winner.id, in: context)
+
+        #expect(EntityPeekPresentation.load(hidden.id, graph: graph, in: context, now: now)?.name == "Old Job")
+        let route = EntityPagePresentation.resolve(EntityRoute(id: loser.id), exists: true, mergedIntoID: loser.mergedIntoID)
+        #expect(route == .show(winner.id))
+        #expect(EntityPeekPresentation.load(winner.id, graph: graph, in: context, now: now)?.name == "Sarah")
+    }
 }

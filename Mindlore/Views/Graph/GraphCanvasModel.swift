@@ -36,10 +36,11 @@ nonisolated final class GraphCamera {
         (screen - center - pan) / zoom
     }
 
-    // Centres a world point, zooming in to a readable level if the camera is further out.
-    func fly(to point: SIMD2<Double>, now: TimeInterval) {
+    // Brings a world point to the view's centre plus `offset` (the middle of what overlays leave
+    // uncovered), zooming in to a readable level if the camera is further out.
+    func fly(to point: SIMD2<Double>, now: TimeInterval, offset: SIMD2<Double> = .zero) {
         let targetZoom = Self.clamped(max(zoom, Self.readableZoom))
-        flight = Flight(fromPan: pan, toPan: -point * targetZoom, fromZoom: zoom, toZoom: targetZoom, start: now)
+        flight = Flight(fromPan: pan, toPan: offset - point * targetZoom, fromZoom: zoom, toZoom: targetZoom, start: now)
     }
 
     func cancelFlight() {
@@ -114,10 +115,18 @@ nonisolated struct GraphDrawPlan: Sendable {
     // so focusing a hub doesn't cost a gradient fill per neighbour every frame.
     let glowNodes: [Int]
     let edgeStyles: [GraphEdgeStyle]
+    // A highlighted group (an area tile) as node indices, or nil. Ignored while something is
+    // focused, since focus says more.
+    var highlightedNodes: Set<Int>? = nil
 
     static let empty = GraphDrawPlan(focusedIndex: nil, litNodes: [], litEdges: [], rankedLabels: [], glowNodes: [], edgeStyles: [])
 
     var hasFocus: Bool { focusedIndex != nil }
+
+    // Whether a node draws at full strength outside of focus.
+    func isHighlighted(_ index: Int) -> Bool {
+        highlightedNodes?.contains(index) ?? true
+    }
 }
 
 // Recomputes the plan only when the simulation's topology or the focus changes, so a frame pays
@@ -131,17 +140,19 @@ nonisolated final class GraphDrawCache {
         let simulation: ObjectIdentifier
         let version: Int
         let focusedID: UUID?
+        let highlighted: Set<UUID>?
     }
 
     private var key: Key?
     private var cached = GraphDrawPlan.empty
     private(set) var recomputeCount = 0
 
-    func plan(for simulation: GraphSimulation, focusedID: UUID?) -> GraphDrawPlan {
-        let current = Key(simulation: ObjectIdentifier(simulation), version: simulation.topologyVersion, focusedID: focusedID)
+    func plan(for simulation: GraphSimulation, focusedID: UUID?, highlighted: Set<UUID>? = nil) -> GraphDrawPlan {
+        let current = Key(simulation: ObjectIdentifier(simulation), version: simulation.topologyVersion, focusedID: focusedID, highlighted: highlighted)
         if current == key { return cached }
         key = current
         cached = Self.makePlan(simulation, focusedID: focusedID)
+        cached.highlightedNodes = highlighted.map { Set($0.compactMap(simulation.index(of:))) }
         recomputeCount += 1
         return cached
     }
