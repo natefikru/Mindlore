@@ -72,4 +72,9 @@ struct MindReplayTests {
         #expect(player.stepSeconds == [0.002])
         #expect(player.startedAt != nil)
     }
+
+    @Test func stepsPublishTwiceASecond() {
+        let published = (0..<20).filter { MindReplay.publishes(step: $0) }
+        #expect(published == [0, 5, 10, 15])
+    }
 }

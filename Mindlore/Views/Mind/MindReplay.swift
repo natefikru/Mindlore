@@ -6,6 +6,12 @@ import SwiftUI
 nonisolated struct MindReplay: Equatable, Sendable {
     static let duration: TimeInterval = 10
     static let stepInterval: Duration = .milliseconds(100)
+    // Every step moves the map; every fifth also refreshes names, colours, and labels.
+    static let publishEvery = 5
+
+    static func publishes(step index: Int) -> Bool {
+        index % publishEvery == 0
+    }
 
     let start: Date
     let end: Date

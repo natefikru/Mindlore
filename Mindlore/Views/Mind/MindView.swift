@@ -342,9 +342,14 @@ struct MindView: View {
         takeFocusRequest()
     }
 
-    // Puts a frame on the canvas. State is only written when it changed, so a replay step doesn't
-    // re-render the panel for nothing.
-    private func show(_ frame: Frame, snapshot: MindMapSnapshot, asOf: Date) {
+    // Puts a frame on the canvas. State is only written when it changed. `publish: false` moves
+    // the simulation alone: a replay step's view-state writes re-render all of Mind, which on the
+    // phone pushed frame p95 to 32 ms at ten steps a second, so a replay publishes twice a second.
+    private func show(_ frame: Frame, snapshot: MindMapSnapshot, asOf: Date, publish: Bool = true) {
+        if !publish, let simulation {
+            simulation.update(nodes: frame.nodes, edges: frame.edges, regions: frame.regions)
+            return
+        }
         var names = frame.names
         for id in trail.ids where names[id] == nil {
             names[id] = self.names[id]
@@ -407,7 +412,7 @@ struct MindView: View {
             let stepStart = clock.now
             guard let step = player.step(elapsed: (stepStart - began).seconds) else { return }
             let frame = Self.frame(step.snapshot, filters: filters, visibleAreas: settings.visibleLifeAreas, asOf: step.asOf)
-            show(frame, snapshot: step.snapshot, asOf: step.asOf)
+            show(frame, snapshot: step.snapshot, asOf: step.asOf, publish: MindReplay.publishes(step: player.stepSeconds.count) || step.finished)
             player.noteStep(seconds: (clock.now - stepStart).seconds)
             if step.finished {
                 endReplay(finished: true)
