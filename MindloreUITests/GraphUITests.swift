@@ -132,8 +132,6 @@ final class GraphUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["entityBio"].label.contains("(edited)"))
         XCTAssertFalse(app.staticTexts["entityBioDrafted"].exists)
     }
-    // The Connections screen: browse, open an entry preview, merge, and unmerge, with the
-    // merge surviving a relaunch. Stub only, same reason as above.
     // The global graph on the stub's entry: lower the mention filter so its one-mention entities
     // show, then focus by tapping, drag, and pinch, and the canvas keeps answering.
     @MainActor
@@ -142,7 +140,7 @@ final class GraphUITests: XCTestCase {
         app.buttons["Done"].tap()
         goBack()
 
-        app.buttons["Connections"].tap()
+        openConnections()
         let graphButton = app.buttons["Graph"]
         XCTAssertTrue(graphButton.waitForExistence(timeout: 5))
         graphButton.tap()
@@ -178,6 +176,8 @@ final class GraphUITests: XCTestCase {
         wait(for: [cleared], timeout: 5)
     }
 
+    // The Connections screen: browse, open an entry preview, merge, and unmerge, with the
+    // merge surviving a relaunch. Stub only, same reason as above.
     @MainActor
     func testConnectionsBrowseOpenAnEntryMergeAndUnmerge() throws {
         finishEntryAndOpenInsights()

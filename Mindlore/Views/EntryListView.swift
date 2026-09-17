@@ -13,6 +13,7 @@ struct EntryListView: View {
     @State private var showingSettings = false
     @State private var pageOrder: PageOrderTarget?
     @State private var insightsEntry: Entry?
+    @State private var pickedArea: LifeArea?
     @Environment(InsightsCoordinator.self) private var insightsCoordinator
 
     enum PageOrderTarget: Identifiable {
@@ -31,7 +32,12 @@ struct EntryListView: View {
         @Bindable var router = router
         NavigationStack(path: $router.journalPath) {
             List {
-                ForEach(entries) { entry in
+                if !offeredAreas.isEmpty {
+                    areaFilterRow
+                        .listRowInsets(EdgeInsets())
+                        .listRowBackground(Color.clear)
+                }
+                ForEach(shownEntries) { entry in
                     // Pages still being gathered reopen the page screen, not the editor.
                     if entry.isAwaitingPageConfirmation {
                         Button {
@@ -63,6 +69,12 @@ struct EntryListView: View {
                         systemImage: "book.closed",
                         description: Text("Tap Record to speak an entry, or the pencil to write one.")
                     )
+                } else if shownEntries.isEmpty, let area = activeArea {
+                    ContentUnavailableView {
+                        Label("Nothing in \(settings.name(of: area))", systemImage: area.symbol)
+                    } actions: {
+                        Button("Show all entries") { pickedArea = nil }
+                    }
                 }
             }
             .navigationTitle("Mindlore")
@@ -108,15 +120,60 @@ struct EntryListView: View {
             .accessibilityIdentifier("newEntryButton")
     }
 
+    private var activeArea: LifeArea? {
+        JournalFilter.active(pickedArea, hidden: settings.hiddenLifeAreas)
+    }
+
+    private var shownEntries: [Entry] {
+        guard let area = activeArea else { return entries }
+        return entries.filter { JournalFilter.matches(areasRaw: $0.insights?.areasRaw ?? [], area: area) }
+    }
+
+    private var offeredAreas: [LifeArea] {
+        JournalFilter.offered(entryAreas: entries.map { $0.insights?.areasRaw ?? [] }, hidden: settings.hiddenLifeAreas)
+    }
+
+    private var areaFilterRow: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                ForEach(offeredAreas, id: \.self) { area in
+                    let selected = activeArea == area
+                    Button {
+                        pickedArea = selected ? nil : area
+                    } label: {
+                        Label {
+                            Text(settings.name(of: area))
+                        } icon: {
+                            Image(systemName: area.symbol)
+                                .foregroundStyle(selected ? Color.white : area.color)
+                        }
+                            .font(.subheadline)
+                            .lineLimit(1)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 6)
+                            .foregroundStyle(selected ? Color.white : Color.primary)
+                            .background(selected ? area.color : Color(.secondarySystemFill), in: Capsule())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityAddTraits(selected ? .isSelected : [])
+                    .accessibilityIdentifier("areaFilter-\(area.rawValue)")
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 4)
+        }
+    }
+
     // AI work the user should be able to see from the list, without opening the entry.
     private func isAnalyzing(_ entry: Entry) -> Bool {
         insightsCoordinator.isRunning(entry) || entry.insightsPending || entry.titlePending
     }
 
     private func delete(at offsets: IndexSet) {
+        let shown = shownEntries
         for index in offsets {
-            DiagnosticsLog.shared.record("entry.deleted", ["id": .id(entries[index].id), "reason": "swipe"])
-            Entry.delete(entries[index], in: modelContext)
+            DiagnosticsLog.shared.record("entry.deleted", ["id": .id(shown[index].id), "reason": "swipe"])
+            Entry.delete(shown[index], in: modelContext)
         }
         // Flush first so the cascade is real, then recount over what is left: the entry took
         // its links with it, and anything nobody mentions any more goes too.
@@ -196,6 +253,9 @@ private struct EntryRow: View {
                 Text(preview)
                     .lineLimit(2)
                     .foregroundStyle(.secondary)
+            }
+            if let areas = entry.insights?.areas, !areas.isEmpty {
+                LifeAreaChips(areas: areas)
             }
         }
         .padding(.vertical, 2)
