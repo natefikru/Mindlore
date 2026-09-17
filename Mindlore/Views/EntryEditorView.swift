@@ -36,6 +36,9 @@ struct EntryEditorView: View {
     private let openedForReading: Bool
     // Edit asks the text view, once it exists, to take focus with the caret at the end.
     @State private var focusWhenEditorAppears = false
+    // The read text with names linked, and the text it was built from, so stale links never show.
+    @State private var linked: (text: String, value: AttributedString)?
+    @State private var peekTarget: PeekTarget?
 
     static let fallbackNoticeSeconds = 8.0
 
@@ -425,7 +428,7 @@ struct EntryEditorView: View {
     }
 
     private func readBody(for entry: Entry) -> some View {
-        Text(entry.text)
+        Text(readText(for: entry))
             .font(.body)
             .textSelection(.enabled)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -433,6 +436,22 @@ struct EntryEditorView: View {
             .padding(.top, 8)
             .padding(.bottom, 48)
             .accessibilityIdentifier("entryReadText")
+            // Only the read text opens names, so links in the editor's sheets keep their own handling.
+            .environment(\.openURL, OpenURLAction { url in
+                guard let id = EntryNameLinks.entityID(from: url) else { return .systemAction }
+                peekTarget = PeekTarget(id: id)
+                return .handled
+            })
+            .task(id: LinksKey(text: entry.text, revision: graph.revision)) {
+                let candidates = EntryNameLinks.candidates(forEntry: entry.id, graph: graph, in: modelContext)
+                linked = (entry.text, EntryNameLinks.attributed(entry.text, candidates: candidates))
+            }
+    }
+
+    // Until links for the current text arrive, the plain text shows rather than stale links.
+    private func readText(for entry: Entry) -> AttributedString {
+        if let linked, linked.text == entry.text { return linked.value }
+        return AttributedString(entry.text)
     }
 
     // Done after Edit on an entry that opened for reading: back to reading, unless it now needs the editor.
@@ -591,6 +610,15 @@ struct EntryEditorView: View {
         }
         .buttonStyle(.borderless)
     }
+}
+
+private struct LinksKey: Equatable {
+    let text: String
+    let revision: Int
+}
+
+struct PeekTarget: Identifiable {
+    let id: UUID
 }
 
 private struct PageSelection: Identifiable {
