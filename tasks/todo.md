@@ -562,16 +562,17 @@ the real key.
       `GraphEngine` actor, then SpriteKit. Stop at the first step that passes.
 
 ### A4: Tabs and the record accessory
-- [ ] Device check first: the accessory under sheets, full-screen covers, and an overlay panel.
+- [x] Device check first: the accessory under sheets, full-screen covers, and an overlay panel.
       Write the result in the review log.
-- [ ] `AppRouter` (tab, Journal path, Mind path, jumps). Editor close rules move to "left
+- [x] `AppRouter` (tab, Journal path, Mind path, jumps). Editor close rules move to "left
       Journal's path".
-- [ ] `RecordingSession` extracted from `RecordingView` (start task, levels, recorder protocol),
+- [x] `RecordingSession` extracted from `RecordingView` (start task, levels, recorder protocol),
       owned by `RootView`. The recorder minimizes while recording, and discard works from there.
-- [ ] `TabView` (Journal, Mind placeholder, Ask placeholder). Record accessory with idle and
-      recording states. The loose-end prompt line in the recorder.
-- [ ] Journal: remove the Connections button. Add area chips on rows and the area filter row.
-- [ ] Tests:
+- [x] `TabView` (Journal, Mind placeholder, Ask placeholder). Record accessory with idle and
+      recording states.
+- [ ] The loose-end prompt line in the recorder (waits for A2's `LooseEndPrompter`).
+- [x] Journal: remove the Connections button. Add area chips on rows and the area filter row.
+- [x] Tests:
   - `RecordingSession` start/stop/discard with a fake recorder
   - minimizing keeps recording
   - finishing ingests once and routes to the entry, replacing the path
@@ -784,6 +785,31 @@ CLAUDE.md's Graph paragraph still describes a rebuild on every change and a sett
 `graph.rendered`.
 
 Device gate: pending.
+
+A4 (lane 3, `feature/phase-a-shell`, build spec in `tasks/a4-shell-spec.md`):
+
+- Accessory check, on the simulator rather than the phone: sheets and full-screen covers hide the
+  accessory, pushed views keep it and the tab bar, and a panel inside a tab already lays out above
+  it. The keyboard case is left for the phone.
+- The spec review (17 findings) is folded into the spec. The main ones: start, finish, and discard
+  guard each other with a generation number; a blank entry deleted while the editor animates out
+  reads as no entry; `JournalRoute` compares by id alone.
+- Deviations: `isPresentingOverEditor` is gone, since nothing closes the editor on disappear any
+  more, so A6's "add the peek sheet to `isPresentingOverEditor`" has nothing to do. A jump waits for
+  full-screen covers (`AppRouter.setCover`) instead of closing them, because the page screen has
+  its own close rules. `LiveTranscriptionSession` didn't gain `Observable`; observation works
+  through the concrete types. Moving the close rules also fixed presence counting twice after a
+  cover over the editor, which left the entry "open" until relaunch.
+- UI tests run against `-uiTestingFakeRecorder`, a recorder that writes a second of silence.
+  Recordings share one folder across UI test stores, so a run killed mid-recording shows up as a
+  recovered entry in the next test.
+- Code review (10 findings, no crash paths), all fixed in "A4 review fixes".
+- Found, not fixed (outside this lane, gone in A5): inside Connections the entity page's
+  `EntityRoute` links push nothing, because Connections' path is typed `[ConnectionsPathItem]`.
+  "Merged into this" is dead there, and `GraphUITests` marks that step as an expected failure. The
+  test's `entityMergeInto` failure noted under A3 was a scroll issue and is fixed. The same run
+  found `PageOrderUITests.testClosingWithNoPagesLeavesNothingBehind` never tapped Scan; fixed.
+- Pending: the recorder's loose-end line (after A2), and the device steps.
 
 Owner answers after revision 1 (2026-09-17): the tab is Mind, a fresh install is fine, and Ask
 keeps saved conversations and opens a new one by default. Folded in above.

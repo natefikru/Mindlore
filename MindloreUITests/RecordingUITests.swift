@@ -50,6 +50,8 @@ final class RecordingUITests: XCTestCase {
 
         app.navigationBars.buttons.element(boundBy: 0).tap()
         XCTAssertTrue(app.descendants(matching: .any)["entryRow"].waitForExistence(timeout: 5))
+        // Recordings share one folder across UI test stores, so a run that died mid-recording would
+        // surface here as a recovered second entry.
         XCTAssertEqual(app.cells.count, 1)
     }
 
@@ -61,7 +63,7 @@ final class RecordingUITests: XCTestCase {
         let discardItem = app.buttons["Discard Recording"]
         XCTAssertTrue(discardItem.waitForExistence(timeout: 5))
         discardItem.tap()
-        let confirm = app.buttons["confirmDiscardRecordingButton"]
+        let confirm = app.buttons["confirmDiscardRecordingButton"].firstMatch
         XCTAssertTrue(confirm.waitForExistence(timeout: 5))
         confirm.tap()
 
