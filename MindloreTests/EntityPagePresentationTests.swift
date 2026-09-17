@@ -181,3 +181,21 @@ struct GraphServicesBioEditTests {
         #expect(harness.services.revision == 0)
     }
 }
+
+struct EntityPageLooseEndTests {
+    private typealias Item = EntityPagePresentation.LooseEndItem
+
+    @Test func openFirstByMentionThenEarlierThroughAMerge() {
+        let sarah = UUID(), sara = UUID(), tom = UUID()
+        func at(_ t: TimeInterval) -> Date { Date(timeIntervalSince1970: t) }
+        let old = Item(id: UUID(), entityIDs: [sarah], isOpen: true, lastMentionedAt: at(10), statusChangedAt: nil)
+        let recent = Item(id: UUID(), entityIDs: [sara], isOpen: true, lastMentionedAt: at(50), statusChangedAt: nil)
+        let settled = Item(id: UUID(), entityIDs: [sarah], isOpen: false, lastMentionedAt: at(5), statusChangedAt: at(60))
+        let faded = Item(id: UUID(), entityIDs: [sara, tom], isOpen: false, lastMentionedAt: at(70), statusChangedAt: nil)
+        let other = Item(id: UUID(), entityIDs: [tom], isOpen: true, lastMentionedAt: at(90), statusChangedAt: nil)
+
+        let split = EntityPagePresentation.looseEnds([old, recent, settled, faded, other], about: sarah) { $0 == sara ? sarah : $0 }
+        #expect(split.open == [recent.id, old.id])
+        #expect(split.earlier == [faded.id, settled.id])
+    }
+}

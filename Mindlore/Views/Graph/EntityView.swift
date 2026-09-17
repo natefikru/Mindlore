@@ -57,6 +57,8 @@ private struct EntityPage: View {
     @Query private var matches: [Entity]
     @Query private var links: [EntityLink]
     @Query private var entities: [Entity]
+    @Query(sort: \LooseEnd.lastMentionedAt, order: .reverse) private var allLooseEnds: [LooseEnd]
+    @State private var showsEarlierLooseEnds = false
     @State private var editingBio = false
     @State private var renaming = false
     @State private var addingAlias = false
@@ -86,6 +88,7 @@ private struct EntityPage: View {
                     mergedAwaySection(entity, into: winnerID)
                 }
                 about(entity)
+                looseEndsSection
                 aliasesSection(entity)
                 entriesSection
                 mentionedWithSection
@@ -442,6 +445,58 @@ private struct EntityPage: View {
         }
     }
 
+    // Open loose ends about this entity first; settled, faded, and let-go ones fold away.
+    @ViewBuilder
+    private var looseEndsSection: some View {
+        let live = allLooseEnds.filter { !$0.isDeleted }
+        let byID = Dictionary(live.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        let mergedInto = Dictionary(entities.filter { !$0.isDeleted }.map { ($0.id, $0.mergedIntoID) }, uniquingKeysWith: { first, _ in first })
+        let split = EntityPagePresentation.looseEnds(
+            live.map { .init(id: $0.id, entityIDs: $0.entityIDs, isOpen: $0.isOpen, lastMentionedAt: $0.lastMentionedAt, statusChangedAt: $0.statusChangedAt) },
+            about: id,
+            root: { start in
+                var current = start
+                var seen: Set<UUID> = [start]
+                while let next = mergedInto[current] ?? nil, seen.insert(next).inserted {
+                    current = next
+                }
+                return current
+            }
+        )
+        if !split.open.isEmpty || !split.earlier.isEmpty {
+            Section("Loose ends") {
+                ForEach(split.open.compactMap { byID[$0] }) { looseEnd in
+                    EntityLooseEndRow(looseEnd: looseEnd)
+                        .swipeActions {
+                            Button("Done") { setLooseEnd(looseEnd, .resolved) }
+                                .tint(.green)
+                            Button("Let go") { setLooseEnd(looseEnd, .dismissed) }
+                                .tint(.gray)
+                        }
+                }
+                if !split.earlier.isEmpty {
+                    DisclosureGroup("Earlier (\(split.earlier.count))", isExpanded: $showsEarlierLooseEnds) {
+                        ForEach(split.earlier.compactMap { byID[$0] }) { looseEnd in
+                            EntityLooseEndRow(looseEnd: looseEnd)
+                                .swipeActions {
+                                    Button("Reopen") { setLooseEnd(looseEnd, .open) }
+                                }
+                        }
+                    }
+                    .accessibilityIdentifier("entityEarlierLooseEnds")
+                }
+            }
+            .accessibilityIdentifier("entityLooseEnds")
+        }
+    }
+
+    // Saved without stamping entries, the same as the insights card.
+    private func setLooseEnd(_ looseEnd: LooseEnd, _ status: LooseEndStatus) {
+        saver.flush()
+        looseEnd.setByUser(status)
+        try? modelContext.save()
+    }
+
     // The strongest few partners inline and the rest one tap away, so the page agrees with the
     // graph, which draws every partner.
     @ViewBuilder
@@ -688,5 +743,32 @@ private struct AliasChip: View {
         .padding(.horizontal, 10)
         .padding(.vertical, 5)
         .background(.quaternary, in: Capsule())
+    }
+}
+
+private struct EntityLooseEndRow: View {
+    let looseEnd: LooseEnd
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(looseEnd.text)
+                .strikethrough(looseEnd.status == .resolved)
+                .foregroundStyle(looseEnd.isOpen ? .primary : .secondary)
+            Text(caption)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("entityLooseEnd-\(looseEnd.status.rawValue)")
+    }
+
+    private var caption: String {
+        let from = "From \(looseEnd.sourceEntryDate.formatted(date: .abbreviated, time: .omitted))"
+        switch looseEnd.status {
+        case .open: return looseEnd.dueDate.map { "\(from) · by \($0.formatted(date: .abbreviated, time: .omitted))" } ?? from
+        case .resolved: return "\(from) · \(looseEnd.userTouched ? "marked done" : "settled by a later entry")"
+        case .faded: return "\(from) · faded"
+        case .dismissed: return "\(from) · let go"
+        }
     }
 }
