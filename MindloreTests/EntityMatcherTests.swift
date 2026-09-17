@@ -95,17 +95,12 @@ struct EntityMatcherTests {
         #expect(EntityMatcher.suggestions(among: [vague, organization]).count == 1)
     }
 
-    // A tag and a theme are different sorts of thing. They only meet when the words are
-    // identical, which is the case the user actually wants to resolve.
-    @Test func aTagAndAThemeMeetOnlyWhenIdentical() {
+    // Two tags written nearly alike are worth a look, like any other pair of the same kind.
+    @Test func nearlyIdenticalTagsAreSuggested() {
         let tag = candidate("career anxiety", .tag)
-        let theme = candidate("career anxiety", .theme)
-        let found = EntityMatcher.suggestions(among: [tag, theme])
-        #expect(found.count == 1)
-        #expect(found[0].score == 1)
-
-        let nearly = candidate("career anxieties", .theme)
-        #expect(EntityMatcher.suggestions(among: [tag, nearly]).isEmpty)
+        let nearly = candidate("career anxieties", .tag)
+        #expect(EntityMatcher.suggestions(among: [tag, nearly]).count == 1)
+        #expect(EntityMatcher.suggestions(among: [tag, candidate("career anxiety", .person)]).isEmpty)
     }
 
     @Test func identicalKeysScoreOne() {

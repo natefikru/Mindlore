@@ -217,7 +217,7 @@ struct GraphSimulationTests {
 
     // MARK: - Color
 
-    @Test func entityKindColorsAreEightDistinctValues() {
+    @Test func entityKindColorsAreDistinct() {
         let colors = Set(EntityKind.allCases.map { $0.color.description })
         #expect(colors.count == EntityKind.allCases.count)
     }

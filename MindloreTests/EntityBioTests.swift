@@ -415,7 +415,7 @@ struct EntityBioDrafterTests {
         #expect(sarah.bio == "A friend.")
     }
 
-    @Test func tagsAndThemesAreDraftedOnlyWhenAsked() async throws {
+    @Test func tagsAreDraftedOnlyWhenAsked() async throws {
         try harness.entry("By the river again.", tags: ["river"])
         let river = try harness.entity("river")
 

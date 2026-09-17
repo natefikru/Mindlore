@@ -41,6 +41,7 @@ enum DemoJournal {
         var summary: String
         var primaryMood: Mood
         var secondaryMood: Mood?
+        var areas: [LifeArea]
         var tags: [String]
         var mentions: [Mention]
     }
@@ -91,6 +92,13 @@ enum DemoJournal {
 
         let primary = random.element(of: Mood.allCases)
         let secondary = random.chance(0.4) ? random.element(of: Mood.allCases.filter { $0 != primary }) : nil
+        // Uneven on purpose, like a real journal: work and friends dominate, money is rare.
+        let weighted: [LifeArea] = [.work, .work, .work, .work, .friends, .friends, .friends, .family, .family,
+                                    .mind, .mind, .health, .health, .love, .play, .play, .home, .money]
+        var areas = [random.element(of: weighted)]
+        if project != nil { areas.append(.work) }
+        if random.chance(0.25) { areas.append(random.element(of: weighted)) }
+        areas = Array(areas.reduce(into: [LifeArea]()) { if !$0.contains($1) { $0.append($1) } }.prefix(LifeArea.maxPerEntry))
         return Draft(
             date: date,
             title: "\(date.formatted(.dateTime.weekday(.wide))) with \(people[0].split(separator: " ").first ?? "")",
@@ -98,6 +106,7 @@ enum DemoJournal {
             summary: "Time with \(people[0])\(project.map { " and work on \($0)" } ?? "").",
             primaryMood: primary,
             secondaryMood: secondary,
+            areas: areas,
             tags: tags,
             mentions: mentions
         )
@@ -120,6 +129,7 @@ enum DemoJournal {
         insights.entry = entry
         insights.summary = draft.summary
         insights.setMoods(primary: draft.primaryMood, secondary: draft.secondaryMood.map { [$0] } ?? [], editedByUser: false)
+        insights.areas = draft.areas
         insights.tags = draft.tags
         insights.mentions = draft.mentions
     }

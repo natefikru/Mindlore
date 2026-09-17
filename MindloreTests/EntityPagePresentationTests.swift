@@ -37,7 +37,7 @@ struct EntityPagePresentationTests {
         #expect(!P.showsSpellingPrompt(confirmedByUser: true, linkCount: 1, kind: .person), "confirmed already answered it")
         #expect(!P.showsSpellingPrompt(confirmedByUser: false, linkCount: 2, kind: .person), "a second mention is no longer a fresh guess")
         #expect(!P.showsSpellingPrompt(confirmedByUser: false, linkCount: 1, kind: .tag), "tags rarely appear word for word")
-        #expect(!P.showsSpellingPrompt(confirmedByUser: false, linkCount: 1, kind: .theme))
+        #expect(!P.showsSpellingPrompt(confirmedByUser: false, linkCount: 1, kind: .tag))
     }
 
     @Test func aMergeFromAPageReplacesOnlyTheTopRouteForTheLoser() {

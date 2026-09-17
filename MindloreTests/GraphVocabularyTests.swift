@@ -30,10 +30,9 @@ struct JournalVocabularyPromptTests {
         #expect(!prompt.contains("Denver ("))
     }
 
-    @Test func themesAndTagsAreListedOnePerLine() {
-        let prompt = system(.init(tags: ["work", "family"], themes: ["career anxiety"]))
+    @Test func tagsAreListedOnePerLine() {
+        let prompt = system(.init(tags: ["work", "family"]))
         #expect(prompt.contains("\n- work\n- family"))
-        #expect(prompt.contains("\n- career anxiety"))
     }
 
     // Names can be typed by the user. A newline must not be able to put free text in the prompt.
@@ -57,11 +56,10 @@ struct JournalVocabularyPromptTests {
     @Test func eachListIsCappedAtFifty() {
         let many = (1...80).map { "item \($0)" }
         let plan = InsightsPromptBuilder.plan(text: "x", source: .typed, sections: InsightSections(), vocabulary: .init(
-            tags: many, themes: many, named: many.map { .init(name: $0, kind: .person) }
+            tags: many, named: many.map { .init(name: $0, kind: .person) }
         ), model: "m")
 
         #expect(plan.vocabularySent.tags.count == 50)
-        #expect(plan.vocabularySent.themes.count == 50)
         #expect(plan.vocabularySent.named.count == 50)
         #expect(plan.request.system.contains("- item 50"))
         #expect(!plan.request.system.contains("- item 51"))
@@ -77,15 +75,13 @@ struct JournalVocabularyPromptTests {
     @Test func aDisabledSectionSendsNothing() {
         var sections = InsightSections()
         sections.mentions = false
-        sections.themes = false
         sections.tags = false
         let plan = InsightsPromptBuilder.plan(text: "x", source: .typed, sections: sections, vocabulary: .init(
-            tags: ["work"], themes: ["career anxiety"], named: [.init(name: "Sarah Kim", kind: .person)]
+            tags: ["work"], named: [.init(name: "Sarah Kim", kind: .person)]
         ), model: "m")
 
         #expect(!plan.request.system.contains("Sarah Kim"))
-        #expect(!plan.request.system.contains("career anxiety"))
-        #expect(!plan.request.system.contains("- work"))
+        #expect(!plan.request.system.contains("Tags already used"))
         #expect(plan.vocabularySent == .empty)
     }
 }
@@ -113,20 +109,19 @@ struct GraphVocabularyTests {
     }
 
     @Test func eachListComesFromItsOwnKinds() throws {
-        try harness.entry(tags: ["work"], themes: ["moving house"], mentions: [("Sarah Kim", .person)])
+        try harness.entry(tags: ["work"], mentions: [("Sarah Kim", .person)])
         try harness.entry(tags: ["work", "family"], mentions: [("Sarah Kim", .person), ("Acme", .organization)])
         harness.indexer.sweep(in: harness.context)
 
         let sent = try vocabulary()
         #expect(sent.tags == ["work", "family"], "the busier tag first")
-        #expect(sent.themes == ["moving house"])
         #expect(sent.named == [.init(name: "Sarah Kim", kind: .person), .init(name: "Acme", kind: .organization)])
     }
 
     // Hidden means the user does not want to see it; steering the model towards it would bring
     // it back through the front door. Checked for every list, not just tags.
     @Test func hiddenAndMergedEntitiesAreLeftOutOfEveryList() throws {
-        try harness.entry(tags: ["work"], themes: ["moving house"], mentions: [("Sarah Kim", .person), ("Sarah K", .person), ("Bob", .person)])
+        try harness.entry(tags: ["work", "moving house"], mentions: [("Sarah Kim", .person), ("Sarah K", .person), ("Bob", .person)])
         harness.indexer.sweep(in: harness.context)
         let editor = GraphEditor(diagnostics: .disabled)
 
@@ -136,7 +131,7 @@ struct GraphVocabularyTests {
         editor.merge(try harness.entity("Sarah K"), into: try harness.entity("Sarah Kim"), in: harness.context)
 
         let sent = try vocabulary()
-        #expect(sent.tags.isEmpty && sent.themes.isEmpty)
+        #expect(sent.tags.isEmpty)
         #expect(sent.named.map(\.name) == ["Sarah Kim"])
     }
 
@@ -171,15 +166,14 @@ struct GraphVocabularyTests {
     }
 
     @Test func switchedOffSectionsAreNotFetched() throws {
-        try harness.entry(tags: ["work"], themes: ["moving house"], mentions: [("Sarah Kim", .person)])
+        try harness.entry(tags: ["work"], mentions: [("Sarah Kim", .person)])
         harness.indexer.sweep(in: harness.context)
         var sections = InsightSections()
-        sections.tags = false
         sections.mentions = false
 
         let sent = try vocabulary(sections)
-        #expect(sent.tags.isEmpty && sent.named.isEmpty)
-        #expect(sent.themes == ["moving house"])
+        #expect(sent.named.isEmpty)
+        #expect(sent.tags == ["work"])
     }
 }
 

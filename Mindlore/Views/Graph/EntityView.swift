@@ -222,17 +222,23 @@ private struct EntityPage: View {
                     LabeledContent("Name", value: entity.name)
                 }
                 .accessibilityIdentifier("entityRename")
-                Picker(selection: Binding(
-                    get: { entity.kind },
-                    set: { kind in apply { graph.setKind(kind, on: id, in: modelContext) } }
-                )) {
-                    ForEach(GraphEditor.kinds(changeableFrom: entity.kind), id: \.self) { kind in
-                        Label(kind.label, systemImage: kind.symbol).tag(kind)
+                let kinds = GraphEditor.kinds(changeableFrom: entity.kind)
+                if kinds.count > 1 {
+                    Picker(selection: Binding(
+                        get: { entity.kind },
+                        set: { kind in apply { graph.setKind(kind, on: id, in: modelContext) } }
+                    )) {
+                        ForEach(kinds, id: \.self) { kind in
+                            Label(kind.label, systemImage: kind.symbol).tag(kind)
+                        }
+                    } label: {
+                        Text("Kind")
                     }
-                } label: {
-                    Text("Kind")
+                    .accessibilityIdentifier("entityKind")
+                } else {
+                    LabeledContent("Kind", value: entity.kind.label)
+                        .accessibilityIdentifier("entityKind")
                 }
-                .accessibilityIdentifier("entityKind")
             }
         }
     }

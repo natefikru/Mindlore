@@ -8,7 +8,7 @@ struct EntityKindTests {
     // Add new kinds at the end of this list.
     @Test func rawValuesArePinned() {
         #expect(EntityKind.allCases.map(\.rawValue) == [
-            "person", "place", "organization", "project", "event", "other", "tag", "theme",
+            "person", "place", "organization", "project", "event", "other", "tag",
         ])
         #expect(EntityLinkSource.allCases.map(\.rawValue) == ["ai", "user"])
     }
@@ -54,8 +54,8 @@ struct EntityKindTests {
         let link = EntityLink(surface: "Sarah", kind: .person)
         #expect(link.sourceRaw == "ai")
         link.source = .user
-        link.kind = .theme
-        #expect(link.sourceRaw == "user" && link.kindRaw == "theme")
+        link.kind = .tag
+        #expect(link.sourceRaw == "user" && link.kindRaw == "tag")
     }
 
     // A merge loser leaves every list without the user having hidden it, so unmerge can tell
