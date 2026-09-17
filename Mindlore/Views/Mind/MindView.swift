@@ -8,6 +8,7 @@ struct MindView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(GraphServices.self) private var graph
     @Environment(AppRouter.self) private var router
+    @Environment(SettingsStore.self) private var settings
     @State private var simulation: GraphSimulation?
     @State private var version = 0
     @State private var names: [UUID: String] = [:]
@@ -32,8 +33,9 @@ struct MindView: View {
         NavigationStack(path: $router.mindPath) {
             GeometryReader { geometry in
                 let available = geometry.size.height
+                let safeArea = geometry.safeAreaInsets
                 ZStack(alignment: .bottom) {
-                    graphLayer(available: available)
+                    graphLayer(available: available, safeArea: safeArea)
                         .ignoresSafeArea()
                     VStack(spacing: 0) {
                         topBar
@@ -74,6 +76,10 @@ struct MindView: View {
         .task(id: RefreshKey(filters: filters, revision: graph.revision)) { refresh() }
         .onChange(of: router.mindFocusRequest?.token) { takeFocusRequest() }
         .onChange(of: router.dismissPresentationsToken) { showingFilters = false }
+        // Hiding an area in Settings removes its tile, which would leave no way to clear it.
+        .onChange(of: settings.visibleLifeAreas) { _, visible in
+            if let area = highlightedArea, !visible.contains(area) { highlightedArea = nil }
+        }
         .sheet(isPresented: $showingFilters) {
             MindFiltersView(filters: $filters)
                 .presentationDetents([.medium, .large])
@@ -83,7 +89,7 @@ struct MindView: View {
     // MARK: - Layers
 
     @ViewBuilder
-    private func graphLayer(available: CGFloat) -> some View {
+    private func graphLayer(available: CGFloat, safeArea: EdgeInsets) -> some View {
         if let simulation {
             GraphCanvasView(
                 simulation: simulation,
@@ -101,7 +107,7 @@ struct MindView: View {
                 ),
                 highlightedIDs: highlightedIDs,
                 clearsMissingFocus: false,
-                visibleInsets: visibleInsets(available: available),
+                visibleInsets: visibleInsets(available: available, safeArea: safeArea),
                 onNavigate: { router.mindPath.append(EntityRoute(id: $0)) },
                 onRendered: { graph.recordGraphRendered($0) }
             )
@@ -175,14 +181,24 @@ struct MindView: View {
         highlightedArea.map { area in Set(areaOf.compactMap { $0.value == area ? $0.key : nil }) }
     }
 
-    private func visibleInsets(available: CGFloat) -> EdgeInsets {
+    // In the canvas's own space, which runs under the status bar and the tab bar.
+    private func visibleInsets(available: CGFloat, safeArea: EdgeInsets) -> EdgeInsets {
         let card = trail.current == nil ? 0 : Self.cardHeight + 8
-        return EdgeInsets(top: Self.topBarHeight, leading: 0, bottom: SearchPanel.height(for: panelStop, available: available) + card, trailing: 0)
+        return EdgeInsets(
+            top: safeArea.top + Self.topBarHeight,
+            leading: 0,
+            bottom: safeArea.bottom + SearchPanel.height(for: panelStop, available: available) + card,
+            trailing: 0
+        )
     }
 
     // MARK: - Focus
 
     private func focus(_ id: UUID, source: GraphServices.FocusSource) {
+        // An entity off the map has no name from the graph data; its crumb still needs one.
+        if names[id] == nil {
+            names[id] = EntityDirectory(in: modelContext).entity(id)?.name
+        }
         trail.focus(id)
         panelStop = .peek
         graph.recordMindFocused(source: source, onMap: simulation?.index(of: id) != nil)

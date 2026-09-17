@@ -43,6 +43,7 @@ struct SearchPanel: View {
     @State private var segment: EntitySearch.Segment = .all
     @State private var rows = MindDirectory.Rows()
     @State private var question: ReviewQueue.Question?
+    @State private var questionDate: Date?
     @State private var skipped: Set<String> = []
     @State private var dragOffset: CGFloat = 0
     @State private var keyboardOverlap: CGFloat = 0
@@ -148,7 +149,8 @@ struct SearchPanel: View {
         }
         .contentShape(Rectangle())
         .gesture(
-            DragGesture(minimumDistance: 6)
+            // Global, since the header this sits on moves with the drag.
+            DragGesture(minimumDistance: 6, coordinateSpace: .global)
                 .onChanged { dragOffset = $0.translation.height }
                 .onEnded { value in
                     let next = Self.snap(from: stop, predictedTranslation: value.predictedEndTranslation.height, available: available)
@@ -165,7 +167,7 @@ struct SearchPanel: View {
         List {
             if !searching {
                 if let question {
-                    ReviewCard(question: question, names: namesByID, answer: answer)
+                    ReviewCard(question: question, entryDate: questionDate, names: namesByID, answer: answer)
                         .listRowBackground(Color.clear)
                         .listRowSeparator(.hidden)
                 }
@@ -282,7 +284,10 @@ struct SearchPanel: View {
         }
         saver.flush()
         graph.answer(question, with: answer, in: modelContext)
-        refresh()
+        // A real answer bumps graph.revision, which refreshes; a skip doesn't.
+        if answer == .skip {
+            refresh()
+        }
     }
 
     private func refresh() {
@@ -292,6 +297,14 @@ struct SearchPanel: View {
             unsure: graph.unsureLinks(in: modelContext),
             skipped: skipped
         )
+        if case .whichOne(let unsure) = question {
+            let entryID = unsure.mention.entryID
+            var descriptor = FetchDescriptor<Entry>(predicate: #Predicate { $0.id == entryID })
+            descriptor.fetchLimit = 1
+            questionDate = (try? modelContext.fetch(descriptor))?.first?.entryDate
+        } else {
+            questionDate = nil
+        }
     }
 }
 
@@ -336,6 +349,7 @@ private struct EntityRowButton: View {
 // One question at a time from the review queue, answered with one tap.
 private struct ReviewCard: View {
     let question: ReviewQueue.Question
+    let entryDate: Date?
     let names: [UUID: String]
     let answer: (ReviewQueue.Question, GraphServices.ReviewAnswer) -> Void
 
@@ -355,7 +369,11 @@ private struct ReviewCard: View {
                     skip
                 }
             case .whichOne(let unsure):
-                Text("Which one did you mean by \u{201C}\(unsure.mention.surface)\u{201D}?")
+                if let entryDate {
+                    Text("\u{201C}\(unsure.mention.surface)\u{201D} in your entry from \(entryDate.formatted(date: .abbreviated, time: .omitted)): which one?")
+                } else {
+                    Text("Which one did you mean by \u{201C}\(unsure.mention.surface)\u{201D}?")
+                }
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack {
                         ForEach(unsure.candidates) { candidate in

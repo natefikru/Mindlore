@@ -324,6 +324,17 @@ final class GraphServices {
     // Each browsable entity's life area on the map (EntityAreas), from the same resolved links
     // the picture uses, so a merged entity counts the entries it absorbed.
     func primaryAreas(in context: ModelContext) -> [UUID: LifeArea] {
+        if let cached = primaryAreasCache, cached.revision == revision { return cached.areas }
+        let areas = computePrimaryAreas(in: context)
+        primaryAreasCache = (revision, areas)
+        return areas
+    }
+
+    // Kept per revision: the map asks on every refresh, and areas only move when insights or
+    // the graph change, which both bump the revision.
+    @ObservationIgnored private var primaryAreasCache: (revision: Int, areas: [UUID: LifeArea])?
+
+    private func computePrimaryAreas(in context: ModelContext) -> [UUID: LifeArea] {
         let resolved = resolvedLinks(in: context)
         let entryIDs = Set(resolved.links.map(\.entryID))
         guard !entryIDs.isEmpty else { return [:] }
@@ -357,11 +368,11 @@ final class GraphServices {
     func answer(_ question: ReviewQueue.Question, with answer: ReviewAnswer, in context: ModelContext) {
         switch (question, answer) {
         case (.same(let a, let b), .same):
-            _ = merge(a, into: b, in: context)
+            guard merge(a, into: b, in: context) != nil else { return }
         case (.same(let a, let b), .notSame):
             markNotSame(a, b, in: context)
         case (.whichOne(let unsure), .whichOne(let id)):
-            _ = repoint(unsure.mention, to: .existing(id), addingAlias: false, in: context)
+            guard repoint(unsure.mention, to: .existing(id), addingAlias: false, in: context) != .mentionChanged else { return }
         case (_, .skip):
             break
         default:

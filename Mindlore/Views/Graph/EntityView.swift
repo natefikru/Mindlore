@@ -59,6 +59,7 @@ private struct EntityPage: View {
     @Query private var entities: [Entity]
     @Query(sort: \LooseEnd.lastMentionedAt, order: .reverse) private var allLooseEnds: [LooseEnd]
     @State private var showsEarlierLooseEnds = false
+    @State private var looseEndSplit = LooseEndSplit()
     @State private var editingBio = false
     @State private var renaming = false
     @State private var addingAlias = false
@@ -103,6 +104,7 @@ private struct EntityPage: View {
             .onAppear {
                 if !showsLoser { graph.pageOpened(id, in: modelContext) }
             }
+            .task(id: looseEndKey) { loadLooseEnds() }
             .task(id: graph.revision) {
                 coOccurring = EntityPagePresentation.coOccurrenceRows(graph.mentionedWith(of: id, in: modelContext, limit: .max))
             }
@@ -445,27 +447,16 @@ private struct EntityPage: View {
         }
     }
 
-    // Open loose ends about this entity first; settled, faded, and let-go ones fold away.
+    // Open loose ends about this entity first; settled, faded, and let-go ones fold away. Worked
+    // out in a task, not in body, so typing in a sheet on this page never redoes it.
     @ViewBuilder
     private var looseEndsSection: some View {
-        let live = allLooseEnds.filter { !$0.isDeleted }
-        let byID = Dictionary(live.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
-        let mergedInto = Dictionary(entities.filter { !$0.isDeleted }.map { ($0.id, $0.mergedIntoID) }, uniquingKeysWith: { first, _ in first })
-        let split = EntityPagePresentation.looseEnds(
-            live.map { .init(id: $0.id, entityIDs: $0.entityIDs, isOpen: $0.isOpen, lastMentionedAt: $0.lastMentionedAt, statusChangedAt: $0.statusChangedAt) },
-            about: id,
-            root: { start in
-                var current = start
-                var seen: Set<UUID> = [start]
-                while let next = mergedInto[current] ?? nil, seen.insert(next).inserted {
-                    current = next
-                }
-                return current
-            }
-        )
-        if !split.open.isEmpty || !split.earlier.isEmpty {
+        let byID = Dictionary(allLooseEnds.filter { !$0.isDeleted }.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        let open = looseEndSplit.open.compactMap { byID[$0] }
+        let earlier = looseEndSplit.earlier.compactMap { byID[$0] }
+        if !open.isEmpty || !earlier.isEmpty {
             Section("Loose ends") {
-                ForEach(split.open.compactMap { byID[$0] }) { looseEnd in
+                ForEach(open) { looseEnd in
                     EntityLooseEndRow(looseEnd: looseEnd)
                         .swipeActions {
                             Button("Done") { setLooseEnd(looseEnd, .resolved) }
@@ -474,9 +465,9 @@ private struct EntityPage: View {
                                 .tint(.gray)
                         }
                 }
-                if !split.earlier.isEmpty {
-                    DisclosureGroup("Earlier (\(split.earlier.count))", isExpanded: $showsEarlierLooseEnds) {
-                        ForEach(split.earlier.compactMap { byID[$0] }) { looseEnd in
+                if !earlier.isEmpty {
+                    DisclosureGroup("Earlier (\(earlier.count))", isExpanded: $showsEarlierLooseEnds) {
+                        ForEach(earlier) { looseEnd in
                             EntityLooseEndRow(looseEnd: looseEnd)
                                 .swipeActions {
                                     Button("Reopen") { setLooseEnd(looseEnd, .open) }
@@ -488,6 +479,24 @@ private struct EntityPage: View {
             }
             .accessibilityIdentifier("entityLooseEnds")
         }
+    }
+
+    // Changes when a loose end is added, removed, or has its status changed.
+    private var looseEndKey: LooseEndKey {
+        LooseEndKey(
+            revision: graph.revision,
+            count: allLooseEnds.count,
+            lastChange: allLooseEnds.compactMap(\.statusChangedAt).max()
+        )
+    }
+
+    private func loadLooseEnds() {
+        let directory = EntityDirectory(in: modelContext)
+        let items = allLooseEnds.filter { !$0.isDeleted }.map {
+            EntityPagePresentation.LooseEndItem(id: $0.id, entityIDs: $0.entityIDs, isOpen: $0.isOpen, lastMentionedAt: $0.lastMentionedAt, statusChangedAt: $0.statusChangedAt)
+        }
+        let split = EntityPagePresentation.looseEnds(items, about: id, root: directory.root(of:))
+        looseEndSplit = LooseEndSplit(open: split.open, earlier: split.earlier)
     }
 
     // Saved without stamping entries, the same as the insights card.
@@ -682,7 +691,7 @@ private struct RenameEntitySheet: View {
 }
 
 // Read-only: reaching the full editor would mean dismissing through however many sheets got the
-// user to this entity page (the insights sheet, or Connections), each with its own stack.
+// user to this entity page (the insights sheet, a name's card, or Mind), each with its own stack.
 private struct EntryPreview: View {
     let entryID: UUID
     @Environment(\.dismiss) private var dismiss
@@ -771,4 +780,15 @@ private struct EntityLooseEndRow: View {
         case .dismissed: return "\(from) · let go"
         }
     }
+}
+
+private struct LooseEndSplit: Equatable {
+    var open: [UUID] = []
+    var earlier: [UUID] = []
+}
+
+private struct LooseEndKey: Equatable {
+    let revision: Int
+    let count: Int
+    let lastChange: Date?
 }
