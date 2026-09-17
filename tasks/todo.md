@@ -542,13 +542,13 @@ the real key.
   - `OpenAILiveTests`: an entry that settles a known loose end returns its handle in `resolved`
 
 ### A3: A warm graph
-- [ ] `GraphSimulation`: `alphaTarget`, `reheat`, `update(nodes:edges:)`.
-- [ ] Canvas: the redraw rule, focus dimming, weighted and recency edges, the glow symbol, the zoom
+- [x] `GraphSimulation`: `alphaTarget`, `reheat`, `update(nodes:edges:)`.
+- [x] Canvas: the redraw rule, focus dimming, weighted and recency edges, the glow symbol, the zoom
       label budget, the precomputed focus and label sets (no `@State` write in the draw closure),
       edge hit-testing, `flyTo`, and haptics.
-- [ ] `graph.rendered` redefined (first settle plus frame-time p50/p95).
-- [ ] `GlobalGraphView` stays wired for now, so the graph can be measured before Mind exists.
-- [ ] Tests:
+- [x] `graph.rendered` redefined (first settle plus frame-time p50/p95).
+- [x] `GlobalGraphView` stays wired for now, so the graph can be measured before Mind exists.
+- [x] Tests:
   - existing settle, determinism, pin, and spring tests still pass
   - drag reheat keeps alpha above the minimum while pinned and settles after release
   - `update` keeps surviving positions exactly and places new nodes near a neighbour
@@ -755,6 +755,35 @@ Life areas screen, reached from the insights settings while areas are on. Also f
 owner saw it on the simulator: the area chip rendered as a tall empty yellow capsule; it's now a
 grey capsule with a coloured icon, like the tag chips. `OpenAILiveTests`' area check hasn't run
 yet (no key in this session).
+
+A3 build (2026-09-17, lane `feature/phase-a-graph`). Built to a spec the owner approved after a
+sub-agent review (15 findings folded in). The draw cache keys on the simulation's own
+`topologyVersion`; the canvas also takes a `version` argument only so an in-place update
+re-renders it. The glow is a radial-gradient fill rather than a symbol (no blur, fewer moving
+parts). A tapped edge focuses its better-connected end, a placeholder for A5's shared-entries card.
+
+The demo journal found a bug that predates Phase A: at 225 nodes and 1897 edges the layout flew
+to a 2.5 million point extent (a blank screen), because every spring pulled at full strength on
+nodes with dozens of edges. Springs now use d3's `forceLink` defaults (strength 1 / min degree,
+split by degree), and repulsion falls off with distance like d3's `forceManyBody` instead of
+distance squared, which had left the settled graph packed into one blob. A unit test settles the
+real demo graph. `-seedDemoJournal 300` means 300 entries: the global graph at its default
+minimum of 2 mentions has 225 nodes, and that is the node count the gate reads.
+
+Code review (sub-agent, 10 findings, no crash paths). Fixed: a cancelled drag or pinch left the
+simulation warm and the canvas redrawing (cleanup now keys off `@GestureState`); pan and a
+simultaneous pinch overwrote each other; settle time was reported as about 0 on a return visit;
+glow was drawn for every neighbour of a hub (now capped at 25); a shaky tap pinned the node it
+focused (8pt drag threshold); a node that grew didn't make room (0.05 reheat); the sampler kept
+growing after reporting; the graph UI test raced the fly-to. Not changed: nothing covers a gesture
+cancel in a test, since XCUITest can't cancel a gesture.
+
+`GraphUITests.testConnectionsBrowseOpenAnEntryMergeAndUnmerge` fails at `entityMergeInto` on
+this branch and on A0 (`6d0735b`) alike, so it predates A3; A5 rewrites that test. For A9,
+CLAUDE.md's Graph paragraph still describes a rebuild on every change and a settle-only
+`graph.rendered`.
+
+Device gate: pending.
 
 Owner answers after revision 1 (2026-09-17): the tab is Mind, a fresh install is fine, and Ask
 keeps saved conversations and opens a new one by default. Folded in above.
