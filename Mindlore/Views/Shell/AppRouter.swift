@@ -26,6 +26,12 @@ nonisolated struct JournalRoute: Hashable, Sendable {
     func hash(into hasher: inout Hasher) { hasher.combine(entryID) }
 }
 
+// A request for Mind to focus an entity. The token makes asking twice for the same one count.
+nonisolated struct MindFocusRequest: Equatable, Sendable {
+    let id: UUID
+    let token: Int
+}
+
 // The selected tab and each tab's path. Every jump between tabs goes through here, and an entry's
 // close rules run when it leaves Journal's path, never when its view merely disappears (a tab
 // switch or a cover over the editor).
@@ -35,12 +41,22 @@ final class AppRouter {
     var journalPath: [JournalRoute] = [] {
         didSet { reportChanges(from: oldValue) }
     }
+    // Mind's stack of entity pages. Ids only, so a merge or prune never leaves a stale model.
+    var mindPath: [EntityRoute] = []
+    // Waits here until Mind takes it, since a jump can arrive before Mind was ever built.
+    private(set) var mindFocusRequest: MindFocusRequest?
     // Sheets close when this changes, so a jump never lands underneath one.
     private(set) var dismissPresentationsToken = 0
     // Full-screen covers can't be closed from outside (the page screen has its own close rules),
     // so a jump waits until the last one is gone.
     @ObservationIgnored private var openCovers: Set<String> = []
-    @ObservationIgnored private(set) var pendingRoute: JournalRoute?
+    @ObservationIgnored private(set) var pendingJump: PendingJump?
+    @ObservationIgnored private var mindFocusToken = 0
+
+    enum PendingJump: Equatable {
+        case entry(JournalRoute)
+        case mind(UUID)
+    }
 
     @ObservationIgnored private let opened: (UUID) -> Void
     @ObservationIgnored private let closed: (UUID) -> Void
@@ -55,7 +71,7 @@ final class AppRouter {
     func showEntry(_ id: UUID, forReading: Bool = false) {
         let route = JournalRoute(entryID: id, opensForReading: forReading)
         guard openCovers.isEmpty else {
-            pendingRoute = route
+            pendingJump = .entry(route)
             return
         }
         dismissPresentationsToken += 1
@@ -69,9 +85,38 @@ final class AppRouter {
         } else {
             openCovers.remove(name)
         }
-        guard openCovers.isEmpty, let pending = pendingRoute else { return }
-        pendingRoute = nil
-        showEntry(pending.entryID, forReading: pending.opensForReading)
+        guard openCovers.isEmpty, let pending = pendingJump else { return }
+        pendingJump = nil
+        switch pending {
+        case .entry(let route): showEntry(route.entryID, forReading: route.opensForReading)
+        case .mind(let id): showInMind(id)
+        }
+    }
+
+    // Switches to Mind at its map and asks it to focus the entity. Journal's path is left alone,
+    // so an open entry stays open and no close rules run.
+    func showInMind(_ entityID: UUID) {
+        guard openCovers.isEmpty else {
+            pendingJump = .mind(entityID)
+            return
+        }
+        dismissPresentationsToken += 1
+        mindFocusToken += 1
+        mindFocusRequest = MindFocusRequest(id: entityID, token: mindFocusToken)
+        tab = .mind
+        mindPath = []
+    }
+
+    // Mind takes the request once, whether it was built before the jump or because of it.
+    func consumeMindFocus() -> UUID? {
+        guard let request = mindFocusRequest else { return nil }
+        mindFocusRequest = nil
+        return request.id
+    }
+
+    // A merge made from a page on Mind's stack.
+    func replaceInMind(_ loserID: UUID, with winnerID: UUID) {
+        mindPath = EntityPagePresentation.replacing(loserID, with: winnerID, in: mindPath)
     }
 
     private func reportChanges(from old: [JournalRoute]) {

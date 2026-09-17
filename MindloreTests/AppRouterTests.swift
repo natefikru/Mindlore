@@ -108,7 +108,7 @@ struct AppRouterTests {
         router.setCover("editor", open: false)
         #expect(router.journalPath == [JournalRoute(entryID: shown)])
         #expect(log.closed == [open])
-        #expect(router.pendingRoute == nil)
+        #expect(router.pendingJump == nil)
     }
 
     // New routes and jumps open for typing unless asked; the flag isn't part of which route it is.
@@ -137,5 +137,66 @@ struct AppRouterTests {
         router.showEntry(new.entryID)
         #expect(log.closed.isEmpty)
         #expect(log.opened == [new.entryID])
+    }
+}
+
+@MainActor
+struct AppRouterMindTests {
+    private final class Log {
+        var opened: [UUID] = []
+        var closed: [UUID] = []
+    }
+
+    @Test func showInMindSelectsMindAndLeavesJournalAlone() {
+        let log = Log()
+        let router = AppRouter(opened: { log.opened.append($0) }, closed: { log.closed.append($0) })
+        let entry = UUID(), sarah = UUID()
+        router.journalPath = [JournalRoute(entryID: entry)]
+        router.mindPath = [EntityRoute(id: UUID())]
+        let token = router.dismissPresentationsToken
+
+        router.showInMind(sarah)
+        #expect(router.tab == .mind)
+        #expect(router.mindPath.isEmpty)
+        #expect(router.journalPath == [JournalRoute(entryID: entry)])
+        #expect(log.closed.isEmpty)
+        #expect(router.dismissPresentationsToken == token + 1)
+        #expect(router.mindFocusRequest?.id == sarah)
+    }
+
+    // Mind may not exist yet when the jump happens, so the request waits and is taken once.
+    @Test func aRequestIsConsumedExactlyOnceAndAskingAgainIsNew() throws {
+        let router = AppRouter(opened: { _ in }, closed: { _ in })
+        let sarah = UUID()
+        router.showInMind(sarah)
+        let first = try #require(router.mindFocusRequest)
+
+        #expect(router.consumeMindFocus() == sarah)
+        #expect(router.consumeMindFocus() == nil)
+
+        router.showInMind(sarah)
+        #expect(router.mindFocusRequest?.id == sarah)
+        #expect(router.mindFocusRequest != first, "the same entity asked twice is a new request")
+    }
+
+    @Test func showInMindWaitsForCovers() {
+        let router = AppRouter(opened: { _ in }, closed: { _ in })
+        let sarah = UUID()
+        router.setCover("pageOrder", open: true)
+        router.showInMind(sarah)
+        #expect(router.tab == .journal)
+        #expect(router.mindFocusRequest == nil)
+
+        router.setCover("pageOrder", open: false)
+        #expect(router.tab == .mind)
+        #expect(router.consumeMindFocus() == sarah)
+    }
+
+    @Test func replacingInMindSwapsTheLastLoser() {
+        let router = AppRouter(opened: { _ in }, closed: { _ in })
+        let tom = UUID(), sarah = UUID(), other = UUID()
+        router.mindPath = [EntityRoute(id: tom), EntityRoute(id: other), EntityRoute(id: tom)]
+        router.replaceInMind(tom, with: sarah)
+        #expect(router.mindPath == [EntityRoute(id: tom), EntityRoute(id: other), EntityRoute(id: sarah)])
     }
 }

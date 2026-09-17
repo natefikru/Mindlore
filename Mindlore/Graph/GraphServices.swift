@@ -337,6 +337,21 @@ final class GraphServices {
         return GraphData(nodes: nodes, edges: filteredEdges, names: names)
     }
 
+    // Each browsable entity's life area on the map (EntityAreas), from the same resolved links
+    // the picture uses, so a merged entity counts the entries it absorbed.
+    func primaryAreas(in context: ModelContext) -> [UUID: LifeArea] {
+        let resolved = resolvedLinks(in: context)
+        let entryIDs = Set(resolved.links.map(\.entryID))
+        guard !entryIDs.isEmpty else { return [:] }
+        let entries = ((try? context.fetch(FetchDescriptor<Entry>(predicate: #Predicate { entryIDs.contains($0.id) }))) ?? [])
+            .filter { !$0.isDeleted }
+        let areasByEntry = Dictionary(entries.compactMap { entry -> (UUID, EntityAreas.EntryAreas)? in
+            guard let areas = entry.insights?.areas, !areas.isEmpty else { return nil }
+            return (entry.id, EntityAreas.EntryAreas(areas: areas, date: entry.entryDate))
+        }, uniquingKeysWith: { first, _ in first })
+        return EntityAreas.primaryAreas(links: resolved.links, areasByEntry: areasByEntry)
+    }
+
     // Logged once per graph screen appearance, never per frame: the first settle after the
     // screen appeared, and frame-interval and draw-work percentiles over up to 5 seconds of
     // interaction, which is what the Phase A device gate reads.
