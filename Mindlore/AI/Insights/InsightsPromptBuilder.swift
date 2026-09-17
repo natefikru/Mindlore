@@ -28,6 +28,7 @@ nonisolated struct InsightsRequestPlan: Sendable {
     let cleanedTextSkippedReason: String?
     let asksForCleanedText: Bool
     let asksForWrittenDate: Bool
+    var asksForLifeAreas = false
     // Exactly what went into the prompt after section toggles, cleaning, and caps, so the
     // disclosure screen can say what was sent rather than what the journal holds today.
     var vocabularySent: InsightsPromptBuilder.JournalVocabulary = .empty
@@ -277,7 +278,7 @@ nonisolated enum InsightsPromptBuilder {
             schemaName: "journal_insights",
             maxOutputTokens: min(16_000, 3_000 + (asksForCleanedText ? text.count / 2 : 0))
         )
-        return InsightsRequestPlan(request: request, customKeys: customKeys, customKeyOrder: customKeyOrder, cleanedTextSkippedReason: skippedReason, asksForCleanedText: asksForCleanedText, asksForWrittenDate: asksForWrittenDate, vocabularySent: sent, looseEndHandles: handles, ownLooseEndIDs: ownIDs)
+        return InsightsRequestPlan(request: request, customKeys: customKeys, customKeyOrder: customKeyOrder, cleanedTextSkippedReason: skippedReason, asksForCleanedText: asksForCleanedText, asksForWrittenDate: asksForWrittenDate, asksForLifeAreas: sections.lifeAreas, vocabularySent: sent, looseEndHandles: handles, ownLooseEndIDs: ownIDs)
     }
 
     static func day(_ date: Date, calendar: Calendar) -> String {
@@ -345,7 +346,9 @@ nonisolated enum InsightsPromptBuilder {
             areas.append(area)
         }
         result.areas = Array(areas.prefix(LifeArea.maxPerEntry))
-        result.tags = Array(unique(strings("tags").map { $0.lowercased() }).prefix(maxTags))
+        // A tag that is a life area's name duplicates the area; models write them anyway.
+        let areaNames = plan.asksForLifeAreas ? Set(LifeArea.allCases.map(\.rawValue)) : []
+        result.tags = Array(unique(strings("tags").map { $0.lowercased() }).filter { !areaNames.contains($0) }.prefix(maxTags))
         result.looseEnds = looseEnds(in: json, plan: plan, calendar: calendar)
 
         var mentions: [Mention] = []

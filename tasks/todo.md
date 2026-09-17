@@ -754,8 +754,10 @@ longer mentions themes. Not changed: old theme rows (a fresh install covers them
 (the privacy test already renames an area to the sentinel). The Debug distribution lives on the
 Life areas screen, reached from the insights settings while areas are on. Also fixed after the
 owner saw it on the simulator: the area chip rendered as a tall empty yellow capsule; it's now a
-grey capsule with a coloured icon, like the tag chips. `OpenAILiveTests`' area check hasn't run
-yet (no key in this session).
+grey capsule with a coloured icon, like the tag chips. `OpenAILiveTests` later ran with the real
+key (2026-09-17): areas came back valid, but the model also tagged the entry `friends` next to the
+Friends area despite the prompt, so the parser now drops any tag that is an area's name while
+areas are on.
 
 A2 build (sub-agent review of the working tree, 2026-09-17; 12 findings, one data bug).
 Fixed: rerunning an entry reopened everything it had settled, since settled loose ends weren't
@@ -770,7 +772,9 @@ entries' loose ends. The demo seeder cycles its templates. Not changed: the Foun
 cap of 5 (insights only ever run through OpenAI today; add the cap if that changes); the
 read-time `mergedIntoID` resolution exists as `EntityDirectory.root` and is used for candidate
 ranking, and its other readers (search panel counts, peek card) arrive in A5. The live OpenAI
-test for handles in `resolved` hasn't run (no key in this session). The loose-end row's
+test `looseEndsAreSettledAndMentionedByHandle` passed against gpt-5.6-luna: the strict schema with
+a nullable handle enum was accepted, the settled loose end came back in `resolved`, the ongoing
+one as `sameAs`, and the unrelated one was left alone. `InsightsUITests` passed with the real key. The loose-end row's
 identifier moved from the row to its label: on the row it overrode the menu button's own.
 
 A3 build (2026-09-17, lane `feature/phase-a-graph`). Built to a spec the owner approved after a
