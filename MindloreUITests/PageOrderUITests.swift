@@ -79,6 +79,9 @@ final class PageOrderUITests: XCTestCase {
     func testClosingWithNoPagesLeavesNothingBehind() throws {
         app.launch()
         app.buttons["newPhotoEntryButton"].tap()
+        let scan = app.buttons["scanPagesButton"]
+        XCTAssertTrue(scan.waitForExistence(timeout: 5))
+        scan.tap()
         XCTAssertTrue(app.descendants(matching: .any)["pageRow-1000"].waitForExistence(timeout: 10))
 
         for _ in 0..<3 {
