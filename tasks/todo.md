@@ -621,9 +621,10 @@ the real key.
 - [ ] Device: replay, a lens switch, regions settling into a readable layout.
 
 ### A6: Read mode and tappable names
-- [ ] Read and edit modes in `EntryEditorView`. Name ranges from links. The `OpenURLAction` and
-      the peek sheet. Peek added to `isPresentingOverEditor`.
-- [ ] Tests:
+- [x] Read and edit modes in `EntryEditorView`. Name ranges from links. The `OpenURLAction` and
+      the peek sheet. Peek added to `isPresentingOverEditor` (moot since A4: nothing closes the
+      editor on disappear).
+- [x] Tests:
   - name ranges (overlaps, aliases, `writtenSurface`, possessives, a merged entity resolves to
     the winner)
   - which entries open in read mode, including page review and live-text recordings, which don't
@@ -826,10 +827,28 @@ A4 (lane 3, `feature/phase-a-shell`, build spec in `tasks/a4-shell-spec.md`):
 - Code review (10 findings, no crash paths), all fixed in "A4 review fixes".
 - Found, not fixed (outside this lane, gone in A5): inside Connections the entity page's
   `EntityRoute` links push nothing, because Connections' path is typed `[ConnectionsPathItem]`.
-  "Merged into this" is dead there, and `GraphUITests` marks that step as an expected failure. The
+  "Merged into this" is dead there, and `GraphUITests` marks that step as an expected failure.
+  A likely cause of the unmerge item in A5's checklist. The
   test's `entityMergeInto` failure noted under A3 was a scroll issue and is fixed. The same run
   found `PageOrderUITests.testClosingWithNoPagesLeavesNothingBehind` never tapped Scan; fixed.
 - Pending: the recorder's loose-end line (after A2), and the device steps.
+
+A6 (lane 3, build spec in `tasks/a6-read-mode-spec.md`):
+
+- The peek card is built here in its sheet form (owner's call), in `EntityPeekCard.swift`; A5 adds
+  the Mind overlay on the same view instead of a second card.
+- A simulator spike confirmed per-kind link colours render in `Text`, links tap with text
+  selection on, and XCUITest exposes each name as a link.
+- Spec review (15 findings) folded in. The main ones: read text keyed on the text itself, Edit's
+  focus through the text view's own appearance, a finished recording lands for typing through its
+  route, tags aren't linked, and the mode flips to typing one way only.
+- "Opening and closing the peek card doesn't run the close rules" needs no test of its own: since
+  A4, close rules only run when a route leaves Journal's path.
+- Code review: one real bug (the editor re-decided its mode as the entry changed, so finishing a
+  draft grew a second Done; the route now carries the decision), plus capitalised names linking
+  only where capitalised ("I will call Will"), a card that spun forever for a missing entity, and
+  two UI test waits. All fixed.
+- Pending: the card's loose-end line (A2 has landed; next).
 
 Owner answers after revision 1 (2026-09-17): the tab is Mind, a fresh install is fine, and Ask
 keeps saved conversations and opens a new one by default. Folded in above.
