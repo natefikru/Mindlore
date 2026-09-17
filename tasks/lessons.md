@@ -125,3 +125,10 @@ xcodebuild ... -destination 'platform=iOS Simulator,id=<udid>' test ...
 ```
 
 Before blaming a branch for a UI failure, ask whether anything else is using the simulator.
+
+## Size the UI run to the change
+
+A follow-up that touched only the recorder and the peek card started the whole 12-class,
+10-minute phase-scoped set. The two classes that exercise those views said everything the rest
+could. Run the broad set when a sub-phase first lands or after another lane's app changes are
+merged in; for a follow-up, run the classes that open the views the commit changed.
