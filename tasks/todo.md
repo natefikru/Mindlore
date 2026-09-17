@@ -615,7 +615,7 @@ Build spec: `tasks/a5b-map-extras-spec.md`.
   - the mood-around average
   - the anchor force pulls toward its point and leaves determinism intact
   - replay issues no fetch per step
-- [ ] Device: replay, a lens switch, regions settling into a readable layout.
+- [x] Device: replay, a lens switch, regions settling into a readable layout.
 
 ### A6: Read mode and tappable names
 - [x] Read and edit modes in `EntryEditorView`. Name ranges from links. The `OpenURLAction` and
@@ -949,7 +949,18 @@ A5b (2026-09-17, build spec in `tasks/a5b-map-extras-spec.md`):
     to fit.
   - The filters sheet puts Entries and Group by life area first, since the medium detent hid
     them.
-- Tests: 860 unit tests pass. `GraphUITests` (including the new lenses, dots, and regions test
+- Device (2026-09-17, iPhone 17 Pro, run `a5b-map-1`, the 300-entry seed): the owner went
+  through replay, all three lenses, entry dots (two dots opened their entries, and one tap beside
+  a dot focused its entity, as intended), and grouping by area, and approved. `graph.rendered`:
+  - Entries on (270 nodes, 1270 edges, Recent lens): frame p95 19.0 ms, work p95 3.6 ms, from a
+    short sample of 36 frames.
+  - Replay: frame p50 16.7 ms, but p95 32.4 ms (294 samples), with work p95 5.1 ms and replay
+    step p95 7.1 ms. The dropped frames came from each step's view-state writes re-rendering all
+    of Mind. The fix (`958382f`): steps move the simulation every 100 ms and refresh names,
+    colours, and labels only on every fifth step. At the owner's call, it's not re-measured on
+    the phone; A9's device pass covers replay again.
+  - Grouping on: no sample; the session was too short.
+- Tests: 861 unit tests pass. `GraphUITests` (including the new lenses, dots, and regions test
   and the replay test), `GraphScreenshotTests.testDemoJournalMind` (new lens, dots, regions, and
   replay shots), and `ReadModeUITests` pass. The dot test taps the point the canvas reports
   under `-uiTesting`, so it goes through the real hit rule.
