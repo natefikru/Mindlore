@@ -10,6 +10,7 @@ enum EntityPeekPresentation {
         let bioFirstLine: String?
         let lastMentioned: Date?
         let recentEntryCount: Int
+        var openLooseEnd: String? = nil
     }
 
     static let recentDays = 30
@@ -46,17 +47,24 @@ enum EntityPeekPresentation {
             return current.id
         }
 
+        // The most recently mentioned open loose end about this entity, through merges.
+        let looseEnd = LooseEnd.all(in: context)
+            .filter { $0.isOpen && $0.entityIDs.contains { root(of: $0) == id } }
+            .max { $0.lastMentionedAt < $1.lastMentionedAt }
+
         let entryIDs = Set(graph.indexer.allLinks(in: context).compactMap { link -> UUID? in
             guard let entityID = link.entityID, root(of: entityID) == id else { return nil }
             return link.entryID
         })
         let entries = entryIDs.isEmpty ? [] : ((try? context.fetch(FetchDescriptor<Entry>(predicate: #Predicate { entryIDs.contains($0.id) }))) ?? [])
-        return summary(
+        var result = summary(
             name: entity.name,
             kind: entity.kind,
             bio: entity.bio,
             entryDates: entries.filter { !$0.isDeleted }.map(\.entryDate),
             now: now
         )
+        result.openLooseEnd = looseEnd?.text
+        return result
     }
 }

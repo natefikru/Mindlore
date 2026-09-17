@@ -60,5 +60,15 @@ struct EntityPeekPresentationTests {
         #expect(summary.recentEntryCount == 2)
         #expect(summary.lastMentioned == now - 1 * day)
         #expect(EntityPeekPresentation.load(UUID(), graph: graph, in: context, now: now) == nil)
+        #expect(summary.openLooseEnd == nil)
+
+        // Loose ends written against the loser count for the winner; settled ones don't show.
+        let older = LooseEnd(text: "Ask Sara about the trip", sourceEntryID: UUID(), sourceEntryDate: now - 5 * day, entityIDs: [loser.id])
+        let newer = LooseEnd(text: "Sarah's reply on the lease", sourceEntryID: UUID(), sourceEntryDate: now - 2 * day, entityIDs: [loser.id])
+        let settled = LooseEnd(text: "Settled already", sourceEntryID: UUID(), sourceEntryDate: now - 1 * day, entityIDs: [winner.id])
+        settled.setStatus(.resolved, at: now)
+        [older, newer, settled].forEach(context.insert)
+        let withLooseEnds = try #require(EntityPeekPresentation.load(winner.id, graph: graph, in: context, now: now))
+        #expect(withLooseEnds.openLooseEnd == "Sarah's reply on the lease")
     }
 }

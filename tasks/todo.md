@@ -570,7 +570,7 @@ the real key.
       owned by `RootView`. The recorder minimizes while recording, and discard works from there.
 - [x] `TabView` (Journal, Mind placeholder, Ask placeholder). Record accessory with idle and
       recording states.
-- [ ] The loose-end prompt line in the recorder (waits for A2's `LooseEndPrompter`).
+- [x] The loose-end prompt line in the recorder (after A2's `LooseEndPrompter`).
 - [x] Journal: remove the Connections button. Add area chips on rows and the area filter row.
 - [x] Tests:
   - `RecordingSession` start/stop/discard with a fake recorder
@@ -848,7 +848,8 @@ A6 (lane 3, build spec in `tasks/a6-read-mode-spec.md`):
   draft grew a second Done; the route now carries the decision), plus capitalised names linking
   only where capitalised ("I will call Will"), a card that spun forever for a missing entity, and
   two UI test waits. All fixed.
-- Pending: the card's loose-end line (A2 has landed; next).
+- The card's loose-end line and the recorder's prompt line landed after A2 (`looseEnds.prompted`
+  logs the id only).
 
 Owner answers after revision 1 (2026-09-17): the tab is Mind, a fresh install is fine, and Ask
 keeps saved conversations and opens a new one by default. Folded in above.

@@ -96,7 +96,12 @@ struct RootView: View {
             makeLiveSession: { SpeechAnalyzerLiveSession(locale: $0) },
             speechEngine: { settings.speechEngine },
             afterIngest: { await transcription.processQueue(context: context) },
-            onFinished: { appRouter.showEntry($0.id) }
+            onFinished: { appRouter.showEntry($0.id) },
+            takePrompt: {
+                let text = RecordingSession.takePrompt(in: context)
+                if text != nil { saver.noteChange() }
+                return text
+            }
         ))
 
         _presence = State(initialValue: presence)

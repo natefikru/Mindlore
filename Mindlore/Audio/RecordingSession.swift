@@ -24,6 +24,8 @@ final class RecordingSession {
     private(set) var isFinishing = false
     // Whether the full recorder is showing. Closing it while recording only minimizes.
     private(set) var isExpanded = false
+    // One open loose end the recorder mentions, picked when the recording begins.
+    private(set) var prompt: String?
 
     @ObservationIgnored private let context: ModelContext
     @ObservationIgnored private let ingestor: RecordingIngestor
@@ -34,6 +36,7 @@ final class RecordingSession {
     @ObservationIgnored private let speechEngine: () -> SpeechEngine
     @ObservationIgnored private let afterIngest: () async -> Void
     @ObservationIgnored private let onFinished: (Entry) -> Void
+    @ObservationIgnored private let takePrompt: () -> String?
     @ObservationIgnored private let diagnostics: DiagnosticsLog
     // Bumped whenever a recording ends, so work still awaiting from an earlier one drops its result
     // instead of writing into the next.
@@ -52,6 +55,7 @@ final class RecordingSession {
         speechEngine: @escaping () -> SpeechEngine,
         afterIngest: @escaping () async -> Void,
         onFinished: @escaping (Entry) -> Void,
+        takePrompt: @escaping () -> String? = { nil },
         diagnostics: DiagnosticsLog = .shared
     ) {
         self.context = context
@@ -63,6 +67,7 @@ final class RecordingSession {
         self.speechEngine = speechEngine
         self.afterIngest = afterIngest
         self.onFinished = onFinished
+        self.takePrompt = takePrompt
         self.diagnostics = diagnostics
     }
 
@@ -76,6 +81,7 @@ final class RecordingSession {
         levels = Array(repeating: 0, count: Self.levelCount)
         status = .starting
         isExpanded = true
+        prompt = takePrompt()
         let generation = generation
         startTask = Task { [weak self] in await self?.start(recorder, generation: generation) }
     }
@@ -163,6 +169,17 @@ final class RecordingSession {
         status = .idle
         isExpanded = false
         isFinishing = false
+        prompt = nil
+    }
+
+    // Picks the loose end to mention and records that it was asked about, so the same one
+    // doesn't come back for a few days. Showing it changes nothing else; the next insights run
+    // decides whether the recording settled it.
+    static func takePrompt(in context: ModelContext, now: Date = .now, diagnostics: DiagnosticsLog = .shared) -> String? {
+        guard let looseEnd = LooseEndPrompter.next(in: context, now: now) else { return nil }
+        LooseEndPrompter.markPrompted(looseEnd, now: now)
+        diagnostics.record("looseEnds.prompted", ["id": .id(looseEnd.id)])
+        return looseEnd.text
     }
 
     private func start(_ recorder: any AudioRecording, generation: Int) async {

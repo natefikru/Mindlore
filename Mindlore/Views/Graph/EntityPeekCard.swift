@@ -87,6 +87,13 @@ struct EntityPeekCard: View {
                 Text(details(summary))
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
+                if let looseEnd = summary.openLooseEnd {
+                    Label(looseEnd, systemImage: "circle.dashed")
+                        .font(.subheadline)
+                        .lineLimit(1)
+                        .accessibilityLabel("Still open: \(looseEnd)")
+                        .accessibilityIdentifier("entityPeekLooseEnd")
+                }
                 if let bio = summary.bioFirstLine {
                     Text(bio)
                         .lineLimit(2)

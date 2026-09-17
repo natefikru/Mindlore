@@ -73,6 +73,19 @@ struct RecordingView: View {
             Text(statusText)
                 .foregroundStyle(.secondary)
             Spacer()
+            if let prompt = session.prompt {
+                Label {
+                    Text(prompt)
+                        .lineLimit(2)
+                } icon: {
+                    Image(systemName: "circle.dashed")
+                }
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 32)
+                .accessibilityLabel("Still open: \(prompt)")
+                .accessibilityIdentifier("looseEndPrompt")
+            }
             Button { session.togglePause() } label: {
                 Image(systemName: isCapturing ? "pause.fill" : "record.circle")
                     .font(.system(size: 40))

@@ -102,6 +102,8 @@ final class RecordingSessionHarness {
     var startBehavior: FakeRecorder.StartBehavior = .succeed
     var liveText = ""
     var makeLive: (() -> any LiveTranscriptionSession)?
+    var prompts: [String?] = []
+    var promptsTaken = 0
     private(set) var session: RecordingSession!
 
     init(engine: SpeechEngine = .onDeviceLive, diagnostics: DiagnosticsLog = .disabled) throws {
@@ -132,6 +134,10 @@ final class RecordingSessionHarness {
             speechEngine: { engine },
             afterIngest: { [unowned self] in self.afterIngestCount += 1 },
             onFinished: { [unowned self] in self.finished.append($0) },
+            takePrompt: { [unowned self] in
+                self.promptsTaken += 1
+                return self.prompts.isEmpty ? nil : self.prompts.removeFirst()
+            },
             diagnostics: diagnostics
         )
     }
@@ -313,6 +319,44 @@ struct RecordingSessionTests {
         harness.session.sample()
         #expect(!harness.liveSessions[0].isHealthy)
         #expect(harness.liveSessions[0].unhealthyReason == "interrupted")
+    }
+
+    @Test func eachRecordingTakesOnePromptAndDropsItWhenItEnds() async throws {
+        let harness = try RecordingSessionHarness()
+        harness.prompts = ["Hear back from the landlord", nil]
+        await harness.beginAndWait()
+        #expect(harness.session.prompt == "Hear back from the landlord")
+        harness.session.minimize()
+        harness.session.expand()
+        #expect(harness.promptsTaken == 1)
+
+        await harness.session.finish()
+        #expect(harness.session.prompt == nil)
+
+        await harness.beginAndWait()
+        #expect(harness.promptsTaken == 2)
+        #expect(harness.session.prompt == nil)
+        harness.session.discard()
+        #expect(harness.session.prompt == nil)
+    }
+
+    @Test func takingAPromptMarksItAndLeavesItAloneForAFewDays() throws {
+        let file = DiagnosticsFile()
+        let log = DiagnosticsLog(fileURL: file.url)
+        let container = try ModelContainerFactory.make(.inMemory)
+        let context = container.mainContext
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let looseEnd = LooseEnd(text: "Hear back \(DiagnosticsPrivacyTests.sentinel)", sourceEntryID: UUID(), sourceEntryDate: now - 86_400)
+        context.insert(looseEnd)
+
+        #expect(RecordingSession.takePrompt(in: context, now: now, diagnostics: log) == looseEnd.text)
+        #expect(looseEnd.promptedAt == now)
+        #expect(RecordingSession.takePrompt(in: context, now: now + 86_400, diagnostics: log) == nil)
+        #expect(RecordingSession.takePrompt(in: context, now: now + 4 * 86_400, diagnostics: log) == looseEnd.text)
+
+        let contents = file.contents()
+        #expect(contents.contains("looseEnds.prompted"))
+        #expect(!contents.contains(DiagnosticsPrivacyTests.sentinel))
     }
 
     @Test func liveTextNeverReachesTheLog() async throws {
