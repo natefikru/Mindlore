@@ -17,7 +17,7 @@ nonisolated enum EntityGraph {
         }
     }
 
-    struct Edge: Equatable, Sendable {
+    struct Edge: Hashable, Sendable {
         let a: UUID
         let b: UUID
         let weight: Double
