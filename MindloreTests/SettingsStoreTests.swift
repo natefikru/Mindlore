@@ -97,7 +97,7 @@ struct SettingsStoreTests {
         #expect(settings.fallBackToOnDevice)
         #expect(settings.insightsTrigger == .automatic)
         #expect(settings.insightSummary && settings.insightMoods && settings.insightLifeAreas && settings.insightTags)
-        #expect(settings.insightMentions && settings.insightOpenThreads && settings.insightCleanedText)
+        #expect(settings.insightMentions && settings.insightLooseEnds && settings.insightCleanedText)
         #expect(settings.autoApplyCleanedText == false)
         #expect(settings.suggestEntryDates)
         #expect(settings.customInsightPrompts.isEmpty)

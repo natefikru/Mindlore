@@ -505,22 +505,22 @@ the real key.
   - `OpenAILiveTests` asserts 1 to 2 valid areas
 
 ### A2: Loose ends
-- [ ] `LooseEnd` model, registered in the container, plus a `CloudKitSchemaRulesTests` case.
-- [ ] Prompt: the known loose-ends block with handles, the quality bar, the cap of 2, and the
+- [x] `LooseEnd` model, registered in the container, plus a `CloudKitSchemaRulesTests` case.
+- [x] Prompt: the known loose-ends block with handles, the quality bar, the cap of 2, and the
       `looseEnds` and `resolved` schema. Settings key renamed to `looseEnds`.
       `EntryInsights.openThreads` deleted.
-- [ ] `LooseEndWriter` in the insights write path: create, `sameAs`, resolve, re-fetch after the
+- [x] `LooseEndWriter` in the insights write path: create, `sameAs`, resolve, re-fetch after the
       await, entity mapping through a link fetch, and dates from `entryDate`.
-- [ ] `LooseEnd.rollback(forEntryID:)` in `Entry.delete` and `removeInsights`. Regeneration calls
+- [x] `LooseEnd.rollback(forEntryID:)` in `Entry.delete` and `removeInsights`. Regeneration calls
       it first.
-- [ ] Read-time resolution of `entityIDs` through `mergedIntoID`. `sentLooseEndCount` and "What
+- [x] Read-time resolution of `entityIDs` through `mergedIntoID`. `sentLooseEndCount` and "What
       was sent".
-- [ ] `LooseEndLifecycle` (fading) in the launch lane. `LooseEndPrompter`.
-- [ ] Insights sheet: the loose-ends card shows status and offers Done and Let go.
-- [ ] Diagnostics: `looseEnds.written` (created, sameAs, resolved counts), `looseEnds.faded`
+- [x] `LooseEndLifecycle` (fading) in the launch lane. `LooseEndPrompter`.
+- [x] Insights sheet: the loose-ends card shows status and offers Done and Let go.
+- [x] Diagnostics: `looseEnds.written` (created, sameAs, resolved counts), `looseEnds.faded`
       (count). Privacy test cases.
-- [ ] The seeder writes loose ends across entries, including resolved ones.
-- [ ] Tests:
+- [x] The seeder writes loose ends across entries, including resolved ones.
+- [x] Tests:
   - handles never leak UUIDs
   - unknown handles are dropped
   - cap of 2 enforced even when the model returns more
@@ -755,6 +755,22 @@ Life areas screen, reached from the insights settings while areas are on. Also f
 owner saw it on the simulator: the area chip rendered as a tall empty yellow capsule; it's now a
 grey capsule with a coloured icon, like the tag chips. `OpenAILiveTests`' area check hasn't run
 yet (no key in this session).
+
+A2 build (sub-agent review of the working tree, 2026-09-17; 12 findings, one data bug).
+Fixed: rerunning an entry reopened everything it had settled, since settled loose ends weren't
+offered back; they now are, right after the entry's own. "Reopen" no longer marks a loose end as
+the user's, so a later entry can still settle it. Rollback has three modes: deleting an entry
+removes everything it made, touched or not; removing insights removes only what is open and
+untouched; regenerating keeps what the new answer still means and what another entry settled.
+An empty `sameAs` counts as null. A dated loose end waits for its day before the silence rule
+applies. Changing an entry's date re-dates its loose ends. The card saves without stamping
+entries. Insights holding only a loose end aren't "empty". "What was sent" counts only other
+entries' loose ends. The demo seeder cycles its templates. Not changed: the Foundation Models
+cap of 5 (insights only ever run through OpenAI today; add the cap if that changes); the
+read-time `mergedIntoID` resolution exists as `EntityDirectory.root` and is used for candidate
+ranking, and its other readers (search panel counts, peek card) arrive in A5. The live OpenAI
+test for handles in `resolved` hasn't run (no key in this session). The loose-end row's
+identifier moved from the row to its label: on the row it overrode the menu button's own.
 
 Owner answers after revision 1 (2026-09-17): the tab is Mind, a fresh install is fine, and Ask
 keeps saved conversations and opens a new one by default. Folded in above.

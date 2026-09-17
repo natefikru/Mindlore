@@ -24,7 +24,7 @@ final class SettingsStore {
         static let insightLifeAreas = "insightLifeAreas"
         static let insightTags = "insightTags"
         static let insightMentions = "insightMentions"
-        static let insightOpenThreads = "insightOpenThreads"
+        static let insightLooseEnds = "insightLooseEnds"
         static let insightCleanedText = "insightCleanedText"
         static let autoApplyCleanedText = "autoApplyCleanedText"
         static let suggestEntryDates = "suggestEntryDates"
@@ -128,7 +128,7 @@ final class SettingsStore {
     var insightLifeAreas: Bool { didSet { write(insightLifeAreas, Key.insightLifeAreas, logged: .bool(insightLifeAreas)) } }
     var insightTags: Bool { didSet { write(insightTags, Key.insightTags, logged: .bool(insightTags)) } }
     var insightMentions: Bool { didSet { write(insightMentions, Key.insightMentions, logged: .bool(insightMentions)) } }
-    var insightOpenThreads: Bool { didSet { write(insightOpenThreads, Key.insightOpenThreads, logged: .bool(insightOpenThreads)) } }
+    var insightLooseEnds: Bool { didSet { write(insightLooseEnds, Key.insightLooseEnds, logged: .bool(insightLooseEnds)) } }
     var insightCleanedText: Bool { didSet { write(insightCleanedText, Key.insightCleanedText, logged: .bool(insightCleanedText)) } }
     var autoApplyCleanedText: Bool { didSet { write(autoApplyCleanedText, Key.autoApplyCleanedText, logged: .bool(autoApplyCleanedText)) } }
     var suggestEntryDates: Bool { didSet { write(suggestEntryDates, Key.suggestEntryDates, logged: .bool(suggestEntryDates)) } }
@@ -216,7 +216,7 @@ final class SettingsStore {
         insightLifeAreas = bool(Key.insightLifeAreas, true)
         insightTags = bool(Key.insightTags, true)
         insightMentions = bool(Key.insightMentions, true)
-        insightOpenThreads = bool(Key.insightOpenThreads, true)
+        insightLooseEnds = bool(Key.insightLooseEnds, true)
         insightCleanedText = bool(Key.insightCleanedText, true)
         autoApplyCleanedText = bool(Key.autoApplyCleanedText, false)
         suggestEntryDates = bool(Key.suggestEntryDates, true)

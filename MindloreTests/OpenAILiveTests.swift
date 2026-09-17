@@ -78,7 +78,7 @@ struct OpenAILiveTests {
         #expect(result.primaryMood != nil)
         #expect(result.mentions.contains { $0.name.lowercased().contains("sarah") && $0.kind == .person })
         #expect(result.cleanedText?.isEmpty == false)
-        #expect(!result.openThreads.isEmpty)
+        #expect(!result.looseEnds.new.isEmpty, "calling the landlord is a concrete loose end")
         #expect((1...LifeArea.maxPerEntry).contains(result.areas.count), "every entry with content is filed")
     }
     // The journal's own names, against the real model, at the real cap of 50. A name is written
