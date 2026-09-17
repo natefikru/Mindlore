@@ -282,3 +282,27 @@ nonisolated final class FrameTimeSampler {
         return sorted[min(sorted.count, max(1, rank)) - 1]
     }
 }
+
+// MARK: - Render report
+
+// What graph.rendered logs once per appearance: counts and durations only.
+nonisolated struct GraphRenderStats: Equatable, Sendable {
+    let nodes: Int
+    let edges: Int
+    // Nil when the layout never settled while the graph was on screen.
+    let settleMilliseconds: Double?
+    let frameSamples: Int
+    let frameP50Milliseconds: Double?
+    let frameP95Milliseconds: Double?
+    let workP95Milliseconds: Double?
+}
+
+nonisolated extension GraphSimulation.Node {
+    // Biggest first, so the phyllotaxis start puts the hubs in the middle, and a stable order
+    // however the caller's set happened to iterate.
+    static func layoutOrdered(_ nodes: [GraphSimulation.Node]) -> [GraphSimulation.Node] {
+        nodes.sorted { lhs, rhs in
+            lhs.linkCount != rhs.linkCount ? lhs.linkCount > rhs.linkCount : lhs.id.uuidString < rhs.id.uuidString
+        }
+    }
+}

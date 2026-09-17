@@ -224,6 +224,16 @@ struct GraphCanvasModelTests {
         #expect(FrameTimeSampler.percentile([], 0.5) == nil)
     }
 
+    // MARK: - Layout order
+
+    @Test func layoutOrderPutsHubsFirstAndIsStable() {
+        let nodes = [node(1), node(8), node(3), node(8)]
+        let ordered = GraphSimulation.Node.layoutOrdered(nodes)
+        #expect(ordered.map(\.linkCount) == [8, 8, 3, 1])
+        #expect(ordered[0].id.uuidString < ordered[1].id.uuidString)
+        #expect(GraphSimulation.Node.layoutOrdered(nodes.reversed()) == ordered)
+    }
+
     // MARK: - Camera
 
     @Test func screenAndWorldRoundTrip() {

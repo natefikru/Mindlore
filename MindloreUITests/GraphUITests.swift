@@ -125,6 +125,46 @@ final class GraphUITests: XCTestCase {
     }
     // The Connections screen: browse, open an entry preview, merge, and unmerge, with the
     // merge surviving a relaunch. Stub only, same reason as above.
+    // The global graph on the stub's entry: lower the mention filter so its one-mention entities
+    // show, then focus by tapping, drag, and pinch, and the canvas keeps answering.
+    @MainActor
+    func testGlobalGraphFocusesATappedNodeAndKeepsResponding() throws {
+        finishEntryAndOpenInsights()
+        app.buttons["Done"].tap()
+        goBack()
+
+        app.buttons["Connections"].tap()
+        let graphButton = app.buttons["Graph"]
+        XCTAssertTrue(graphButton.waitForExistence(timeout: 5))
+        graphButton.tap()
+
+        app.buttons["globalGraphFilters"].tap()
+        let stepper = app.steppers["globalGraphMinimumLinkCount"]
+        XCTAssertTrue(stepper.waitForExistence(timeout: 5))
+        stepper.buttons.element(boundBy: 0).tap()
+        stepper.buttons.element(boundBy: 0).tap()
+        app.buttons["Done"].tap()
+
+        let canvas = app.descendants(matching: .any)["globalGraphCanvas"]
+        XCTAssertTrue(canvas.waitForExistence(timeout: 5))
+        let populated = expectation(for: NSPredicate(format: "value BEGINSWITH 'nodes=' AND NOT (value BEGINSWITH 'nodes=0 ')"), evaluatedWith: canvas)
+        wait(for: [populated], timeout: 5)
+
+        let focus = canvas.tapUntilGraphFocuses()
+        XCTAssertNotNil(focus, "no tap landed on a node or edge: \(String(describing: canvas.value))")
+
+        // Fly-to centred the focused node; drag it, then pinch, and it stays focused.
+        let center = canvas.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+        center.press(forDuration: 0.05, thenDragTo: center.withOffset(CGVector(dx: 60, dy: 40)))
+        canvas.pinch(withScale: 1.8, velocity: 1)
+        XCTAssertEqual(canvas.graphFocus, focus)
+
+        // A tap far from everything clears the focus.
+        canvas.coordinate(withNormalizedOffset: CGVector(dx: 0.05, dy: 0.95)).tap()
+        let cleared = expectation(for: NSPredicate(format: "value ENDSWITH 'focused=none'"), evaluatedWith: canvas)
+        wait(for: [cleared], timeout: 5)
+    }
+
     @MainActor
     func testConnectionsBrowseOpenAnEntryMergeAndUnmerge() throws {
         finishEntryAndOpenInsights()
