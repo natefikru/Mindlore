@@ -4,6 +4,7 @@ import SwiftData
 struct EntryEditorView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(EntrySaver.self) private var saver
+    @Environment(GraphServices.self) private var graph
     @Environment(SettingsStore.self) private var settings
     @Environment(TranscriptionCoordinator.self) private var transcription
     @Environment(EditorPresence.self) private var presence
@@ -142,7 +143,10 @@ struct EntryEditorView: View {
         }
         .sheet(isPresented: $editingDate) {
             if let entry {
-                EntryDateSheet(entry: entry) { saver.noteChange() }
+                EntryDateSheet(entry: entry) {
+                    saver.noteChange()
+                    graph.entryDateChanged(in: modelContext)
+                }
                     .presentationDetents([.medium, .large])
             }
         }

@@ -17,6 +17,11 @@ extension MoodCategory {
 }
 
 extension MentionKind {
+    var symbol: String { EntityKind(self).symbol }
+    var heading: String { EntityKind(self).heading }
+}
+
+extension EntityKind {
     var symbol: String {
         switch self {
         case .person: "person"
@@ -25,9 +30,12 @@ extension MentionKind {
         case .project: "hammer"
         case .event: "calendar"
         case .other: "tag"
+        case .tag: "number"
+        case .theme: "quote.bubble"
         }
     }
 
+    // Plural, for a section of them.
     var heading: String {
         switch self {
         case .person: "People"
@@ -36,6 +44,37 @@ extension MentionKind {
         case .project: "Projects"
         case .event: "Events"
         case .other: "Other"
+        case .tag: "Tags"
+        case .theme: "Themes"
+        }
+    }
+
+    // The graph canvas's node fill, and any kind legend beside it. Eight fixed, visually distinct
+    // colours; never derived from anything else, so a kind's colour stays stable across a session.
+    var color: Color {
+        switch self {
+        case .person: .blue
+        case .place: .green
+        case .organization: .purple
+        case .project: .orange
+        case .event: .red
+        case .tag: .teal
+        case .theme: .indigo
+        case .other: .gray
+        }
+    }
+
+    // Singular, for one entity's kind picker and its page.
+    var label: String {
+        switch self {
+        case .person: "Person"
+        case .place: "Place"
+        case .organization: "Organization"
+        case .project: "Project"
+        case .event: "Event"
+        case .other: "Other"
+        case .tag: "Tag"
+        case .theme: "Theme"
         }
     }
 }
@@ -168,22 +207,100 @@ struct FlowLayout: Layout {
     }
 }
 
+// Names grouped by kind, each one its own chip so it can be opened.
 struct MentionGroups: View {
     let mentions: [Mention]
+    let entryID: UUID
+    let index: EntityChipIndex
+    let open: (UUID) -> Void
+    let repoint: (MentionRef, UUID) -> Void
 
     var body: some View {
         ForEach(MentionKind.allCases, id: \.self) { kind in
             let named = mentions.filter { $0.kind == kind }.map(\.name)
             if !named.isEmpty {
-                VStack(alignment: .leading, spacing: 4) {
+                VStack(alignment: .leading, spacing: 6) {
                     Label(kind.heading, systemImage: kind.symbol)
                         .font(.caption)
                         .foregroundStyle(.secondary)
-                    Text(named.joined(separator: ", "))
-                        .fixedSize(horizontal: false, vertical: true)
+                    EntityChips(
+                        values: named,
+                        kind: EntityKind(kind),
+                        index: index,
+                        open: open,
+                        repoint: { surface, entityID in
+                            repoint(MentionRef(entryID: entryID, surface: surface, kind: EntityKind(kind)), entityID)
+                        }
+                    )
                 }
-                .accessibilityElement(children: .combine)
             }
         }
+    }
+}
+
+// Values that open their entity's page. Several share one Form row, so each is its own
+// borderless button; a row-level tap would otherwise fire all of them.
+struct EntityChips: View {
+    let values: [String]
+    let kind: EntityKind
+    let index: EntityChipIndex
+    let open: (UUID) -> Void
+    // Offered for names only: "this is someone else".
+    var repoint: ((String, UUID) -> Void)?
+
+    var body: some View {
+        FlowLayout(spacing: 6) {
+            ForEach(values, id: \.self) { value in
+                if let chip = index.chip(for: value, kind: kind) {
+                    Button { open(chip.entityID) } label: {
+                        chipLabel(value, guessed: chip.guessed, unsure: chip.unsure)
+                    }
+                    .buttonStyle(.borderless)
+                    .contentShape(.contextMenuPreview, Capsule())
+                    .contextMenu {
+                        Button("Open", systemImage: "arrow.right.circle") { open(chip.entityID) }
+                        if let repoint {
+                            Button("This is someone else", systemImage: "person.crop.circle.badge.questionmark") {
+                                repoint(chip.surface, chip.entityID)
+                            }
+                        }
+                        Button("Copy", systemImage: "doc.on.doc") { UIPasteboard.general.string = value }
+                    }
+                    .accessibilityLabel(chip.unsure ? "\(value), unsure which one" : chip.guessed ? "\(value), guessed" : value)
+                    .accessibilityHint("Opens its page")
+                    .accessibilityIdentifier("entityChip-\(kind.rawValue)-\(value)")
+                } else {
+                    chipLabel(value, guessed: false, unsure: false)
+                        .foregroundStyle(.primary)
+                        .contextMenu {
+                            Button("Copy", systemImage: "doc.on.doc") { UIPasteboard.general.string = value }
+                        }
+                }
+            }
+        }
+    }
+
+    private func chipLabel(_ value: String, guessed: Bool, unsure: Bool) -> some View {
+        Text(value)
+            .font(.subheadline)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 5)
+            .background(.quaternary, in: Capsule())
+            .overlay {
+                if guessed {
+                    Capsule().strokeBorder(style: StrokeStyle(lineWidth: 1, dash: [3, 2]))
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .overlay(alignment: .topTrailing) {
+                if unsure {
+                    Text("?")
+                        .font(.caption2.bold())
+                        .frame(width: 14, height: 14)
+                        .background(.orange, in: Circle())
+                        .foregroundStyle(.white)
+                        .offset(x: 4, y: -4)
+                }
+            }
     }
 }

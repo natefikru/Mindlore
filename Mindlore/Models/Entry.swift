@@ -54,6 +54,12 @@ final class Entry {
     var pages: [EntryPage]? = []
     @Relationship(deleteRule: .cascade, inverse: \EntryInsights.entry)
     var insights: EntryInsights?
+    // The graph's view of this entry's tags, themes, and mentions. Deleting the entry deletes them.
+    @Relationship(deleteRule: .cascade, inverse: \EntityLink.entry)
+    var entityLinks: [EntityLink]? = []
+    // The exact EntryInsights.generatedAt the graph last indexed. Any difference means stale,
+    // so a clock that steps back can't hide regenerated insights.
+    var graphIndexedAt: Date?
 
     var source: EntrySource {
         get { EntrySource(rawValue: sourceRaw) ?? .typed }

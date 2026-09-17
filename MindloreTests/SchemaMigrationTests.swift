@@ -61,7 +61,12 @@ struct SchemaMigrationTests {
             #expect(entry.textAttempts == 0 && entry.textFailureRaw == nil)
             #expect(entry.pages?.isEmpty ?? true)
             #expect(entry.insights == nil)
+            // The graph arrives empty and unindexed, so the launch sweep picks every entry up.
+            #expect(entry.entityLinks?.isEmpty ?? true)
+            #expect(entry.graphIndexedAt == nil)
         }
+        #expect(try container.mainContext.fetchCount(FetchDescriptor<Entity>()) == 0)
+        #expect(try container.mainContext.fetchCount(FetchDescriptor<EntityLink>()) == 0)
     }
 
     @Test func repairSetsEveryMigratedEntryDateToItsCreationTime() throws {
@@ -111,9 +116,15 @@ struct SchemaMigrationTests {
             page.entry = entry
             let insights = EntryInsights(modelUsed: "test")
             insights.entry = entry
+            let entity = Entity(name: "Sarah Kim", key: "sarah kim", kind: .person)
+            context.insert(entity)
+            let link = EntityLink(surface: "Sarah", kind: .person)
+            context.insert(link)
+            link.attach(to: entry, entity: entity)
             try context.save()
             #expect(try context.fetchCount(FetchDescriptor<EntryPage>()) == 1)
             #expect(try context.fetchCount(FetchDescriptor<EntryInsights>()) == 1)
+            #expect(try context.fetchCount(FetchDescriptor<EntityLink>()) == 1)
 
             Entry.delete(entry, in: context)
             try context.save()
@@ -123,5 +134,8 @@ struct SchemaMigrationTests {
         #expect(try reopened.mainContext.fetchCount(FetchDescriptor<Entry>()) == 0)
         #expect(try reopened.mainContext.fetchCount(FetchDescriptor<EntryPage>()) == 0)
         #expect(try reopened.mainContext.fetchCount(FetchDescriptor<EntryInsights>()) == 0)
+        // The link went with the entry; the entity is its own record and stays.
+        #expect(try reopened.mainContext.fetchCount(FetchDescriptor<EntityLink>()) == 0)
+        #expect(try reopened.mainContext.fetchCount(FetchDescriptor<Entity>()) == 1)
     }
 }

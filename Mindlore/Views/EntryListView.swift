@@ -4,12 +4,14 @@ import SwiftData
 struct EntryListView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(EntrySaver.self) private var saver
+    @Environment(GraphServices.self) private var graph
     @Environment(SettingsStore.self) private var settings
     // Backdated entries share noon of their day, so createdAt keeps their order stable.
     @Query(sort: [SortDescriptor(\Entry.entryDate, order: .reverse), SortDescriptor(\Entry.createdAt, order: .reverse)])
     private var entries: [Entry]
     @State private var path: [Entry] = []
     @State private var showingSettings = false
+    @State private var showingConnections = false
     @State private var writingNewEntry = false
     @State private var recording = false
     @State private var pageOrder: PageOrderTarget?
@@ -76,6 +78,9 @@ struct EntryListView: View {
                 ToolbarItem(placement: .topBarLeading) {
                     Button("Settings", systemImage: "gearshape") { showingSettings = true }
                 }
+                ToolbarItem(placement: .topBarLeading) {
+                    Button("Connections", systemImage: "person.2") { showingConnections = true }
+                }
                 // Voice sits outermost, in the easiest-to-reach position.
                 ToolbarItemGroup(placement: .topBarTrailing) {
                     if DocumentCameraView.isSupported || FakePages.isEnabled {
@@ -88,6 +93,9 @@ struct EntryListView: View {
             }
             .sheet(isPresented: $showingSettings) {
                 SettingsView()
+            }
+            .sheet(isPresented: $showingConnections) {
+                ConnectionsView()
             }
             .fullScreenCover(isPresented: $recording) {
                 RecordingView { entry in path.append(entry) }
@@ -126,6 +134,10 @@ struct EntryListView: View {
             DiagnosticsLog.shared.record("entry.deleted", ["id": .id(entries[index].id), "reason": "swipe"])
             Entry.delete(entries[index], in: modelContext)
         }
+        // Flush first so the cascade is real, then recount over what is left: the entry took
+        // its links with it, and anything nobody mentions any more goes too.
+        saver.flush()
+        graph.entriesDeleted(in: modelContext)
         saver.flush()
     }
 }
@@ -215,6 +227,7 @@ private struct EntryRow: View {
     return EntryListView()
         .modelContainer(container)
         .environment(EntrySaver(context: container.mainContext))
+        .environment(GraphServices())
         .environment(RecordingIngestor())
         .environment(TranscriptionCoordinator())
         .environment(EditorPresence())

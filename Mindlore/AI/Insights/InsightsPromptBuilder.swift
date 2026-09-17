@@ -28,6 +28,9 @@ nonisolated struct InsightsRequestPlan: Sendable {
     let cleanedTextSkippedReason: String?
     let asksForCleanedText: Bool
     let asksForWrittenDate: Bool
+    // Exactly what went into the prompt after section toggles, cleaning, and caps, so the
+    // disclosure screen can say what was sent rather than what the journal holds today.
+    var vocabularySent: InsightsPromptBuilder.JournalVocabulary = .empty
 }
 
 nonisolated struct InsightsResult: Equatable, Sendable {
@@ -54,14 +57,50 @@ nonisolated enum InsightsPromptBuilder {
     static let maxInputCharacters = 40_000
     static let maxCleanedTextCharacters = 12_000
     static let maxExistingTags = 50
+    static let maxExistingThemes = 50
+    static let maxKnownEntities = 50
     static let maxThemes = 4
     static let maxTags = 8
     static let maxSecondaryMoods = 2
 
-    static func plan(text fullText: String, source: EntrySource, sections: InsightSections, existingTags: [String], model: String) -> InsightsRequestPlan {
+    // Longer than any real name; anything past it is not a name worth steering towards.
+    static let maxVocabularyItemCharacters = 60
+
+    // What this journal already calls things. Sent so the model reuses the user's own words
+    // instead of inventing a near-duplicate of a tag, theme, or person they already have.
+    struct JournalVocabulary: Equatable, Sendable {
+        var tags: [String] = []
+        var themes: [String] = []
+        var named: [KnownEntity] = []
+
+        static let empty = JournalVocabulary()
+    }
+
+    // A name and, when it is settled, what it is. An `other` nobody has pinned down goes
+    // without a kind, so the model is free to say what the entry makes it.
+    struct KnownEntity: Equatable, Sendable {
+        let name: String
+        let kind: MentionKind?
+    }
+
+    // One line, trimmed, capped. Names can be typed by the user, so a newline or a stray
+    // comma must not be able to reshape the prompt around it.
+    static func promptSafe(_ value: String) -> String? {
+        let collapsed = value.split(whereSeparator: { $0.isWhitespace || $0.isNewline }).joined(separator: " ")
+        guard !collapsed.isEmpty else { return nil }
+        return String(collapsed.prefix(maxVocabularyItemCharacters))
+    }
+
+    private static func listed(_ items: [String], cap: Int) -> [String] {
+        var seen: Set<String> = []
+        return items.compactMap(promptSafe).filter { seen.insert($0.lowercased()).inserted }.prefix(cap).map { $0 }
+    }
+
+    static func plan(text fullText: String, source: EntrySource, sections: InsightSections, vocabulary: JournalVocabulary, model: String) -> InsightsRequestPlan {
         let text = String(fullText.prefix(maxInputCharacters))
         var properties: [JSONSchema.Property] = []
         var guidance: [String] = []
+        var sent = JournalVocabulary.empty
 
         if sections.summary {
             properties.append(.init("summary", .string(description: "One or two sentences on what the entry is about, however short the entry is. Null only when the entry has no content at all.", nullable: true)))
@@ -78,12 +117,16 @@ nonisolated enum InsightsPromptBuilder {
         }
         if sections.themes {
             properties.append(.init("themes", .array(.string(), description: "One to four short phrases naming what the entry is about. A short entry still has at least one.")))
+            sent.themes = listed(vocabulary.themes, cap: maxExistingThemes)
+            if !sent.themes.isEmpty {
+                guidance.append("Themes already used in this journal, one per line. Reuse one when it fits instead of inventing a near-duplicate.\n" + sent.themes.map { "- \($0)" }.joined(separator: "\n"))
+            }
         }
         if sections.tags {
             properties.append(.init("tags", .array(.string(), description: "One to \(maxTags) short lowercase labels for grouping entries with others, like work or family.")))
-            let tags = Array(existingTags.prefix(maxExistingTags))
-            if !tags.isEmpty {
-                guidance.append("Tags already used in this journal; reuse one when it fits instead of inventing a near-duplicate: \(tags.joined(separator: ", ")).")
+            sent.tags = listed(vocabulary.tags, cap: maxExistingTags)
+            if !sent.tags.isEmpty {
+                guidance.append("Tags already used in this journal, one per line. Reuse one when it fits instead of inventing a near-duplicate.\n" + sent.tags.map { "- \($0)" }.joined(separator: "\n"))
             }
         }
         if sections.mentions {
@@ -91,6 +134,24 @@ nonisolated enum InsightsPromptBuilder {
                 .init("name", .string(description: "The name as written.")),
                 .init("kind", .enumeration(MentionKind.allCases.map(\.rawValue))),
             ]), description: "People, places, organizations, projects, events, and other named things in the entry. Empty if none.")))
+            // Names stay as written: "sarah" is not rewritten to "Sarah Kim", because deciding
+            // which Sarah is the graph's job, and the user's corrections are keyed on what the
+            // entry actually says. The list only fixes spelling and settles kinds.
+            var seen: Set<String> = []
+            sent.named = vocabulary.named.compactMap { known in
+                guard let name = promptSafe(known.name), seen.insert(name.lowercased()).inserted else { return nil }
+                return KnownEntity(name: name, kind: known.kind)
+            }.prefix(maxKnownEntities).map { $0 }
+            if !sent.named.isEmpty {
+                let lines = sent.named.map { known in known.kind.map { "- \(known.name) (\($0.rawValue))" } ?? "- \(known.name)" }
+                guidance.append("""
+                Names already in this journal, one per line, with their kind where it is known. \
+                Write every name the way the entry writes it; do not lengthen or complete it. \
+                If the entry misspells one of these, or a transcription garbled it, use the spelling listed here. \
+                Include only names that actually appear in this entry. \
+                Use the listed kind unless the entry clearly says otherwise.
+                """ + "\n" + lines.joined(separator: "\n"))
+            }
         }
         if sections.openThreads {
             properties.append(.init("openThreads", .array(.string(), description: "Unresolved things the writer may want to come back to. Empty if none.")))
@@ -143,7 +204,7 @@ nonisolated enum InsightsPromptBuilder {
             schemaName: "journal_insights",
             maxOutputTokens: min(16_000, 3_000 + (asksForCleanedText ? text.count / 2 : 0))
         )
-        return InsightsRequestPlan(request: request, customKeys: customKeys, customKeyOrder: customKeyOrder, cleanedTextSkippedReason: skippedReason, asksForCleanedText: asksForCleanedText, asksForWrittenDate: asksForWrittenDate)
+        return InsightsRequestPlan(request: request, customKeys: customKeys, customKeyOrder: customKeyOrder, cleanedTextSkippedReason: skippedReason, asksForCleanedText: asksForCleanedText, asksForWrittenDate: asksForWrittenDate, vocabularySent: sent)
     }
 
     // Derived from the prompt's id, so the key stays the same when prompts move or others are deleted.
@@ -159,6 +220,25 @@ nonisolated enum InsightsPromptBuilder {
     }
 
     // Reads the model's JSON tolerantly: unknown moods and kinds are dropped, text is trimmed, lists are capped.
+    // A name the model returns is cut back to what the entry actually says. Told to write names as
+    // written, the real model still completes a dictated "sarah" to a known "Sarah Kim", which
+    // would skip the graph's own first-name guess and sit beside a link the user corrected.
+    //
+    // If the whole name is in the entry, it stays. If only its first words are, the entry's own
+    // spelling of those words is used. If none of it is, the model fixed a garbled name ("sara
+    // kym" to "Sarah Kim"), and that is kept, which is what the journal's names are sent for;
+    // `wasCorrected` tells the caller that happened, so it can look for what was actually written.
+    static func grounded(_ name: String, in text: String) -> (surface: String, wasCorrected: Bool) {
+        let words = name.split(separator: " ").map(String.init)
+        for count in stride(from: words.count, through: 1, by: -1) {
+            let phrase = words.prefix(count).joined(separator: " ")
+            if let range = NameMatching.range(of: phrase, in: text) {
+                return (String(text[range]), false)
+            }
+        }
+        return (name, true)
+    }
+
     static func parse(_ text: String, plan: InsightsRequestPlan, calendar: Calendar = .current) throws -> InsightsResult {
         guard let data = StructuredOutputParser.jsonObjectData(in: text),
               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
@@ -188,9 +268,12 @@ nonisolated enum InsightsPromptBuilder {
 
         var mentions: [Mention] = []
         for item in (json["mentions"] as? [[String: Any]]) ?? [] {
-            guard let name = (item["name"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines), !name.isEmpty,
+            guard let written = (item["name"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines), !written.isEmpty,
                   let kind = (item["kind"] as? String).flatMap(MentionKind.init(rawValue:)) else { continue }
-            let mention = Mention(name: name, kindRaw: kind.rawValue)
+            let grounding = grounded(written, in: plan.request.user)
+            let name = grounding.surface
+            let writtenSurface = grounding.wasCorrected ? NameMatching.nearestWord(to: name, in: plan.request.user) : nil
+            let mention = Mention(name: name, kindRaw: kind.rawValue, writtenSurface: writtenSurface)
             if !mentions.contains(where: { $0.name.caseInsensitiveCompare(name) == .orderedSame && $0.kindRaw == mention.kindRaw }) {
                 mentions.append(mention)
             }

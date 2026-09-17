@@ -11,6 +11,7 @@ struct EntryInsightsView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
     @Environment(EntrySaver.self) private var saver
+    @Environment(GraphServices.self) private var graph
     @Environment(SettingsStore.self) private var settings
     @Environment(ProviderAccountStore.self) private var accounts
     @Environment(InsightsCoordinator.self) private var insightsCoordinator
@@ -19,7 +20,17 @@ struct EntryInsightsView: View {
     @State private var confirmingRun = false
     @State private var confirmingDelete = false
     @State private var editingMoods = false
+    // Entity pages pushed from the chips, by value, so a page can be replaced or dropped.
+    @State private var path: [EntityRoute] = []
+    @State private var chips = EntityChipIndex.empty
+    @State private var repointing: Repointing?
     @State private var startedOnOpen = false
+
+    private struct Repointing: Identifiable {
+        let mention: MentionRef
+        let entityID: UUID
+        var id: MentionRef { mention }
+    }
 
     private var insights: EntryInsights? { entry.insights }
 
@@ -44,7 +55,7 @@ struct EntryInsightsView: View {
     }
 
     var body: some View {
-        NavigationStack {
+        NavigationStack(path: $path) {
             Form {
                 statusSection
                 if let insights, state == .current || state == .stale {
@@ -54,6 +65,9 @@ struct EntryInsightsView: View {
             }
             .navigationTitle("Insights")
             .navigationBarTitleDisplayMode(.inline)
+            .navigationDestination(for: EntityRoute.self) { route in
+                EntityView(route: route)
+            }
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Done") { dismiss() }
@@ -74,10 +88,16 @@ struct EntryInsightsView: View {
                     .accessibilityIdentifier("insightsMenuButton")
                 }
             }
+            .task(id: ChipsKey(generatedAt: insights?.generatedAt, revision: graph.revision)) {
+                chips = graph.chipIndex(for: entry.id, in: modelContext)
+            }
             .task {
                 guard runsWhenOpened, !startedOnOpen, InsightsPresentation.runsWhenOpened(inputs) else { return }
                 startedOnOpen = true
                 run()
+            }
+            .sheet(item: $repointing) { item in
+                RepointView(mention: item.mention, currentEntityID: item.entityID)
             }
             .sheet(isPresented: $editingMoods) {
                 if let insights {
@@ -103,6 +123,10 @@ struct EntryInsightsView: View {
                 Text("The entry, its text, and its pages stay. You can generate insights again later.")
             }
         }
+        // On the stack, so pushed pages and their sheets see it.
+        .environment(\.entityRouteReplacer, EntityRouteReplacer { loser, winner in
+            path = EntityPagePresentation.replacing(loser, with: winner, in: path)
+        })
     }
 
     @ViewBuilder
@@ -172,17 +196,27 @@ struct EntryInsightsView: View {
         }
         if !insights.themes.isEmpty {
             InsightCard(title: "Themes", caption: "What this entry is about.", copyText: insights.themes.joined(separator: "\n")) {
-                ForEach(insights.themes, id: \.self) { Text($0) }
+                ForEach(insights.themes, id: \.self) { theme in
+                    if let chip = chips.chip(for: theme, kind: .theme) {
+                        NavigationLink(value: EntityRoute(id: chip.entityID)) { Text(theme) }
+                            .accessibilityIdentifier("entityChip-theme-\(theme)")
+                    } else {
+                        Text(theme)
+                    }
+                }
             }
         }
+        // Chip cards have no card-wide Copy: each chip has its own menu.
         if !insights.tags.isEmpty {
-            InsightCard(title: "Tags", caption: "Labels for grouping entries.", copyText: insights.tags.joined(separator: ", ")) {
-                WrappingChips(items: insights.tags)
+            InsightCard(title: "Tags", caption: "Labels for grouping entries.") {
+                EntityChips(values: insights.tags, kind: .tag, index: chips, open: openEntity)
             }
         }
         if !insights.mentions.isEmpty {
-            InsightCard(title: "Mentioned", copyText: insights.mentions.map(\.name).joined(separator: ", ")) {
-                MentionGroups(mentions: insights.mentions)
+            InsightCard(title: "Mentioned") {
+                MentionGroups(mentions: insights.mentions, entryID: entry.id, index: chips, open: openEntity) { mention, entityID in
+                    repointing = Repointing(mention: mention, entityID: entityID)
+                }
             }
         }
         if !insights.openThreads.isEmpty {
@@ -205,6 +239,15 @@ struct EntryInsightsView: View {
                     .foregroundStyle(.secondary)
             }
         }
+    }
+
+    private struct ChipsKey: Equatable {
+        let generatedAt: Date?
+        let revision: Int
+    }
+
+    private func openEntity(_ id: UUID) {
+        path.append(EntityRoute(id: id))
     }
 
     // Stored labels carry the provider ("openai:gpt-5.6-luna"); the screen only needs the model.
@@ -242,9 +285,8 @@ struct EntryInsightsView: View {
     }
 
     private func deleteInsights() {
-        guard let insights else { return }
-        modelContext.delete(insights)
-        entry.insights = nil
+        guard insights != nil else { return }
+        graph.insightsDeleted(for: entry, in: modelContext)
         saver.noteChange()
         saver.flush()
         DiagnosticsLog.shared.record("insights.deleted", ["id": .id(entry.id)])
@@ -265,6 +307,17 @@ struct WhatWasSentView: View {
             }
             Section("Asked for") {
                 ForEach(Self.sections(settings, source: entry.source), id: \.self) { Text($0) }
+            }
+            if let insights = entry.insights, insights.sentTagCount + insights.sentThemeCount + insights.sentNameCount > 0 {
+                Section {
+                    if insights.sentTagCount > 0 { LabeledContent("Tags", value: "\(insights.sentTagCount)") }
+                    if insights.sentThemeCount > 0 { LabeledContent("Themes", value: "\(insights.sentThemeCount)") }
+                    if insights.sentNameCount > 0 { LabeledContent("Names", value: "\(insights.sentNameCount)") }
+                } header: {
+                    Text("Also sent: words this journal already uses")
+                } footer: {
+                    Text("Tags, themes, and the names of people, places, and other things from your other entries, including names you typed yourself, so the wording matches what you already have.")
+                }
             }
             Section {
                 Text(entry.text.prefix(300) + (entry.text.count > 300 ? "…" : ""))

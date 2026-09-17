@@ -114,6 +114,15 @@ nonisolated enum MentionKind: String, CaseIterable, Codable, Sendable {
 nonisolated struct Mention: Codable, Equatable, Sendable {
     let name: String
     let kindRaw: String
+    // Set only when the model corrected a name grounding couldn't find in the entry text, so
+    // excerpts and entry rows can still search for what the entry actually said.
+    let writtenSurface: String?
+
+    init(name: String, kindRaw: String, writtenSurface: String? = nil) {
+        self.name = name
+        self.kindRaw = kindRaw
+        self.writtenSurface = writtenSurface
+    }
 
     var kind: MentionKind { MentionKind(rawValue: kindRaw) ?? .other }
 }

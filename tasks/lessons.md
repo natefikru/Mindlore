@@ -19,6 +19,77 @@ editor.coordinate(withNormalizedOffset: CGVector(dx: 0.95, dy: 0.5)).tap()
 Before changing app code to satisfy a UI test, prove where the real bug is: dump `element.value` and
 `element.frame` from a temporary `XCTFail` and compare a coordinate tap against `tap()`.
 
+## A ModelContext needs its container held alive
+
+`ModelContainerFactory.make(.inMemory).mainContext` compiles and then crashes mid-test with
+`EXC_BREAKPOINT` inside `-[NSManagedObjectContext _dealloc__]`: `mainContext` does not retain the
+container, so it is deallocated on the next allocation. Keep the container in a local for the whole
+test, the way every other suite here does:
+
+```swift
+let container = try ModelContainerFactory.make(.inMemory)
+let context = container.mainContext
+```
+
+## Never compare persistentModelID inside a #Predicate on an optional to-one
+
+`#Predicate { if let e = $0.entity { e.persistentModelID == wanted } else { false } }` produces no
+error and no correct answer: the same shape returned every row in one test and zero rows in another,
+and the `ids.contains(e.persistentModelID)` form matched nothing. Compare the model's own UUID
+instead (`e.id == wanted`), which works. Do not write a test that asserts the broken form stays
+broken; it goes red when the framework is fixed.
+
+## Point an existing link at a new SwiftData object only after the object is saved
+
+`link.entity = brandNewEntity` on a link that is already in the store silently leaves
+`link.entity` nil, with no error and no crash. It only shows up later, when a cleanup pass sees a
+link with no entity and deletes it as garbage. The same assignment works while both objects are new
+and unsaved in the same batch, which is why indexing was fine and re-pointing was not.
+
+Insert the new object and save before wiring an existing object to it:
+
+```swift
+context.insert(entity)
+try context.save()
+link.repoint(to: entity)
+```
+
+## SwiftData relationships are not dependable for logic
+
+Reading `link.entity` part-way through an unsaved batch can return nil even though the link is
+fine, and the inverse array on an entity that has just received a link (`entity.links`) stays
+stale until the next save. A `#Predicate` that reaches through an optional relationship is worse
+still: comparing `persistentModelID` matches every row or none, and comparing an optional UUID
+against a non-optional one quietly returns the wrong set.
+
+Keep the relationship for SwiftData's cascade and nullify rules and for views to read, and store
+the id alongside it for every decision the code makes. Write both together in one method so they
+cannot drift. Filter in memory over one fetch rather than reaching through a relationship in a
+predicate.
+
+This cost an evening of flaky merge tests where the failing test changed on every run.
+
+## A counting pass must never delete
+
+`recount` deleted any link whose entity read nil, which looked like sensible garbage collection
+and was actually data loss: combined with the rule above, a transient nil during an unsaved batch
+permanently destroyed a link the user had just re-pointed. Counting now skips what it cannot
+resolve, and the launch sweep does the deleting, where everything has already been saved.
+
+If a pass has "recount" or "cleanup" in its name, make it prove something is garbage against
+saved state before removing it.
+
+## Never delete a test store directory in deinit
+
+A test harness that created its own file store and removed the directory in `deinit` produced
+
+    BUG IN CLIENT OF libsqlite3.dylib: database integrity compromised by
+    API violation: vnode unlinked while in use: .../entries.store
+
+because deinit ran while SQLite still had the store open, which corrupted whatever was running at
+the time and made unrelated tests fail at random. Use `.inMemory` for test stores, or delete the
+directory only after the container is definitely gone.
+
 ## When a feature needs a choice, give the user the choice
 
 Planning live transcription, I invented a capability-sniffing rule that decided for the user, plus a

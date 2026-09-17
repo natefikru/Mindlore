@@ -152,10 +152,7 @@ extension Entry {
         insightsFailureRaw = nil
         pageRequestCount = 0
         automaticAIPassUsed = false
-        if let insights {
-            context.delete(insights)
-            self.insights = nil
-        }
+        removeInsights(in: context)
         pagesConfirmed = true
         awaitingText = aiUsable
     }

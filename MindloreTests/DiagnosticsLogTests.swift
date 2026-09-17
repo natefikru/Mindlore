@@ -163,7 +163,8 @@ struct DiagnosticsPrivacyTests {
 }
 
 // Every AI path, run against a sentinel string: entry text, title, tags, mention names, custom prompt
-// wording, page text, the API key, a provider error body, and a decoding error. None may reach the log.
+// wording, page text, the API key, a provider error body, and a decoding error. None may reach the
+// log, including during a merge or a local/global graph render over entities named with it.
 @MainActor
 struct AIDiagnosticsPrivacyTests {
     private static let sentinel = DiagnosticsPrivacyTests.sentinel
@@ -243,11 +244,58 @@ struct AIDiagnosticsPrivacyTests {
         entry.titlePending = true
         await titles.processQueue(context: context)
 
+        // The graph: entity names, aliases, and surface text all come from the sentinel above.
+        let graph = GraphIndexer(diagnostics: log)
+        let alias = Entity(name: "Alias holder \(sentinel)", key: "alias holder", kind: .person)
+        alias.aliases = ["Also \(sentinel)"]
+        alias.bio = "Bio \(sentinel)"
+        context.insert(alias)
+        try context.save()
+        graph.index(entry, in: context)
+        graph.recount(in: context)
+        try context.save()
+        #expect(graph.allLinks(in: context).contains { $0.entryID == entry.id })
+
+        // Every edit the user can make, over entities whose every name carries the sentinel.
+        let editor = GraphEditor(diagnostics: log)
+        let named = try #require(graph.allLinks(in: context).first { $0.entryID == entry.id && $0.kind == .person })
+        let namedID = try #require(named.entityID)
+        let first = try #require(editor.entity(withID: namedID, in: context))
+        let second = Entity(name: "Second \(sentinel)", key: "second", kind: .person)
+        context.insert(second)
+        try context.save()
+        editor.rename(first, to: "Renamed \(sentinel)", in: context)
+        editor.addAlias("Alias \(sentinel)", to: first, in: context)
+        editor.setBio("Bio \(sentinel)", on: first)
+        editor.setKind(.organization, on: first, in: context)
+        editor.setHidden(true, on: second)
+        editor.setHidden(false, on: second)
+        editor.markNotSame(first, as: second)
+        editor.merge(second, into: first, in: context)
+        editor.unmerge(second, in: context)
+        editor.repoint(named, to: second, addingAlias: true, in: context)
+        _ = graph.vocabulary(in: context)
+        graph.sweep(in: context)
+
+        // The picture: local and global graph reads over entities named with the sentinel, and
+        // the render event they both log. graph.rendered only ever carries counts and a duration,
+        // but this proves it, over data that would leak if anything upstream forgot to resolve
+        // to plain ids first.
+        let services = GraphServices(diagnostics: log)
+        let localData = services.localGraph(around: namedID, depth: 2, in: context)
+        services.recordGraphRendered(nodes: localData.nodes.count, edges: localData.edges.count, settleMilliseconds: 12.5)
+        let globalData = services.globalGraph(kinds: nil, minimumLinkCount: 0, in: context)
+        services.recordGraphRendered(nodes: globalData.nodes.count, edges: globalData.edges.count, settleMilliseconds: 34.0)
+
         let contents = file.contents()
         #expect(contents.contains("ai.keySaved"))
         #expect(contents.contains("pages.transcription.completed"))
         #expect(contents.contains("insights.completed"))
         #expect(contents.contains("insights.failed"))
+        for event in ["graph.indexed", "graph.entityEdited", "graph.hidden", "graph.suggestionDismissed",
+                      "graph.merged", "graph.unmerged", "graph.repointed", "graph.rendered"] {
+            #expect(contents.contains(event), "\(event) was never exercised")
+        }
         #expect(contents.contains("title.failed"))
         #expect(contents.contains("settings.changed"))
         #expect(contents.contains(sentinel) == false)

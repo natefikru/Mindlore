@@ -54,6 +54,25 @@ extension Entry {
     static func delete(_ entry: Entry, in context: ModelContext) {
         context.delete(entry)
     }
+
+    // Deleting insights takes the graph links that came from them with it, and forgets the
+    // entry was ever indexed so a later run rebuilds it. The user's own links stay.
+    // Every path that drops insights goes through here: the Insights screen and a page restart.
+    func removeInsights(in context: ModelContext) {
+        if let insights {
+            context.delete(insights)
+            self.insights = nil
+        }
+        // By id, not through entityLinks. That array can read short part-way through a batch,
+        // and a missed link would never be found again: an entry with no insights is not
+        // stale, so no sweep would come back to it. Counters are repaired by the next sweep.
+        let id = self.id
+        for link in ((try? context.fetch(FetchDescriptor<EntityLink>())) ?? [])
+        where link.entryID == id && link.source == .ai {
+            context.delete(link)
+        }
+        graphIndexedAt = nil
+    }
 }
 
 // MARK: - Drafts
