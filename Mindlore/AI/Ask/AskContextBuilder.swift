@@ -15,7 +15,6 @@ nonisolated enum AskContextBuilder {
     static let maxEntryCharacters = 2_000
     static let maxLooseEndsPerEntity = 5
     static let maxAliasesPerEntity = 5
-    static let maxExcerptEntriesPerEntity = 10
 
     // The fence, the "About <name>" line, and the "Still open:" header an About block always pays.
     static let aboutBlockOverhead = 40

@@ -34,8 +34,6 @@ nonisolated struct AskRetrievalQuery: Sendable, Equatable {
     var aggregateHint = false
     var asOf: Date = .distantPast
 
-    var hasTerms: Bool { !terms.isEmpty }
-
     // What the index is handed. The panel builds its own query; this is Ask's.
     var indexQuery: AskIndex.Query {
         AskIndex.Query(
@@ -133,12 +131,15 @@ nonisolated struct AskRetrievalQuery: Sendable, Equatable {
     static let aggregatePhrases: Set<String> = [
         "how often", "how many", "how much", "every time", "in general", "on average",
         "keep coming back", "come back to", "better than", "worse than", "more often",
-        "less often", "over time",
+        "less often", "over time", "do i usually", "do i always", "do i tend",
     ]
 
+    // Words that can only be asking about a shape. "never" and "compare" were here and came out:
+    // "did I ever tell her, or never?" is a question about one evening, and a false positive costs
+    // a rollup block that says nothing about what was asked.
     static let aggregateWords: Set<String> = [
-        "most", "usually", "always", "never", "pattern", "patterns", "trend", "trends",
-        "generally", "typically", "average", "compare", "often",
+        "most", "usually", "always", "pattern", "patterns", "trend", "trends",
+        "generally", "typically", "often",
     ]
 
     static func isAggregate(_ question: String) -> Bool {

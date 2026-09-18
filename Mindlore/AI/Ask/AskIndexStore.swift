@@ -50,15 +50,12 @@ final class AskIndexStore {
     }
 
     private(set) var index = AskIndex.empty
-    // Bumped whenever the index is replaced, for a view keying a .task(id:) off it.
-    private(set) var revision = 0
 
     @ObservationIgnored private let builder: any AskIndexBuilding
     @ObservationIgnored private let diagnostics: DiagnosticsLog
     @ObservationIgnored private let now: () -> Date
     @ObservationIgnored private(set) var built: Fingerprint?
     @ObservationIgnored private var inFlight: Task<Void, Never>?
-    @ObservationIgnored private(set) var buildCount = 0
 
     // nonisolated so it can be a default argument of AskService's own initializer, the way AskStore
     // is.
@@ -98,8 +95,6 @@ final class AskIndexStore {
 
         index = await builder.build(gathered.documents, entities: gathered.entities)
         built = fingerprint
-        revision += 1
-        buildCount += 1
 
         diagnostics.record("ask.indexed", [
             "documents": .int(gathered.documents.count),

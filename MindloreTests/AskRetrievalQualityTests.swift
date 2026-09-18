@@ -189,11 +189,47 @@ struct AskRetrievalQualityTests {
         report.append("")
         print(report.joined(separator: "\n"))
 
-        // Measured at 1.000 on this corpus when the suite was written. The floor is set below that
-        // rather than at it: one question regressing should fail, and it will, because the per
-        // question numbers print above and name it. A tolerance with a measured reason, per
-        // tasks/lessons.md.
-        #expect(mean >= 0.93, "mean recall@5 fell to \(mean); the per-question numbers above say which")
+        // Per question, not on the mean. A floor of 0.93 across fifteen questions let one of them
+        // regress from 1.00 to 0.00 and still pass, which is the opposite of what the floor was for:
+        // a regression has to name the question it broke.
+        for scenario in fair {
+            let score = recall(scenario, in: index)
+            #expect(score == 1, "\"\(scenario.question)\" fell to \(score); the report above says what it got")
+        }
+        #expect(mean == 1)
+    }
+
+    // Recall over a corpus where every answer owns a rare keyword mostly measures that the tokenizer
+    // runs. These are the cases where the ranking itself has to be right: the recency floor, the
+    // body and context split, and contextFactor could each be broken without moving the number
+    // above, and each of these goes red.
+    @Test func theRankingItselfAndNotJustTheTokenizer() throws {
+        let index = index(corpus)
+
+        // Two entries about the deadline, forty days apart. The older one leads because it is
+        // shorter and the word is a bigger share of it, which is length normalization outweighing a
+        // forty-day recency gap, and the newer one is still right behind it. Counting keyword hits,
+        // as the old tier 2 did, could not tell these apart at all.
+        let deadline = topKeys(Scenario(question: "What happened with the deadline?", expected: []), in: index)
+        #expect(deadline.first == "deadline-moved")
+        #expect(deadline.contains("deadline-shipped"))
+
+        // An entry that writes her name beats one merely linked to her.
+        let maya = topKeys(Scenario(question: "What's going on with Maya?", expected: []), in: index)
+        #expect(maya.first == "maya-call")
+        #expect(maya.contains("fence"), "and the one that only mentions her in passing still appears")
+
+        // A question whose word appears in no entry body, answered entirely through tags.
+        let therapy = topKeys(Scenario(question: "therapy", expected: []), in: index)
+        #expect(Set(therapy.prefix(2)) == ["therapy", "therapy-two"])
+
+        // Two entries name the shoulder once each at almost the same length, so this is the near
+        // tie recency exists to break: the ninety-day-old one leads the two-hundred-day-old one. The
+        // floor is what keeps the older one in the list a place behind rather than burying it, and
+        // at a floor of 0.5 it would not be there.
+        let shoulder = topKeys(Scenario(question: "How's my shoulder?", expected: []), in: index)
+        #expect(shoulder.first == "climbing")
+        #expect(shoulder.contains("shoulder"))
     }
 
     // The one that proves the phase. Kept separate from the mean so it can never be averaged away by

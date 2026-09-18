@@ -3,20 +3,48 @@ import SwiftData
 import Testing
 @testable import Mindlore
 
-// A builder that records what it was handed and can be made to wait, so the store's own rules are
-// what the tests see rather than real tokenizing. No @concurrent on the methods: a fake doesn't need
-// to leave the caller's actor, and the attribute on the protocol requirement is what matters in the
-// app. (Which also means this fake cannot prove the real build runs off the main actor. Nothing at
-// the unit level can; the diagnostics line is how the device pass sees it.)
-final class FakeAskIndexBuilder: AskIndexBuilding, @unchecked Sendable {
+// A builder that records what it was handed, and can be held mid-build so a test can prove the
+// in-flight guard rather than a fingerprint comparison. No @concurrent on the methods: a fake does
+// not need to leave the caller's actor, and the attribute on the protocol requirement is what
+// matters in the app. (Which also means this fake cannot prove the real build runs off the main
+// actor. Nothing at the unit level can; ask.indexed is how the device pass sees it.)
+@MainActor
+final class FakeAskIndexBuilder: AskIndexBuilding {
     private(set) var builds = 0
     private(set) var lastDocuments: [AskIndex.DocumentInput] = []
     private(set) var lastEntities: [AskIndex.Entity] = []
 
-    func build(_ inputs: [AskIndex.DocumentInput], entities: [AskIndex.Entity]) async -> AskIndex {
+    // Awaited, never polled with Task.yield, which CLAUDE.md rules out for starving the main actor.
+    private var gate: CheckedContinuation<Void, Never>?
+    private var holds = false
+    private var started: CheckedContinuation<Void, Never>?
+
+    func hold() { holds = true }
+
+    // Resumes once a build is actually in flight, so the second caller is racing a running build.
+    func waitForBuildToStart() async {
+        await withCheckedContinuation { started = $0 }
+    }
+
+    func release() {
+        gate?.resume()
+        gate = nil
+        holds = false
+    }
+
+    nonisolated func build(_ inputs: [AskIndex.DocumentInput], entities: [AskIndex.Entity]) async -> AskIndex {
+        await record(inputs, entities: entities)
+    }
+
+    private func record(_ inputs: [AskIndex.DocumentInput], entities: [AskIndex.Entity]) async -> AskIndex {
         builds += 1
         lastDocuments = inputs
         lastEntities = entities
+        started?.resume()
+        started = nil
+        if holds {
+            await withCheckedContinuation { gate = $0 }
+        }
         return AskIndex.build(from: inputs, entities: entities)
     }
 }
@@ -49,7 +77,6 @@ struct AskIndexStoreTests {
         #expect(builder.builds == 1)
         await store.refreshIfNeeded(revisions: .init(saver: 1, graph: 1), in: context)
         #expect(builder.builds == 1)
-        #expect(store.revision == 1)
     }
 
     @Test func anEntryAddedForcesARebuild() async throws {
@@ -152,17 +179,26 @@ struct AskIndexStoreTests {
         #expect(builder.builds == 3)
     }
 
-    @Test func twoCallsForOneIntentBuildOnce() async throws {
+    @Test func aSecondCallWaitsOnTheBuildAlreadyRunning() async throws {
         let container = try ModelContainerFactory.make(.inMemory)
         let context = container.mainContext
         addEntry("the deadline moved", to: context)
         let (store, builder) = makeStore()
 
         // Ask appears and a question is sent a moment later. That is one intent, not two journals.
-        async let first: Void = store.refreshIfNeeded(revisions: .init(), in: context)
-        async let second: Void = store.refreshIfNeeded(revisions: .init(), in: context)
-        _ = await (first, second)
+        // The builder is held mid-build, so the second caller genuinely arrives while the first is
+        // running rather than finding a fingerprint already stamped.
+        builder.hold()
+        let first = Task { await store.refreshIfNeeded(revisions: .init(), in: context) }
+        await builder.waitForBuildToStart()
         #expect(builder.builds == 1)
+
+        let second = Task { await store.refreshIfNeeded(revisions: .init(), in: context) }
+        builder.release()
+        await first.value
+        await second.value
+        #expect(builder.builds == 1)
+        #expect(store.index.documents.count == 1)
     }
 
     // MARK: - What the index holds
