@@ -54,9 +54,33 @@ final class GraphServices {
         }
     }
 
+    // Not through `edit`: a rename also fixes the name in the app's own sentences, and rewriting
+    // an entry's summary or title marks that entry changed without it being an edit the user
+    // made. Those entries are exempted so their updatedAt stays where it is.
     @discardableResult
-    func rename(_ entityID: UUID, to name: String, keepingOldNameAsAlias: Bool = false, force: Bool = false, in context: ModelContext) -> GraphEditor.EditOutcome {
-        edit(entityID, in: context) { editor.rename($0, to: name, keepingOldNameAsAlias: keepingOldNameAsAlias, force: force, in: context) }
+    func rename(_ entityID: UUID, to name: String, force: Bool = false, in context: ModelContext) -> GraphEditor.EditOutcome {
+        guard let entity = editor.entity(withID: entityID, in: context) else { return .applied }
+        let result = editor.rename(entity, to: name, force: force, in: context)
+        guard result.outcome == .applied else { return result.outcome }
+
+        let exempt = result.touchedEntryIDs.isEmpty ? [] : Set(
+            ((try? context.fetch(FetchDescriptor<Entry>())) ?? [])
+                .filter { result.touchedEntryIDs.contains($0.id) }
+                .map(\.persistentModelID)
+        )
+        do {
+            try context.saveStampingEntries(except: exempt)
+        } catch {
+            diagnostics.record("graph.saveFailed", ["error": .errorCode(error)])
+        }
+        revision += 1
+        return .applied
+    }
+
+    // What a rename would rewrite, for the sheet's warning before it happens.
+    func renamePreview(_ entityID: UUID, in context: ModelContext) -> EntityProseRewriter.Counts {
+        guard let entity = editor.entity(withID: entityID, in: context) else { return .init() }
+        return editor.renamePreview(entity, in: context)
     }
 
     @discardableResult

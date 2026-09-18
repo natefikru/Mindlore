@@ -127,8 +127,8 @@ private struct EntityPage: View {
                 EntryPreview(entryID: row.id)
             }
             .sheet(isPresented: $renaming) {
-                RenameEntitySheet(initial: entity.name, kind: entity.kind, defaultsToKeepingOldName: hasVoiceSourcedLink) { name, keepOldName in
-                    applyForcible { force in graph.rename(id, to: name, keepingOldNameAsAlias: keepOldName, force: force, in: modelContext) }
+                RenameEntitySheet(initial: entity.name, kind: entity.kind, rewrites: graph.renamePreview(id, in: modelContext)) { name in
+                    applyForcible { force in graph.rename(id, to: name, force: force, in: modelContext) }
                 }
             }
             .alert("Add another name", isPresented: $addingAlias) {
@@ -568,10 +568,6 @@ private struct EntityPage: View {
     }
 
     // Whether to default the rename sheet's "keep the old name" toggle on.
-    private var hasVoiceSourcedLink: Bool {
-        EntityPagePresentation.hasVoiceSourcedLink(sources: linkedEntries.map(\.source))
-    }
-
     // Links by id, one fetch filtered in memory, never through a relationship.
     private var linkedEntries: [Entry] {
         let ids = Set(links.filter { $0.entityID == id && !$0.isDeleted }.compactMap(\.entryID))
@@ -637,26 +633,28 @@ private struct BioEditorSheet: View {
     }
 }
 
-// A sheet, not an alert: a `Toggle` doesn't render inside `.alert`'s action builder, which is
-// backed by UIAlertController and only really supports buttons and text fields.
+// A sheet, not an alert: the rewrite warning doesn't render inside `.alert`'s action builder,
+// which is backed by UIAlertController and only really supports buttons and text fields.
 private struct RenameEntitySheet: View {
     @Environment(\.dismiss) private var dismiss
     @State private var name: String
-    @State private var keepOldName: Bool
     let initial: String
     let kind: EntityKind
-    let onSave: (String, Bool) -> Void
+    // What the app would rewrite. Counted off the old name when the sheet opened, so it doesn't
+    // change as the user types and doesn't walk the store on every keystroke.
+    let rewrites: EntityProseRewriter.Counts
+    let onSave: (String) -> Void
 
-    init(initial: String, kind: EntityKind, defaultsToKeepingOldName: Bool, onSave: @escaping (String, Bool) -> Void) {
+    init(initial: String, kind: EntityKind, rewrites: EntityProseRewriter.Counts, onSave: @escaping (String) -> Void) {
         self.initial = initial
         self.kind = kind
+        self.rewrites = rewrites
         _name = State(initialValue: initial)
-        _keepOldName = State(initialValue: defaultsToKeepingOldName)
         self.onSave = onSave
     }
 
-    // The same key comparison GraphEditor.rename itself uses to decide whether to add the alias,
-    // so the toggle never offers to keep a name that a spelling-only change wouldn't actually add.
+    // The same key comparison GraphEditor.rename uses to decide whether the old name is worth
+    // keeping, so the note never promises an alias a spelling-only change wouldn't add.
     private var changesKey: Bool {
         EntityNormalizer.key(for: name, kind: kind) != EntityNormalizer.key(for: initial, kind: kind)
     }
@@ -664,11 +662,16 @@ private struct RenameEntitySheet: View {
     var body: some View {
         NavigationStack {
             Form {
-                TextField("Name", text: $name)
-                    .accessibilityIdentifier("entityRenameField")
-                if changesKey {
-                    Toggle("Keep \"\(initial)\" as another name", isOn: $keepOldName)
-                        .accessibilityIdentifier("entityRenameKeepOldName")
+                Section {
+                    TextField("Name", text: $name)
+                        .accessibilityIdentifier("entityRenameField")
+                } footer: {
+                    if changesKey {
+                        // "Up to": a background insights pass or bio draft can land while this
+                        // sheet is open. What actually changed is counted again at save.
+                        Text(footer)
+                            .accessibilityIdentifier("entityRenameFooter")
+                    }
                 }
             }
             .navigationTitle("Rename")
@@ -679,7 +682,7 @@ private struct RenameEntitySheet: View {
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Save") {
-                        onSave(name, keepOldName)
+                        onSave(name)
                         dismiss()
                     }
                     .accessibilityIdentifier("entityRenameSave")
@@ -687,6 +690,13 @@ private struct RenameEntitySheet: View {
             }
         }
         .presentationDetents([.medium])
+    }
+
+    private var footer: String {
+        let kept = "\"\(initial)\" is kept as another name, so entries that say it still point here. Your entries are never changed."
+        guard rewrites.total > 0 else { return kept }
+        let things = rewrites.total == 1 ? "1 thing" : "\(rewrites.total) things"
+        return kept + " Also updates up to \(things) the app wrote about them."
     }
 }
 

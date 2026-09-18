@@ -30,13 +30,6 @@ nonisolated enum EntityPagePresentation {
         return .show(route.id)
     }
 
-    // Whether any of an entity's linked entries came from a recording, so the rename alert can
-    // default "keep the old name as another name" on: a name recognizer mishearing one is far
-    // more likely than a typed entry misspelling one.
-    static func hasVoiceSourcedLink(sources: [EntrySource]) -> Bool {
-        sources.contains(.voice)
-    }
-
     // A fresh, single-mention, never-touched name is worth double-checking: dictation is the
     // likeliest source of a wrong spelling, and nobody has confirmed this one is right yet.
     // Restricted to the kinds bio auto-drafting already limits itself to (5a): tags rarely

@@ -24,30 +24,68 @@ struct GraphEditor {
 
     // MARK: - Editing one entity
 
-    // `keepingOldNameAsAlias` skips the collision check for the old name: it already belonged to
-    // this entity, so nothing else can be answering to it. `force` pushes the edit through a
-    // collision with something else on purpose ("a different person also called {name}"), and
-    // marks the two `notSameAs` so the Review list doesn't immediately re-suggest merging them.
+    // The old name always stays as an alias: it is what keeps the entries that say it resolving
+    // here, and it is why the entry's own text never has to change. Its collision check is
+    // skipped, since the name already belonged to this entity and nothing else can answer to it.
+    // `force` pushes the edit through a collision with something else on purpose ("a different
+    // person also called {name}"), and marks the two `notSameAs` so the Review list doesn't
+    // immediately re-suggest merging them.
+    //
+    // Renaming also fixes the name in the app's own sentences. Entries are never edited: what the
+    // user wrote stays as written, and the rewrite returns the entries it touched so the caller's
+    // save can keep their updatedAt where it is.
     @discardableResult
-    func rename(_ entity: Entity, to name: String, keepingOldNameAsAlias: Bool = false, force: Bool = false, in context: ModelContext) -> EditOutcome {
+    func rename(_ entity: Entity, to name: String, force: Bool = false, in context: ModelContext) -> RenameOutcome {
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return .applied }
+        guard !trimmed.isEmpty else { return RenameOutcome(outcome: .applied) }
         let key = EntityNormalizer.key(for: trimmed, kind: entity.kind)
         if let clash = entityAnswering(to: key, kind: entity.kind, excluding: entity, in: context) {
-            guard force else { return .collides(with: clash.id) }
+            guard force else { return RenameOutcome(outcome: .collides(with: clash.id)) }
             markNotSame(entity, as: clash)
             diagnostics.record("graph.collisionForced", ["id": .id(entity.id), "other": .id(clash.id)])
         }
         let oldName = entity.name
         entity.name = trimmed
         entity.key = key
-        if keepingOldNameAsAlias, !oldName.isEmpty, key != EntityNormalizer.key(for: oldName, kind: entity.kind),
+        // A spelling change that normalizes to the same key adds nothing: it already matches.
+        if !oldName.isEmpty, key != EntityNormalizer.key(for: oldName, kind: entity.kind),
            !entity.aliases.contains(oldName) {
             entity.aliases.append(oldName)
         }
         claim(entity)
         diagnostics.record("graph.entityEdited", ["id": .id(entity.id), "field": "name"])
-        return .applied
+
+        // A merged loser is not what any screen shows, so its name is not in the app's prose.
+        guard !entity.isMerged else { return RenameOutcome(outcome: .applied) }
+        let rewrite = EntityProseStore.rewriteAll(oldName: oldName, newName: trimmed, entityID: entity.id, in: context)
+        if !rewrite.counts.isEmpty {
+            diagnostics.record("graph.renameRewrote", [
+                "id": .id(entity.id),
+                "bios": .int(rewrite.counts.bios),
+                "summaries": .int(rewrite.counts.summaries),
+                "looseEnds": .int(rewrite.counts.looseEnds),
+                "titles": .int(rewrite.counts.titles),
+                "cards": .int(rewrite.counts.cards),
+            ])
+        }
+        return RenameOutcome(outcome: .applied, counts: rewrite.counts, touchedEntryIDs: rewrite.touchedEntryIDs)
+    }
+
+    // What a rename changed beyond the entity itself, so the caller can save without stamping
+    // those entries as edited.
+    struct RenameOutcome {
+        var outcome: EditOutcome
+        var counts = EntityProseRewriter.Counts()
+        var touchedEntryIDs: Set<UUID> = []
+    }
+
+    // What a rename would rewrite, for the sheet's warning. Counted off the old name, so it does
+    // not change as the user types.
+    func renamePreview(_ entity: Entity, in context: ModelContext) -> EntityProseRewriter.Counts {
+        guard !entity.isMerged else { return .init() }
+        // A sentinel the matcher will never find in prose, so nothing is written and the walk
+        // only counts. The rename itself counts again when it actually runs.
+        return EntityProseStore.countOnly(name: entity.name, entityID: entity.id, in: context)
     }
 
     // A mention stays a mention and a tag stays a tag: a person can become a place, but never a
