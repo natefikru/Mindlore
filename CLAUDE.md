@@ -102,9 +102,23 @@ after the system prompt and the answer headroom come out.
   Ordinals, never dates, so a clock stepping back cannot hide a change. `JournalSaves` sits inside
   `saveStampingEntries` because the transcription and title coordinators save straight through it:
   without it a recording's text never reached the index.
+- **The prompt owns up to what the answer is written from.** `AskPrompt.notes` says "these are the
+  12 that best match, out of 84 that match at all", says which days the entries came from, and says
+  when nothing matched and these are simply the newest entries. An inherited range reads differently
+  from a named one, because it never filtered anything and entries outside it are in the prompt.
+  `AskRollups` adds one fenced block of counts and coverage ("September 2026: 31 entries, 2 to 30
+  September") for an aggregate question, counting **the matched set**, not the month: counting the
+  month instead is the confident wrong answer the rollup exists to prevent. Counts and coverage
+  only; mood, area, and tag distributions are Reflect's. Ask uses `PromptVoice` like every other
+  prompt, so an answer reads in the journal's own voice.
 - **Prompt safety is unchanged from A7.** Journal text is data inside `<<<entry` fences, delimiters
   and handle-shaped text are stripped, citations are enumerated from the handles this request
   actually carried, and answers render with `Text(verbatim:)`.
+- **The search panel reads the same index.** `JournalSearch` ranks through `AskIndex` with the last
+  word expanded by prefix, then fetches by id for titles and snippets, and falls back to the old
+  substring predicate when the ranked path finds nothing (which also covers a query that is all stop
+  words). Before this the panel could say "nothing matches that" about an entry the question then
+  sent. A row that ranked on something invisible, a tag or a mood or a month, says which.
 - **Diagnostics** (`ask.indexed`, `ask.retrieved`, `ask.answered`, `ask.failed`) carry counts,
   durations, bools, and rounded scores. Never a term, a tag, a name, a question, or a handle map.
 - **Measured, not assumed.** `AskRetrievalQualityTests` is a fixed 25-entry corpus and 15 questions
