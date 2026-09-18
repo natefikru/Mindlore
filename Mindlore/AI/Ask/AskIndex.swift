@@ -40,6 +40,10 @@ nonisolated struct AskIndex: Sendable {
         var aliases: [String] = []
         var kindRaw: String = ""
         var isBrowsable: Bool = true
+        // What describing this entity would cost, so the plan can reserve what an About block will
+        // actually take instead of the whole slice. A length, never the bio itself: the index holds
+        // no prose.
+        var aboutCharacters: Int = 0
     }
 
     nonisolated struct Document: Sendable, Equatable {
@@ -52,6 +56,9 @@ nonisolated struct AskIndex: Sendable {
         var blockCharacters: Int = 0
         // Tokens in the body and title, for BM25's length normalization.
         var length: Int = 0
+        // Context tokens, normalized against each other rather than against the body. A two-word
+        // entry linked to Maya should not out-score a long, detailed one about her.
+        var contextLength: Int = 0
     }
 
     nonisolated struct Term: Sendable, Equatable {
@@ -117,6 +124,8 @@ nonisolated struct AskIndex: Sendable {
     private let sortedTermIDs: [Int32]
     private let postings: [Int32: Posting]
     private let averageLength: Double
+    private let averageContextLength: Double
+    private let documentIndexByID: [UUID: Int]
     private let tagDocuments: [String: [Int32]]
     private let tagSpellings: [String: String]
 
@@ -144,6 +153,8 @@ nonisolated struct AskIndex: Sendable {
         sortedTermIDs: [Int32] = [],
         postings: [Int32: Posting] = [:],
         averageLength: Double = 0,
+        averageContextLength: Double = 0,
+        documentIndexByID: [UUID: Int] = [:],
         tagDocuments: [String: [Int32]] = [:],
         tagSpellings: [String: String] = [:]
     ) {
@@ -154,6 +165,8 @@ nonisolated struct AskIndex: Sendable {
         self.sortedTermIDs = sortedTermIDs
         self.postings = postings
         self.averageLength = averageLength
+        self.averageContextLength = averageContextLength
+        self.documentIndexByID = documentIndexByID
         self.tagDocuments = tagDocuments
         self.tagSpellings = tagSpellings
     }
@@ -171,6 +184,7 @@ nonisolated struct AskIndex: Sendable {
         var tagDocuments: [String: [Int32]] = [:]
         var tagSpellings: [String: String] = [:]
         var totalLength = 0
+        var totalContextLength = 0
 
         documents.reserveCapacity(inputs.count)
 
@@ -178,6 +192,7 @@ nonisolated struct AskIndex: Sendable {
             let document = Int32(offset)
             var weights: [Int32: (body: Float, context: Float)] = [:]
             var length = 0
+            var contextLength = 0
 
             func add(_ text: String, weight: Double, isBody: Bool) {
                 for token in tokens(in: text) {
@@ -188,6 +203,7 @@ nonisolated struct AskIndex: Sendable {
                         length += 1
                     } else {
                         found.context += Float(weight)
+                        contextLength += 1
                     }
                     weights[id] = found
                 }
@@ -222,10 +238,12 @@ nonisolated struct AskIndex: Sendable {
                     areas: input.areas,
                     isSendable: input.isSendable,
                     blockCharacters: input.blockCharacters,
-                    length: length
+                    length: length,
+                    contextLength: contextLength
                 )
             )
             totalLength += length
+            totalContextLength += contextLength
         }
 
         let sorted = termIDs.sorted { $0.key < $1.key }
@@ -237,6 +255,8 @@ nonisolated struct AskIndex: Sendable {
             sortedTermIDs: sorted.map(\.value),
             postings: postings,
             averageLength: documents.isEmpty ? 0 : Double(totalLength) / Double(documents.count),
+            averageContextLength: documents.isEmpty ? 0 : Double(totalContextLength) / Double(documents.count),
+            documentIndexByID: Dictionary(documents.enumerated().map { ($1.id, $0) }, uniquingKeysWith: { first, _ in first }),
             tagDocuments: tagDocuments,
             tagSpellings: tagSpellings
         )
@@ -326,14 +346,18 @@ nonisolated struct AskIndex: Sendable {
                 for (position, document) in posting.documents.enumerated() {
                     let index = Int(document)
                     guard allowed[index] else { continue }
-                    let normalizer = Self.lengthNormalizer(length: documents[index].length, average: averageLength)
                     let body = Double(posting.body[position])
                     let context = Double(posting.context[position])
                     if body > 0 {
+                        let normalizer = Self.lengthNormalizer(length: documents[index].length, average: averageLength)
                         let score = term.weight * idf * Self.saturation(frequency: body, normalizer: normalizer)
                         if score > bestBody[index] ?? 0 { bestBody[index] = score }
                     }
                     if context > 0 {
+                        // Its own normalizer. Sharing the body's would mean a two-word entry linked
+                        // to Maya scores a bigger context hit than a long, detailed one about her,
+                        // which is the inverse of what the body and context split is for.
+                        let normalizer = Self.lengthNormalizer(length: documents[index].contextLength, average: averageContextLength)
                         let score = term.weight * idf * Self.saturation(frequency: context, normalizer: normalizer)
                         if score > bestContext[index] ?? 0 { bestContext[index] = score }
                     }
@@ -418,8 +442,9 @@ nonisolated struct AskIndex: Sendable {
         return [(spelling, documents.count)]
     }
 
+    // Called once per planned entry, which is once per pause in typing, so it is not a linear scan.
     func document(withID id: UUID) -> Document? {
-        documents.first { $0.id == id }
+        documentIndexByID[id].map { documents[$0] }
     }
 
     // MARK: - Scoring pieces
@@ -455,11 +480,16 @@ nonisolated struct AskIndex: Sendable {
         guard !prefix.isEmpty else { return [] }
         var ids: [Int32] = []
         var index = lowerBound(of: prefix)
-        while index < sortedTerms.count, sortedTerms[index].hasPrefix(prefix), ids.count < Self.maxPrefixExpansions {
+        while index < sortedTerms.count, sortedTerms[index].hasPrefix(prefix) {
             ids.append(sortedTermIDs[index])
             index += 1
         }
-        return ids
+        guard ids.count > Self.maxPrefixExpansions else { return ids }
+        // Keep the rarest, not the alphabetically first. Truncating in order meant typing "ma"
+        // spent the whole budget on made, mail, main, make, man, many, map and never reached the
+        // one name the person was typing.
+        return Array(ids.sorted { (postings[$0]?.documents.count ?? 0) < (postings[$1]?.documents.count ?? 0) }
+            .prefix(Self.maxPrefixExpansions))
     }
 
     private func lowerBound(of prefix: String) -> Int {

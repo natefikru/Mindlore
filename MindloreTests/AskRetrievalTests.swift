@@ -61,13 +61,15 @@ struct AskRetrievalTests {
         cited: [[UUID]] = [],
         in index: AskIndex,
         budget: Int = AskContextBuilder.openAIBudget,
-        provider: AskProviderKind = .openAI
+        provider: AskProviderKind = .openAI,
+        rollups: Bool = false
     ) -> AskRetrieval.Plan {
         AskRetrieval.plan(
             query: query(question, previous: previous, cited: cited, in: index),
             index: index,
             budget: budget,
             provider: provider,
+            rollups: rollups,
             calendar: calendar
         )
     }
@@ -165,7 +167,7 @@ struct AskRetrievalTests {
         // question shares a word with almost none of them. Counting term matches alone reports
         // "12 of 12" and the model answers the year from two weeks with nothing telling it not to.
         let inputs = (0..<300).map { input("entry\($0)", text: "an ordinary day", daysAgo: $0, blockCharacters: 1_000) }
-        let result = plan("How have I been feeling this year?", in: index(inputs))
+        let result = plan("How have I been feeling this year?", in: index(inputs), rollups: true)
         #expect(result.appliedRange != nil)
         #expect(result.matchedCount > 200)
         #expect(result.rankedEntryIDs.count < 20)
@@ -190,7 +192,7 @@ struct AskRetrievalTests {
     // MARK: - Aggregate
 
     @Test func aMarkerMakesAQuestionAggregate() {
-        let result = plan("How often does the deadline move?", in: index([input("a", blockCharacters: 100)]))
+        let result = plan("How often does the deadline move?", in: index([input("a", blockCharacters: 100)]), rollups: true)
         #expect(result.isAggregate)
         #expect(result.rollupMonths.isEmpty == false)
     }
@@ -202,7 +204,7 @@ struct AskRetrievalTests {
     }
 
     @Test func anOrdinaryQuestionGetsNoRollups() {
-        let result = plan("deadline", in: index([input("a", blockCharacters: 100)]))
+        let result = plan("deadline", in: index([input("a", blockCharacters: 100)]), rollups: true)
         #expect(result.isAggregate == false)
         #expect(result.rollupMonths.isEmpty)
     }
@@ -210,15 +212,22 @@ struct AskRetrievalTests {
     @Test func rollupMonthsAreDistinctNewestFirstAndCappedAtTwoYears() {
         // Three years of entries, one a month.
         let inputs = (0..<36).map { input("entry\($0)", daysAgo: $0 * 31, blockCharacters: 100) }
-        let result = plan("how often did the deadline move", in: index(inputs))
+        let result = plan("how often did the deadline move", in: index(inputs), rollups: true)
         #expect(result.rollupMonths.count == AskRetrieval.maxRollupMonthsOpenAI)
         #expect(result.rollupMonths == result.rollupMonths.sorted { $0.start > $1.start })
         #expect(Set(result.rollupMonths.map(\.start)).count == result.rollupMonths.count)
     }
 
+    @Test func rollupsAreNotPlannedUntilSomethingRendersThem() {
+        // PR 2 renders them. Planning them before that reserves and reports characters that never
+        // leave the phone, and sets a summary count for a summary that does not exist.
+        let inputs = (0..<60).map { input("entry\($0)", daysAgo: $0, blockCharacters: 100) }
+        #expect(plan("how often did the deadline move", in: index(inputs)).rollupMonths.isEmpty)
+    }
+
     @Test func onDeviceGetsNoRollupsEvenForAnAggregateQuestion() {
         let inputs = (0..<36).map { input("entry\($0)", daysAgo: $0 * 31, blockCharacters: 100) }
-        let result = plan("how often did the deadline move", in: index(inputs), budget: 3_300, provider: .onDevice)
+        let result = plan("how often did the deadline move", in: index(inputs), budget: 3_300, provider: .onDevice, rollups: true)
         #expect(result.isAggregate)
         #expect(result.rollupMonths.isEmpty)
     }
@@ -314,13 +323,88 @@ struct AskRetrievalTests {
         #expect(inherited.rangeWasInherited)
     }
 
+    // MARK: - What the About blocks reserve
+
+    @Test func anAboutBlockReservesWhatItWillTakeNotTheWholeSlice() {
+        let small = AskIndex.Entity(id: maya, name: "Maya", kindRaw: "person", aboutCharacters: 120)
+        let index = AskIndex.build(from: [input("a", blockCharacters: 2_050)], entities: [small])
+        let reserve = AskRetrieval.aboutReserve(
+            for: [maya],
+            in: index,
+            slices: AskRetrieval.slices(budget: AskContextBuilder.openAIBudget, provider: .openAI),
+            budget: AskContextBuilder.openAIBudget
+        )
+        // Reserving the whole 3,600 slice for a 120-character block cost two ranked entries on the
+        // commonest question shape there is.
+        #expect(reserve < 200)
+    }
+
+    @Test func aHugeAboutBlockIsStillCappedBySliceAndBudget() {
+        let huge = AskIndex.Entity(id: maya, name: "Maya", kindRaw: "person", aboutCharacters: 100_000)
+        let index = AskIndex.build(from: [input("a", blockCharacters: 100)], entities: [huge])
+
+        let slices = AskRetrieval.slices(budget: AskContextBuilder.openAIBudget, provider: .openAI)
+        #expect(AskRetrieval.aboutReserve(for: [maya], in: index, slices: slices, budget: AskContextBuilder.openAIBudget) == slices.about)
+
+        // On device the slice alone would swallow most of the budget, so the share cap is what
+        // leaves room for an entry.
+        let onDevice = AskRetrieval.slices(budget: 1_200, provider: .onDevice)
+        let reserve = AskRetrieval.aboutReserve(for: [maya], in: index, slices: onDevice, budget: 1_200)
+        #expect(reserve <= 600)
+    }
+
+    @Test func namingSomeoneWithNothingWrittenAboutThemCostsNothing() {
+        let bare = AskIndex.Entity(id: maya, name: "Maya", kindRaw: "person", aboutCharacters: 0)
+        let index = AskIndex.build(from: [input("a", blockCharacters: 100)], entities: [bare])
+        let slices = AskRetrieval.slices(budget: AskContextBuilder.openAIBudget, provider: .openAI)
+        #expect(AskRetrieval.aboutReserve(for: [maya], in: index, slices: slices, budget: AskContextBuilder.openAIBudget) == 2)
+    }
+
+    // MARK: - The estimate against what is really rendered
+
+    @Test func theEstimateMatchesWhatTheRendererProduces() {
+        // The cost line's only job is to be honest about what goes out, so the plan's arithmetic has
+        // to agree with the renderer rather than being checked against the budget alone.
+        let texts = (0..<6).map { index in String(repeating: "kayak paddle river ", count: 20 + index * 5) }
+        let inputs = texts.enumerated().map { offset, text in
+            AskIndex.DocumentInput(
+                id: id(for: "entry\(offset)"),
+                date: now.addingTimeInterval(-Double(offset) * 86_400),
+                text: text,
+                blockCharacters: AskContextBuilder.blockCharacterEstimate(title: "", text: text)
+            )
+        }
+        let index = AskIndex.build(from: inputs)
+        let result = plan("kayak", in: index)
+
+        let selection = AskSources.Selection(
+            entries: result.entryIDs.enumerated().compactMap { offset, id in
+                guard let document = index.document(withID: id) else { return nil }
+                return AskContextBuilder.EntryInput(id: id, date: document.date, title: "", text: texts[offset])
+            }
+        )
+        let rendered = AskContextBuilder.render(plan: result, selection: selection, budget: AskContextBuilder.openAIBudget)
+
+        #expect(rendered.entryIDs.count == result.entryIDs.count, "the plan promised entries the renderer dropped")
+        // An upper bound, never an under-promise: sanitizing only removes characters.
+        #expect(rendered.characters <= result.estimatedCharacters)
+        #expect(Double(rendered.characters) > Double(result.estimatedCharacters) * 0.9)
+    }
+
     // MARK: - Nothing to send
 
-    @Test func aQuestionThatMatchesNothingPlansNothing() {
-        let result = plan("ayahuasca", in: index([input("a", text: "the deadline moved", blockCharacters: 100)]))
-        #expect(result.rankedEntryIDs.isEmpty)
-        #expect(result.matchedCount == 0)
-        #expect(result.isEmpty)
+    // A7's tier 4, which the rewrite dropped by accident. A question sharing no word with the
+    // journal used to send the newest entries; "nothing to go on" offers no Retry, so losing it
+    // turned an ordinary question into a dead end.
+    @Test func aQuestionThatMatchesNothingFallsBackToTheNewestEntries() {
+        let inputs = (0..<8).map { input("entry\($0)", text: "the deadline moved", daysAgo: $0, blockCharacters: 100) }
+        let result = plan("ayahuasca", in: index(inputs))
+
+        #expect(result.rankedEntryIDs.count == AskRetrieval.recencyFallbackCount)
+        #expect(result.rankedEntryIDs.first == id(for: "entry0"), "newest first")
+        #expect(result.matchedNothing)
+        // Nothing was cut from a match set, so there is nothing for the prompt to own up to.
+        #expect(result.wasCut == false)
     }
 
     @Test func anEmptyJournalPlansNothing() {

@@ -149,6 +149,29 @@ struct AskIndexTests {
         #expect(ranked(index, query("luis")) == [id(for: "a")])
     }
 
+    @Test func aContextHitIsNotInflatedByAShortBody() {
+        let index = AskIndex.build(from: [
+            input("terse", text: "Dinner.", entityNames: ["Maya"]),
+            input("detailed", text: "A long evening of catching up about the move, the new job, and everything else that has happened since spring.", entityNames: ["Maya"]),
+        ])
+        // Both are linked to her and neither says her name. Normalizing the context stream by body
+        // length made the two-word entry score far higher, which is the inverse of the point.
+        let results = index.search(query("maya"))
+        #expect(results.count == 2)
+        #expect(abs(results[0].score - results[1].score) < results[0].score * 0.35)
+    }
+
+    @Test func aPrefixKeepsTheRarestExpansionsNotTheAlphabeticalOnes() {
+        // Enough common "ma" words to exhaust the expansion budget before reaching the name.
+        var inputs = (0..<80).map { index in
+            input("common\(index)", text: "made mail main make man many map march mark market marathon marriage word\(index)")
+        }
+        inputs.append(input("maria", text: "Maria came over"))
+        let index = AskIndex.build(from: inputs)
+        // Truncating in sorted order spent all 64 slots on the common words and never reached her.
+        #expect(ranked(index, query("mari", expandsLastTerm: true)).first == id(for: "maria"))
+    }
+
     // MARK: - Recency
 
     @Test func recencyBreaksATieAndNeverHidesTheOlderEntry() {

@@ -59,6 +59,16 @@ enum AskSources {
             )
         }
 
+        // What describing each entity would cost, so a plan can reserve the room an About block will
+        // really take rather than the whole slice. Lengths only: no bio and no loose-end text is
+        // carried into the index.
+        var aboutCharacters: [UUID: Int] = [:]
+        for looseEnd in LooseEnd.all(in: context) where looseEnd.isOpen {
+            for root in Set(looseEnd.entityIDs.map(directory.root(of:))).prefix(AskContextBuilder.maxLooseEndsPerEntity) {
+                aboutCharacters[root, default: 0] += looseEnd.text.count + 3
+            }
+        }
+
         // Only entities a sendable entry actually mentions. An entity reached only through a draft
         // or an entry still awaiting text has a bio and loose ends written from text Ask may not
         // send, and describing it would be a side door around the rule above. A7's review found this
@@ -66,7 +76,18 @@ enum AskSources {
         let mentioned = Set(documents.filter(\.isSendable).flatMap(\.entityIDs))
         let entities = allEntities
             .filter { $0.isBrowsable && directory.root(of: $0.id) == $0.id && mentioned.contains($0.id) }
-            .map { AskIndex.Entity(id: $0.id, name: $0.name, aliases: $0.aliases, kindRaw: $0.kindRaw, isBrowsable: true) }
+            .map { entity in
+                let names = entity.name.count + entity.aliases.prefix(AskContextBuilder.maxAliasesPerEntity).reduce(0) { $0 + $1.count + 2 }
+                return AskIndex.Entity(
+                    id: entity.id,
+                    name: entity.name,
+                    aliases: entity.aliases,
+                    kindRaw: entity.kindRaw,
+                    isBrowsable: true,
+                    aboutCharacters: AskContextBuilder.aboutBlockOverhead + names
+                        + (entity.bio?.count ?? 0) + (aboutCharacters[entity.id] ?? 0)
+                )
+            }
 
         return Gathered(documents: documents, entities: entities)
     }

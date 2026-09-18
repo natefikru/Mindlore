@@ -32,6 +32,14 @@ nonisolated enum AskRetrieval {
     static let matchRelevanceFloor = 0.25
     // A matched set this much larger than what fits is an aggregate question whatever its wording.
     static let aggregateSizeFactor = 3
+    // When nothing matches at all, the newest entries go instead of nothing. A7 chose this and the
+    // rewrite dropped it by accident: "nothing to go on" offers no Retry, so a question the journal
+    // simply has no word in common with became a dead end.
+    static let recencyFallbackCount = 5
+    // An About block may never take more than this much of the budget, however many people the
+    // question names. On device the whole budget is near 3,300 and the reserve would otherwise
+    // leave no room for an entry at all.
+    static let aboutShareOfBudget = 0.5
 
     nonisolated struct Slices: Sendable, Equatable {
         var about = 0
@@ -53,6 +61,9 @@ nonisolated enum AskRetrieval {
         var excerptEntryIDs: Set<UUID> = []
         // How many entries matched before the cut, which is the "84" in "12 of 84".
         var matchedCount = 0
+        // Nothing matched and the newest entries went instead, so an answer shouldn't be written as
+        // though these were about the question.
+        var matchedNothing = false
         var estimatedCharacters = 0
         var appliedRange: DateInterval?
         var rangeWasInherited = false
@@ -90,6 +101,9 @@ nonisolated enum AskRetrieval {
         index: AskIndex,
         budget: Int,
         provider: AskProviderKind,
+        // PR 2 renders rollups. Until it does, planning them would reserve and report characters
+        // that never leave the phone.
+        rollups: Bool = false,
         calendar: Calendar = .current
     ) -> Plan {
         var plan = Plan()
@@ -100,7 +114,14 @@ nonisolated enum AskRetrieval {
 
         guard budget > 0 else { return plan }
 
-        let scored = index.search(query.indexQuery)
+        var scored = index.search(query.indexQuery)
+        var wasRecencyFallback = false
+        if scored.isEmpty {
+            // A7's tier 4. A question sharing no word with the journal still gets an answer built
+            // from the newest entries rather than a failure with no Retry on it.
+            scored = Array(index.search(AskIndex.Query(sendableOnly: true, asOf: query.asOf)).prefix(recencyFallbackCount))
+            wasRecencyFallback = true
+        }
         guard !scored.isEmpty else {
             plan.isAggregate = query.aggregateHint
             return plan
@@ -108,31 +129,33 @@ nonisolated enum AskRetrieval {
 
         let limit = provider == .openAI ? maxRankedEntriesOpenAI : maxRankedEntriesOnDevice
         let floor = (scored.first?.score ?? 0) * matchRelevanceFloor
-        plan.matchedCount = scored.filter { $0.score >= floor }.count
+        // Nothing matched on the fallback, so nothing was cut from a match set either.
+        plan.matchedCount = wasRecencyFallback ? 0 : scored.filter { $0.score >= floor }.count
+        plan.matchedNothing = wasRecencyFallback
         // A question that named a stretch of time is asking about the whole stretch, so the entries
         // in it are the denominator whether or not they share a word with the question. Without
         // this, "how have I been feeling this year" matches the few entries using the word
         // "feeling", reports "8 of 8", and answers a year from two weeks with nothing to hedge
         // against. This is the honest-truncation half of the phase, and it only works here.
-        if query.namedRange != nil {
+        if query.namedRange != nil, !wasRecencyFallback {
             plan.matchedCount = max(plan.matchedCount, index.candidateCount(for: query.indexQuery))
         }
         plan.isAggregate = query.aggregateHint || plan.matchedCount > aggregateSizeFactor * limit
 
         // Rollups first, because what they take decides how much is left to rank into.
         var rollupCharacters = 0
-        if plan.isAggregate, plan.slices.rollups > 0 {
+        if rollups, plan.isAggregate, plan.slices.rollups > 0 {
             let affordable = plan.slices.rollups / rollupCharactersPerMonth
             let available = months(of: scored, in: index, calendar: calendar)
             plan.rollupMonths = Array(available.prefix(min(affordable, maxRollupMonthsOpenAI)))
             rollupCharacters = plan.rollupMonths.count * rollupCharactersPerMonth
         }
 
-        // An About block's size can't be known here: an entity's bio isn't in the index, and
-        // fetching one would put the journal back on the keystroke path. So its slice is reserved
-        // whole when there is anyone to describe. The cost line then under-promises rather than
-        // over-promising, which is the right direction for a line about what leaves the phone.
-        let aboutReserve = plan.aboutEntityIDs.isEmpty ? 0 : plan.slices.about
+        // What the About blocks will actually take, from the size hints the index carries, rather
+        // than the whole slice. Reserving the slice whole cost two ranked entries on the commonest
+        // question shape there is, and on device it could reserve the entire budget and send no
+        // entry at all.
+        let aboutReserve = self.aboutReserve(for: plan.aboutEntityIDs, in: index, slices: plan.slices, budget: budget)
         var remaining = max(0, budget - aboutReserve - rollupCharacters)
 
         let subjects = Set(plan.aboutEntityIDs)
@@ -171,11 +194,18 @@ nonisolated enum AskRetrieval {
         // since ranking is not limited to what counts as a match.
         plan.matchedCount = max(plan.matchedCount, plan.rankedEntryIDs.count)
 
-        plan.estimatedCharacters = rollupCharacters + plan.entryIDs.compactMap {
+        plan.estimatedCharacters = aboutReserve + rollupCharacters + plan.entryIDs.compactMap {
             index.document(withID: $0)?.blockCharacters
         }.reduce(0) { $0 + $1 + blockSeparator }
 
         return plan
+    }
+
+    static func aboutReserve(for entityIDs: [UUID], in index: AskIndex, slices: Slices, budget: Int) -> Int {
+        guard !entityIDs.isEmpty else { return 0 }
+        let wanted = Set(entityIDs)
+        let needed = index.entities.filter { wanted.contains($0.id) }.reduce(0) { $0 + $1.aboutCharacters + blockSeparator }
+        return min(needed, slices.about, Int(Double(budget) * aboutShareOfBudget))
     }
 
     // The blank line between two blocks, which the renderer pays for too.
