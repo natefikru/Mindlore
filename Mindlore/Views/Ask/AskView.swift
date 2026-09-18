@@ -33,7 +33,11 @@ struct AskView: View {
         @Bindable var ask = ask
 
         NavigationStack {
-            Group {
+            // The results sit over the conversation rather than replacing it: swapping the
+            // stack's own content while the keyboard is up resigns focus, and the next
+            // keystroke is lost.
+            ZStack {
+                conversation
                 if isSearching {
                     AskSearchResultsView(
                         results: results,
@@ -42,8 +46,7 @@ struct AskView: View {
                         openEntity: { peekTarget = PeekTarget(id: $0) },
                         selectTag: selectTag
                     )
-                } else {
-                    conversation
+                    .background(Color(.systemBackground))
                 }
             }
             .navigationTitle("Ask")
@@ -86,7 +89,7 @@ struct AskView: View {
             )
         }
         .task(id: ask.draftQuestion) {
-            guard !query.isEmpty else {
+            guard query.count >= JournalSearch.minimumQueryCharacters else {
                 results = JournalSearch.Results()
                 tagFilter = nil
                 estimate = (0, 0)
@@ -183,7 +186,7 @@ struct AskView: View {
             }
             .padding(10)
             .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 22, style: .continuous))
-            if !query.isEmpty, ask.isAvailable, estimate.entries > 0 {
+            if query.count >= JournalSearch.minimumQueryCharacters, ask.isAvailable, estimate.entries > 0 {
                 Text("^[\(estimate.entries) entry](inflect: true), about \(estimate.characters.formatted(.number.rounded(rule: .down).precision(.significantDigits(2)))) characters")
                     .font(.caption)
                     .foregroundStyle(.secondary)
