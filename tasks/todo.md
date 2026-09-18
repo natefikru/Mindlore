@@ -670,10 +670,11 @@ first three are the ones with real design behind them. This phase gets its own b
       a place identifier only.
 
 **The graph tells the truth after a rename**
-- [ ] **Rename rewrites.** Renaming an entity replaces the old spelling in every entry's text and
-      in bios, and keeps the old spelling as an alias. Built for the common case: the recorder
-      misheard a name. It needs care, since it edits the user's own words: the spec covers what
-      is changed, what a preview shows before it happens, and how to undo it.
+- [ ] **Rename carries through the app's own words.** Renaming an entity keeps the old spelling
+      as an alias (so the old name still matches and still resolves) and replaces it wherever the
+      app wrote it itself: bios, summaries, and loose-end text. **Entries are never edited.** What
+      the user wrote stays as written, and a misheard name still reads as it was said, while the
+      name tapped in read mode resolves through the alias to the renamed entity.
 
 **The model's manners**
 - [ ] **Loose ends are commitments.** Tighten the bar: a plan to make or a task to do, worth
