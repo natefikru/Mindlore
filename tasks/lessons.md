@@ -168,6 +168,12 @@ count. Tests assert behavior nobody looks at; nothing asserted what the screen l
 Pull them out of the result bundle with `xcrun xcresulttool export attachments` and look. Three
 rounds of that fixed more than the sub-agent review did.
 
+It happened again in A9b, in a way worth naming: moving a cost line into a computed `String`
+property put the literal text `^[1 entry](inflect: true)` on screen. Inflection is a
+`LocalizedStringKey` feature, and a `String` interpolated into `Text` is not one, so the markup
+renders as markup. Nothing failed. Return `Text` from the property instead of `String`, and when a
+view string gains a condition, look at it rather than trusting that the suite is still green.
+
 ## A review sub-agent with write tools reviews its own edits
 
 A sub-agent asked to review the A9b spec, and told in the prompt not to modify anything, spent nine

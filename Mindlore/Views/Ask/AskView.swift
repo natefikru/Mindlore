@@ -226,7 +226,7 @@ struct AskView: View {
             // so the line says which it is. On the on-device model nothing is sent anywhere, so
             // it says "reads" rather than claiming a send that never happens.
             if canSend, estimate.entries > 0 {
-                Text(costLine)
+                costLine
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .padding(.leading, 14)
@@ -249,12 +249,16 @@ struct AskView: View {
     // "12 of 84" when the set was cut, which is the same honesty the prompt gets. The count is an
     // estimate now, since working it out exactly would mean reading the entries, so the line says
     // "about" for it as well as for the characters.
-    private var costLine: String {
+    //
+    // Text, not String. Built as a String this rendered "^[1 entry](inflect: true)" on screen,
+    // because inflection is a localized-string-key feature and a plain String is not one. Every test
+    // passed; the screenshot is what caught it.
+    private var costLine: Text {
         let verb = ask.answersLeaveThePhone ? "sends" : "reads"
         if estimate.wasCut {
-            return "Asking \(verb) about \(estimate.entries) of \(estimate.matched) entries, about \(roundedCharacters) characters"
+            return Text("Asking \(verb) about \(estimate.entries) of \(estimate.matched) entries, about \(roundedCharacters) characters")
         }
-        return "Asking \(verb) ^[\(estimate.entries) entry](inflect: true), about \(roundedCharacters) characters"
+        return Text("Asking \(verb) ^[\(estimate.entries) entry](inflect: true), about \(roundedCharacters) characters")
     }
 
     // Off is rarely a decision: nearly always it means this iPhone can't run Apple's model and
