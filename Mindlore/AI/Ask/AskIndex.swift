@@ -260,11 +260,19 @@ nonisolated struct AskIndex: Sendable {
         let folded = fold(text)
         var tokens: [String] = []
         folded.enumerateSubstrings(in: folded.startIndex..., options: .byWords) { substring, _, _, _ in
-            guard let substring, substring.count >= minimumTermLength else { return }
-            tokens.append(substring)
+            guard let substring else { return }
+            // Word enumeration keeps a contraction whole, so "what's" arrives as one token and the
+            // stop list, which holds "what", never sees it. Splitting on the apostrophe drops the
+            // tail ("s", "t", "re" are all too short to index) and leaves the word itself, which is
+            // also what makes "Maya's" find Maya.
+            for part in substring.split(whereSeparator: apostrophes.contains) where part.count >= minimumTermLength {
+                tokens.append(String(part))
+            }
         }
         return tokens
     }
+
+    private static let apostrophes: Set<Character> = ["'", "\u{2019}"]
 
     static func monthAndYear(of date: Date) -> String {
         monthYearFormatter.string(from: date)
