@@ -198,10 +198,22 @@ final class AskService {
             return
         }
 
-        let built = buildContext(for: question, provider: provider, in: context)
+        let journal = journal(for: provider, in: context)
+        let built = build(question: question, from: journal, provider: provider)
         guard !built.isEmpty else {
-            let failure = AIJobFailure(raw: AskFailureText.noEntries)
-            diagnostics.record("ask.failed", ["error": .string(failure.raw), "turn": .int(turnIndex)])
+            // A journal held back by the pre-AI boundary is not an empty one, and the difference
+            // is the difference between a dead end and a switch to turn on.
+            let raw = journal.entries.isEmpty && journal.heldBackAsOlder > 0
+                ? AskFailureText.onlyOlderEntries
+                : AskFailureText.noEntries
+            let failure = AIJobFailure(raw: raw)
+            diagnostics.record("ask.failed", [
+                "error": .string(failure.raw),
+                "turn": .int(turnIndex),
+                "eligible": .int(journal.entries.count),
+                "heldBackAsOlder": .int(journal.heldBackAsOlder),
+                "includesOlder": .bool(includesOlderEntries()),
+            ])
             finish(question: question, turn: failureTurn(failure), in: context)
             return
         }
@@ -262,20 +274,29 @@ final class AskService {
             "provider": .string(provider.kind.rawValue),
             "turn": .int(turnIndex),
             "includesOlder": .bool(includesOlderEntries()),
+            "eligible": .int(journal.entries.count),
+            "heldBackAsOlder": .int(journal.heldBackAsOlder),
         ])
         finish(question: question, turn: turn, context: built, in: context)
     }
 
     // MARK: - Pieces
 
-    private func buildContext(for question: String, provider: AskProvider, in context: ModelContext) -> AskContextBuilder.Context {
-        let journal = AskSources.journal(
+    private func journal(for provider: AskProvider, in context: ModelContext) -> AskSources.Journal {
+        AskSources.journal(
             in: context,
             appliesAIEnabledAt: provider.kind == .openAI,
             aiEnabledAt: aiEnabledAt(),
             includesOlderEntries: includesOlderEntries()
         )
-        return AskContextBuilder.build(
+    }
+
+    private func buildContext(for question: String, provider: AskProvider, in context: ModelContext) -> AskContextBuilder.Context {
+        build(question: question, from: journal(for: provider, in: context), provider: provider)
+    }
+
+    private func build(question: String, from journal: AskSources.Journal, provider: AskProvider) -> AskContextBuilder.Context {
+        AskContextBuilder.build(
             question: question,
             entries: journal.entries,
             entities: journal.entities,

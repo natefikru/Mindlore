@@ -7,6 +7,9 @@ enum AskSources {
     struct Journal {
         var entries: [AskContextBuilder.EntryInput] = []
         var entities: [AskContextBuilder.EntityInput] = []
+        // Entries that would have been sent but were written before AI was turned on. Without
+        // this a journal full of older entries is indistinguishable from an empty one.
+        var heldBackAsOlder = 0
     }
 
     // `sendableOutsideThePhone` is the OpenAI rule: an entry written before AI was turned on
@@ -20,12 +23,11 @@ enum AskSources {
         includesOlderEntries: Bool
     ) -> Journal {
         let all = ((try? context.fetch(FetchDescriptor<Entry>())) ?? []).filter { !$0.isDeleted }
-        let eligible = all.filter { entry in
-            guard InsightsCoordinator.canRunAI(on: entry) else { return false }
-            guard appliesAIEnabledAt, !includesOlderEntries, let aiEnabledAt else { return true }
-            return entry.createdAt >= aiEnabledAt
-        }
-        guard !eligible.isEmpty else { return Journal() }
+        let runnable = all.filter(InsightsCoordinator.canRunAI)
+        let boundary = appliesAIEnabledAt && !includesOlderEntries ? aiEnabledAt : nil
+        let eligible = boundary.map { enabledAt in runnable.filter { $0.createdAt >= enabledAt } } ?? runnable
+        let heldBack = runnable.count - eligible.count
+        guard !eligible.isEmpty else { return Journal(heldBackAsOlder: heldBack) }
 
         let directory = EntityDirectory(in: context)
         var entityIDsByEntry: [UUID: [UUID]] = [:]
@@ -65,7 +67,7 @@ enum AskSources {
                 )
             }
 
-        return Journal(entries: entries, entities: entities)
+        return Journal(entries: entries, entities: entities, heldBackAsOlder: heldBack)
     }
 
     // The three example questions the empty state offers, from the journal the user actually has.

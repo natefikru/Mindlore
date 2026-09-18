@@ -64,10 +64,12 @@ nonisolated enum AskPrompt {
 // AIJobFailure.userMessage speaks about entries and titles.
 nonisolated enum AskFailureText {
     static let noEntries = "ask.noEntries"
+    static let onlyOlderEntries = "ask.onlyOlderEntries"
 
     static func message(for failure: AIJobFailure) -> String {
         switch failure.raw {
         case noEntries: "There's nothing in your journal I can use for that yet."
+        case onlyOlderEntries: "Your entries were all written before you turned on AI, so they stay on your phone. Turn on \"Include entries from before AI was on\" in Settings to ask about them."
         case "ai.contextTooLong", "ai.requestTooLarge": "That was too much to send at once. Try a narrower question."
         case "ai.offline": "You're offline. Ask again when you're back."
         case "ai.missingKey", "settings.aiOff", "settings.off": "Turn on AI in Settings to ask questions."
