@@ -98,6 +98,22 @@ struct AskContextBuilderTests {
         #expect(context.entryIDs == [linked.id])
     }
 
+    // A renamed entity: the entries still say "Lewis", so the block has to say the two are one
+    // person, or the answer corrects the user's own name back at them.
+    @Test func anEntityBlockNamesTheOtherSpellingsTheJournalUses() throws {
+        let id = UUID()
+        let entity = AskContextBuilder.EntityInput(id: id, name: "Luis", aliases: ["Lewis", "luis"], bio: "Thrift-store friend.")
+        let entry = entry("Went thrifting with Lewis.", daysAgo: 4, entities: [id])
+
+        let context = build("Tell me about Luis", entries: [entry], entities: [entity])
+        let block = try #require(context.blocks.first?.text)
+
+        #expect(block.contains("About Luis"))
+        #expect(block.contains("Also written in the journal as: Lewis"), "\(block)")
+        #expect(!block.contains(", luis"), "a spelling that only differs in case isn't another name")
+        #expect(context.entryIDs == [entry.id], "and the entry that says Lewis still goes in")
+    }
+
     @Test func aQuestionThatMatchesNothingSendsNoRecentEntriesWhenSomethingElseMatched() {
         let matched = entry("kayak in the shed.", daysAgo: 10)
         let recent = entry("Nothing much.", daysAgo: 1)

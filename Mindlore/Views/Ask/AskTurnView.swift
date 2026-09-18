@@ -64,19 +64,27 @@ struct AskTurnView: View {
             HStack {
                 Spacer(minLength: 40)
                 Text(verbatim: turn.text)
-                    .padding(10)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 10)
                     .background(.tint.opacity(0.15), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
                     .accessibilityIdentifier("askQuestion")
             }
             .padding(.horizontal)
         case .assistant:
             VStack(alignment: .leading, spacing: 8) {
-                Text(verbatim: turn.text)
-                    .foregroundStyle(turn.failureRaw == nil ? .primary : .secondary)
-                    .accessibilityIdentifier(turn.failureRaw == nil ? "askAnswer" : "askAnswerNote")
+                HStack {
+                    Text(verbatim: turn.text)
+                        .foregroundStyle(turn.failureRaw == nil ? .primary : .secondary)
+                        .accessibilityIdentifier(turn.failureRaw == nil ? "askAnswer" : "askAnswerNote")
+                    Spacer(minLength: 0)
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 10)
+                .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
                 citations
                 footer
             }
+            .padding(.trailing, 32)
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal)
         }

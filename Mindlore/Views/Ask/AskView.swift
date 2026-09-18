@@ -145,24 +145,28 @@ struct AskView: View {
     }
 
     private var empty: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("Ask about anything you've written")
-                .font(.title3.weight(.semibold))
-            Text("Answers come from your own entries, with the entry each one used.")
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Ask about anything you've written. Answers come from your own entries, and say which ones they used.")
                 .foregroundStyle(.secondary)
+                .accessibilityIdentifier("askEmptyState")
             ForEach(AskSources.examples(in: modelContext), id: \.self) { example in
                 Button {
                     ask.draftQuestion = example
                     fieldFocused = true
                 } label: {
-                    Text(example)
+                    Text(verbatim: example)
+                        .multilineTextAlignment(.leading)
+                        .padding(.vertical, 10)
+                        .padding(.horizontal, 14)
                         .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
                 }
-                .buttonStyle(.bordered)
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("askExample")
             }
         }
         .padding(.horizontal)
-        .accessibilityIdentifier("askEmptyState")
+        .padding(.top, 4)
     }
 
     // MARK: - The field
@@ -178,30 +182,48 @@ struct AskView: View {
                     .accessibilityIdentifier("askUnavailable")
             }
             HStack(spacing: 8) {
-                TextField("Ask or search", text: $ask.draftQuestion, axis: .vertical)
-                    .lineLimit(1...4)
+                // One line, so the keyboard's Send key sends. On a vertical field it inserts a
+                // newline instead, which is not what a question wants.
+                TextField("Ask or search", text: $ask.draftQuestion)
                     .textFieldStyle(.plain)
                     .focused($fieldFocused)
                     .submitLabel(.send)
+                    .onSubmit(send)
                     .accessibilityIdentifier("askField")
-                Button("Ask", systemImage: "arrow.up.circle.fill") { send() }
+                Button("Ask", systemImage: "arrow.up") { send() }
                     .labelStyle(.iconOnly)
-                    .font(.title2)
-                    .disabled(query.isEmpty || ask.isRunning || !ask.isAvailable)
+                    .font(.footnote.weight(.bold))
+                    .frame(width: 28, height: 28)
+                    .background(canSend ? Color.accentColor : Color(.tertiaryLabel), in: Circle())
+                    .foregroundStyle(Color(.systemBackground))
+                    .disabled(!canSend)
                     .accessibilityIdentifier("askSend")
             }
-            .padding(10)
-            .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 22, style: .continuous))
-            if query.count >= JournalSearch.minimumQueryCharacters, ask.isAvailable, estimate.entries > 0 {
-                Text("^[\(estimate.entries) entry](inflect: true), about \(estimate.characters.formatted(.number.rounded(rule: .down).precision(.significantDigits(2)))) characters")
+            .padding(.leading, 14)
+            .padding(.trailing, 6)
+            .padding(.vertical, 6)
+            .background(Color(.secondarySystemBackground), in: Capsule())
+            // What sending would cost, not what the search found: the two sit next to each other,
+            // so the line says which it is.
+            if canSend, estimate.entries > 0 {
+                Text("Asking sends ^[\(estimate.entries) entry](inflect: true), about \(roundedCharacters) characters")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                    .padding(.leading, 14)
                     .accessibilityIdentifier("askCost")
             }
         }
         .padding(.horizontal)
         .padding(.bottom, 6)
         .background(.bar)
+    }
+
+    private var canSend: Bool {
+        !query.isEmpty && !ask.isRunning && ask.isAvailable
+    }
+
+    private var roundedCharacters: String {
+        estimate.characters.formatted(.number.rounded(rule: .down).precision(.significantDigits(2)))
     }
 
     // Off is rarely a decision: nearly always it means this iPhone can't run Apple's model and

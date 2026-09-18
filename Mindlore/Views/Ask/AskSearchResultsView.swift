@@ -11,11 +11,18 @@ struct AskSearchResultsView: View {
     let selectTag: (String) -> Void
 
     var body: some View {
+        if results.isEmpty {
+            ContentUnavailableView("Nothing found", systemImage: "magnifyingglass")
+                .accessibilityIdentifier("askSearchEmpty")
+        } else {
+            list
+        }
+    }
+
+    // An empty list still draws its row separators, which read as stray lines across the screen
+    // behind "Nothing found", so the empty state replaces the list rather than sitting over it.
+    private var list: some View {
         List {
-            if results.isEmpty {
-                ContentUnavailableView("Nothing found", systemImage: "magnifyingglass")
-                    .accessibilityIdentifier("askSearchEmpty")
-            }
             if !results.tags.isEmpty {
                 Section("Tags") {
                     ForEach(results.tags) { tag in

@@ -11,6 +11,7 @@ nonisolated enum AskContextBuilder {
     static let onDeviceAnswerHeadroom = 1_500
     static let maxEntryCharacters = 2_000
     static let maxLooseEndsPerEntity = 5
+    static let maxAliasesPerEntity = 5
     static let maxExcerptEntriesPerEntity = 10
     static let recentEntryCount = 5
 
@@ -228,6 +229,16 @@ nonisolated enum AskContextBuilder {
             guard usedEntities.insert(entity.id).inserted else { return }
             let name = InsightsPromptBuilder.promptSafe(sanitized(entity.name)) ?? "Someone"
             var lines = ["About \(name)"]
+            // The entries spell a renamed or corrected name the way they were written ("Lewis"
+            // for a Luis the user renamed). Without this the model reads the two as different
+            // people and says so in the answer.
+            let otherSpellings = entity.aliases
+                .compactMap { InsightsPromptBuilder.promptSafe(sanitized($0)) }
+                .filter { $0.caseInsensitiveCompare(name) != .orderedSame }
+                .prefix(maxAliasesPerEntity)
+            if !otherSpellings.isEmpty {
+                lines.append("Also written in the journal as: \(otherSpellings.joined(separator: ", "))")
+            }
             if let bio = entity.bio?.trimmingCharacters(in: .whitespacesAndNewlines), !bio.isEmpty {
                 lines.append(sanitized(bio))
             }
