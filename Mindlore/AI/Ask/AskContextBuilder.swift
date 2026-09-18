@@ -77,6 +77,9 @@ nonisolated enum AskContextBuilder {
         plan: AskRetrieval.Plan,
         selection: AskSources.Selection,
         rollups: [String] = [],
+        // What the question asked, so an excerpt keeps the sentences that answer it and not only
+        // the ones naming the person.
+        terms: [String] = [],
         handles: [String: UUID] = [:],
         budget: Int
     ) -> Context {
@@ -96,14 +99,14 @@ nonisolated enum AskContextBuilder {
         builder.beginSlice(cap: plan.slices.continuity, budget: budget)
         for id in plan.continuityEntryIDs {
             guard let entry = entriesByID[id] else { continue }
-            builder.addEntry(entry, text: text(for: entry, plan: plan, entities: selection.entities))
+            builder.addEntry(entry, text: text(for: entry, plan: plan, entities: selection.entities, terms: terms))
         }
 
         // Everything left, so a slice that went unused is not wasted.
         builder.beginSlice(cap: budget, budget: budget)
         for id in plan.rankedEntryIDs {
             guard let entry = entriesByID[id] else { continue }
-            builder.addEntry(entry, text: text(for: entry, plan: plan, entities: selection.entities))
+            builder.addEntry(entry, text: text(for: entry, plan: plan, entities: selection.entities, terms: terms))
         }
 
         var context = builder.context
@@ -112,17 +115,20 @@ nonisolated enum AskContextBuilder {
         return context
     }
 
-    // An entry that matched only through an entity's name, a tag, or its month has nothing in its
-    // own words to show for it, so sending two thousand characters of it wastes the budget on an
-    // entry about something else. The sentences that name the entity are what the old tier 1 sent,
-    // and ten of those fit where three blocks do.
-    private static func text(for entry: EntryInput, plan: AskRetrieval.Plan, entities: [EntityInput]) -> String {
-        guard plan.excerptOnlyEntryIDs.contains(entry.id) else { return entry.text }
+    // An entry reached because the question is about someone is quoted at the sentences that concern
+    // them, which is what the old tier 1 did and why ten of them fit where three whole blocks would.
+    // The question's own words count as well as the name: "what did Maya say about the move" should
+    // keep the sentence about the move, not only the ones spelling Maya.
+    private static func text(for entry: EntryInput, plan: AskRetrieval.Plan, entities: [EntityInput], terms: [String]) -> String {
+        guard plan.excerptEntryIDs.contains(entry.id) else { return entry.text }
         let names = entities
             .filter { entry.entityIDs.contains($0.id) }
             .flatMap { [$0.name] + $0.aliases }
-        guard !names.isEmpty else { return entry.text }
-        let sentences = BioExcerpts.sentences(in: entry.text, naming: names)
+        let wanted = names + terms
+        guard !wanted.isEmpty else { return entry.text }
+        let sentences = BioExcerpts.sentences(in: entry.text, naming: wanted)
+        // An entry linked to her that never spells her name, and whose words the question does not
+        // use either, has no sentences to pick. It goes in whole rather than not at all.
         return sentences.isEmpty ? entry.text : sentences.joined(separator: " ")
     }
 

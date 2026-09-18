@@ -18,7 +18,7 @@ struct AskContextBuilderTests {
     private func render(
         ranked: [AskContextBuilder.EntryInput] = [],
         continuity: [AskContextBuilder.EntryInput] = [],
-        excerptOnly: Set<UUID> = [],
+        excerpt: Set<UUID> = [],
         entities: [AskContextBuilder.EntityInput] = [],
         rollups: [String] = [],
         matched: Int = 0,
@@ -30,7 +30,7 @@ struct AskContextBuilderTests {
         plan.slices = AskRetrieval.slices(budget: budget, provider: provider)
         plan.rankedEntryIDs = ranked.map(\.id)
         plan.continuityEntryIDs = continuity.map(\.id)
-        plan.excerptOnlyEntryIDs = excerptOnly
+        plan.excerptEntryIDs = excerpt
         plan.aboutEntityIDs = entities.map(\.id)
         plan.matchedCount = matched
         plan.rollupMonths = rollups.map { _ in DateInterval(start: now, duration: day) }
@@ -168,7 +168,7 @@ struct AskContextBuilderTests {
             entities: [id]
         )
 
-        let context = render(ranked: [long], excerptOnly: [long.id], entities: [sarah])
+        let context = render(ranked: [long], excerpt: [long.id], entities: [sarah])
         let block = try #require(context.blocks.last?.text)
 
         #expect(block.contains("Sarah came by at lunch."))
@@ -184,7 +184,7 @@ struct AskContextBuilderTests {
         // Linked to Sarah by insights, but her name is nowhere in the words.
         let entry = entry("Dinner and a long argument about nothing.", daysAgo: 3, entities: [id])
 
-        let context = render(ranked: [entry], excerptOnly: [entry.id], entities: [sarah])
+        let context = render(ranked: [entry], excerpt: [entry.id], entities: [sarah])
         #expect(context.blocks.last?.text.contains("long argument") == true)
     }
 

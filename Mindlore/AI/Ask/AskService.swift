@@ -206,7 +206,7 @@ final class AskService {
     func estimate(for question: String) -> Estimate {
         let trimmed = question.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty, case .success(let provider) = resolve() else { return Estimate() }
-        let plan = plan(for: trimmed, asked: false, provider: provider)
+        let plan = retrieval(for: trimmed, asked: false, provider: provider).plan
         return Estimate(
             entries: plan.entryIDs.count,
             characters: plan.estimatedCharacters,
@@ -228,11 +228,13 @@ final class AskService {
         }
 
         await index.refreshIfNeeded(revisions: revisions(), in: context)
-        let retrievalPlan = plan(for: question, asked: true, provider: provider)
-        let selection = AskSources.blocks(for: retrievalPlan, in: context)
+        let retrieval = retrieval(for: question, asked: true, provider: provider)
+        let selection = AskSources.blocks(for: retrieval.plan, in: context)
+        let retrievalPlan = retrieval.plan
         let built = AskContextBuilder.render(
             plan: retrievalPlan,
             selection: selection,
+            terms: retrieval.query.terms.map(\.text),
             handles: handles,
             budget: budget(for: provider, question: question)
         )
@@ -240,7 +242,7 @@ final class AskService {
         diagnostics.record("ask.retrieved", [
             "matched": .int(retrievalPlan.matchedCount),
             "ranked": .int(retrievalPlan.rankedEntryIDs.count),
-            "excerpts": .int(retrievalPlan.excerptOnlyEntryIDs.count),
+            "excerpts": .int(retrievalPlan.excerptEntryIDs.count),
             "continuity": .int(retrievalPlan.continuityEntryIDs.count),
             "rollupMonths": .int(retrievalPlan.rollupMonths.count),
             "about": .int(retrievalPlan.aboutEntityIDs.count),
@@ -324,7 +326,7 @@ final class AskService {
 
     // `asked` says whether this question is already the last turn, which it is once send() has
     // appended it and is not while the user is still typing.
-    private func plan(for question: String, asked: Bool, provider: AskProvider) -> AskRetrieval.Plan {
+    private func retrieval(for question: String, asked: Bool, provider: AskProvider) -> (query: AskRetrievalQuery, plan: AskRetrieval.Plan) {
         let questions = turns.filter { $0.role == .user }.map(\.text)
         let previous = Array((asked ? questions.dropLast() : questions[...]).reversed())
         let cited = turns
@@ -339,13 +341,14 @@ final class AskService {
             now: now(),
             calendar: calendar
         )
-        return AskRetrieval.plan(
+        let plan = AskRetrieval.plan(
             query: query,
             index: index.index,
             budget: budget(for: provider, question: question),
             provider: provider.kind,
             calendar: calendar
         )
+        return (query, plan)
     }
 
     // OpenAI's budget covers the blocks alone. On device the 6,000 is the whole session, so the

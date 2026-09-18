@@ -26,11 +26,17 @@ nonisolated struct AskIndexBuilder: AskIndexBuilding {
 @Observable
 @MainActor
 final class AskIndexStore {
-    // The two counters that between them see every change. Passed in rather than held, so the store
-    // owes nothing to EntrySaver or GraphServices.
+    // The counters that between them see every change. Passed in rather than held, so the store owes
+    // nothing to EntrySaver, GraphServices, or the save path.
+    //
+    // `stamped` is the one that catches the rest. The three transcription and title coordinators
+    // save straight through saveStampingEntries, bumping neither of the others, so without it a
+    // recording's text never reached the index and asking about the entry you just recorded
+    // answered "nothing to go on" for the rest of the session.
     nonisolated struct Revisions: Equatable, Sendable {
         var saver = 0
         var graph = 0
+        var stamped = 0
     }
 
     // Ordinals only. An earlier draft used max(Entry.updatedAt) and would have gone blind to a clock

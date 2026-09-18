@@ -48,9 +48,9 @@ nonisolated enum AskRetrieval {
         var continuityEntryIDs: [UUID] = []
         // Best first.
         var rankedEntryIDs: [UUID] = []
-        // Matched on context alone, so they render as the sentences naming the entity rather than
-        // two thousand characters of an entry about something else.
-        var excerptOnlyEntryIDs: Set<UUID> = []
+        // Entries reached because the question is about someone. They render as the sentences that
+        // concern them, the way the old tier 1 did, so ten fit where three whole blocks would.
+        var excerptEntryIDs: Set<UUID> = []
         // How many entries matched before the cut, which is the "84" in "12 of 84".
         var matchedCount = 0
         var estimatedCharacters = 0
@@ -135,6 +135,7 @@ nonisolated enum AskRetrieval {
         let aboutReserve = plan.aboutEntityIDs.isEmpty ? 0 : plan.slices.about
         var remaining = max(0, budget - aboutReserve - rollupCharacters)
 
+        let subjects = Set(plan.aboutEntityIDs)
         var taken: Set<UUID> = []
         for result in scored.prefix(limit) {
             let document = index.documents[Int(result.document)]
@@ -143,7 +144,12 @@ nonisolated enum AskRetrieval {
             remaining -= cost
             taken.insert(document.id)
             plan.rankedEntryIDs.append(document.id)
-            if !result.matchedInBody { plan.excerptOnlyEntryIDs.insert(document.id) }
+            // The old tier 1's rule: an entry reached through a person the question names is quoted
+            // at the sentences about them. Keying this off "no query term in the body" instead, as
+            // an earlier pass did, inverted it exactly: the entity's own name is a query term, so
+            // the set became the entries that never mention her, whose naming sentences do not
+            // exist. It fired only on the entries it should have left whole.
+            if !subjects.isDisjoint(with: document.entityIDs) { plan.excerptEntryIDs.insert(document.id) }
         }
 
         // What the conversation was already talking about, from its own slice, and only what the

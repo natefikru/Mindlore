@@ -263,6 +263,39 @@ struct AskRetrievalTests {
         #expect(result.continuityEntryIDs.isEmpty)
     }
 
+    // MARK: - Excerpts
+
+    // The old tier 1's rule, and the one an earlier pass inverted. An entry reached through the
+    // person the question names is quoted at the sentences about her, so ten fit where three whole
+    // blocks would. Keying it off "no query term in the body" made the set the entries that never
+    // mention her, whose naming sentences do not exist, so it fired only where it should not have.
+    @Test func anEntryLinkedToTheEntityTheQuestionNamesIsMarkedForExcerpting() {
+        let inputs = [
+            input("names-her", text: "Long day. Maya came by at lunch and stayed an hour.", entityNames: ["Maya"]),
+            input("unrelated", text: "the deadline moved", daysAgo: 3),
+        ]
+        var index = AskIndex.build(from: inputs, entities: [AskIndex.Entity(id: maya, name: "Maya", kindRaw: "person")])
+        // The entity id has to be the one the documents carry, so rebuild with it linked.
+        index = AskIndex.build(
+            from: [
+                AskIndex.DocumentInput(id: id(for: "names-her"), date: now, text: "Long day. Maya came by at lunch and stayed an hour.", entityIDs: [maya], entityNames: ["Maya"], blockCharacters: 200),
+                inputs[1],
+            ],
+            entities: [AskIndex.Entity(id: maya, name: "Maya", kindRaw: "person")]
+        )
+
+        let result = plan("What's going on with Maya?", in: index)
+        #expect(result.rankedEntryIDs.contains(id(for: "names-her")))
+        #expect(result.excerptEntryIDs.contains(id(for: "names-her")))
+    }
+
+    @Test func anEntryTheQuestionNamesNobodyInIsNeverExcerpted() {
+        let index = index([input("a", text: "the deadline moved", blockCharacters: 200)])
+        let result = plan("deadline", in: index)
+        #expect(result.rankedEntryIDs == [id(for: "a")])
+        #expect(result.excerptEntryIDs.isEmpty)
+    }
+
     // MARK: - About blocks and ranges
 
     @Test func namedAndCarriedEntitiesBothGetDescribed() {

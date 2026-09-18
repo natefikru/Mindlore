@@ -90,6 +90,36 @@ struct AskIndexStoreTests {
         #expect(store.index.search(AskIndex.Query(terms: [.init(text: "deadline")], asOf: .now)).isEmpty == false)
     }
 
+    // The one the review caught. TranscriptionCoordinator, TitleCoordinator, and
+    // PageTranscriptionCoordinator all write through saveStampingEntries, touching neither
+    // EntrySaver nor GraphServices. Without a counter in the save path itself, a recording's
+    // transcribed text never reached the index: the entry count doesn't move (the entry was already
+    // there, awaiting text), and graph.revision only moves if insights later succeed, which they
+    // don't when insights are off, the key is missing, or the phone is offline. Asking about the
+    // entry you just recorded answered "nothing to go on" for the rest of the session.
+    @Test func aSaveThroughTheStampingPathAloneForcesARebuild() async throws {
+        let container = try ModelContainerFactory.make(.inMemory)
+        let context = container.mainContext
+        let entry = Entry(text: "")
+        entry.awaitingText = true
+        context.insert(entry)
+        try context.saveStampingEntries()
+
+        let (store, builder) = makeStore()
+        func revisions() -> AskIndexStore.Revisions { .init(saver: 1, graph: 1, stamped: JournalSaves.revision) }
+        await store.refreshIfNeeded(revisions: revisions(), in: context)
+        #expect(store.index.search(AskIndex.Query(terms: [.init(text: "river")], asOf: .now)).isEmpty)
+
+        // Exactly what the transcriber does when the text lands.
+        entry.text = "Paddled the river for two hours"
+        entry.awaitingText = false
+        try context.saveStampingEntries()
+
+        await store.refreshIfNeeded(revisions: revisions(), in: context)
+        #expect(builder.builds == 2)
+        #expect(store.index.search(AskIndex.Query(terms: [.init(text: "river")], asOf: .now)).isEmpty == false)
+    }
+
     @Test func theSaverRevisionAloneForcesARebuild() async throws {
         let container = try ModelContainerFactory.make(.inMemory)
         let context = container.mainContext
@@ -251,9 +281,10 @@ struct AskIndexStoreTests {
         #expect(selection.entries.map(\.id) == [third.id, first.id, second.id])
     }
 
-    @Test func blocksDescribeOnlyBrowsableEntities() throws {
+    @Test func blocksDescribeOnlyBrowsableEntitiesAMentionableEntryStillCarries() throws {
         let container = try ModelContainerFactory.make(.inMemory)
         let context = container.mainContext
+        let entry = addEntry("Maya and Hidden both came by", to: context)
         let visible = Entity(name: "Maya", key: "maya", kind: .person)
         visible.bio = "A friend from the climbing gym."
         let hidden = Entity(name: "Hidden", key: "hidden", kind: .person)
@@ -262,11 +293,43 @@ struct AskIndexStoreTests {
         context.insert(visible)
         context.insert(hidden)
         try context.save()
+        for entity in [visible, hidden] {
+            let link = EntityLink(surface: entity.name, kind: .person)
+            context.insert(link)
+            link.entityID = entity.id
+            link.entryID = entry.id
+        }
+        try context.save()
 
         var plan = AskRetrieval.Plan()
         plan.aboutEntityIDs = [visible.id, hidden.id]
-        let selection = AskSources.blocks(for: plan, in: context)
-        #expect(selection.entities.map(\.id) == [visible.id])
+        #expect(AskSources.blocks(for: plan, in: context).entities.map(\.id) == [visible.id])
+    }
+
+    // The index is a snapshot. In the window where an entry has gone back to awaiting text, the
+    // entity it was the only mention of must stop being describable too: its bio and its loose ends
+    // were written out of that entry's text.
+    @Test func anEntityLosesItsBlockWhenItsOnlyMentionStopsBeingSendable() throws {
+        let container = try ModelContainerFactory.make(.inMemory)
+        let context = container.mainContext
+        let entry = addEntry("Maya came by", to: context)
+        let maya = Entity(name: "Maya", key: "maya", kind: .person)
+        maya.bio = "Written out of that one entry."
+        context.insert(maya)
+        try context.save()
+        let link = EntityLink(surface: "Maya", kind: .person)
+        context.insert(link)
+        link.entityID = maya.id
+        link.entryID = entry.id
+        try context.save()
+
+        var plan = AskRetrieval.Plan()
+        plan.aboutEntityIDs = [maya.id]
+        #expect(AskSources.blocks(for: plan, in: context).entities.map(\.id) == [maya.id])
+
+        entry.awaitingText = true
+        try context.save()
+        #expect(AskSources.blocks(for: plan, in: context).entities.isEmpty)
     }
 
     @Test func anEmptyPlanFetchesNothing() throws {

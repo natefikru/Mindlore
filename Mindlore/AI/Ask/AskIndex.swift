@@ -76,8 +76,8 @@ nonisolated struct AskIndex: Sendable {
     nonisolated struct Scored: Sendable, Equatable {
         let document: Int32
         let score: Double
-        // False when only context matched, which is a different thing to render: the sentences
-        // naming the entity, not two thousand characters of an entry about something else.
+        // Whether a query term appeared in the entry's own words rather than only in its entities,
+        // tags, area, or month. True on the fallback paths, where no term was scored at all.
         let matchedInBody: Bool
     }
 
@@ -366,7 +366,9 @@ nonisolated struct AskIndex: Sendable {
                     score *= Self.inheritedRangeBoost
                 }
                 score *= recencyMultiplier(for: document.date, asOf: query.asOf)
-                scored.append(Scored(document: Int32(index), score: score, matchedInBody: matchedInBody[index]))
+                // Nothing was scored on the fallback paths, so there is no body-or-context answer to
+                // give and claiming "context only" would be a guess.
+                scored.append(Scored(document: Int32(index), score: score, matchedInBody: scoringTerms ? matchedInBody[index] : true))
             }
             return scored
         }

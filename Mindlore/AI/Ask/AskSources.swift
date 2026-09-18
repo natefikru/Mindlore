@@ -78,8 +78,10 @@ enum AskSources {
         var entities: [AskContextBuilder.EntityInput] = []
     }
 
-    // The only place entry text is read for a prompt, and a bounded fetch: the plan has already
-    // chosen, so this is a dozen entries rather than the journal. Eligibility is checked again here
+    // The only place entry text is read for a prompt. It still fetches the tables and filters in
+    // memory, the way the rest of this codebase does rather than reaching through a relationship in
+    // a predicate, but it runs once per question rather than on every pause in typing, and only the
+    // dozen entries the plan chose are read for their text. Eligibility is checked again here
     // because the index is a snapshot, and an entry can have become a draft, gone back to awaiting
     // text, or been deleted since it was built.
     static func blocks(for plan: AskRetrieval.Plan, in context: ModelContext) -> Selection {
@@ -87,14 +89,20 @@ enum AskSources {
         guard !wanted.isEmpty || !plan.aboutEntityIDs.isEmpty else { return Selection() }
 
         let directory = EntityDirectory(in: context)
-        let entries = ((try? context.fetch(FetchDescriptor<Entry>())) ?? [])
-            .filter { !$0.isDeleted && wanted.contains($0.id) && InsightsCoordinator.canRunAI(on: $0) }
-        let eligible = Set(entries.map(\.id))
+        let sendable = ((try? context.fetch(FetchDescriptor<Entry>())) ?? [])
+            .filter { !$0.isDeleted && InsightsCoordinator.canRunAI(on: $0) }
+        let sendableIDs = Set(sendable.map(\.id))
+        let entries = sendable.filter { wanted.contains($0.id) }
 
+        // Every sendable entry's links, not just the chosen ones: whether an entity may be described
+        // is a question about the journal, not about what happened to fit in this budget.
         var rootsByEntry: [UUID: Set<UUID>] = [:]
+        var mentionedBySendable: Set<UUID> = []
         for link in ((try? context.fetch(FetchDescriptor<EntityLink>())) ?? []).filter({ !$0.isDeleted }) {
-            guard let entryID = link.entryID, eligible.contains(entryID), let entityID = link.entityID else { continue }
-            rootsByEntry[entryID, default: []].insert(directory.root(of: entityID))
+            guard let entryID = link.entryID, sendableIDs.contains(entryID), let entityID = link.entityID else { continue }
+            let root = directory.root(of: entityID)
+            rootsByEntry[entryID, default: []].insert(root)
+            mentionedBySendable.insert(root)
         }
 
         // The plan's order is the ranking, and it survives the fetch, which returns whatever order
@@ -109,8 +117,13 @@ enum AskSources {
             }
         }
 
+        // The same rule documents() applies, applied again for the same reason: an entity whose only
+        // mention has become a draft or gone back to awaiting text has a bio and loose ends written
+        // out of text Ask may no longer send, and this is exactly the stale window above.
         let entities = plan.aboutEntityIDs.compactMap { id -> AskContextBuilder.EntityInput? in
-            guard let entity = directory.entity(directory.root(of: id)), !entity.isDeleted, entity.isBrowsable else { return nil }
+            let root = directory.root(of: id)
+            guard let entity = directory.entity(root), !entity.isDeleted, entity.isBrowsable,
+                  mentionedBySendable.contains(root) else { return nil }
             return AskContextBuilder.EntityInput(
                 id: entity.id,
                 name: entity.name,
