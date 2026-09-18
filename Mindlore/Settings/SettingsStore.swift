@@ -18,6 +18,8 @@ final class SettingsStore {
         static let textAccountID = "textAccountID"
         static let textModel = "textModel"
         static let titleGenerator = "titleGenerator"
+        static let askGenerator = "askGenerator"
+        static let askIncludesOlderEntries = "askIncludesOlderEntries"
         static let insightsTrigger = "insightsTrigger"
         static let insightSummary = "insightSummary"
         static let insightMoods = "insightMoods"
@@ -119,6 +121,36 @@ final class SettingsStore {
         }
     }
 
+    // nil until Ask first opens, which is when the default is decided and written. After that
+    // only the user changes it, so an added key or a model that stops being available never
+    // silently moves where questions go.
+    private var storedAskGenerator: AskGenerator?
+
+    var askGenerator: AskGenerator {
+        get { storedAskGenerator ?? .off }
+        set {
+            storedAskGenerator = newValue
+            write(newValue.rawValue, Key.askGenerator, logged: .string(newValue.rawValue))
+        }
+    }
+
+    var hasChosenAskGenerator: Bool { storedAskGenerator != nil }
+
+    // Called the first time Ask opens. OpenAI when it can run, otherwise the free on-device
+    // model, otherwise nothing but search.
+    @discardableResult
+    func chooseAskGeneratorIfNeeded(textUsable: Bool, onDeviceAvailable: Bool) -> AskGenerator {
+        if let storedAskGenerator { return storedAskGenerator }
+        let chosen: AskGenerator = textUsable ? .openAI : (onDeviceAvailable ? .onDevice : .off)
+        askGenerator = chosen
+        return chosen
+    }
+
+    // Entries written before AI was turned on stay on the phone unless this is on.
+    var askIncludesOlderEntries: Bool {
+        didSet { write(askIncludesOlderEntries, Key.askIncludesOlderEntries, logged: .bool(askIncludesOlderEntries)) }
+    }
+
     var insightsTrigger: InsightsTrigger {
         didSet { write(insightsTrigger.rawValue, Key.insightsTrigger, logged: .string(insightsTrigger.rawValue)) }
     }
@@ -210,6 +242,8 @@ final class SettingsStore {
         textAccountID = uuid(Key.textAccountID)
         textModel = string(Key.textModel) ?? ProviderDefaults.textModel
         storedTitleGenerator = string(Key.titleGenerator).flatMap(TitleGenerator.init(rawValue:))
+        storedAskGenerator = string(Key.askGenerator).flatMap(AskGenerator.init(rawValue:))
+        askIncludesOlderEntries = bool(Key.askIncludesOlderEntries, false)
         insightsTrigger = string(Key.insightsTrigger).flatMap(InsightsTrigger.init(rawValue:)) ?? .automatic
         insightSummary = bool(Key.insightSummary, true)
         insightMoods = bool(Key.insightMoods, true)
