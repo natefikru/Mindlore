@@ -46,8 +46,19 @@ struct AskTurnView: View {
     let isLast: Bool
 
     @Environment(\.modelContext) private var modelContext
+    // Looked up once per turn rather than on every draw, since a conversation redraws whenever
+    // an answer streams in or the keyboard moves.
+    @State private var refs: [UUID: AskEntryRefs.Ref] = [:]
 
     var body: some View {
+        content
+            .task(id: turn.citedEntryIDs) {
+                refs = AskEntryRefs.refs(turn.citedEntryIDs, in: modelContext)
+            }
+    }
+
+    @ViewBuilder
+    private var content: some View {
         switch turn.role {
         case .user:
             HStack {
@@ -74,7 +85,6 @@ struct AskTurnView: View {
     @ViewBuilder
     private var citations: some View {
         if !turn.citedEntryIDs.isEmpty {
-            let refs = AskEntryRefs.refs(turn.citedEntryIDs, in: modelContext)
             ScrollView(.horizontal) {
                 HStack(spacing: 8) {
                     ForEach(Array(turn.citedEntryIDs.enumerated()), id: \.offset) { _, id in

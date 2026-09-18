@@ -19,6 +19,9 @@ struct AskView: View {
     @FocusState private var fieldFocused: Bool
 
     static let searchDelay = Duration.milliseconds(250)
+    // The cost line waits longer than the search does: working it out reads the whole journal,
+    // and nobody needs it until they have stopped typing.
+    static let costDelay = Duration.milliseconds(600)
 
     private var query: String {
         ask.draftQuestion.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -99,6 +102,9 @@ struct AskView: View {
             guard !Task.isCancelled else { return }
             results = JournalSearch.results(for: query, in: modelContext)
             tagFilter = nil
+            estimate = (0, 0)
+            try? await Task.sleep(for: Self.costDelay)
+            guard !Task.isCancelled else { return }
             estimate = ask.estimate(for: query, in: modelContext)
         }
     }
