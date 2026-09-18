@@ -13,6 +13,7 @@ final class InsightsCoordinator {
 
     @ObservationIgnored private let resolve: () -> Result<Generator, AIJobFailure>
     @ObservationIgnored private let sections: () -> InsightSections
+    @ObservationIgnored private let promptVoice: () -> PromptVoice
     @ObservationIgnored private let autoApplyCleanedText: () -> Bool
     @ObservationIgnored private let autoApplyEntryDate: () -> Bool
     @ObservationIgnored private let presence: EditorPresence
@@ -33,6 +34,7 @@ final class InsightsCoordinator {
     init(
         resolve: @escaping () -> Result<Generator, AIJobFailure>,
         sections: @escaping () -> InsightSections,
+        promptVoice: @escaping () -> PromptVoice = { .default },
         autoApplyCleanedText: @escaping () -> Bool,
         autoApplyEntryDate: @escaping () -> Bool = { false },
         presence: EditorPresence,
@@ -44,6 +46,7 @@ final class InsightsCoordinator {
     ) {
         self.resolve = resolve
         self.sections = sections
+        self.promptVoice = promptVoice
         self.autoApplyCleanedText = autoApplyCleanedText
         self.autoApplyEntryDate = autoApplyEntryDate
         self.presence = presence
@@ -169,7 +172,7 @@ final class InsightsCoordinator {
         if sections.looseEnds {
             vocabulary.looseEnds = LooseEndWriter.candidates(for: entry, in: context)
         }
-        let plan = InsightsPromptBuilder.plan(text: analyzedText, source: source, sections: sections, vocabulary: vocabulary, model: generator.model, entryDate: entry.entryDate, calendar: calendar)
+        let plan = InsightsPromptBuilder.plan(text: analyzedText, source: source, sections: sections, vocabulary: vocabulary, model: generator.model, entryDate: entry.entryDate, voice: promptVoice(), calendar: calendar)
 
         AIJobPolicy.recordAttempt(.insights, entry)
         try? save(context, [id])

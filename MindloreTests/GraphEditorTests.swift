@@ -27,7 +27,7 @@ struct GraphEditorTests {
         let entity = Entity(name: "sarah", key: "sarah", kind: .person)
         harness.context.insert(entity)
 
-        #expect(editor.rename(entity, to: "  Sarah Kim  ", in: harness.context) == .applied)
+        #expect(editor.rename(entity, to: "  Sarah Kim  ", in: harness.context).outcome == .applied)
 
         #expect(entity.name == "Sarah Kim")
         #expect(entity.key == "sarah kim")
@@ -39,7 +39,7 @@ struct GraphEditorTests {
     @Test func renamingOntoAnExistingNameReportsTheCollision() throws {
         let (loser, winner) = try twoPeople()
 
-        #expect(editor.rename(loser, to: "Sarah Kim", in: harness.context) == .collides(with: winner.id))
+        #expect(editor.rename(loser, to: "Sarah Kim", in: harness.context).outcome == .collides(with: winner.id))
         #expect(loser.name == "Sarah K", "nothing is applied until the user decides")
     }
 
@@ -49,7 +49,7 @@ struct GraphEditorTests {
     @Test func aForcedRenameAppliesAndKeepsBothEntitiesLiveAndSeparate() throws {
         let (loser, winner) = try twoPeople()
 
-        #expect(editor.rename(loser, to: "Sarah Kim", force: true, in: harness.context) == .applied)
+        #expect(editor.rename(loser, to: "Sarah Kim", force: true, in: harness.context).outcome == .applied)
 
         #expect(loser.name == "Sarah Kim")
         #expect(loser.key == winner.key)
@@ -81,7 +81,7 @@ struct GraphEditorTests {
     @Test func withoutForceACollisionIsUnchanged() throws {
         let (loser, winner) = try twoPeople()
 
-        #expect(editor.rename(loser, to: "Sarah Kim", in: harness.context) == .collides(with: winner.id))
+        #expect(editor.rename(loser, to: "Sarah Kim", in: harness.context).outcome == .collides(with: winner.id))
         #expect(loser.notSameAs.isEmpty)
         #expect(winner.notSameAs.isEmpty)
     }
@@ -90,14 +90,14 @@ struct GraphEditorTests {
         let (loser, winner) = try twoPeople()
         #expect(editor.addAlias("my sister", to: winner, in: harness.context) == .applied)
 
-        #expect(editor.rename(loser, to: "My Sister", in: harness.context) == .collides(with: winner.id))
+        #expect(editor.rename(loser, to: "My Sister", in: harness.context).outcome == .collides(with: winner.id))
     }
 
     @Test func aRenameThatOnlyChangesSpellingIsFine() throws {
         let entity = Entity(name: "sarah kim", key: "sarah kim", kind: .person)
         harness.context.insert(entity)
 
-        #expect(editor.rename(entity, to: "Sarah Kim", in: harness.context) == .applied)
+        #expect(editor.rename(entity, to: "Sarah Kim", in: harness.context).outcome == .applied)
         #expect(entity.name == "Sarah Kim")
     }
 
@@ -105,26 +105,28 @@ struct GraphEditorTests {
         let entity = Entity(name: "Lewis", key: "lewis", kind: .person)
         harness.context.insert(entity)
 
-        #expect(editor.rename(entity, to: "Luis", keepingOldNameAsAlias: true, in: harness.context) == .applied)
+        #expect(editor.rename(entity, to: "Luis", in: harness.context).outcome == .applied)
         #expect(entity.name == "Luis")
         #expect(entity.aliases == ["Lewis"])
 
-        #expect(editor.rename(entity, to: "Luis R", keepingOldNameAsAlias: true, in: harness.context) == .applied)
+        #expect(editor.rename(entity, to: "Luis R", in: harness.context).outcome == .applied)
         #expect(entity.aliases == ["Lewis", "Luis"], "the alias from the first rename survives the second")
     }
 
-    @Test func renamingWithoutTheFlagAddsNoAlias() throws {
+    // A8: the old spelling is always kept, since it is what lets the entries that say it still
+    // resolve here, and it is why the entry's own text never has to be edited.
+    @Test func renamingAlwaysKeepsTheOldNameAsAnAlias() throws {
         let entity = Entity(name: "Lewis", key: "lewis", kind: .person)
         harness.context.insert(entity)
 
-        #expect(editor.rename(entity, to: "Luis", in: harness.context) == .applied)
-        #expect(entity.aliases.isEmpty)
+        #expect(editor.rename(entity, to: "Luis", in: harness.context).outcome == .applied)
+        #expect(entity.aliases == ["Lewis"])
     }
 
     @Test func keepingTheOldNameStillReportsACollision() throws {
         let (loser, winner) = try twoPeople()
 
-        #expect(editor.rename(loser, to: "Sarah Kim", keepingOldNameAsAlias: true, in: harness.context) == .collides(with: winner.id))
+        #expect(editor.rename(loser, to: "Sarah Kim", in: harness.context).outcome == .collides(with: winner.id))
         #expect(loser.name == "Sarah K", "nothing is applied, alias included, until the user decides")
         #expect(loser.aliases.isEmpty)
     }
@@ -133,7 +135,7 @@ struct GraphEditorTests {
         let entity = Entity(name: "sarah kim", key: "sarah kim", kind: .person)
         harness.context.insert(entity)
 
-        #expect(editor.rename(entity, to: "Sarah Kim", keepingOldNameAsAlias: true, in: harness.context) == .applied)
+        #expect(editor.rename(entity, to: "Sarah Kim", in: harness.context).outcome == .applied)
         #expect(entity.aliases.isEmpty, "the old spelling and the new one are the same key")
     }
 

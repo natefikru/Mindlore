@@ -4,22 +4,22 @@ import Testing
 
 struct JournalFilterTests {
     @Test func noAreaKeepsEverything() {
-        #expect(JournalFilter.matches(areasRaw: [], area: nil))
-        #expect(JournalFilter.matches(areasRaw: ["work"], area: nil))
+        #expect(JournalFilter.matches(areasRaw: [], areas: []))
+        #expect(JournalFilter.matches(areasRaw: ["work"], areas: []))
     }
 
     @Test func anAreaKeepsOnlyEntriesFiledUnderIt() {
-        #expect(JournalFilter.matches(areasRaw: ["work", "money"], area: .money))
-        #expect(!JournalFilter.matches(areasRaw: ["work"], area: .money))
-        #expect(!JournalFilter.matches(areasRaw: [], area: .money))
+        #expect(JournalFilter.matches(areasRaw: ["work", "money"], areas: [.money]))
+        #expect(!JournalFilter.matches(areasRaw: ["work"], areas: [.money]))
+        #expect(!JournalFilter.matches(areasRaw: [], areas: [.money]))
         // A value the enum no longer knows never matches anything.
-        #expect(!JournalFilter.matches(areasRaw: ["theme"], area: .mind))
+        #expect(!JournalFilter.matches(areasRaw: ["theme"], areas: [.mind]))
     }
 
     @Test func aHiddenAreaStopsFiltering() {
-        #expect(JournalFilter.active(.love, hidden: []) == .love)
-        #expect(JournalFilter.active(.love, hidden: ["love"]) == nil)
-        #expect(JournalFilter.active(nil, hidden: []) == nil)
+        #expect(JournalFilter.active([.love], hidden: []) == [.love])
+        #expect(JournalFilter.active([.love], hidden: ["love"]).isEmpty)
+        #expect(JournalFilter.active([], hidden: []).isEmpty)
     }
 
     @Test func offeredAreasAreUsedVisibleAndInOrder() {

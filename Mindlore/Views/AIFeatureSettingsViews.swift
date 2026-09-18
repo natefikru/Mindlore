@@ -359,7 +359,7 @@ private struct CustomPromptEditor: View {
                         .accessibilityIdentifier("customPromptNameField")
                 }
                 Section {
-                    TextField("What is the writer grateful for?", text: $prompt.instructions, axis: .vertical)
+                    TextField("What am I grateful for?", text: $prompt.instructions, axis: .vertical)
                         .lineLimit(3...8)
                         .accessibilityIdentifier("customPromptInstructionsField")
                 } header: {

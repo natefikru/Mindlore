@@ -78,6 +78,10 @@ struct AISettingsView: View {
                     LabeledContent("Insights", value: settings.insightsTrigger == .automatic ? "Automatic" : "When I ask")
                 }
                 .accessibilityIdentifier("insightsSettingsLink")
+                NavigationLink { JournalVoiceSettingsView() } label: {
+                    LabeledContent("How AI writes about you", value: settings.journalVoice.settingsName)
+                }
+                .accessibilityIdentifier("journalVoiceSettingsLink")
             } header: {
                 Text("What AI does")
             }

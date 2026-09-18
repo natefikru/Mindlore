@@ -34,6 +34,8 @@ final class SettingsStore {
         static let customInsightPrompts = "customInsightPrompts"
         static let lifeAreaNames = "lifeAreaNames"
         static let hiddenLifeAreas = "hiddenLifeAreas"
+        static let journalVoice = "journalVoice"
+        static let userName = "userName"
     }
 
     @ObservationIgnored private let store: any KeyValueStore
@@ -184,6 +186,24 @@ final class SettingsStore {
         didSet { writeJSON(hiddenLifeAreas, Key.hiddenLifeAreas) }
     }
 
+    var journalVoice: JournalVoice { didSet { write(journalVoice.rawValue, Key.journalVoice, logged: .string(journalVoice.rawValue)) } }
+
+    // The user's own name, so only the change is logged, never the value. It reaches the AI
+    // provider in a prompt only under the name voice; the other two have no use for it.
+    private(set) var userName: String {
+        didSet { writeJSON(userName, Key.userName) }
+    }
+
+    func setUserName(_ name: String) {
+        let trimmed = String(name.trimmingCharacters(in: .whitespacesAndNewlines).prefix(40))
+        guard userName != trimmed else { return }
+        userName = trimmed
+    }
+
+    var promptVoice: PromptVoice {
+        PromptVoice(voice: journalVoice, name: userName)
+    }
+
     func name(of area: LifeArea) -> String {
         let custom = lifeAreaNames[area.rawValue]?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         return custom.isEmpty ? area.defaultName : custom
@@ -259,6 +279,8 @@ final class SettingsStore {
         customInsightPrompts = json(Key.customInsightPrompts, [])
         lifeAreaNames = json(Key.lifeAreaNames, [:])
         hiddenLifeAreas = json(Key.hiddenLifeAreas, [])
+        journalVoice = string(Key.journalVoice).flatMap(JournalVoice.init(rawValue:)) ?? .first
+        userName = json(Key.userName, "")
     }
 
     // Called once per launch. Entries created before this moment never get an automatic AI pass.

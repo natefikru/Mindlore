@@ -224,6 +224,9 @@ struct AIDiagnosticsPrivacyTests {
         let insights = InsightsCoordinator(
             resolve: { .success(.init(generator: generator, model: "m", label: "openai:m")) },
             sections: { AIServices.insightSections(settings) },
+            // The user's own name goes into the system prompt under the name voice, so it runs
+            // through a real pass here to prove it never reaches the log.
+            promptVoice: { PromptVoice(voice: .name, name: sentinel) },
             autoApplyCleanedText: { false },
             presence: EditorPresence(),
             diagnostics: log
@@ -277,6 +280,20 @@ struct AIDiagnosticsPrivacyTests {
         editor.merge(second, into: first, in: context)
         editor.unmerge(second, in: context)
         editor.repoint(named, to: second, addingAlias: true, in: context)
+        // The phone's own world: a contact identifier is not a name, but it identifies a person,
+        // so only our own entity id is ever logged.
+        let personForContact = Entity(name: "Contact \(sentinel)", key: "contact", kind: .person)
+        context.insert(personForContact)
+        try context.save()
+        editor.linkContact(personForContact, identifier: "CN-\(sentinel)", in: context)
+        editor.unlinkContact(personForContact, in: context)
+        // A coordinate is personal data in its own right, so a linked place logs a bool.
+        let placeForMap = Entity(name: "Place \(sentinel)", key: "place", kind: .place)
+        context.insert(placeForMap)
+        try context.save()
+        editor.linkPlace(placeForMap, identifier: "MAPS-\(sentinel)", coordinate: PlaceCoordinate(latitude: 47.6062, longitude: -122.3321), in: context)
+        editor.unlinkPlace(placeForMap, in: context)
+        log.record("graph.contactAccess", ["status": .string(ContactAccess.denied.rawValue)])
         _ = graph.vocabulary(in: context)
         graph.sweep(in: context)
 
@@ -324,7 +341,9 @@ struct AIDiagnosticsPrivacyTests {
         for event in ["graph.indexed", "graph.entityEdited", "graph.hidden", "graph.suggestionDismissed",
                       "graph.merged", "graph.unmerged", "graph.repointed", "graph.rendered",
                       "mind.reviewAnswered", "mind.focused", "mind.filtersChanged",
-                      "mind.lensChanged", "mind.replayed", "mind.entryOpened"] {
+                      "mind.lensChanged", "mind.replayed", "mind.entryOpened",
+                      "graph.renameRewrote", "graph.contactLinked", "graph.contactUnlinked",
+                      "graph.placeLinked", "graph.placeUnlinked", "graph.contactAccess"] {
             #expect(contents.contains(event), "\(event) was never exercised")
         }
         #expect(contents.contains("title.failed"))

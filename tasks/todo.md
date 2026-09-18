@@ -661,37 +661,37 @@ first three are the ones with real design behind them. This phase gets its own b
 (`tasks/a8-polish-spec.md`) and can run in a worktree beside A7.
 
 **People and places meet the phone**
-- [ ] **Contacts.** Link a person entity to a `CNContact` and show its photo on the peek card and
+- [x] **Contacts.** Link a person entity to a `CNContact` and show its photo on the peek card and
       the entity page. Read-only, asks for permission the first time, and stores the contact's
       identifier on `Entity` (never a copy of the contact's details). An unmatched person still
       works exactly as it does now.
-- [ ] **Places.** Link a place entity to a real location (`MKLocalSearch`), show a small map
+- [x] **Places.** Link a place entity to a real location (`MKLocalSearch`), show a small map
       preview on the peek card, and open Apple Maps from the entity page. Stores coordinates and
       a place identifier only.
 
 **The graph tells the truth after a rename**
-- [ ] **Rename carries through the app's own words.** Renaming an entity keeps the old spelling
+- [x] **Rename carries through the app's own words.** Renaming an entity keeps the old spelling
       as an alias (so the old name still matches and still resolves) and replaces it wherever the
       app wrote it itself: bios, summaries, and loose-end text. **Entries are never edited.** What
       the user wrote stays as written, and a misheard name still reads as it was said, while the
       name tapped in read mode resolves through the alias to the renamed entity.
 
 **The model's manners**
-- [ ] **Loose ends are commitments.** Tighten the bar: a plan to make or a task to do, worth
+- [x] **Loose ends are commitments.** Tighten the bar: a plan to make or a task to do, worth
       keeping for days or weeks. "Grab coffee after this" is not one. The prompt says so, with
       examples of both, and `OpenAILiveTests` checks it.
-- [ ] **First person.** AI text ("the writer") becomes the user's own voice. A setting picks
+- [x] **First person.** AI text ("the writer") becomes the user's own voice. A setting picks
       I, you, or the user's name, and the journal learns the name (a Settings field, used in
       prompts). Covers summaries, bios, and loose ends.
 
 **The journal reads like a journal**
-- [ ] **Notes-app grouping.** Group the list: Recent, Yesterday, This week, then months by name,
+- [x] **Notes-app grouping.** Group the list: Recent, Yesterday, This week, then months by name,
       then years by number. Shorter rows.
-- [ ] **Multi-select areas.** The area filter takes more than one area; an entry matching any of
+- [x] **Multi-select areas.** The area filter takes more than one area; an entry matching any of
       them shows.
-- [ ] **"Decline"** replaces "Not now" on the text cleanup card.
+- [x] **"Decline"** replaces "Not now" on the text cleanup card.
 
-- [ ] Tests, device step, and a review, as every phase.
+- [x] Tests and a review. The device step is the one thing still open.
 
 ### A9: 3D spike
 - [ ] `Mind3DSpikeView` (Debug only) with the 3D engine variant.
@@ -1056,3 +1056,62 @@ A7 (2026-09-18, build spec in `tasks/a7-ask-spec.md`, PR #7 into `feature/phase-
 
 Owner answers after revision 1 (2026-09-17): the tab is Mind, a fresh install is fine, and Ask
 keeps saved conversations and opens a new one by default. Folded in above.
+
+A8 (2026-09-18, build spec in `tasks/a8-polish-spec.md`):
+
+- Spec review came back "rework", and two of its findings were real bugs in the plan:
+  - `NameMatching` is a whole-*word* matcher, not a whole-*name* one, and it ignores case. Handing
+    its ranges straight to a replacement would have turned "Sarah Jane" into "Sarah Chen Jane" and
+    rewritten the verb in "make your mark" for anyone named Mark.
+  - The rewrite would have stamped `updatedAt` on every entry it touched, since writing through
+    `EntryInsights` puts the owning `Entry` into `changedModelsArray`. It now saves through the
+    exempting path merges already use.
+  - Also settled there: the contacts permission story (the no-permission picker grants no ongoing
+    read access, which a live-fetched photo needs), and the loose-end guidance edit was citing a
+    line range that would have deleted the handle mechanics it promised to leave alone.
+- Owner decisions (2026-09-18): titles and custom card content join the rewrite, the conservative
+  match rule stands, the "keep the old name" toggle is dropped so the alias is always kept, and
+  first person is the default voice.
+- **Voice.** `PromptVoice` appends one instruction to the insights and bio prompts. A prompt has to
+  separate who the instruction is *about* from what person the output is *written in*, or it
+  contradicts itself: "the strongest mood I express" makes the model the speaker. So every prompt
+  calls the owner "the author" and the voice line says how to write about them. The name is sent
+  only under the name voice. All fourteen "the writer" strings are gone, including the
+  custom-prompt placeholder and the stub bio every UI test renders.
+- **Loose ends.** Only the bar itself (214-220) changed; the entry-date sentence and handle block
+  are untouched.
+- **Rename.** Five fields are rewritten: bios, summaries, generated titles, custom card content,
+  and loose ends. Never entry text, `originalText`, `cleanedText`, `sourceTextHash`, an
+  `EntityLink` surface, a hand-edited bio, or a title the user typed.
+- Deviations from the spec, all from the code review:
+  - The matching rule needed a third guard the spec didn't anticipate. Skipping on a capital alone
+    treated "Told" in "Told Sarah about it" as a surname and left almost every real occurrence
+    untouched, so the guard reads sentence position. Then exact case turned out not to cover names
+    that are ordinary words *already capitalized* (April, Grace, Will, May), so a rewrite now also
+    needs evidence that the entry wrote that spelling for that entity, and tags are never
+    rewritten at all.
+  - The peek card's 220pt detent held, but a simulator screenshot showed the avatar and the Open
+    button squeezing the details line into three wrapped lines, so the details moved to full width
+    under the head.
+  - `EntityPagePresentation.hasVoiceSourcedLink` and its test were deleted with the rename toggle.
+- Code review (6 findings), all fixed in one commit:
+  - **The spec's own concurrency fix didn't work.** `SWIFT_APPROACHABLE_CONCURRENCY` enables
+    `NonisolatedNonsendingByDefault`, so a `nonisolated async` function runs on the caller's
+    actor. Marking the directory protocols `nonisolated` removed the annotation, not the
+    isolation, and `CNContactStore`'s blocking fetch still ran on the main actor once per card
+    render. Everything is `@concurrent` now.
+  - Capitalized common-word names (above).
+  - An organization key the spec ruled out; `graph.contactAccess` specced but never implemented;
+    no privacy test for the user's name; both picker sheets searching twice on open.
+- Tests: 1024 unit tests pass (861 at the base), plus 9 live OpenAI tests. The two new live ones
+  earn their keep: against gpt-5.6-luna the tightened bar kept one loose end out of three
+  candidates ("Call my landlord about renewing the lease before it ends in April") and dropped
+  grabbing coffee and thinking more about the move; the voice test gave "I met Sarah for coffee on
+  Main Street and talked about my move to Denver" and "Nate met Sarah at the coffee place".
+- Sectioning the list broke three UI tests that counted `app.cells`, since a section header is a
+  cell too. They count cells containing `entryRow` now.
+- Merged `feature/phase-a` (A7 Ask) in; one conflict in `RootView.swift` where both lanes added a
+  property.
+- **Still open: the device step.** Contacts and places have no UI test on purpose, since the
+  simulator gives neither an honest permission prompt nor real search results, so the phone is the
+  only place they are proven. PR #8 stays draft until it runs.

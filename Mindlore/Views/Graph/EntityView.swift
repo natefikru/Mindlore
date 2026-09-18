@@ -1,3 +1,4 @@
+import MapKit
 import SwiftData
 import SwiftUI
 
@@ -54,6 +55,7 @@ private struct EntityPage: View {
     @Environment(AppRouter.self) private var router
     @Environment(SettingsStore.self) private var settings
     @Environment(ProviderAccountStore.self) private var accounts
+    @Environment(\.contactDirectory) private var contacts
     @Query private var matches: [Entity]
     @Query private var links: [EntityLink]
     @Query private var entities: [Entity]
@@ -62,6 +64,10 @@ private struct EntityPage: View {
     @State private var looseEndSplit = LooseEndSplit()
     @State private var editingBio = false
     @State private var renaming = false
+    @State private var pickingContact = false
+    @State private var pickingPlace = false
+    @State private var linkedContact: ContactMatch?
+    @State private var contactLookedUp = false
     @State private var addingAlias = false
     @State private var draftText = ""
     @State private var merging = false
@@ -90,6 +96,12 @@ private struct EntityPage: View {
                 }
                 about(entity)
                 looseEndsSection
+                if entity.kind == .person, !entity.isMerged {
+                    contactSection(entity)
+                }
+                if entity.kind == .place, !entity.isMerged {
+                    placeSection(entity)
+                }
                 aliasesSection(entity)
                 entriesSection
                 mentionedWithSection
@@ -126,9 +138,21 @@ private struct EntityPage: View {
             .sheet(item: $previewingRow) { row in
                 EntryPreview(entryID: row.id)
             }
+            .sheet(isPresented: $pickingPlace) {
+                PlacePickerSheet(entityName: entity.name) { match in
+                    apply { graph.linkPlace(id, identifier: match.identifier, coordinate: match.coordinate, in: modelContext) }
+                }
+            }
+            .sheet(isPresented: $pickingContact) {
+                ContactPickerSheet(entityName: entity.name) { match in
+                    apply { graph.linkContact(id, identifier: match.identifier, in: modelContext) }
+                    linkedContact = match
+                    contactLookedUp = true
+                }
+            }
             .sheet(isPresented: $renaming) {
-                RenameEntitySheet(initial: entity.name, kind: entity.kind, defaultsToKeepingOldName: hasVoiceSourcedLink) { name, keepOldName in
-                    applyForcible { force in graph.rename(id, to: name, keepingOldNameAsAlias: keepOldName, force: force, in: modelContext) }
+                RenameEntitySheet(initial: entity.name, kind: entity.kind, rewrites: graph.renamePreview(id, in: modelContext)) { name in
+                    applyForcible { force in graph.rename(id, to: name, force: force, in: modelContext) }
                 }
             }
             .alert("Add another name", isPresented: $addingAlias) {
@@ -205,7 +229,9 @@ private struct EntityPage: View {
                 }
                 .accessibilityIdentifier("entitySpellingPrompt")
             }
-            VStack(alignment: .leading, spacing: 4) {
+            HStack(alignment: .top, spacing: 12) {
+                EntityAvatar(kind: entity.kind, contactIdentifier: entity.contactIdentifier, place: entity.placeCoordinate, size: 52)
+                VStack(alignment: .leading, spacing: 4) {
                 Text(EntityPagePresentation.mentionSummary(count: entity.linkCount))
                 if let range = EntityPagePresentation.dateRange(first: entity.firstLinkedAt, last: entity.lastLinkedAt) {
                     Text(range)
@@ -217,6 +243,8 @@ private struct EntityPage: View {
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                 }
+                }
+                Spacer(minLength: 0)
             }
             .accessibilityElement(children: .combine)
             if !entity.isMerged {
@@ -256,6 +284,95 @@ private struct EntityPage: View {
                 graph.unmerge(id, in: modelContext)
             }
             .accessibilityIdentifier("entityUnmerge")
+        }
+    }
+
+    // Where this place actually is, with a handoff to Apple Maps. The preview is drawn from the
+    // coordinate every time rather than stored.
+    @ViewBuilder
+    private func placeSection(_ entity: Entity) -> some View {
+        Section {
+            if let coordinate = entity.placeCoordinate {
+                PlaceMapPreview(coordinate: coordinate)
+                    .frame(height: 140)
+                    .listRowInsets(EdgeInsets())
+                    .accessibilityIdentifier("entityPlaceMap")
+                Button {
+                    Task {
+                        let item = await MKPlaceDirectory.mapItem(
+                            identifier: entity.placeIdentifier,
+                            coordinate: coordinate,
+                            name: entity.name
+                        )
+                        item.openInMaps()
+                    }
+                } label: {
+                    Label("Open in Apple Maps", systemImage: "map")
+                }
+                .accessibilityIdentifier("entityPlaceOpenMaps")
+                Button("Unlink", role: .destructive) {
+                    apply { graph.unlinkPlace(entity.id, in: modelContext) }
+                }
+                .accessibilityIdentifier("entityPlaceUnlink")
+            } else {
+                Button {
+                    pickingPlace = true
+                } label: {
+                    Label("Find this place", systemImage: "mappin.and.ellipse")
+                }
+                .accessibilityIdentifier("entityPlaceLink")
+            }
+        } header: {
+            Text("Place")
+        } footer: {
+            if entity.placeCoordinate == nil {
+                Text("Shows a map here and on its card, and opens it in Apple Maps.")
+            }
+        }
+    }
+
+    // Read-only, and only ever what the user picked. The name and photo are read live from
+    // Contacts, so nothing about the contact is stored here but its identifier.
+    @ViewBuilder
+    private func contactSection(_ entity: Entity) -> some View {
+        Section {
+            if let identifier = entity.contactIdentifier {
+                if let linkedContact {
+                    LabeledContent("Contact", value: linkedContact.name)
+                        .accessibilityIdentifier("entityContactName")
+                } else if contactLookedUp {
+                    // Deleted from the phone, or access was narrowed since it was linked. The
+                    // identifier is kept either way: granting access again brings it back.
+                    Label("Mindlore can't read this contact", systemImage: "person.crop.circle.badge.questionmark")
+                        .foregroundStyle(.secondary)
+                        .accessibilityIdentifier("entityContactUnreadable")
+                } else {
+                    ProgressView()
+                }
+                Button("Unlink", role: .destructive) {
+                    apply { graph.unlinkContact(entity.id, in: modelContext) }
+                    linkedContact = nil
+                }
+                .accessibilityIdentifier("entityContactUnlink")
+                .task(id: identifier) {
+                    contactLookedUp = false
+                    linkedContact = await contacts.contact(identifier)
+                    contactLookedUp = true
+                }
+            } else {
+                Button {
+                    pickingContact = true
+                } label: {
+                    Label("Link to a contact", systemImage: "person.crop.circle.badge.plus")
+                }
+                .accessibilityIdentifier("entityContactLink")
+            }
+        } header: {
+            Text("Contact")
+        } footer: {
+            if entity.contactIdentifier == nil {
+                Text("Shows their photo here and on their card. Mindlore reads only the contact you pick.")
+            }
         }
     }
 
@@ -568,10 +685,6 @@ private struct EntityPage: View {
     }
 
     // Whether to default the rename sheet's "keep the old name" toggle on.
-    private var hasVoiceSourcedLink: Bool {
-        EntityPagePresentation.hasVoiceSourcedLink(sources: linkedEntries.map(\.source))
-    }
-
     // Links by id, one fetch filtered in memory, never through a relationship.
     private var linkedEntries: [Entry] {
         let ids = Set(links.filter { $0.entityID == id && !$0.isDeleted }.compactMap(\.entryID))
@@ -637,26 +750,28 @@ private struct BioEditorSheet: View {
     }
 }
 
-// A sheet, not an alert: a `Toggle` doesn't render inside `.alert`'s action builder, which is
-// backed by UIAlertController and only really supports buttons and text fields.
+// A sheet, not an alert: the rewrite warning doesn't render inside `.alert`'s action builder,
+// which is backed by UIAlertController and only really supports buttons and text fields.
 private struct RenameEntitySheet: View {
     @Environment(\.dismiss) private var dismiss
     @State private var name: String
-    @State private var keepOldName: Bool
     let initial: String
     let kind: EntityKind
-    let onSave: (String, Bool) -> Void
+    // What the app would rewrite. Counted off the old name when the sheet opened, so it doesn't
+    // change as the user types and doesn't walk the store on every keystroke.
+    let rewrites: EntityProseRewriter.Counts
+    let onSave: (String) -> Void
 
-    init(initial: String, kind: EntityKind, defaultsToKeepingOldName: Bool, onSave: @escaping (String, Bool) -> Void) {
+    init(initial: String, kind: EntityKind, rewrites: EntityProseRewriter.Counts, onSave: @escaping (String) -> Void) {
         self.initial = initial
         self.kind = kind
+        self.rewrites = rewrites
         _name = State(initialValue: initial)
-        _keepOldName = State(initialValue: defaultsToKeepingOldName)
         self.onSave = onSave
     }
 
-    // The same key comparison GraphEditor.rename itself uses to decide whether to add the alias,
-    // so the toggle never offers to keep a name that a spelling-only change wouldn't actually add.
+    // The same key comparison GraphEditor.rename uses to decide whether the old name is worth
+    // keeping, so the note never promises an alias a spelling-only change wouldn't add.
     private var changesKey: Bool {
         EntityNormalizer.key(for: name, kind: kind) != EntityNormalizer.key(for: initial, kind: kind)
     }
@@ -664,11 +779,16 @@ private struct RenameEntitySheet: View {
     var body: some View {
         NavigationStack {
             Form {
-                TextField("Name", text: $name)
-                    .accessibilityIdentifier("entityRenameField")
-                if changesKey {
-                    Toggle("Keep \"\(initial)\" as another name", isOn: $keepOldName)
-                        .accessibilityIdentifier("entityRenameKeepOldName")
+                Section {
+                    TextField("Name", text: $name)
+                        .accessibilityIdentifier("entityRenameField")
+                } footer: {
+                    if changesKey {
+                        // "Up to": a background insights pass or bio draft can land while this
+                        // sheet is open. What actually changed is counted again at save.
+                        Text(footer)
+                            .accessibilityIdentifier("entityRenameFooter")
+                    }
                 }
             }
             .navigationTitle("Rename")
@@ -679,7 +799,7 @@ private struct RenameEntitySheet: View {
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Save") {
-                        onSave(name, keepOldName)
+                        onSave(name)
                         dismiss()
                     }
                     .accessibilityIdentifier("entityRenameSave")
@@ -687,6 +807,13 @@ private struct RenameEntitySheet: View {
             }
         }
         .presentationDetents([.medium])
+    }
+
+    private var footer: String {
+        let kept = "\"\(initial)\" is kept as another name, so entries that say it still point here. Your entries are never changed."
+        guard rewrites.total > 0 else { return kept }
+        let things = rewrites.total == 1 ? "1 thing" : "\(rewrites.total) things"
+        return kept + " Also updates up to \(things) the app wrote about them."
     }
 }
 

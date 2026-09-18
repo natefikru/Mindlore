@@ -25,12 +25,6 @@ struct EntityPagePresentationTests {
         #expect(P.resolve(EntityRoute(id: a, follow: false), exists: false, mergedIntoID: b) == .gone)
     }
 
-    @Test func hasVoiceSourcedLinkIsTrueWithAnyVoiceEntry() {
-        #expect(P.hasVoiceSourcedLink(sources: [.typed, .voice]))
-        #expect(!P.hasVoiceSourcedLink(sources: [.typed, .photo]))
-        #expect(!P.hasVoiceSourcedLink(sources: []))
-    }
-
     @Test func showsSpellingPromptOnlyForAFreshUnconfirmedMentionKind() {
         #expect(P.showsSpellingPrompt(confirmedByUser: false, linkCount: 1, kind: .person))
         #expect(P.showsSpellingPrompt(confirmedByUser: false, linkCount: 0, kind: .place))

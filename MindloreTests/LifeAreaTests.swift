@@ -16,8 +16,8 @@ struct LifeAreaTests {
         let properties = try #require(json["properties"] as? [String: [String: Any]])
         let items = try #require(properties["lifeAreas"]?["items"] as? [String: Any])
         #expect(items["enum"] as? [String] == LifeArea.allCases.map(\.rawValue))
-        #expect(plan.request.system.contains("- home: where the writer lives"))
-        #expect(plan.request.system.contains("Pick mind only when the entry is about the writer's inner life itself"))
+        #expect(plan.request.system.contains("- home: where the author lives"))
+        #expect(plan.request.system.contains("Pick mind only when the entry is about the author's inner life itself"))
         #expect(plan.request.system.contains("add a second only when the entry is clearly about both"))
     }
 

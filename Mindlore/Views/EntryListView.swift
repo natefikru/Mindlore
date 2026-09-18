@@ -13,7 +13,7 @@ struct EntryListView: View {
     @State private var showingSettings = false
     @State private var pageOrder: PageOrderTarget?
     @State private var insightsEntry: Entry?
-    @State private var pickedArea: LifeArea?
+    @State private var pickedAreas: Set<LifeArea> = []
     @Environment(RecordingSession.self) private var recording
     @Environment(InsightsCoordinator.self) private var insightsCoordinator
 
@@ -38,33 +38,15 @@ struct EntryListView: View {
                         .listRowInsets(EdgeInsets())
                         .listRowBackground(Color.clear)
                 }
-                ForEach(shownEntries) { entry in
-                    // Pages still being gathered reopen the page screen, not the editor.
-                    if entry.isAwaitingPageConfirmation {
-                        Button {
-                            pageOrder = .existing(entry)
-                        } label: {
-                            EntryRow(entry: entry, isAnalyzing: isAnalyzing(entry))
+                ForEach(groupedEntries, id: \.group) { section in
+                    Section(JournalGroups.title(section.group)) {
+                        ForEach(section.entries) { entry in
+                            row(entry, in: section.group)
                         }
-                        .foregroundStyle(.primary)
-                    } else {
-                        NavigationLink(value: JournalRoute(
-                            entryID: entry.id,
-                            opensForReading: EntryReadMode.opensForReading(entry, automationStartedAt: settings.automationStartedAt)
-                        )) {
-                            EntryRow(entry: entry, isAnalyzing: isAnalyzing(entry))
-                        }
-                        .contextMenu {
-                            Button("Insights", systemImage: "sparkles") { insightsEntry = entry }
-                            if InsightsCoordinator.canRunAI(on: entry) {
-                                Button("Run AI", systemImage: "arrow.clockwise") {
-                                    Task { await insightsCoordinator.runAI(for: entry, context: modelContext) }
-                                }
-                            }
-                        }
+                        // A section's swipe gives an offset into that section, not the flat list.
+                        .onDelete { offsets in delete(offsets, in: section.entries) }
                     }
                 }
-                .onDelete(perform: delete)
             }
             .overlay {
                 if entries.isEmpty {
@@ -73,11 +55,14 @@ struct EntryListView: View {
                         systemImage: "book.closed",
                         description: Text("Tap the microphone to speak an entry, or the pencil to write one.")
                     )
-                } else if shownEntries.isEmpty, let area = activeArea {
+                } else if shownEntries.isEmpty, !activeAreas.isEmpty {
                     ContentUnavailableView {
-                        Label("Nothing in \(settings.name(of: area))", systemImage: area.symbol)
+                        Label(
+                            JournalFilter.emptyStateTitle(orderedActiveAreas.map { settings.name(of: $0) }),
+                            systemImage: orderedActiveAreas.first?.symbol ?? "line.3.horizontal.decrease"
+                        )
                     } actions: {
-                        Button("Show all entries") { pickedArea = nil }
+                        Button("Show all entries") { pickedAreas = [] }
                     }
                 }
             }
@@ -120,11 +105,39 @@ struct EntryListView: View {
                 router.setCover("pageOrder", open: open)
             }
             .onChange(of: settings.hiddenLifeAreas) {
-                if JournalFilter.active(pickedArea, hidden: settings.hiddenLifeAreas) == nil { pickedArea = nil }
+                pickedAreas = JournalFilter.active(pickedAreas, hidden: settings.hiddenLifeAreas)
             }
             .onChange(of: router.dismissPresentationsToken) {
                 showingSettings = false
                 insightsEntry = nil
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func row(_ entry: Entry, in group: JournalGroup) -> some View {
+        // Pages still being gathered reopen the page screen, not the editor.
+        if entry.isAwaitingPageConfirmation {
+            Button {
+                pageOrder = .existing(entry)
+            } label: {
+                EntryRow(entry: entry, isAnalyzing: isAnalyzing(entry), group: group)
+            }
+            .foregroundStyle(.primary)
+        } else {
+            NavigationLink(value: JournalRoute(
+                entryID: entry.id,
+                opensForReading: EntryReadMode.opensForReading(entry, automationStartedAt: settings.automationStartedAt)
+            )) {
+                EntryRow(entry: entry, isAnalyzing: isAnalyzing(entry), group: group)
+            }
+            .contextMenu {
+                Button("Insights", systemImage: "sparkles") { insightsEntry = entry }
+                if InsightsCoordinator.canRunAI(on: entry) {
+                    Button("Run AI", systemImage: "arrow.clockwise") {
+                        Task { await insightsCoordinator.runAI(for: entry, context: modelContext) }
+                    }
+                }
             }
         }
     }
@@ -134,13 +147,29 @@ struct EntryListView: View {
             .accessibilityIdentifier("newEntryButton")
     }
 
-    private var activeArea: LifeArea? {
-        JournalFilter.active(pickedArea, hidden: settings.hiddenLifeAreas)
+    private var activeAreas: Set<LifeArea> {
+        JournalFilter.active(pickedAreas, hidden: settings.hiddenLifeAreas)
+    }
+
+    // In the fixed case order, so the empty state reads the same way twice.
+    private var orderedActiveAreas: [LifeArea] {
+        LifeArea.allCases.filter { activeAreas.contains($0) }
     }
 
     private var shownEntries: [Entry] {
-        guard let area = activeArea else { return entries }
-        return entries.filter { JournalFilter.matches(areasRaw: $0.insights?.areasRaw ?? [], area: area) }
+        let areas = activeAreas
+        guard !areas.isEmpty else { return entries }
+        return entries.filter { JournalFilter.matches(areasRaw: $0.insights?.areasRaw ?? [], areas: areas) }
+    }
+
+    // The query is already newest first, so the groups come out in order with no re-sorting.
+    private var groupedEntries: [(group: JournalGroup, entries: [Entry])] {
+        let shown = shownEntries
+        let byID = Dictionary(shown.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        let dated = shown.map { JournalGroups.Dated(id: $0.id, date: $0.entryDate) }
+        return JournalGroups.build(dated, now: .now).map { section in
+            (section.group, section.ids.compactMap { byID[$0] })
+        }
     }
 
     private var offeredAreas: [LifeArea] {
@@ -151,9 +180,9 @@ struct EntryListView: View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 8) {
                 ForEach(offeredAreas, id: \.self) { area in
-                    let selected = activeArea == area
+                    let selected = activeAreas.contains(area)
                     Button {
-                        pickedArea = selected ? nil : area
+                        if selected { pickedAreas.remove(area) } else { pickedAreas.insert(area) }
                     } label: {
                         Label {
                             Text(settings.name(of: area))
@@ -183,11 +212,12 @@ struct EntryListView: View {
         insightsCoordinator.isRunning(entry) || entry.insightsPending || entry.titlePending
     }
 
-    private func delete(at offsets: IndexSet) {
-        let shown = shownEntries
-        for index in offsets {
-            DiagnosticsLog.shared.record("entry.deleted", ["id": .id(shown[index].id), "reason": "swipe"])
-            Entry.delete(shown[index], in: modelContext)
+    private func delete(_ offsets: IndexSet, in sectionEntries: [Entry]) {
+        let byID = Dictionary(sectionEntries.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        let ids = JournalGroups.ids(at: offsets, in: sectionEntries.map(\.id))
+        for entry in ids.compactMap({ byID[$0] }) {
+            DiagnosticsLog.shared.record("entry.deleted", ["id": .id(entry.id), "reason": "swipe"])
+            Entry.delete(entry, in: modelContext)
         }
         // Flush first so the cascade is real, then recount over what is left: the entry took
         // its links with it, and anything nobody mentions any more goes too.
@@ -217,22 +247,31 @@ private struct JournalEntryDestination: View {
 private struct EntryRow: View {
     let entry: Entry
     var isAnalyzing = false
+    // The section header already says roughly when this was, so the row's date says only what
+    // the header leaves out.
+    var group: JournalGroup?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
+        // Two lines, down from five: the title with its badges, then everything else in one
+        // secondary line.
+        VStack(alignment: .leading, spacing: 2) {
             HStack(spacing: 6) {
                 if entry.source == .voice {
                     Image(systemName: "mic.fill")
+                        .font(.caption)
                         .foregroundStyle(.secondary)
                         .accessibilityLabel("Voice entry")
                 } else if entry.source == .photo {
                     Image(systemName: "doc.text.image")
+                        .font(.caption)
                         .foregroundStyle(.secondary)
                         .accessibilityLabel("Journal pages")
                 }
-                EntryDateText(entry: entry)
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
+                Text(entry.text.isEmpty && entry.title.isEmpty ? "No text yet" : entry.displayTitle)
+                    .font(.headline)
+                    .lineLimit(1)
+                    .foregroundStyle(entry.text.isEmpty && entry.title.isEmpty ? .secondary : .primary)
+                Spacer(minLength: 4)
                 if let status = statusBadge {
                     Text(status)
                         .font(.caption)
@@ -247,6 +286,7 @@ private struct EntryRow: View {
                         ProgressView().controlSize(.mini)
                     }
                     .font(.caption)
+                    .labelStyle(.iconOnly)
                     .foregroundStyle(.secondary)
                     .accessibilityIdentifier("analyzingBadge")
                 } else if let insights = entry.insights {
@@ -256,22 +296,32 @@ private struct EntryRow: View {
                         .accessibilityLabel(insights.isCurrent(for: entry) ? "Has insights" : "Insights out of date")
                 }
             }
-            EntryAddedText(entry: entry)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-            Text(entry.text.isEmpty && entry.title.isEmpty ? "No text yet" : entry.displayTitle)
-                .font(.headline)
-                .lineLimit(1)
-                .foregroundStyle(entry.text.isEmpty && entry.title.isEmpty ? .secondary : .primary)
-            // The preview is skipped when it would just repeat the headline.
-            if let preview, preview != entry.displayTitle {
-                Text(preview)
-                    .lineLimit(2)
-                    .foregroundStyle(.secondary)
+            HStack(spacing: 6) {
+                // Dots rather than a chip row: the areas are worth a glance, not a line.
+                if let areas = entry.insights?.areas, !areas.isEmpty {
+                    HStack(spacing: 3) {
+                        ForEach(areas.prefix(2), id: \.self) { area in
+                            Circle()
+                                .fill(area.color)
+                                .frame(width: 6, height: 6)
+                                .accessibilityLabel(area.defaultName)
+                        }
+                    }
+                }
+                let date = EntryDateText.rowText(entry.entryDate, dayOnly: entry.entryDateIsDayOnly, group: group)
+                if !date.isEmpty {
+                    Text(date)
+                }
+                if let preview, preview != entry.displayTitle {
+                    Text(preview)
+                        .lineLimit(1)
+                }
+                if entry.entryDateDiffersFromCreation() {
+                    EntryAddedText(entry: entry)
+                }
             }
-            if let areas = entry.insights?.areas, !areas.isEmpty {
-                LifeAreaChips(areas: areas)
-            }
+            .font(.caption)
+            .foregroundStyle(.secondary)
         }
         .padding(.vertical, 2)
         .accessibilityIdentifier("entryRow")

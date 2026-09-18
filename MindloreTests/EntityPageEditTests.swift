@@ -73,7 +73,7 @@ struct EntityPageEditTests {
         try harness.entry("Lewis called.", mentions: [("Lewis", .person)])
         let lewis = try harness.entity("Lewis")
 
-        #expect(services.rename(lewis.id, to: "Luis", keepingOldNameAsAlias: true, in: context) == .applied)
+        #expect(services.rename(lewis.id, to: "Luis", in: context) == .applied)
 
         #expect(lewis.name == "Luis")
         #expect(lewis.aliases == ["Lewis"])

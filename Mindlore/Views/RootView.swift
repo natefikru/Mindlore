@@ -15,6 +15,8 @@ struct RootView: View {
     @State private var network = NetworkMonitor()
     @State private var indexing: GraphIndexingProgress?
     @State private var graph: GraphServices
+    private let contacts: any ContactDirectory = CNContactDirectory()
+    private let places: any PlaceDirectory = MKPlaceDirectory()
     @State private var ask: AskService
     @State private var router: AppRouter
     @State private var confirmingDiscard = false
@@ -39,12 +41,14 @@ struct RootView: View {
 
         let graph = GraphServices(
             resolveText: { AIServices.textGenerator(settings: settings, accounts: accounts) },
-            automaticBiosUsable: { AIServices.automaticInsightsUsable(settings: settings, accounts: accounts) }
+            automaticBiosUsable: { AIServices.automaticInsightsUsable(settings: settings, accounts: accounts) },
+            promptVoice: { settings.promptVoice }
         )
         _graph = State(initialValue: graph)
         let insights = InsightsCoordinator(
             resolve: { AIServices.insightsGenerator(settings: settings, accounts: accounts) },
             sections: { AIServices.insightSections(settings) },
+            promptVoice: { settings.promptVoice },
             autoApplyCleanedText: { settings.autoApplyCleanedText },
             autoApplyEntryDate: { settings.autoApplySuggestedEntryDate },
             presence: presence,
@@ -155,6 +159,10 @@ struct RootView: View {
         .environment(ask)
         .environment(router)
         .environment(recording)
+        // The address book, injected like every other boundary: nothing asks for permission
+        // until the user taps a row on a person's page.
+        .environment(\.contactDirectory, contacts)
+        .environment(\.placeDirectory, places)
         .overlay {
             if let indexing {
                 GraphIndexingOverlay(progress: indexing)

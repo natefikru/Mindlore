@@ -24,12 +24,14 @@ final class GraphServices {
 
     @ObservationIgnored private let resolveText: () -> Result<ResolvedTextGenerator, AIJobFailure>
     @ObservationIgnored private let automaticBiosUsable: () -> Bool
+    @ObservationIgnored private let promptVoice: () -> PromptVoice
     @ObservationIgnored private var drafts: [UUID: Task<Void, Never>] = [:]
 
     init(
         diagnostics: DiagnosticsLog = .shared,
         resolveText: @escaping () -> Result<ResolvedTextGenerator, AIJobFailure> = { .failure(AIJobFailure(raw: "settings.aiOff")) },
-        automaticBiosUsable: @escaping () -> Bool = { false }
+        automaticBiosUsable: @escaping () -> Bool = { false },
+        promptVoice: @escaping () -> PromptVoice = { .default }
     ) {
         indexer = GraphIndexer(diagnostics: diagnostics)
         editor = GraphEditor(diagnostics: diagnostics)
@@ -37,6 +39,7 @@ final class GraphServices {
         self.diagnostics = diagnostics
         self.resolveText = resolveText
         self.automaticBiosUsable = automaticBiosUsable
+        self.promptVoice = promptVoice
     }
 
     // MARK: - Edits from a page
@@ -51,9 +54,53 @@ final class GraphServices {
         }
     }
 
+    // Not through `edit`: a rename also fixes the name in the app's own sentences, and rewriting
+    // an entry's summary or title marks that entry changed without it being an edit the user
+    // made. Those entries are exempted so their updatedAt stays where it is.
     @discardableResult
-    func rename(_ entityID: UUID, to name: String, keepingOldNameAsAlias: Bool = false, force: Bool = false, in context: ModelContext) -> GraphEditor.EditOutcome {
-        edit(entityID, in: context) { editor.rename($0, to: name, keepingOldNameAsAlias: keepingOldNameAsAlias, force: force, in: context) }
+    func rename(_ entityID: UUID, to name: String, force: Bool = false, in context: ModelContext) -> GraphEditor.EditOutcome {
+        guard let entity = editor.entity(withID: entityID, in: context) else { return .applied }
+        let result = editor.rename(entity, to: name, force: force, in: context)
+        guard result.outcome == .applied else { return result.outcome }
+
+        let exempt = result.touchedEntryIDs.isEmpty ? [] : Set(
+            ((try? context.fetch(FetchDescriptor<Entry>())) ?? [])
+                .filter { result.touchedEntryIDs.contains($0.id) }
+                .map(\.persistentModelID)
+        )
+        do {
+            try context.saveStampingEntries(except: exempt)
+        } catch {
+            diagnostics.record("graph.saveFailed", ["error": .errorCode(error)])
+        }
+        revision += 1
+        return .applied
+    }
+
+    @discardableResult
+    func linkContact(_ entityID: UUID, identifier: String, in context: ModelContext) -> GraphEditor.EditOutcome {
+        edit(entityID, in: context) { editor.linkContact($0, identifier: identifier, in: context) }
+    }
+
+    @discardableResult
+    func unlinkContact(_ entityID: UUID, in context: ModelContext) -> GraphEditor.EditOutcome {
+        edit(entityID, in: context) { editor.unlinkContact($0, in: context) }
+    }
+
+    @discardableResult
+    func linkPlace(_ entityID: UUID, identifier: String?, coordinate: PlaceCoordinate, in context: ModelContext) -> GraphEditor.EditOutcome {
+        edit(entityID, in: context) { editor.linkPlace($0, identifier: identifier, coordinate: coordinate, in: context) }
+    }
+
+    @discardableResult
+    func unlinkPlace(_ entityID: UUID, in context: ModelContext) -> GraphEditor.EditOutcome {
+        edit(entityID, in: context) { editor.unlinkPlace($0, in: context) }
+    }
+
+    // What a rename would rewrite, for the sheet's warning before it happens.
+    func renamePreview(_ entityID: UUID, in context: ModelContext) -> EntityProseRewriter.Counts {
+        guard let entity = editor.entity(withID: entityID, in: context) else { return .init() }
+        return editor.renamePreview(entity, in: context)
     }
 
     @discardableResult
@@ -530,7 +577,7 @@ final class GraphServices {
     private func startDraft(_ entityID: UUID, using generator: ResolvedTextGenerator, in context: ModelContext) {
         drafting.insert(entityID)
         drafts[entityID] = Task {
-            let outcome = await drafter.draft(entityID: entityID, using: generator, in: context)
+            let outcome = await drafter.draft(entityID: entityID, using: generator, voice: promptVoice(), in: context)
             switch outcome {
             case .failed(let failure): bioFailures[entityID] = failure
             case .noExcerpts: withoutExcerpts.insert(entityID)

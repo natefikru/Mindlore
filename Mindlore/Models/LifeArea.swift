@@ -15,12 +15,12 @@ nonisolated enum LifeArea: String, CaseIterable, Codable, Sendable {
         case .work: "job, school, career, side projects"
         case .money: "spending, saving, debt, bills"
         case .health: "body, sleep, exercise, food, medical"
-        case .mind: "the writer's inner life itself: mental state, self-reflection, growth, faith"
+        case .mind: "the author's inner life itself: mental state, self-reflection, growth, faith"
         case .family: "parents, siblings, kids, relatives"
         case .love: "partner, dating, breakups"
         case .friends: "friendships, social life, community"
         case .play: "hobbies, creative work, travel, rest"
-        case .home: "where the writer lives, moving, chores, the household"
+        case .home: "where the author lives, moving, chores, the household"
         }
     }
 

@@ -41,7 +41,7 @@ nonisolated struct UITestingHTTPClient: HTTPClient {
             json = String(decoding: (try? JSONSerialization.data(withJSONObject: completion)) ?? Data(), as: UTF8.self)
         } else if let body, let text = String(data: body, encoding: .utf8), text.contains(EntityBioDrafter.schemaName) {
             let name = Self.bioName(inRequestBody: text) ?? "Someone"
-            let bio = String(decoding: (try? JSONSerialization.data(withJSONObject: ["bio": "\(name) is a friend the writer walks by the river with."])) ?? Data(), as: UTF8.self)
+            let bio = String(decoding: (try? JSONSerialization.data(withJSONObject: ["bio": "\(name) is a friend I walk by the river with."])) ?? Data(), as: UTF8.self)
             let completion: [String: Any] = ["model": "stub", "choices": [["message": ["content": bio], "finish_reason": "stop"]]]
             json = String(decoding: (try? JSONSerialization.data(withJSONObject: completion)) ?? Data(), as: UTF8.self)
         } else {
