@@ -63,6 +63,24 @@ final class AskUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["entryReadText"].label.contains("river"))
     }
 
+    // The cost line is the one place the app tells you what asking will send, and it is built from
+    // a conditional string. Built as a String rather than Text it rendered its own inflection markup
+    // on screen, and every unit test passed while it did.
+    @MainActor
+    func testTheCostLineReadsLikeASentence() throws {
+        writeTheRiverEntry()
+        openAsk()
+
+        field.tap()
+        field.typeText("What did I do by the river?")
+
+        let cost = app.staticTexts["askCost"]
+        XCTAssertTrue(cost.waitForExistence(timeout: 10))
+        XCTAssertFalse(cost.label.contains("inflect"), "the line is showing its own markup: \(cost.label)")
+        XCTAssertFalse(cost.label.contains("^["), "the line is showing its own markup: \(cost.label)")
+        XCTAssertTrue(cost.label.contains("1 entry"), cost.label)
+    }
+
     @MainActor
     func testAskAnswersWithACitationAndKeepsHistory() throws {
         writeTheRiverEntry()

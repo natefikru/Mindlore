@@ -116,13 +116,13 @@ struct AskView: View {
             }
             try? await Task.sleep(for: Self.searchDelay)
             guard !Task.isCancelled else { return }
-            results = JournalSearch.results(for: query, in: modelContext)
+            // An entry can have arrived while Ask stayed on screen, and this costs five counters.
+            await ask.refreshIndex(in: modelContext)
+            guard !Task.isCancelled else { return }
+            results = JournalSearch.results(for: query, index: ask.index, in: modelContext)
             tagFilter = nil
             estimate = AskService.Estimate()
             try? await Task.sleep(for: Self.costDelay)
-            guard !Task.isCancelled else { return }
-            // An entry can have arrived while Ask stayed on screen, and this costs five counters.
-            await ask.refreshIndex(in: modelContext)
             guard !Task.isCancelled else { return }
             estimate = ask.estimate(for: query)
         }
@@ -226,7 +226,7 @@ struct AskView: View {
             // so the line says which it is. On the on-device model nothing is sent anywhere, so
             // it says "reads" rather than claiming a send that never happens.
             if canSend, estimate.entries > 0 {
-                Text("Asking \(ask.answersLeaveThePhone ? "sends" : "reads") ^[\(estimate.entries) entry](inflect: true), about \(roundedCharacters) characters")
+                costLine
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .padding(.leading, 14)
@@ -244,6 +244,21 @@ struct AskView: View {
 
     private var roundedCharacters: String {
         estimate.characters.formatted(.number.rounded(rule: .down).precision(.significantDigits(2)))
+    }
+
+    // "12 of 84" when the set was cut, which is the same honesty the prompt gets. The count is an
+    // estimate now, since working it out exactly would mean reading the entries, so the line says
+    // "about" for it as well as for the characters.
+    //
+    // Text, not String. Built as a String this rendered "^[1 entry](inflect: true)" on screen,
+    // because inflection is a localized-string-key feature and a plain String is not one. Every test
+    // passed; the screenshot is what caught it.
+    private var costLine: Text {
+        let verb = ask.answersLeaveThePhone ? "sends" : "reads"
+        if estimate.wasCut {
+            return Text("Asking \(verb) about \(estimate.entries) of \(estimate.matched) entries, about \(roundedCharacters) characters")
+        }
+        return Text("Asking \(verb) ^[\(estimate.entries) entry](inflect: true), about \(roundedCharacters) characters")
     }
 
     // Off is rarely a decision: nearly always it means this iPhone can't run Apple's model and
@@ -271,7 +286,7 @@ struct AskView: View {
 
     private func selectTag(_ tag: String) {
         tagFilter = tag
-        results.entries = JournalSearch.entries(taggedWith: tag, in: modelContext)
+        results.entries = JournalSearch.entries(taggedWith: tag, index: ask.index, in: modelContext)
     }
 
     private func open(entryID: UUID) {

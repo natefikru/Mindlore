@@ -7,7 +7,8 @@ import Foundation
 //
 // A document is indexed twice over. Its own words are the body. Its entities, tags, life areas,
 // mood, and month are context, which is how "What's going on with Maya?" reaches an entry that
-// never spells her name. The two are scored apart and the body counts for more, or forty entries
+// never spells her name. Terms are folded and interned, so the index can say an entry holds a word
+// without being able to hand the word's sentence back. The two are scored apart and the body counts for more, or forty entries
 // linked to the same person would all score the same and length would pick the winner.
 nonisolated struct AskIndex: Sendable {
     // MARK: - Shapes
@@ -52,6 +53,7 @@ nonisolated struct AskIndex: Sendable {
         var entityIDs: [UUID] = []
         var tags: [String] = []
         var areas: [String] = []
+        var mood: String?
         var isSendable: Bool = true
         var blockCharacters: Int = 0
         // Tokens in the body and title, for BM25's length normalization.
@@ -236,6 +238,7 @@ nonisolated struct AskIndex: Sendable {
                     entityIDs: input.entityIDs,
                     tags: input.tags,
                     areas: input.areas,
+                    mood: input.mood,
                     isSendable: input.isSendable,
                     blockCharacters: input.blockCharacters,
                     length: length,
@@ -418,11 +421,42 @@ nonisolated struct AskIndex: Sendable {
     // How many entries the question could be answered from at all, before a single term is scored.
     // When a question names a stretch of time, this is the honest denominator: the person asked
     // about a period, and the period is what the answer is being generalized from.
+    // What the panel searches with: a raw string rather than a conversation. The last word is
+    // half-typed, so it expands by prefix. A query this finds nothing for, including one that is
+    // nothing but stop words ("my", "go", "today"), is the caller's cue to fall back to matching the
+    // middle of a word, which is what the old predicate did and what JournalSearch still does.
+    func search(text: String, sendableOnly: Bool = false, asOf: Date) -> [Scored] {
+        let terms = AskRetrievalQuery.terms(in: text).map { Term(text: $0) }
+        guard !terms.isEmpty else { return [] }
+        return search(Query(terms: terms, expandsLastTerm: true, sendableOnly: sendableOnly, asOf: asOf))
+    }
+
+    // Which of the query's words a document actually holds, for a panel row that has to say why it
+    // is there and for windowing a snippet on something the entry really contains.
+    func matchedTerms(of text: String, in document: Document) -> (tags: [String], areas: [String], mood: String?, month: Bool) {
+        let words = Set(AskRetrievalQuery.terms(in: text))
+        guard !words.isEmpty else { return ([], [], nil, false) }
+        return (
+            document.tags.filter { words.contains(Self.fold($0)) },
+            document.areas.filter { words.contains(Self.fold($0)) },
+            document.mood.flatMap { words.contains(Self.fold($0)) ? $0 : nil },
+            !words.isDisjoint(with: Set(Self.tokens(in: Self.monthAndYear(of: document.date))))
+        )
+    }
+
     func candidateCount(for query: Query) -> Int {
-        documents.reduce(into: 0) { count, document in
-            if query.sendableOnly, !document.isSendable { return }
-            if let range = query.namedRange, !(document.date >= range.start && document.date < range.end) { return }
-            count += 1
+        candidateIndices(for: query).count
+    }
+
+    // Everything the question could be answered from, before a term is scored. When a question names
+    // a stretch of time this is the set the answer is being generalized from, so it is what both the
+    // "12 of 84" denominator and the rollup's counts are built from.
+    func candidateIndices(for query: Query) -> [Int32] {
+        documents.indices.compactMap { offset in
+            let document = documents[offset]
+            if query.sendableOnly, !document.isSendable { return nil }
+            if let range = query.namedRange, !(document.date >= range.start && document.date < range.end) { return nil }
+            return Int32(offset)
         }
     }
 

@@ -717,10 +717,11 @@ Retrieval, not the Ask surface. Research in `tasks/a9-ask-retrieval-research.md`
       the record-then-ask path that `JournalSaves` was added to fix.
 
 **PR 2, the surface**
-- [ ] Counts-only rollups and the aggregate path.
-- [ ] The prompt's truncation and range lines, and `PromptVoice` in Ask's prompts.
-- [ ] "12 of 84" in the cost line and "What was sent".
-- [ ] `JournalSearch` on the same index, so the panel and the prompt stop disagreeing.
+- [x] Counts-only rollups and the aggregate path.
+- [x] The prompt's truncation and range lines, and `PromptVoice` in Ask's prompts.
+- [x] "12 of 84" in the cost line and "What was sent".
+- [x] `JournalSearch` on the same index, so the panel and the prompt stop disagreeing.
+- [x] Sub-agent review of the diff, fixes in one commit.
 
 ### A9: 3D spike
 - [ ] `Mind3DSpikeView` (Debug only) with the 3D engine variant.
@@ -1190,3 +1191,38 @@ A9b PR 1 (2026-09-18, build spec in `tasks/a9-ask-retrieval-spec.md`):
   A10, where "Ask with real questions" already sits. What it would have shown that the simulator
   cannot: the index build's fetch time on a real journal, and recording an entry and then asking
   about it, which is the path `JournalSaves` exists to fix.
+
+A9b PR 2 (2026-09-18):
+
+- The half that makes Ask honest about what it retrieved. The prompt says "these are the 12 that
+  best match, out of 84 that match at all", says which days the entries came from, and says when
+  nothing matched and these are simply the newest entries. An aggregate question gets a block of
+  monthly counts. Ask adopts `PromptVoice`, which A8 added and Ask never picked up: its prompt said
+  "one person's private journal", which made every answer read like a report about a stranger.
+- **The panel and the prompt stop disagreeing.** A screenshot from PR 1 showed it: "Nothing in the
+  journal matches that" sitting directly above "Asking sends 1 entry", because the panel matched the
+  whole question as a substring while retrieval tokenized it. One index now, with the substring
+  predicate kept as the fallback so "iver" still finds "river" and a stop-word-only query still
+  works.
+- **The code review (24 findings, all fixed in one commit).** The first was the rollup counting
+  every entry in the month while the prompt called it a summary of what matched, so "what happened
+  with the deadline?" would have rendered "March 2026: 214 entries" and been answered as "you wrote
+  about the deadline 214 times in March". The confident wrong answer the rollup exists to prevent,
+  reintroduced through the rollup. The matched set is named once in the plan now and everything
+  reads from it. Two more prompt lies went with it: an inherited range stated as fact, when it never
+  filtered anything, and a range claimed on the fallback path, which sends the newest entries in the
+  journal rather than the newest in that month.
+- Also fixed there: the panel fetched the whole journal to look up thirty ids; a stop-word-only
+  query found nothing; the snippet windowed on the literal query so a typed question showed every
+  row's opening; "mentions someone by this name" was a fallthrough that captioned mood and month
+  matches; the year rollup path was unreachable because two caps were the same number; and the index
+  had started holding a folded copy of every entry's text for one rare fallback.
+- **Two bugs the screenshots caught that the tests could not.** The cost line rendered
+  `^[1 entry](inflect: true)` literally, because inflection is a localized-string-key feature and a
+  `String` interpolated into `Text` is not one. And the rollup formatters used the system timezone
+  while the month intervals came from the caller's calendar, so a summary of September was labelled
+  August west of UTC. `tasks/lessons.md` gained the first one; it is the second time in this phase
+  the A7 screenshot lesson has earned its place.
+- Tests: 1160 unit tests pass, 1024 at the base, and 5 Ask UI tests. The cost line now has a UI test
+  that fails if it prints its own markup again.
+- **The device pass is deferred with PR 1's**, to A10.

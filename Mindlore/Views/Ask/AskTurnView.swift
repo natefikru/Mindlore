@@ -172,6 +172,16 @@ struct AskWhatWasSentView: View {
             List {
                 Section {
                     LabeledContent("Entries", value: turn.sentEntryIDs.count.formatted())
+                    // What the answer was written from, against what it could have been written
+                    // from. Without this the count reads as the whole answer to the question.
+                    if turn.wasCut {
+                        LabeledContent("Matching entries", value: turn.matchedCount.formatted())
+                            .accessibilityIdentifier("askWhatWasSentMatched")
+                    }
+                    if turn.rollupMonthCount > 0 {
+                        LabeledContent("Monthly summaries", value: "^[\(turn.rollupMonthCount) month](inflect: true)")
+                            .accessibilityIdentifier("askWhatWasSentSummaries")
+                    }
                     LabeledContent("Characters", value: turn.sentCharacters.formatted())
                 } footer: {
                     Text(turn.providerLabel == FoundationModelsTextGenerator.label

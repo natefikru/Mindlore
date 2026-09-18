@@ -15,12 +15,13 @@ struct AskServiceTests {
         context = container.mainContext
     }
 
-    private func service(kind: AskProviderKind = .openAI, failure: AIJobFailure? = nil) -> AskService {
+    private func service(kind: AskProviderKind = .openAI, failure: AIJobFailure? = nil, voice: PromptVoice = .default) -> AskService {
         AskService(
             resolve: { [generator] in
                 if let failure { return .failure(failure) }
                 return .success(AskProvider(generator: generator, model: "m", label: "openai:m", kind: kind))
             },
+            promptVoice: { voice },
             store: AskStore(save: { try $0.save() }),
             diagnostics: .disabled,
             now: { self.now }
@@ -295,5 +296,145 @@ struct AskServiceTests {
         #expect(ask.turns.count == 2)
         #expect(ask.handles == handles)
         #expect(ask.conversations(in: context).map(\.id) == [saved.id])
+    }
+
+    // MARK: - Owning up to what the answer is written from
+
+    @Test func aCutSetIsSaidOutLoudInThePrompt() async throws {
+        // Thirty entries about the deadline, fifteen of which fit. Without this line the model
+        // describes the whole year from whatever twelve entries it can see, confidently.
+        for index in 0..<30 {
+            entry("The deadline moved again, week \(index).", daysAgo: Double(index + 1))
+        }
+        let ask = service()
+        generator.results = [answer("It moved a lot.", citing: ["E1"])]
+
+        await ask.send("What happened with the deadline?", in: context)
+        let request = try #require(generator.requests.last)
+
+        #expect(request.user.contains("that match at all"))
+        #expect(ask.turns.last?.wasCut == true)
+        #expect(ask.turns.last?.matchedCount == 30)
+    }
+
+    @Test func aSetThatWentWholeSaysNothingAboutBeingCut() async throws {
+        entry("The deadline moved.")
+        let ask = service()
+        generator.results = [answer("It moved.", citing: ["E1"])]
+
+        await ask.send("What happened with the deadline?", in: context)
+        let request = try #require(generator.requests.last)
+        #expect(request.user.contains("that match at all") == false)
+        #expect(ask.turns.last?.wasCut == false)
+    }
+
+    @Test func thePromptSaysWhichDaysTheEntriesCameFrom() async throws {
+        entry("An ordinary day.", daysAgo: 2)
+        let ask = service()
+        generator.results = [answer("Not much.", citing: ["E1"])]
+
+        await ask.send("What did I do last week?", in: context)
+        let request = try #require(generator.requests.last)
+        // Said for an inherited range too, which is what makes an inheritance the person did not
+        // intend visible in the answer rather than silent.
+        #expect(request.user.contains("These entries are from"))
+    }
+
+    // An inherited range never filtered anything: entries outside it are in the prompt. Stating it
+    // as fact made the model refuse or mis-date them, and nothing tested it.
+    @Test func anInheritedRangeIsDescribedAsTheQuestionBeforeRatherThanAsAFact() async throws {
+        entry("Walked the river.", daysAgo: 2)
+        entry("Walked the river again.", daysAgo: 300)
+        let ask = service()
+        generator.results = [answer("Not much.", citing: ["E1"]), answer("The river.", citing: ["E1"])]
+
+        await ask.send("What did I do last week?", in: context)
+        await ask.send("And the river?", in: context)
+
+        let request = try #require(generator.requests.last)
+        #expect(request.user.contains("The question before this one was about"))
+        #expect(request.user.contains("not limited to it"))
+        #expect(request.user.contains("These entries are from") == false)
+    }
+
+    @Test func aQuestionMatchingNothingSaysSoRatherThanPretending() async throws {
+        entry("The deadline moved.")
+        let ask = service()
+        generator.results = [answer("Nothing about that.", citing: [])]
+
+        await ask.send("ayahuasca", in: context)
+        let request = try #require(generator.requests.last)
+        #expect(request.user.contains("Nothing in the journal matches this question"))
+        // And it still sends the newest entries rather than failing, which is what A7 did.
+        #expect(ask.turns.last?.sentEntryIDs.isEmpty == false)
+        // Nothing else may describe them as being about the question or about a period.
+        #expect(request.user.contains("that match at all") == false)
+        #expect(request.user.contains("These entries are from") == false)
+    }
+
+    @Test func theSummaryRuleGoesInOnlyWhenASummaryDoes() async throws {
+        for index in 0..<60 {
+            entry("An ordinary day at work, number \(index).", daysAgo: Double(index + 1))
+        }
+        let ask = service()
+        generator.results = [answer("Often.", citing: ["E1"]), answer("Once.", citing: ["E1"])]
+
+        await ask.send("How often did I write about work?", in: context)
+        let aggregate = try #require(generator.requests.last)
+        #expect(aggregate.system.contains("not of the entries quoted below it"))
+        #expect(ask.turns.last?.rollupMonthCount ?? 0 > 0)
+
+        await ask.newConversation()
+        await ask.send("What happened on the ninth day?", in: context)
+        let ordinary = try #require(generator.requests.last)
+        #expect(ordinary.system.contains("not of the entries quoted below it") == false)
+    }
+
+    // MARK: - Voice
+
+    @Test func askAdoptsTheJournalsVoice() async throws {
+        entry("Paddled the river.")
+        let ask = service(voice: PromptVoice(voice: .second, name: ""))
+        generator.results = [answer("You paddled.", citing: ["E1"])]
+
+        await ask.send("What did I do?", in: context)
+        let request = try #require(generator.requests.last)
+        #expect(request.system.contains("second person"))
+        // A7's prompt said "one person's private journal" and "the journal is theirs", which made
+        // every answer read like a report about a stranger.
+        #expect(request.system.contains("the author"))
+    }
+
+    @Test func theOwnersNameReachesAProviderOnlyUnderTheNameVoice() async throws {
+        entry("Paddled the river.")
+        let named = service(voice: PromptVoice(voice: .name, name: "Nate"))
+        generator.results = [answer("Nate paddled.", citing: ["E1"])]
+        await named.send("What did I do?", in: context)
+        #expect(try #require(generator.requests.last).system.contains("Nate"))
+
+        let first = service(voice: PromptVoice(voice: .first, name: "Nate"))
+        generator.results = [answer("I paddled.", citing: ["E1"])]
+        await first.send("What did I do?", in: context)
+        #expect(try #require(generator.requests.last).system.contains("Nate") == false)
+    }
+
+    // MARK: - What a reopened turn still knows
+
+    @Test func theCountsSurviveAReopen() async throws {
+        for index in 0..<30 {
+            entry("The deadline moved again, week \(index).", daysAgo: Double(index + 1))
+        }
+        let ask = service()
+        generator.results = [answer("It moved a lot.", citing: ["E1"])]
+        await ask.send("What happened with the deadline?", in: context)
+        let matched = try #require(ask.turns.last?.matchedCount)
+
+        // The index this was answered against is gone by the time a conversation is reopened, so
+        // these two cannot be worked out again and have to be stored.
+        let conversation = try #require(AskConversation.all(in: context).first)
+        let reopened = service()
+        reopened.open(conversation, in: context)
+        #expect(reopened.turns.last?.matchedCount == matched)
+        #expect(reopened.turns.last?.wasCut == true)
     }
 }
