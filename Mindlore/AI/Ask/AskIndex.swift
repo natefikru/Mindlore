@@ -128,6 +128,10 @@ nonisolated struct AskIndex: Sendable {
     private let documentIndexByID: [UUID: Int]
     private let tagDocuments: [String: [Int32]]
     private let tagSpellings: [String: String]
+    // Folded title and text per document, for the substring fallback alone. It is the one place the
+    // index holds anything resembling entry text, and it never leaves: nothing reads it but the
+    // fallback's `contains`, and no block, prompt, or diagnostic is built from it.
+    private let substringHaystacks: [String]
 
     // Packed columns rather than an array of structs: at five thousand entries this is roughly
     // three quarters of a million postings, and the per-element overhead is the whole cost.
@@ -156,7 +160,8 @@ nonisolated struct AskIndex: Sendable {
         averageContextLength: Double = 0,
         documentIndexByID: [UUID: Int] = [:],
         tagDocuments: [String: [Int32]] = [:],
-        tagSpellings: [String: String] = [:]
+        tagSpellings: [String: String] = [:],
+        substringHaystacks: [String] = []
     ) {
         self.documents = documents
         self.entities = entities
@@ -169,6 +174,7 @@ nonisolated struct AskIndex: Sendable {
         self.documentIndexByID = documentIndexByID
         self.tagDocuments = tagDocuments
         self.tagSpellings = tagSpellings
+        self.substringHaystacks = substringHaystacks
     }
 
     var isEmpty: Bool { documents.isEmpty }
@@ -183,6 +189,7 @@ nonisolated struct AskIndex: Sendable {
         var documents: [Document] = []
         var tagDocuments: [String: [Int32]] = [:]
         var tagSpellings: [String: String] = [:]
+        var substringHaystacks: [String] = []
         var totalLength = 0
         var totalContextLength = 0
 
@@ -242,6 +249,7 @@ nonisolated struct AskIndex: Sendable {
                     contextLength: contextLength
                 )
             )
+            substringHaystacks.append(fold(input.title + " " + input.text))
             totalLength += length
             totalContextLength += contextLength
         }
@@ -258,7 +266,8 @@ nonisolated struct AskIndex: Sendable {
             averageContextLength: documents.isEmpty ? 0 : Double(totalContextLength) / Double(documents.count),
             documentIndexByID: Dictionary(documents.enumerated().map { ($1.id, $0) }, uniquingKeysWith: { first, _ in first }),
             tagDocuments: tagDocuments,
-            tagSpellings: tagSpellings
+            tagSpellings: tagSpellings,
+            substringHaystacks: substringHaystacks
         )
     }
 
@@ -418,6 +427,31 @@ nonisolated struct AskIndex: Sendable {
     // How many entries the question could be answered from at all, before a single term is scored.
     // When a question names a stretch of time, this is the honest denominator: the person asked
     // about a period, and the period is what the answer is being generalized from.
+    // What the panel searches with: a raw string rather than a conversation. The last word is
+    // half-typed, so it expands by prefix, and a query that finds nothing that way falls back to
+    // matching the middle of a word, which is what the old predicate did.
+    func search(text: String, sendableOnly: Bool = false, asOf: Date) -> [Scored] {
+        let terms = AskRetrievalQuery.terms(in: text).map { Term(text: $0) }
+        guard !terms.isEmpty else { return [] }
+        let found = search(Query(terms: terms, expandsLastTerm: true, sendableOnly: sendableOnly, asOf: asOf))
+        guard found.isEmpty else { return found }
+        return substringSearch(text, sendableOnly: sendableOnly, asOf: asOf)
+    }
+
+    // The one thing prefix matching loses: typing "iver" and finding "river". Rare, and cheap to
+    // keep, since it only runs when the ranked path found nothing at all.
+    private func substringSearch(_ text: String, sendableOnly: Bool, asOf: Date) -> [Scored] {
+        let needle = Self.fold(text.trimmingCharacters(in: .whitespacesAndNewlines))
+        guard !needle.isEmpty else { return [] }
+        var found: [Scored] = []
+        for (offset, document) in documents.enumerated() {
+            if sendableOnly, !document.isSendable { continue }
+            guard substringHaystacks[offset].contains(needle) else { continue }
+            found.append(Scored(document: Int32(offset), score: recencyMultiplier(for: document.date, asOf: asOf), matchedInBody: true))
+        }
+        return found.sorted { documents[Int($0.document)].date > documents[Int($1.document)].date }
+    }
+
     func candidateCount(for query: Query) -> Int {
         documents.reduce(into: 0) { count, document in
             if query.sendableOnly, !document.isSendable { return }

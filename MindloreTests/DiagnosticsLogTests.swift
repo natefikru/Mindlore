@@ -366,8 +366,14 @@ struct AskDiagnosticsPrivacyTests {
         let context = container.mainContext
 
         let generator = FakeTextGenerator()
+        // The real index store, so the build and the retrieval events are exercised rather than
+        // stepped around, and the owner's name under the name voice, the way the insights privacy
+        // test does it.
         let ask = AskService(
             resolve: { .success(AskProvider(generator: generator, model: "m", label: "openai:m", kind: .openAI)) },
+            index: AskIndexStore(diagnostics: log),
+            revisions: { .init(saver: JournalSaves.revision, graph: 0, stamped: JournalSaves.revision) },
+            promptVoice: { PromptVoice(voice: .name, name: sentinel) },
             store: AskStore(save: { try $0.save() }),
             diagnostics: log
         )
@@ -379,6 +385,11 @@ struct AskDiagnosticsPrivacyTests {
         let entry = Entry(text: "Dear diary, \(sentinel)")
         entry.title = "Title \(sentinel)"
         context.insert(entry)
+        let insights = EntryInsights()
+        insights.tags = ["Tag \(sentinel)"]
+        insights.areasRaw = [LifeArea.work.rawValue]
+        insights.entry = entry
+        context.insert(insights)
         let entity = Entity(name: "Name \(sentinel)", key: "name", kind: .person)
         entity.bio = "Bio \(sentinel)"
         context.insert(entity)
@@ -400,11 +411,20 @@ struct AskDiagnosticsPrivacyTests {
         await ask.send("And \(sentinel) since?", in: context)
         #expect(ask.turns.last?.failureRaw == "ai.badRequest")
 
+        // An aggregate question, so the rollup path and its month counts are logged too.
+        ask.newConversation()
+        generator.results = [.success(#"{"answer":"Often \#(sentinel)","citations":["E1"]}"#)]
+        await ask.send("How often do I write about \(sentinel)?", in: context)
+
+        // And the search panel, which reads the same index.
+        let results = JournalSearch.results(for: sentinel, index: ask.index, in: context)
+        #expect(results.isEmpty == false, "the panel has to have actually searched")
+
         let conversation = try #require(ask.conversations(in: context).first)
         ask.delete(conversation, in: context)
 
         let contents = file.contents()
-        for event in ["ask.answered", "ask.failed", "ask.conversationDeleted"] {
+        for event in ["ask.answered", "ask.failed", "ask.conversationDeleted", "ask.indexed", "ask.retrieved"] {
             #expect(contents.contains(event), "\(event) was never exercised")
         }
         #expect(contents.contains(sentinel) == false)

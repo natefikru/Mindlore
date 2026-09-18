@@ -84,7 +84,7 @@ final class AskService {
     var draftQuestion = ""
 
     @ObservationIgnored private let resolve: () -> Result<AskProvider, AIJobFailure>
-    @ObservationIgnored private let index: AskIndexStore
+    @ObservationIgnored private let indexStore: AskIndexStore
     // Read through a closure rather than held, so the service owes nothing to EntrySaver or
     // GraphServices and tests can move either counter by hand.
     @ObservationIgnored private let revisions: () -> AskIndexStore.Revisions
@@ -112,7 +112,7 @@ final class AskService {
         calendar: Calendar = .current
     ) {
         self.resolve = resolve
-        self.index = index
+        self.indexStore = index
         self.revisions = revisions
         self.promptVoice = promptVoice
         self.store = store
@@ -201,8 +201,11 @@ final class AskService {
 
     // Called when Ask appears and before a question goes out. Cheap when nothing changed: five
     // counters and a comparison, against the whole-journal read this replaces.
+    // The snapshot the search panel ranks against, so the panel and the prompt read one index.
+    var index: AskIndex { indexStore.index }
+
     func refreshIndex(in context: ModelContext) async {
-        await index.refreshIfNeeded(revisions: revisions(), in: context)
+        await indexStore.refreshIfNeeded(revisions: revisions(), in: context)
     }
 
     nonisolated struct Estimate: Equatable, Sendable {
@@ -241,12 +244,12 @@ final class AskService {
             return
         }
 
-        await index.refreshIfNeeded(revisions: revisions(), in: context)
+        await indexStore.refreshIfNeeded(revisions: revisions(), in: context)
         let retrieval = retrieval(for: question, asked: true, provider: provider)
         let selection = AskSources.blocks(for: retrieval.plan, in: context)
         let retrievalPlan = retrieval.plan
         let summaries = AskRollups.blocks(
-            for: AskRollups.months(for: retrievalPlan.rollupMonths, in: index.index, calendar: calendar),
+            for: AskRollups.months(for: retrievalPlan.rollupMonths, in: indexStore.index, calendar: calendar),
             calendar: calendar
         )
         let built = AskContextBuilder.render(
@@ -257,7 +260,7 @@ final class AskService {
             handles: handles,
             budget: budget(for: provider, question: question)
         )
-        let eligible = index.index.documents.count { $0.isSendable }
+        let eligible = indexStore.index.documents.count { $0.isSendable }
         diagnostics.record("ask.retrieved", [
             "matched": .int(retrievalPlan.matchedCount),
             "ranked": .int(retrievalPlan.rankedEntryIDs.count),
@@ -369,13 +372,13 @@ final class AskService {
             question: question,
             previousQuestions: previous,
             citedEntryIDs: cited,
-            index: index.index,
+            index: indexStore.index,
             now: now(),
             calendar: calendar
         )
         let plan = AskRetrieval.plan(
             query: query,
-            index: index.index,
+            index: indexStore.index,
             budget: budget(for: provider, question: question),
             provider: provider.kind,
             rollups: true,

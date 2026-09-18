@@ -116,13 +116,13 @@ struct AskView: View {
             }
             try? await Task.sleep(for: Self.searchDelay)
             guard !Task.isCancelled else { return }
-            results = JournalSearch.results(for: query, in: modelContext)
+            // An entry can have arrived while Ask stayed on screen, and this costs five counters.
+            await ask.refreshIndex(in: modelContext)
+            guard !Task.isCancelled else { return }
+            results = JournalSearch.results(for: query, index: ask.index, in: modelContext)
             tagFilter = nil
             estimate = AskService.Estimate()
             try? await Task.sleep(for: Self.costDelay)
-            guard !Task.isCancelled else { return }
-            // An entry can have arrived while Ask stayed on screen, and this costs five counters.
-            await ask.refreshIndex(in: modelContext)
             guard !Task.isCancelled else { return }
             estimate = ask.estimate(for: query)
         }

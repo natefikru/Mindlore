@@ -77,6 +77,15 @@ struct AskSearchResultsView: View {
                                         .foregroundStyle(.secondary)
                                         .lineLimit(2)
                                 }
+                                // An entry can rank on a tag, a life area, or a person who appears
+                                // nowhere in its words, and the snippet is then just its opening: a
+                                // row with no visible reason for being there.
+                                if let reason = entry.reason {
+                                    Text(reason)
+                                        .font(.caption)
+                                        .foregroundStyle(.tertiary)
+                                        .accessibilityIdentifier("askSearchReason")
+                                }
                             }
                         }
                         .buttonStyle(.plain)

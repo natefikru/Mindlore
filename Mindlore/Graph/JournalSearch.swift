@@ -1,10 +1,13 @@
 import Foundation
 import SwiftData
 
-// Ask's search-as-you-type: entries, entities, and tags, with no AI and no network. Entries come
-// from one predicate fetch; entities reuse Mind's rows; tags are counted off Entry, not
-// EntryInsights, because insights carry no entry id and reaching through the relationship is
-// what tasks/lessons.md rules out.
+// Ask's search-as-you-type: entries, entities, and tags, with no AI and no network.
+//
+// Entries and tags come from the same AskIndex the prompt is built from, so the panel and the
+// question stop being two search engines that disagree: before this, typing "What did I do by the
+// river?" showed "Nothing in the journal matches that" while the line underneath said asking would
+// send one entry, because the panel matched the whole question as a substring and retrieval
+// tokenized it. Entities still reuse Mind's rows.
 enum JournalSearch {
     static let minimumQueryCharacters = 2
     static let maxEntries = 30
@@ -18,6 +21,8 @@ enum JournalSearch {
         let date: Date
         let isDayOnly: Bool
         let snippet: String
+        // Why this row is here, when the words are not in the entry itself.
+        var reason: String?
     }
 
     nonisolated struct TagRow: Equatable, Identifiable, Sendable {
@@ -34,13 +39,13 @@ enum JournalSearch {
         var isEmpty: Bool { entries.isEmpty && entities.isEmpty && tags.isEmpty }
     }
 
-    static func results(for query: String, in context: ModelContext) -> Results {
+    static func results(for query: String, index: AskIndex, now: Date = .now, in context: ModelContext) -> Results {
         let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard trimmed.count >= minimumQueryCharacters else { return Results() }
         return Results(
-            entries: entryRows(matching: trimmed, in: context),
+            entries: entryRows(matching: trimmed, index: index, now: now, in: context),
             entities: Array(EntitySearch.rank(EntitySearch.filter(MindDirectory.rows(in: context).visible, segment: .all, query: trimmed), query: trimmed).prefix(maxEntities)),
-            tags: tagRows(matching: trimmed, in: context)
+            tags: index.tagCounts(matching: trimmed).prefix(maxTags).map { TagRow(tag: $0.tag, count: $0.count) }
         )
     }
 
@@ -51,30 +56,22 @@ enum JournalSearch {
         return Array(newestFirst(entries).prefix(maxEntries)).map { row(for: $0, around: nil) }
     }
 
-    private static func entryRows(matching query: String, in context: ModelContext) -> [EntryRow] {
-        var descriptor = FetchDescriptor<Entry>(
-            predicate: #Predicate { !$0.isDraft && ($0.text.localizedStandardContains(query) || $0.title.localizedStandardContains(query)) },
-            sortBy: [SortDescriptor(\.entryDate, order: .reverse)]
+    // Ranked by the index, then one bounded fetch for the titles and snippets of what it chose.
+    // Two full-journal scans per keystroke pause become none.
+    private static func entryRows(matching query: String, index: AskIndex, now: Date, in context: ModelContext) -> [EntryRow] {
+        let ranked = index.search(text: query, asOf: now).prefix(maxEntries)
+        guard !ranked.isEmpty else { return [] }
+        let wanted = ranked.map { index.documents[Int($0.document)].id }
+        let byID = Dictionary(
+            ((try? context.fetch(FetchDescriptor<Entry>())) ?? [])
+                .filter { !$0.isDeleted && !$0.isDraft }
+                .map { ($0.id, $0) },
+            uniquingKeysWith: { first, _ in first }
         )
-        descriptor.fetchLimit = maxEntries
-        let entries = ((try? context.fetch(descriptor)) ?? []).filter { !$0.isDeleted }
-        return entries.map { row(for: $0, around: query) }
-    }
-
-    private static func tagRows(matching query: String, in context: ModelContext) -> [TagRow] {
-        var counts: [String: (display: String, count: Int)] = [:]
-        for entry in searchableEntries(in: context) {
-            // The whole tag, not a prefix: a tag row is an exact thing to tap, and a partial
-            // match would offer a tag the entries section is already showing.
-            for tag in entry.insights?.tags ?? [] where tag.caseInsensitiveCompare(query) == .orderedSame {
-                let key = tag.lowercased()
-                counts[key] = (counts[key]?.display ?? tag, (counts[key]?.count ?? 0) + 1)
-            }
+        return zip(wanted, ranked).compactMap { id, scored in
+            guard let entry = byID[id] else { return nil }
+            return row(for: entry, around: query, document: index.documents[Int(scored.document)])
         }
-        return counts.values
-            .sorted { $0.count == $1.count ? $0.display.localizedStandardCompare($1.display) == .orderedAscending : $0.count > $1.count }
-            .prefix(maxTags)
-            .map { TagRow(tag: $0.display, count: $0.count) }
     }
 
     private static func searchableEntries(in context: ModelContext) -> [Entry] {
@@ -85,14 +82,33 @@ enum JournalSearch {
         entries.sorted { $0.entryDate > $1.entryDate }
     }
 
-    private static func row(for entry: Entry, around query: String?) -> EntryRow {
+    private static func row(for entry: Entry, around query: String?, document: AskIndex.Document? = nil) -> EntryRow {
         EntryRow(
             id: entry.id,
             title: displayTitle(for: entry),
             date: entry.entryDate,
             isDayOnly: entry.entryDateIsDayOnly,
-            snippet: snippet(in: entry.text, around: query)
+            snippet: snippet(in: entry.text, around: query),
+            reason: reason(for: entry, query: query, document: document)
         )
+    }
+
+    // An entry can now rank on a tag, a life area, or a person who appears nowhere in its words, and
+    // the snippet then falls back to the opening of the entry: a row with no visible reason for
+    // being there. This says why instead.
+    static func reason(for entry: Entry, query: String?, document: AskIndex.Document?) -> String? {
+        guard let document, let query, !query.isEmpty else { return nil }
+        let words = Set(AskRetrievalQuery.terms(in: query))
+        guard !words.isEmpty else { return nil }
+        let text = AskIndex.fold(entry.title + " " + entry.text)
+        guard !words.contains(where: text.contains) else { return nil }
+        if let tag = document.tags.first(where: { words.contains(AskIndex.fold($0)) }) {
+            return "tag: \(tag)"
+        }
+        if let area = document.areas.first(where: { words.contains(AskIndex.fold($0)) }) {
+            return "area: \(area)"
+        }
+        return "mentions someone by this name"
     }
 
     static func displayTitle(for entry: Entry) -> String {

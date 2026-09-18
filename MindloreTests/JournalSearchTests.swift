@@ -28,8 +28,15 @@ struct JournalSearchTests {
         return entry
     }
 
+    private let now = Date(timeIntervalSince1970: 1_750_000_000)
+
+    // The panel reads the same index the prompt is built from, which is the whole point of the
+    // change: before it, the panel could say "nothing matches that" about an entry the question
+    // then went on to send.
     private func results(_ query: String) -> JournalSearch.Results {
-        JournalSearch.results(for: query, in: context)
+        let gathered = AskSources.documents(in: context)
+        let index = AskIndex.build(from: gathered.documents, entities: gathered.entities)
+        return JournalSearch.results(for: query, index: index, now: now, in: context)
     }
 
     @Test func matchesTextOrTitle() throws {
@@ -48,7 +55,7 @@ struct JournalSearchTests {
         #expect(results("river").entries.isEmpty)
     }
 
-    @Test func newestFirstAndCappedAtThirty() {
+    @Test func rankedAndCappedAtThirty() {
         for index in 0..<35 {
             entry("river \(index)", daysAgo: Double(index))
         }
@@ -56,17 +63,46 @@ struct JournalSearchTests {
         let rows = results("river").entries
 
         #expect(rows.count == JournalSearch.maxEntries)
-        #expect(rows == rows.sorted { $0.date > $1.date })
+        // Ranked, not sorted by date: thirty-five entries all saying "river" are separated by
+        // recency, so newest still leads, but relevance is what decides the order now.
+        #expect(rows.first?.date ?? .distantPast > rows.last?.date ?? .distantFuture)
     }
 
-    // The store's predicate and the in-memory rule have to agree, or a result set changes shape
-    // the moment a query stops going through SwiftData.
-    @Test func thePredicateMatchesCaseAndDiacriticsLikeTheInMemoryRule() throws {
+    // Case and diacritics folded at index time, the same way they folded in the old predicate, so
+    // a result set does not change shape now that queries no longer go through SwiftData.
+    @Test func caseAndDiacriticsFoldTheWayThePredicateDid() throws {
         let cafe = entry("Coffee at the Café.")
 
         #expect(results("café").entries.map(\.id) == [cafe.id])
         #expect(results("CAFE").entries.map(\.id) == [cafe.id])
         #expect("Coffee at the Café.".localizedStandardContains("cafe"))
+    }
+
+    // The one thing prefix matching loses, kept as a fallback because people do type it.
+    @Test func matchingTheMiddleOfAWordStillWorks() throws {
+        let river = entry("We walked by the river.")
+        #expect(results("iver").entries.map(\.id) == [river.id])
+    }
+
+    // What the screenshot showed and no test caught: typing a whole question at the panel matched
+    // nothing, while the line underneath said asking would send an entry.
+    @Test func aWholeQuestionFindsWhatAskingWouldSend() throws {
+        let river = entry("We walked by the river.")
+        #expect(results("What did I do by the river?").entries.map(\.id) == [river.id])
+    }
+
+    // An entry can now rank on something that appears nowhere in its words, and the snippet is then
+    // just its opening. The row says why instead of looking like a mistake.
+    @Test func aRowMatchedOnSomethingInvisibleSaysWhy() throws {
+        let tagged = entry("Nothing in the words themselves.", tags: ["deadline"])
+        let rows = results("deadline").entries
+        #expect(rows.map(\.id) == [tagged.id])
+        #expect(rows.first?.reason == "tag: deadline")
+    }
+
+    @Test func aRowWhoseWordsAreInTheEntryNeedsNoReason() throws {
+        entry("The deadline moved again.")
+        #expect(results("deadline").entries.first?.reason == nil)
     }
 
     @Test func aQueryUnderTwoCharactersFindsNothing() {
