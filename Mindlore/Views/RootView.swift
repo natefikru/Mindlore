@@ -15,6 +15,7 @@ struct RootView: View {
     @State private var network = NetworkMonitor()
     @State private var indexing: GraphIndexingProgress?
     @State private var graph: GraphServices
+    @State private var ask: AskService
     @State private var router: AppRouter
     @State private var confirmingDiscard = false
     private let context: ModelContext
@@ -86,6 +87,12 @@ struct RootView: View {
         )
         let appRouter = AppRouter(opened: lifecycle.opened, closed: lifecycle.closed)
         _router = State(initialValue: appRouter)
+        _ask = State(initialValue: AskService(
+            resolve: { AIServices.askGenerator(settings: settings, accounts: accounts) },
+            includesOlderEntries: { settings.askIncludesOlderEntries },
+            aiEnabledAt: { settings.aiEnabledAt },
+            store: AskStore(flush: { saver.flush() })
+        ))
         let ingestor = RecordingIngestor()
         _ingestor = State(initialValue: ingestor)
         let fakeRecorder = UITestingRecorder.isEnabled
@@ -121,7 +128,7 @@ struct RootView: View {
                 MindView()
             }
             Tab("Ask", systemImage: "bubble.left.and.text.bubble.right", value: AppTab.ask) {
-                AskPlaceholderView()
+                AskView()
             }
         }
         // The accessory and the recorder are handed the session directly rather than relying on
@@ -147,6 +154,7 @@ struct RootView: View {
         .environment(pageTranscription)
         .environment(insights)
         .environment(graph)
+        .environment(ask)
         .environment(router)
         .environment(recording)
         .overlay {
