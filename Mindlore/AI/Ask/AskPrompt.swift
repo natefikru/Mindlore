@@ -22,8 +22,7 @@ nonisolated enum AskPrompt {
         Quote briefly when a quote helps. No advice, no diagnosis, no judgement: the journal is \
         the author's to read, and you are reading it back to them.
         Cite every entry you use by its handle, exactly as the block gives it.
-        \(hasSummaries ? summaryRule + "\n" : "")
-        \(voice.instruction)
+        \(hasSummaries ? "\n" + summaryRule + "\n" : "")\(voice.instruction)
 
         Today is \(dayFormatter.string(from: today)).
         """
@@ -31,10 +30,10 @@ nonisolated enum AskPrompt {
 
     // A block that is only counts, so the model is told to take counts from it rather than from the
     // handful of entries it can see.
-    static let summaryRule = "A block that is a list of months and counts is a summary of everything "
-        + "that matched, not of the entries below it. Take counts and how often something happened "
-        + "from there, and quotes and specifics from the entries. Never count the entries shown as "
-        + "though they were all of them."
+    static let summaryRule = "The block that is a list of months and counts is a summary of every "
+        + "entry that matched, not of the entries quoted below it. Take counts and how often "
+        + "something happened from there, and quotes and specifics from the entries. Never count "
+        + "the entries shown as though they were all of them."
 
     static func user(context: AskContextBuilder.Context, question: String, notes: [String] = []) -> String {
         let preamble = notes.isEmpty ? "" : notes.joined(separator: "\n") + "\n\n"
@@ -47,30 +46,48 @@ nonisolated enum AskPrompt {
     // without knowing it is a sample.
     static func notes(for context: AskContextBuilder.Context, plan: AskRetrieval.Plan, calendar: Calendar = .current) -> [String] {
         var notes: [String] = []
+        if plan.matchedNothing {
+            // Said first, and on its own: the entries below are the newest in the journal, so
+            // nothing else in here may describe them as being about the question or about a period.
+            return ["Nothing in the journal matches this question. These are simply the most recent entries."]
+        }
         if context.wasCut {
+            // The ranked entries, not the continuity ones: those are what the last turn cited, and
+            // calling them "the best match" for this question is not what they are.
             notes.append("""
-            These are the \(context.entryIDs.count) entries that best match, out of \(context.matchedCount) \
+            These are the \(plan.rankedEntryIDs.count) entries that best match, out of \(context.matchedCount) \
             that match at all. Do not describe the whole period from this sample; say what you are looking at.
             """)
         }
         if let range = plan.appliedRange {
-            let from = rangeFormatter.string(from: range.start)
-            let to = rangeFormatter.string(from: range.end.addingTimeInterval(-1))
-            // Said whether the range was named or inherited, which is what makes an inheritance the
-            // person did not intend visible in the answer instead of silent.
-            notes.append("These entries are from \(from) to \(to).")
-        }
-        if plan.matchedNothing {
-            notes.append("Nothing in the journal matches this question. These are simply the most recent entries.")
+            let formatter = rangeFormatter(calendar)
+            let from = formatter.string(from: range.start)
+            let to = formatter.string(from: range.end.addingTimeInterval(-1))
+            // An inherited range never filtered anything: entries outside it are in the prompt.
+            // Stating it as fact made the model refuse or mis-date them, so the two cases read
+            // differently, which is also what makes an unintended inheritance visible in the answer.
+            notes.append(plan.rangeWasInherited
+                ? "The question before this one was about \(from) to \(to). These entries are not limited to it."
+                : "These entries are from \(from) to \(to).")
         }
         return notes
     }
 
-    private static let rangeFormatter: DateFormatter = {
+    // Enough for all of the above at once, held back from the on-device budget. The notes live in
+    // the user message, so nothing else was counting them, and on a prompt that lands near 3,300
+    // characters they are about 8% of it.
+    static let onDeviceNotesHeadroom = 320
+
+    // The device's own zone would shift a range built in another calendar by a day, and the device's
+    // locale would render the sentence in the user's language inside an otherwise English prompt.
+    // AskRollups learned this the same way.
+    private static func rangeFormatter(_ calendar: Calendar) -> DateFormatter {
         let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = calendar.timeZone
         formatter.dateFormat = "d MMMM yyyy"
         return formatter
-    }()
+    }
 
     // Foundation Models takes no message list, so the turn before is folded into the prompt.
     static func folded(previous: (question: String, answer: String)?, into user: String) -> String {

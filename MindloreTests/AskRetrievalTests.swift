@@ -209,13 +209,25 @@ struct AskRetrievalTests {
         #expect(result.rollupMonths.isEmpty)
     }
 
-    @Test func rollupMonthsAreDistinctNewestFirstAndCappedAtTwoYears() {
-        // Three years of entries, one a month.
+    @Test func rollupMonthsAreDistinctNewestFirstAndFitTheirSlice() {
+        // Three years of entries, one a month. All thirty-six survive, because past two years the
+        // lines become years and the reserve knows it: capping the plan at twenty-four instead threw
+        // the oldest twelve months away and made the year path unreachable.
         let inputs = (0..<36).map { input("entry\($0)", daysAgo: $0 * 31, blockCharacters: 100) }
         let result = plan("how often did the deadline move", in: index(inputs), rollups: true)
-        #expect(result.rollupMonths.count == AskRetrieval.maxRollupMonthsOpenAI)
+        #expect(result.rollupMonths.count == 36)
         #expect(result.rollupMonths == result.rollupMonths.sorted { $0.start > $1.start })
         #expect(Set(result.rollupMonths.map(\.start)).count == result.rollupMonths.count)
+        #expect(AskRollups.estimatedCharacters(monthCount: result.rollupMonths.count) <= result.slices.rollups)
+    }
+
+    // The months have to describe the same set the number beside them describes, or the summary
+    // contradicts the sentence above it in the same prompt.
+    @Test func theRollupCountsTheSameEntriesMatchedCountDoes() {
+        let inputs = (0..<40).map { input("entry\($0)", text: $0 < 10 ? "the deadline moved" : "something else", daysAgo: $0 * 3, blockCharacters: 100) }
+        let result = plan("how often did the deadline move", in: index(inputs), rollups: true)
+        let months = AskRollups.months(for: result.rollupMonths, matching: result.matchedEntryIDs, in: index(inputs), calendar: calendar)
+        #expect(months.reduce(0) { $0 + $1.count } == result.matchedCount)
     }
 
     @Test func rollupsAreNotPlannedUntilSomethingRendersThem() {
@@ -313,7 +325,9 @@ struct AskRetrievalTests {
     }
 
     @Test func theAppliedRangeSaysWhetherItWasInherited() {
-        let journal = index([input("a", blockCharacters: 100)])
+        // Dated inside last week, or the range matches nothing, the recency fallback fires, and the
+        // plan correctly reports no range at all.
+        let journal = index([input("a", daysAgo: 3, blockCharacters: 100)])
         let named = plan("What did I do last week?", in: journal)
         #expect(named.appliedRange != nil)
         #expect(named.rangeWasInherited == false)
@@ -396,6 +410,16 @@ struct AskRetrievalTests {
     // A7's tier 4, which the rewrite dropped by accident. A question sharing no word with the
     // journal used to send the newest entries; "nothing to go on" offers no Retry, so losing it
     // turned an ordinary question into a dead end.
+    // A range that catches nothing is not a range the prompt may claim: the fallback sends the
+    // newest entries in the journal, not the newest in that month.
+    @Test func aRangeThatMatchesNothingIsNotClaimed() {
+        let journal = index([input("a", daysAgo: 300, blockCharacters: 100)])
+        let result = plan("What did I do last week?", in: journal)
+        #expect(result.matchedNothing)
+        #expect(result.appliedRange == nil)
+        #expect(result.rangeWasInherited == false)
+    }
+
     @Test func aQuestionThatMatchesNothingFallsBackToTheNewestEntries() {
         let inputs = (0..<8).map { input("entry\($0)", text: "the deadline moved", daysAgo: $0, blockCharacters: 100) }
         let result = plan("ayahuasca", in: index(inputs))

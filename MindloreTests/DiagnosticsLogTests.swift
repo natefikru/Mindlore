@@ -418,7 +418,9 @@ struct AskDiagnosticsPrivacyTests {
 
         // And the search panel, which reads the same index.
         let results = JournalSearch.results(for: sentinel, index: ask.index, in: context)
-        #expect(results.isEmpty == false, "the panel has to have actually searched")
+        // Specifically the entries: `isEmpty` is also false when only the entity row matched, and
+        // that row comes from MindDirectory without touching AskIndex at all.
+        #expect(results.entries.isEmpty == false, "the panel has to have actually searched the index")
 
         let conversation = try #require(ask.conversations(in: context).first)
         ask.delete(conversation, in: context)

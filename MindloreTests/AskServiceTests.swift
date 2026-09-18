@@ -340,6 +340,23 @@ struct AskServiceTests {
         #expect(request.user.contains("These entries are from"))
     }
 
+    // An inherited range never filtered anything: entries outside it are in the prompt. Stating it
+    // as fact made the model refuse or mis-date them, and nothing tested it.
+    @Test func anInheritedRangeIsDescribedAsTheQuestionBeforeRatherThanAsAFact() async throws {
+        entry("Walked the river.", daysAgo: 2)
+        entry("Walked the river again.", daysAgo: 300)
+        let ask = service()
+        generator.results = [answer("Not much.", citing: ["E1"]), answer("The river.", citing: ["E1"])]
+
+        await ask.send("What did I do last week?", in: context)
+        await ask.send("And the river?", in: context)
+
+        let request = try #require(generator.requests.last)
+        #expect(request.user.contains("The question before this one was about"))
+        #expect(request.user.contains("not limited to it"))
+        #expect(request.user.contains("These entries are from") == false)
+    }
+
     @Test func aQuestionMatchingNothingSaysSoRatherThanPretending() async throws {
         entry("The deadline moved.")
         let ask = service()
@@ -350,24 +367,27 @@ struct AskServiceTests {
         #expect(request.user.contains("Nothing in the journal matches this question"))
         // And it still sends the newest entries rather than failing, which is what A7 did.
         #expect(ask.turns.last?.sentEntryIDs.isEmpty == false)
+        // Nothing else may describe them as being about the question or about a period.
+        #expect(request.user.contains("that match at all") == false)
+        #expect(request.user.contains("These entries are from") == false)
     }
 
     @Test func theSummaryRuleGoesInOnlyWhenASummaryDoes() async throws {
         for index in 0..<60 {
-            entry("An ordinary day, number \(index).", daysAgo: Double(index + 1))
+            entry("An ordinary day at work, number \(index).", daysAgo: Double(index + 1))
         }
         let ask = service()
         generator.results = [answer("Often.", citing: ["E1"]), answer("Once.", citing: ["E1"])]
 
-        await ask.send("How often did I write?", in: context)
+        await ask.send("How often did I write about work?", in: context)
         let aggregate = try #require(generator.requests.last)
-        #expect(aggregate.system.contains("not of the entries below it"))
+        #expect(aggregate.system.contains("not of the entries quoted below it"))
         #expect(ask.turns.last?.rollupMonthCount ?? 0 > 0)
 
         await ask.newConversation()
         await ask.send("What happened on the ninth day?", in: context)
         let ordinary = try #require(generator.requests.last)
-        #expect(ordinary.system.contains("not of the entries below it") == false)
+        #expect(ordinary.system.contains("not of the entries quoted below it") == false)
     }
 
     // MARK: - Voice

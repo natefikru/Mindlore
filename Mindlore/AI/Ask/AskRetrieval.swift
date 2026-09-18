@@ -22,9 +22,6 @@ nonisolated enum AskRetrieval {
     static let continuityBudgetOpenAI = 4_800
     static let aboutBudgetOnDevice = 800
 
-    // What a counts-only rollup line costs: "March 2026: 31 entries, 2 to 30 March".
-    static let rollupCharactersPerMonth = 64
-    static let maxRollupMonthsOpenAI = 24
     // An entry has to be this close to the best match to count as matching at all. Counting every
     // non-zero score would make the number meaningless: a journal where most entries carry the same
     // life area matches most of itself on "how was work", and "12 of 3,000" teaches everyone to
@@ -61,6 +58,8 @@ nonisolated enum AskRetrieval {
         var excerptEntryIDs: Set<UUID> = []
         // How many entries matched before the cut, which is the "84" in "12 of 84".
         var matchedCount = 0
+        // Which entries those were, so a rollup counts the same set the number describes.
+        var matchedEntryIDs: Set<UUID> = []
         // Nothing matched and the newest entries went instead, so an answer shouldn't be written as
         // though these were about the question.
         var matchedNothing = false
@@ -121,6 +120,10 @@ nonisolated enum AskRetrieval {
             // from the newest entries rather than a failure with no Retry on it.
             scored = Array(index.search(AskIndex.Query(sendableOnly: true, asOf: query.asOf)).prefix(recencyFallbackCount))
             wasRecencyFallback = true
+            // The fallback ignores the range: these are the newest entries in the journal, not the
+            // newest in March, so the prompt must not go on to say they are from March.
+            plan.appliedRange = nil
+            plan.rangeWasInherited = false
         }
         guard !scored.isEmpty else {
             plan.isAggregate = query.aggregateHint
@@ -129,26 +132,38 @@ nonisolated enum AskRetrieval {
 
         let limit = provider == .openAI ? maxRankedEntriesOpenAI : maxRankedEntriesOnDevice
         let floor = (scored.first?.score ?? 0) * matchRelevanceFloor
-        // Nothing matched on the fallback, so nothing was cut from a match set either.
-        plan.matchedCount = wasRecencyFallback ? 0 : scored.filter { $0.score >= floor }.count
         plan.matchedNothing = wasRecencyFallback
+
+        // The set the answer is being generalized from, named once so the count, the months, and
+        // the rollup's own numbers can never describe different things.
+        var matchedIndices = wasRecencyFallback ? [] : scored.filter { $0.score >= floor }.map(\.document)
         // A question that named a stretch of time is asking about the whole stretch, so the entries
         // in it are the denominator whether or not they share a word with the question. Without
         // this, "how have I been feeling this year" matches the few entries using the word
         // "feeling", reports "8 of 8", and answers a year from two weeks with nothing to hedge
         // against. This is the honest-truncation half of the phase, and it only works here.
         if query.namedRange != nil, !wasRecencyFallback {
-            plan.matchedCount = max(plan.matchedCount, index.candidateCount(for: query.indexQuery))
+            let candidates = index.candidateIndices(for: query.indexQuery)
+            if candidates.count > matchedIndices.count { matchedIndices = candidates }
         }
+        plan.matchedCount = matchedIndices.count
+        plan.matchedEntryIDs = Set(matchedIndices.map { index.documents[Int($0)].id })
         plan.isAggregate = query.aggregateHint || plan.matchedCount > aggregateSizeFactor * limit
 
-        // Rollups first, because what they take decides how much is left to rank into.
+        // Rollups first, because what they take decides how much is left to rank into. The months
+        // come from the matched set, not from everything scored: a single weak tail hit should not
+        // widen the summary past what the number beside it claims.
         var rollupCharacters = 0
         if rollups, plan.isAggregate, plan.slices.rollups > 0 {
-            let affordable = plan.slices.rollups / rollupCharactersPerMonth
-            let available = months(of: scored, in: index, calendar: calendar)
-            plan.rollupMonths = Array(available.prefix(min(affordable, maxRollupMonthsOpenAI)))
-            rollupCharacters = plan.rollupMonths.count * rollupCharactersPerMonth
+            var available = months(of: matchedIndices, in: index, calendar: calendar)
+            // Oldest out first until it fits. Past two years the lines become years, and
+            // estimatedCharacters knows that, so twenty-four month lines are not reserved for three
+            // year lines' worth of text.
+            while !available.isEmpty, AskRollups.estimatedCharacters(monthCount: available.count) > plan.slices.rollups {
+                available.removeLast()
+            }
+            plan.rollupMonths = available
+            rollupCharacters = AskRollups.estimatedCharacters(monthCount: available.count)
         }
 
         // What the About blocks will actually take, from the size hints the index carries, rather
@@ -213,11 +228,11 @@ nonisolated enum AskRetrieval {
 
     // Every month the matched set touches, newest first. The rollup itself is rendered elsewhere;
     // all the plan needs is which stretches of time to summarize.
-    private static func months(of scored: [AskIndex.Scored], in index: AskIndex, calendar: Calendar) -> [DateInterval] {
+    private static func months(of documents: [Int32], in index: AskIndex, calendar: Calendar) -> [DateInterval] {
         var seen: Set<Date> = []
         var months: [DateInterval] = []
-        for result in scored {
-            let date = index.documents[Int(result.document)].date
+        for document in documents {
+            let date = index.documents[Int(document)].date
             guard let month = calendar.dateInterval(of: .month, for: date), seen.insert(month.start).inserted else { continue }
             months.append(month)
         }

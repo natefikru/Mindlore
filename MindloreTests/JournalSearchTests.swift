@@ -33,10 +33,13 @@ struct JournalSearchTests {
     // The panel reads the same index the prompt is built from, which is the whole point of the
     // change: before it, the panel could say "nothing matches that" about an entry the question
     // then went on to send.
-    private func results(_ query: String) -> JournalSearch.Results {
+    private func index() -> AskIndex {
         let gathered = AskSources.documents(in: context)
-        let index = AskIndex.build(from: gathered.documents, entities: gathered.entities)
-        return JournalSearch.results(for: query, index: index, now: now, in: context)
+        return AskIndex.build(from: gathered.documents, entities: gathered.entities)
+    }
+
+    private func results(_ query: String) -> JournalSearch.Results {
+        JournalSearch.results(for: query, index: index(), now: now, in: context)
     }
 
     @Test func matchesTextOrTitle() throws {
@@ -55,17 +58,65 @@ struct JournalSearchTests {
         #expect(results("river").entries.isEmpty)
     }
 
-    @Test func rankedAndCappedAtThirty() {
+    @Test func cappedAtThirty() {
         for index in 0..<35 {
             entry("river \(index)", daysAgo: Double(index))
         }
+        #expect(results("river").entries.count == JournalSearch.maxEntries)
+    }
+
+    // Ranked, not sorted by date. Thirty-five entries that all say "river" are relevance-identical
+    // and only recency separates them, which is not the same claim.
+    @Test func relevanceOrdersTheRowsAndNotJustRecency() throws {
+        entry("A day with nothing much in it, and somewhere in here the word river appears once.", daysAgo: 0)
+        let focused = entry("River.", title: "River", daysAgo: 40)
 
         let rows = results("river").entries
+        #expect(rows.count == 2)
+        // The older entry leads: the word is its title and most of its text, against one passing
+        // mention forty days fresher.
+        #expect(rows.first?.id == focused.id)
+    }
 
-        #expect(rows.count == JournalSearch.maxEntries)
-        // Ranked, not sorted by date: thirty-five entries all saying "river" are separated by
-        // recency, so newest still leads, but relevance is what decides the order now.
-        #expect(rows.first?.date ?? .distantPast > rows.last?.date ?? .distantFuture)
+    // Every word of this is in the stop list, so the ranked path has nothing to search with. It
+    // used to match through the predicate, and it has to keep matching.
+    @Test func aQueryOfNothingButStopWordsStillFindsWhatItUsedTo() throws {
+        let today = entry("Today was quiet.")
+        #expect(results("today").entries.map(\.id) == [today.id])
+        let mine = entry("My own fault.")
+        #expect(results("my").entries.map(\.id).contains(mine.id))
+    }
+
+    @Test func aRowMatchedOnAMoodOrAMonthSaysWhich() throws {
+        let entry = entry("Nothing in the words themselves.")
+        let insights = EntryInsights()
+        context.insert(insights)
+        insights.entry = entry
+        insights.primaryMoodRaw = Mood.allCases.first?.rawValue
+        let mood = try #require(Mood.allCases.first?.rawValue)
+
+        #expect(results(mood).entries.first?.reason == "mood: \(mood)")
+    }
+
+    // The caption may only ever say what it checked. It used to fall through to "mentions someone
+    // by this name" for a mood or a month, which is a claim it had no way to make.
+    @Test func aRowNeverClaimsANameItDidNotMatch() throws {
+        let entry = entry("Nothing in the words themselves.")
+        let insights = EntryInsights()
+        context.insert(insights)
+        insights.entry = entry
+        insights.areasRaw = [LifeArea.work.rawValue]
+
+        let reason = results("work").entries.first?.reason
+        #expect(reason == "area: Work")
+        #expect(reason?.contains("someone") == false)
+    }
+
+    // A whole question matches no literal substring, so every row used to show its own opening.
+    @Test func theSnippetWindowsOnAWordTheEntryActuallyHolds() throws {
+        entry("A long morning of nothing at all, and then we walked by the river until it got dark.")
+        let snippet = try #require(results("What did I do by the river?").entries.first?.snippet)
+        #expect(snippet.contains("river"))
     }
 
     // Case and diacritics folded at index time, the same way they folded in the old predicate, so
@@ -129,7 +180,7 @@ struct JournalSearchTests {
         let tagged = entry("Paddled out.", tags: ["river"])
         entry("Nothing to do with it.", tags: ["work"])
 
-        #expect(JournalSearch.entries(taggedWith: "River", in: context).map(\.id) == [tagged.id])
+        #expect(JournalSearch.entries(taggedWith: "River", index: index(), in: context).map(\.id) == [tagged.id])
     }
 
     @Test func theSnippetIsAWindowAroundTheFirstMatch() {

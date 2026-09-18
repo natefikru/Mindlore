@@ -286,7 +286,7 @@ struct AskView: View {
 
     private func selectTag(_ tag: String) {
         tagFilter = tag
-        results.entries = JournalSearch.entries(taggedWith: tag, in: modelContext)
+        results.entries = JournalSearch.entries(taggedWith: tag, index: ask.index, in: modelContext)
     }
 
     private func open(entryID: UUID) {

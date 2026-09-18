@@ -21,26 +21,51 @@ nonisolated enum AskRollups {
         let last: Date?
     }
 
-    // One line per month, newest first, from the documents the question could be answered from.
-    // Only sendable ones are counted: the number the model reasons about has to match the corpus it
-    // was given, and an entry Ask may not send is not part of that corpus.
+    // One line per month, newest first, counting **the entries that matched** and nothing else.
+    //
+    // Counting every entry in the month instead is the mistake this exists to prevent, wearing the
+    // rollup's own clothes: the prompt tells the model the block summarizes what matched, so a
+    // month line saying 214 turns "what happened with the deadline?" into "you wrote about the
+    // deadline 214 times in March". It also contradicts the "12 of 30" line in the same prompt.
     static func months(
         for intervals: [DateInterval],
+        matching matched: Set<UUID>,
         in index: AskIndex,
         calendar: Calendar = .current
     ) -> [Month] {
-        intervals.compactMap { interval in
-            let dates = index.documents
-                .filter { $0.isSendable && $0.date >= interval.start && $0.date < interval.end }
-                .map(\.date)
-                .sorted()
-            guard !dates.isEmpty else { return nil }
-            return Month(interval: interval, count: dates.count, first: dates.first, last: dates.last)
+        let dates = index.documents
+            .filter { matched.contains($0.id) && $0.isSendable }
+            .map(\.date)
+        return intervals.compactMap { interval in
+            let inside = dates.filter { $0 >= interval.start && $0 < interval.end }.sorted()
+            guard !inside.isEmpty else { return nil }
+            return Month(interval: interval, count: inside.count, first: inside.first, last: inside.last)
         }
     }
 
+    // What reserving room for these costs, before any of them is rendered. It has to know about the
+    // year path, or the plan reserves for 36 month lines that are about to become three year lines.
+    static func estimatedCharacters(monthCount: Int) -> Int {
+        guard monthCount > 0 else { return 0 }
+        let lines = monthCount > maxMonthsBeforeRollingUpByYear
+            ? max(1, Int((Double(monthCount) / 12).rounded(.up)))
+            : monthCount
+        return fenceCharacters + lines * charactersPerLine
+    }
+
+    // A month line at its longest: "September 2026: 31 entries, 1 September to 30 September".
+    static let charactersPerLine = 60
+    static let fenceCharacters = 20
+
+    // One block, not one per month: the prompt's rule calls it "a list of months and counts", and
+    // twenty-four separate fences cost seventeen characters each to say the same thing.
+    static func block(for months: [Month], calendar: Calendar = .current) -> String? {
+        let lines = self.lines(for: months, calendar: calendar)
+        return lines.isEmpty ? nil : lines.joined(separator: "\n")
+    }
+
     // Past two years a month a line is too many lines for what it says, so they become years.
-    static func blocks(for months: [Month], calendar: Calendar = .current) -> [String] {
+    static func lines(for months: [Month], calendar: Calendar = .current) -> [String] {
         guard months.count > maxMonthsBeforeRollingUpByYear else {
             return months.map { line(for: $0, calendar: calendar) }
         }

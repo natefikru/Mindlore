@@ -248,14 +248,20 @@ final class AskService {
         let retrieval = retrieval(for: question, asked: true, provider: provider)
         let selection = AskSources.blocks(for: retrieval.plan, in: context)
         let retrievalPlan = retrieval.plan
-        let summaries = AskRollups.blocks(
-            for: AskRollups.months(for: retrievalPlan.rollupMonths, in: indexStore.index, calendar: calendar),
+        // One block, counting the same set matchedCount describes.
+        let summary = AskRollups.block(
+            for: AskRollups.months(
+                for: retrievalPlan.rollupMonths,
+                matching: retrievalPlan.matchedEntryIDs,
+                in: indexStore.index,
+                calendar: calendar
+            ),
             calendar: calendar
         )
         let built = AskContextBuilder.render(
             plan: retrievalPlan,
             selection: selection,
-            rollups: summaries,
+            rollups: [summary].compactMap { $0 },
             terms: retrieval.query.terms.map(\.text),
             handles: handles,
             budget: budget(for: provider, question: question)
@@ -397,6 +403,7 @@ final class AskService {
             let fixed = AskPrompt.system(today: now(), calendar: calendar, voice: promptVoice(), hasSummaries: false).count
                 + AskPrompt.folded(previous: previousTurn(), into: "").count
                 + question.count
+                + AskPrompt.onDeviceNotesHeadroom
                 + AskContextBuilder.onDeviceAnswerHeadroom
             return max(0, AskContextBuilder.onDeviceBudget - fixed)
         }

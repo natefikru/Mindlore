@@ -94,8 +94,9 @@ nonisolated enum AskContextBuilder {
         }
 
         builder.beginSlice(cap: plan.slices.rollups, budget: budget)
-        for rollup in rollups {
-            builder.addFenced(rollup)
+        var summarizedMonths = 0
+        for rollup in rollups where builder.addFenced(rollup) {
+            summarizedMonths = plan.rollupMonths.count
         }
 
         builder.beginSlice(cap: plan.slices.continuity, budget: budget)
@@ -113,7 +114,9 @@ nonisolated enum AskContextBuilder {
 
         var context = builder.context
         context.matchedCount = max(plan.matchedCount, context.entryIDs.count)
-        context.rollupMonthCount = plan.rollupMonths.count
+        // What went out, not what was planned. "What was sent" is the screen that has to be true
+        // where the cost line is only an estimate, and a summary that failed its slice is not sent.
+        context.rollupMonthCount = summarizedMonths
         return context
     }
 
@@ -235,10 +238,11 @@ nonisolated enum AskContextBuilder {
 
         // A rollup is generated from entries, so it is no more trusted than one and goes inside the
         // same fence.
-        mutating func addFenced(_ body: String) {
+        @discardableResult
+        mutating func addFenced(_ body: String) -> Bool {
             let text = body.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !text.isEmpty else { return }
-            append(Block(text: "\(openDelimiter)\n\(sanitized(text))\n\(closeDelimiter)", entryID: nil))
+            guard !text.isEmpty else { return false }
+            return append(Block(text: "\(openDelimiter)\n\(sanitized(text))\n\(closeDelimiter)", entryID: nil))
         }
 
         // A bio and a loose end are written from entry text, which can come from a photographed
