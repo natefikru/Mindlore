@@ -480,7 +480,7 @@ the real key.
 - [x] `-seedDemoJournal <n>` (Debug only): a deterministic generator of entries with insights,
       indexed through the real `GraphIndexer`, always in its own named store. Tests: it creates
       `n` entries, indexing produces links for them, and it never opens the default store.
-- [x] Carry the unrun graph device steps into A9's checklist (below).
+- [x] Carry the unrun graph device steps into A10's checklist (below).
 
 ### A1: Life areas replace themes
 - [x] Delete `EntityKind.theme` and every theme path listed in the research summary. The label
@@ -654,12 +654,50 @@ Build spec: `tasks/a5b-map-extras-spec.md`.
   - `OpenAILiveTests`: a question about a seeded fact cites the right entry
   - UI test with the stub: ask, open history, reopen, and ask a follow-up
 
-### A8: 3D spike
+### A8: The phone's own world, and the journal's manners
+
+Nine changes the owner asked for on 2026-09-18, after using A5b. Each is small on its own; the
+first three are the ones with real design behind them. This phase gets its own build spec
+(`tasks/a8-polish-spec.md`) and can run in a worktree beside A7.
+
+**People and places meet the phone**
+- [ ] **Contacts.** Link a person entity to a `CNContact` and show its photo on the peek card and
+      the entity page. Read-only, asks for permission the first time, and stores the contact's
+      identifier on `Entity` (never a copy of the contact's details). An unmatched person still
+      works exactly as it does now.
+- [ ] **Places.** Link a place entity to a real location (`MKLocalSearch`), show a small map
+      preview on the peek card, and open Apple Maps from the entity page. Stores coordinates and
+      a place identifier only.
+
+**The graph tells the truth after a rename**
+- [ ] **Rename rewrites.** Renaming an entity replaces the old spelling in every entry's text and
+      in bios, and keeps the old spelling as an alias. Built for the common case: the recorder
+      misheard a name. It needs care, since it edits the user's own words: the spec covers what
+      is changed, what a preview shows before it happens, and how to undo it.
+
+**The model's manners**
+- [ ] **Loose ends are commitments.** Tighten the bar: a plan to make or a task to do, worth
+      keeping for days or weeks. "Grab coffee after this" is not one. The prompt says so, with
+      examples of both, and `OpenAILiveTests` checks it.
+- [ ] **First person.** AI text ("the writer") becomes the user's own voice. A setting picks
+      I, you, or the user's name, and the journal learns the name (a Settings field, used in
+      prompts). Covers summaries, bios, and loose ends.
+
+**The journal reads like a journal**
+- [ ] **Notes-app grouping.** Group the list: Recent, Yesterday, This week, then months by name,
+      then years by number. Shorter rows.
+- [ ] **Multi-select areas.** The area filter takes more than one area; an entry matching any of
+      them shows.
+- [ ] **"Decline"** replaces "Not now" on the text cleanup card.
+
+- [ ] Tests, device step, and a review, as every phase.
+
+### A9: 3D spike
 - [ ] `Mind3DSpikeView` (Debug only) with the 3D engine variant.
 - [ ] Device comparison against A5's 2D (label readability, tap accuracy, frame time, feel)
       written in the review log. The owner decides. Delete the spike unless 3D wins.
 
-### A9: Privacy, review, device, docs
+### A10: Privacy, review, device, docs
 - [ ] Privacy test covers every new event.
 - [ ] Sub-agent code review over the whole diff. Fixes go in separate commits.
 - [ ] Device steps, run on a fresh install:
@@ -801,7 +839,7 @@ cancel in a test, since XCUITest can't cancel a gesture.
 this branch and on A0 (`6d0735b`) alike. A1 added a scroll there; it now fails later, at
 `entityUnmerge`, on the landed A3 commit (`65cb856`) as well: after a relaunch, tapping Tom under
 "Merged into this" highlights the row and pushes nothing. That's a real Connections bug, left
-for A5, which deletes Connections and rewrites the test. For A9,
+for A5, which deletes Connections and rewrites the test. For A10,
 CLAUDE.md's Graph paragraph still describes a rebuild on every change and a settle-only
 `graph.rendered`.
 
@@ -904,7 +942,7 @@ A5 (2026-09-17, build spec in `tasks/a5-mind-spec.md`):
   "Same" still logged; primary areas are cached per revision; a review answer refreshed twice;
   the Which one card now names its entry's date; stale Connections comments. Not changed: no UI
   test for Which one or Skip (unit tests cover both); CLAUDE.md's Graph section still names the
-  deleted views, which A9 rewrites.
+  deleted views, which A10 rewrites.
 - The owner allowed the 300-entry seed on the phone for A5's device step, since no real journal
   lives there yet.
 - Device (2026-09-17, iPhone 17 Pro, run `a5-mind-1`, the scene-based 300-entry seed: 216
@@ -958,7 +996,7 @@ A5b (2026-09-17, build spec in `tasks/a5b-map-extras-spec.md`):
     step p95 7.1 ms. The dropped frames came from each step's view-state writes re-rendering all
     of Mind. The fix (`958382f`): steps move the simulation every 100 ms and refresh names,
     colours, and labels only on every fifth step. At the owner's call, it's not re-measured on
-    the phone; A9's device pass covers replay again.
+    the phone; A10's device pass covers replay again.
   - Grouping on: no sample; the session was too short.
 - Tests: 861 unit tests pass. `GraphUITests` (including the new lenses, dots, and regions test
   and the replay test), `GraphScreenshotTests.testDemoJournalMind` (new lens, dots, regions, and
