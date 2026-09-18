@@ -59,6 +59,15 @@ struct AskDatesTests {
         #expect(range("what did I write on March 4, 2025") == DateInterval(start: day("2025-03-04"), end: day("2025-03-05")))
     }
 
+    // "may", "march" and "august" are ordinary words: a month only counts when the question
+    // frames it as a date, or a month of entries goes out for a question about nothing of the kind.
+    @Test func aMonthWordUsedAsAnOrdinaryWordIsNotADate() {
+        #expect(range("what may I have forgotten?") == nil)
+        #expect(range("did I march anywhere?") == nil)
+        #expect(range("in May") != nil)
+        #expect(range("May 2025") != nil)
+    }
+
     @Test func aQuestionWithNoDateHasNoRange() {
         #expect(range("what's been going on with Sarah?") == nil)
         #expect(range("") == nil)

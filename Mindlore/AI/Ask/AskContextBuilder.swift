@@ -222,9 +222,12 @@ nonisolated enum AskContextBuilder {
             nextHandle = (used.max() ?? 0) + 1
         }
 
+        // A bio and a loose end are written from entry text, which can come from a photographed
+        // page, so they are no more trusted than an entry and go inside the same fence.
         mutating func addEntity(_ entity: EntityInput) {
             guard usedEntities.insert(entity.id).inserted else { return }
-            var lines = ["About \(sanitized(entity.name)):"]
+            let name = InsightsPromptBuilder.promptSafe(sanitized(entity.name)) ?? "Someone"
+            var lines = ["About \(name)"]
             if let bio = entity.bio?.trimmingCharacters(in: .whitespacesAndNewlines), !bio.isEmpty {
                 lines.append(sanitized(bio))
             }
@@ -234,7 +237,8 @@ nonisolated enum AskContextBuilder {
                 lines.append(contentsOf: open)
             }
             guard lines.count > 1 else { return }
-            append(Block(text: lines.joined(separator: "\n"), entryID: nil))
+            let fenced = "\(openDelimiter)\n\(lines.joined(separator: "\n"))\n\(closeDelimiter)"
+            append(Block(text: fenced, entryID: nil))
         }
 
         // One entry goes in once, at the first tier that asked for it.

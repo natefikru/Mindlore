@@ -59,12 +59,15 @@ nonisolated enum AskDates {
     }
 
     // "in March", "March 2025". A bare month means its most recent occurrence that isn't ahead.
+    //
+    // A month name has to be framed as one: "may", "march" and "august" are ordinary English
+    // words, and "what may I have forgotten?" must not quietly pull in a month of entries.
     private static func monthRange(in text: String, now: Date, calendar: Calendar) -> DateInterval? {
         var names = calendar.monthSymbols.map { $0.lowercased() }
         names += calendar.shortMonthSymbols.map { $0.lowercased() }
         for (index, name) in names.enumerated() {
             let month = index % 12 + 1
-            guard NameMatching.range(of: name, in: text) != nil else { continue }
+            guard namesAMonth(name, in: text) else { continue }
             let year = explicitYear(in: text) ?? mostRecentYear(ofMonth: month, now: now, calendar: calendar)
             var components = DateComponents()
             components.year = year
@@ -87,6 +90,15 @@ nonisolated enum AskDates {
               let matched = Range(match.range, in: question), namesADay(String(question[matched]))
         else { return nil }
         return days(from: calendar.startOfDay(for: date), count: 1, calendar: calendar)
+    }
+
+    // Either a preposition that can only introduce a time ("in March", "back in March"), or a
+    // year right after it ("March 2025").
+    private static func namesAMonth(_ name: String, in text: String) -> Bool {
+        let escaped = NSRegularExpression.escapedPattern(for: name)
+        let framed = "(?:(?:\\bin|\\bduring|\\bsince|\\bthroughout|\\bback in|\\bover)\\s+\(escaped)\\b)|(?:\\b\(escaped)\\s+(?:19|20)\\d{2}\\b)"
+        guard let regex = try? NSRegularExpression(pattern: framed, options: [.caseInsensitive]) else { return false }
+        return regex.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)) != nil
     }
 
     private static func namesADay(_ text: String) -> Bool {
