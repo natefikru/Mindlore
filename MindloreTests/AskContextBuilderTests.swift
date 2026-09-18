@@ -4,6 +4,10 @@ import Testing
 
 private let day: TimeInterval = 86_400
 
+// The builder no longer chooses anything: AskIndex ranks, AskRetrieval.plan divides the budget, and
+// this renders what they picked. Selection and ranking are covered by AskIndexTests and
+// AskRetrievalTests; what is left here is handles, fencing, truncation, and whether a slice can eat
+// the room the entries needed.
 struct AskContextBuilderTests {
     private let now = Date(timeIntervalSince1970: 1_750_000_000)
 
@@ -11,51 +15,101 @@ struct AskContextBuilderTests {
         AskContextBuilder.EntryInput(id: id, date: now.addingTimeInterval(-daysAgo * day), title: title, text: text, entityIDs: entities)
     }
 
-    private func build(_ question: String, entries: [AskContextBuilder.EntryInput], entities: [AskContextBuilder.EntityInput] = [], handles: [String: UUID] = [:], budget: Int = AskContextBuilder.openAIBudget) -> AskContextBuilder.Context {
-        AskContextBuilder.build(question: question, entries: entries, entities: entities, handles: handles, now: now, budget: budget)
+    private func render(
+        ranked: [AskContextBuilder.EntryInput] = [],
+        continuity: [AskContextBuilder.EntryInput] = [],
+        excerptOnly: Set<UUID> = [],
+        entities: [AskContextBuilder.EntityInput] = [],
+        rollups: [String] = [],
+        matched: Int = 0,
+        handles: [String: UUID] = [:],
+        budget: Int = AskContextBuilder.openAIBudget,
+        provider: AskProviderKind = .openAI
+    ) -> AskContextBuilder.Context {
+        var plan = AskRetrieval.Plan()
+        plan.slices = AskRetrieval.slices(budget: budget, provider: provider)
+        plan.rankedEntryIDs = ranked.map(\.id)
+        plan.continuityEntryIDs = continuity.map(\.id)
+        plan.excerptOnlyEntryIDs = excerptOnly
+        plan.aboutEntityIDs = entities.map(\.id)
+        plan.matchedCount = matched
+        plan.rollupMonths = rollups.map { _ in DateInterval(start: now, duration: day) }
+        let selection = AskSources.Selection(entries: ranked + continuity, entities: entities)
+        return AskContextBuilder.render(plan: plan, selection: selection, rollups: rollups, handles: handles, budget: budget)
     }
 
-    @Test func namedEntitiesComeFirstThenKeywordsThenTheDateRange() {
+    // MARK: - Order
+
+    @Test func entitiesComeFirstAndTheBestMatchesLastNearestTheQuestion() throws {
         let sarahID = UUID()
         let sarah = AskContextBuilder.EntityInput(id: sarahID, name: "Sarah", bio: "My sister.", openLooseEnds: ["Call Sarah back"])
-        let withSarah = entry("Walked the river with Sarah.", daysAgo: 30, entities: [sarahID])
-        let keyword = entry("The kayak needed a new paddle.", daysAgo: 20)
-        let yesterday = entry("Quiet day, read a book.", daysAgo: 1)
+        let best = entry("Walked the river with Sarah.", daysAgo: 30, entities: [sarahID])
+        let earlier = entry("Quiet day, read a book.", daysAgo: 1)
 
-        let context = build("What did Sarah say about the kayak yesterday?", entries: [withSarah, keyword, yesterday], entities: [sarah])
+        let context = render(ranked: [best], continuity: [earlier], entities: [sarah])
 
-        #expect(context.entryIDs == [withSarah.id, keyword.id, yesterday.id])
-        #expect(context.blocks.first?.entryID == nil, "the entity's own block comes before its excerpts")
+        #expect(context.blocks.first?.entryID == nil, "the entity's own block comes before any entry")
         #expect(context.blocks.first?.text.contains("My sister.") == true)
         #expect(context.blocks.first?.text.contains("Call Sarah back") == true)
+        // Continuity before ranked: the strongest evidence sits closest to the question.
+        #expect(context.entryIDs == [earlier.id, best.id])
     }
 
-    @Test func anEntryGoesInOnceAtItsHighestTier() {
-        let sarahID = UUID()
-        let sarah = AskContextBuilder.EntityInput(id: sarahID, name: "Sarah")
-        let shared = entry("Sarah brought the kayak.", daysAgo: 2, entities: [sarahID])
-
-        let context = build("Did Sarah bring the kayak?", entries: [shared], entities: [sarah])
-
+    @Test func anEntryGoesInOnceEvenIfTwoSlicesAskForIt() {
+        let shared = entry("Sarah brought the kayak.", daysAgo: 2)
+        let context = render(ranked: [shared], continuity: [shared])
         #expect(context.entryIDs == [shared.id])
         #expect(context.blocks.filter { $0.entryID == shared.id }.count == 1)
     }
+
+    // MARK: - Budget
 
     @Test func aBlockTooBigToFitIsSkippedAndASmallerOneStillGoesIn() {
         let huge = entry(String(repeating: "kayak paddle. ", count: 300), daysAgo: 1)
         let small = entry("kayak in the shed.", daysAgo: 2)
 
-        let context = build("where is the kayak", entries: [huge, small], budget: 300)
+        let context = render(ranked: [huge, small], budget: 300)
 
         #expect(context.entryIDs == [small.id])
         #expect(context.characters <= 300)
+    }
+
+    @Test func aRollupCannotEatTheRoomTheEntriesNeeded() {
+        // Twenty rollup lines of 500 characters is 10,000, well past the 6,000 rollup slice. What
+        // does not fit that slice has to be dropped rather than taken out of the entries.
+        let rollups = (0..<20).map { _ in String(repeating: "x", count: 500) }
+        let entries = (0..<8).map { entry(String(repeating: "kayak ", count: 200), daysAgo: Double($0)) }
+
+        let context = render(ranked: entries, rollups: rollups)
+        let rollupCharacters = context.blocks.filter { $0.entryID == nil }.reduce(0) { $0 + $1.text.count }
+
+        #expect(rollupCharacters <= AskRetrieval.rollupBudgetOpenAI + 40)
+        #expect(context.entryIDs.count == 8, "every entry still fits")
+    }
+
+    @Test func continuityCannotEatTheRoomTheEntriesNeeded() {
+        let cited = (0..<20).map { entry(String(repeating: "old ", count: 500), daysAgo: Double(100 + $0)) }
+        let best = entry("kayak in the shed", daysAgo: 0)
+
+        let context = render(ranked: [best], continuity: cited)
+
+        #expect(context.entryIDs.contains(best.id))
+        #expect(context.entryIDs.count < 21)
+    }
+
+    @Test func anUnusedSliceRollsForwardIntoTheEntries() {
+        // No entities and no rollups, so their 9,600 characters are there for the entries to use.
+        let entries = (0..<12).map { entry(String(repeating: "kayak ", count: 330), daysAgo: Double($0)) }
+        let context = render(ranked: entries)
+        #expect(context.characters > AskRetrieval.slices(budget: AskContextBuilder.openAIBudget, provider: .openAI).ranked)
+        #expect(context.characters <= AskContextBuilder.openAIBudget)
     }
 
     @Test func aLongEntryIsCutAtASentenceEnd() throws {
         let sentence = "The kayak sat in the shed " + String(repeating: "and waited ", count: 25) + "all winter. "
         let long = entry(String(repeating: sentence, count: 10), daysAgo: 1)
 
-        let context = build("kayak", entries: [long])
+        let context = render(ranked: [long])
 
         let block = try #require(context.blocks.first?.text)
         #expect(block.hasSuffix(AskContextBuilder.closeDelimiter))
@@ -64,14 +118,16 @@ struct AskContextBuilderTests {
         #expect(body.count <= AskContextBuilder.maxEntryCharacters)
     }
 
+    // MARK: - Handles
+
     @Test func handlesAreStableAcrossTurnsAndNewEntriesTakeTheNextNumber() {
         let first = entry("kayak day", daysAgo: 5)
         let second = entry("kayak again", daysAgo: 1)
 
-        let one = build("kayak", entries: [first])
+        let one = render(ranked: [first])
         #expect(one.handles == ["E1": first.id])
 
-        let two = build("kayak", entries: [first, second], handles: one.handles)
+        let two = render(ranked: [first, second], handles: one.handles)
         #expect(two.handles["E1"] == first.id)
         #expect(two.handles["E2"] == second.id)
         #expect(two.handle(for: second.id) == "E2")
@@ -79,33 +135,20 @@ struct AskContextBuilderTests {
 
     @Test func aReopenedConversationReusesTheStoredMap() {
         let entry = entry("kayak day", daysAgo: 5)
-        let stored = ["E7": entry.id]
-
-        let context = build("kayak", entries: [entry], handles: stored)
+        let context = render(ranked: [entry], handles: ["E7": entry.id])
 
         #expect(context.handles["E7"] == entry.id)
         #expect(context.blocks.first?.text.hasPrefix("[E7] ") == true)
     }
 
-    @Test func aMergedEntityNamedByItsAliasIsFound() {
-        let id = UUID()
-        let entity = AskContextBuilder.EntityInput(id: id, name: "Sarah Kim", aliases: ["Sarah K"], bio: "Rows on Sundays.")
-        let linked = entry("Sarah K brought the kayak.", daysAgo: 3, entities: [id])
+    // MARK: - Entity blocks
 
-        let context = build("What has Sarah K been up to?", entries: [linked], entities: [entity])
-
-        #expect(context.blocks.first?.text.contains("Rows on Sundays.") == true)
-        #expect(context.entryIDs == [linked.id])
-    }
-
-    // A renamed entity: the entries still say "Lewis", so the block has to say the two are one
-    // person, or the answer corrects the user's own name back at them.
     @Test func anEntityBlockNamesTheOtherSpellingsTheJournalUses() throws {
         let id = UUID()
         let entity = AskContextBuilder.EntityInput(id: id, name: "Luis", aliases: ["Lewis", "luis"], bio: "Thrift-store friend.")
         let entry = entry("Went thrifting with Lewis.", daysAgo: 4, entities: [id])
 
-        let context = build("Tell me about Luis", entries: [entry], entities: [entity])
+        let context = render(ranked: [entry], entities: [entity])
         let block = try #require(context.blocks.first?.text)
 
         #expect(block.contains("About Luis"))
@@ -114,32 +157,59 @@ struct AskContextBuilderTests {
         #expect(context.entryIDs == [entry.id], "and the entry that says Lewis still goes in")
     }
 
-    @Test func aQuestionThatMatchesNothingSendsNoRecentEntriesWhenSomethingElseMatched() {
-        let matched = entry("kayak in the shed.", daysAgo: 10)
-        let recent = entry("Nothing much.", daysAgo: 1)
+    // MARK: - Excerpts
 
-        #expect(build("kayak", entries: [matched, recent]).entryIDs == [matched.id])
+    @Test func anEntryMatchedOnlyThroughAnEntityIsSentAsTheSentencesNamingHer() throws {
+        let id = UUID()
+        let sarah = AskContextBuilder.EntityInput(id: id, name: "Sarah")
+        let long = entry(
+            "Rebuilt the fence all morning. Sarah came by at lunch. " + String(repeating: "Then hours of nothing much. ", count: 60),
+            daysAgo: 3,
+            entities: [id]
+        )
+
+        let context = render(ranked: [long], excerptOnly: [long.id], entities: [sarah])
+        let block = try #require(context.blocks.last?.text)
+
+        #expect(block.contains("Sarah came by at lunch."))
+        #expect(block.contains("Rebuilt the fence all morning.") == false)
+        // Ten of these fit where three full blocks would, which is what the old tier 1 bought and
+        // what a whole-block rewrite would have thrown away.
+        #expect(block.count < 400)
     }
 
-    @Test func aQuestionThatMatchesNothingAtAllFallsBackToTheFiveMostRecent() {
-        let entries = (1...7).map { entry("Entry \($0)", daysAgo: Double($0)) }
+    @Test func anExcerptFallsBackToTheWholeEntryWhenNoNameIsInIt() {
+        let id = UUID()
+        let sarah = AskContextBuilder.EntityInput(id: id, name: "Sarah")
+        // Linked to Sarah by insights, but her name is nowhere in the words.
+        let entry = entry("Dinner and a long argument about nothing.", daysAgo: 3, entities: [id])
 
-        let context = build("hi", entries: entries)
-
-        #expect(context.entryIDs == entries.prefix(5).map(\.id))
+        let context = render(ranked: [entry], excerptOnly: [entry.id], entities: [sarah])
+        #expect(context.blocks.last?.text.contains("long argument") == true)
     }
 
-    @Test func keywordsDropStopWordsAndShortWords() {
-        #expect(AskContextBuilder.keywords(in: "What did I do with the kayak last week?") == ["kayak"])
-        #expect(AskContextBuilder.keywords(in: "How are you?").isEmpty)
+    // MARK: - Counting
+
+    @Test func theContextCarriesWhatWasCutSoThePromptCanSaySo() {
+        let entries = (0..<3).map { entry("kayak \($0)", daysAgo: Double($0)) }
+        let context = render(ranked: entries, matched: 84)
+        #expect(context.matchedCount == 84)
+        #expect(context.wasCut)
+
+        let all = render(ranked: entries, matched: 3)
+        #expect(all.wasCut == false)
     }
 
-    @Test func entriesAreRankedByHowManyKeywordsTheyMatch() {
-        let both = entry("kayak and paddle together", daysAgo: 30)
-        let one = entry("just a paddle", daysAgo: 1)
+    @Test func matchedIsNeverLessThanWhatWentIn() {
+        let entries = (0..<3).map { entry("kayak \($0)", daysAgo: Double($0)) }
+        // A plan that under-counted must not produce "3 of 0".
+        #expect(render(ranked: entries, matched: 0).matchedCount == 3)
+    }
 
-        let context = build("kayak paddle", entries: [one, both])
-
-        #expect(context.entryIDs == [both.id, one.id], "more keywords beats more recent")
+    @Test func nothingChosenRendersNothing() {
+        let context = render()
+        #expect(context.isEmpty)
+        #expect(context.blocks.isEmpty)
+        #expect(context.characters == 0)
     }
 }

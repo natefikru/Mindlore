@@ -78,6 +78,10 @@ final class AskService {
     var draftQuestion = ""
 
     @ObservationIgnored private let resolve: () -> Result<AskProvider, AIJobFailure>
+    @ObservationIgnored private let index: AskIndexStore
+    // Read through a closure rather than held, so the service owes nothing to EntrySaver or
+    // GraphServices and tests can move either counter by hand.
+    @ObservationIgnored private let revisions: () -> AskIndexStore.Revisions
     @ObservationIgnored private let store: AskStore
     @ObservationIgnored private let diagnostics: DiagnosticsLog
     @ObservationIgnored private let now: () -> Date
@@ -89,12 +93,16 @@ final class AskService {
 
     init(
         resolve: @escaping () -> Result<AskProvider, AIJobFailure>,
+        index: AskIndexStore = AskIndexStore(),
+        revisions: @escaping () -> AskIndexStore.Revisions = { .init() },
         store: AskStore = AskStore(),
         diagnostics: DiagnosticsLog = .shared,
         now: @escaping () -> Date = { .now },
         calendar: Calendar = .current
     ) {
         self.resolve = resolve
+        self.index = index
+        self.revisions = revisions
         self.store = store
         self.diagnostics = diagnostics
         self.now = now
@@ -177,12 +185,33 @@ final class AskService {
         await answer(question.text, in: context)
     }
 
-    // What sending this question would cost, for the line under the field and "What was sent".
-    func estimate(for question: String, in context: ModelContext) -> (entries: Int, characters: Int) {
+    // Called when Ask appears and before a question goes out. Cheap when nothing changed: five
+    // counters and a comparison, against the whole-journal read this replaces.
+    func refreshIndex(in context: ModelContext) async {
+        await index.refreshIfNeeded(revisions: revisions(), in: context)
+    }
+
+    nonisolated struct Estimate: Equatable, Sendable {
+        var entries = 0
+        var characters = 0
+        // How many matched before the cut, which is what lets the line say "12 of 84".
+        var matched = 0
+
+        var wasCut: Bool { matched > entries }
+    }
+
+    // What sending this question would cost. Reads the index snapshot and fetches nothing, which is
+    // the point: this runs on a debounce while the user types, and it used to read the whole journal
+    // every time it fired.
+    func estimate(for question: String) -> Estimate {
         let trimmed = question.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty, case .success(let provider) = resolve() else { return (0, 0) }
-        let built = buildContext(for: trimmed, provider: provider, in: context)
-        return (built.entryIDs.count, built.characters)
+        guard !trimmed.isEmpty, case .success(let provider) = resolve() else { return Estimate() }
+        let plan = plan(for: trimmed, asked: false, provider: provider)
+        return Estimate(
+            entries: plan.entryIDs.count,
+            characters: plan.estimatedCharacters,
+            matched: plan.matchedCount
+        )
     }
 
     // Entered with isRunning already true, set by the caller before its first await, so two
@@ -198,14 +227,33 @@ final class AskService {
             return
         }
 
-        let journal = AskSources.journal(in: context)
-        let built = build(question: question, from: journal, provider: provider)
+        await index.refreshIfNeeded(revisions: revisions(), in: context)
+        let retrievalPlan = plan(for: question, asked: true, provider: provider)
+        let selection = AskSources.blocks(for: retrievalPlan, in: context)
+        let built = AskContextBuilder.render(
+            plan: retrievalPlan,
+            selection: selection,
+            handles: handles,
+            budget: budget(for: provider, question: question)
+        )
+        let eligible = index.index.documents.count { $0.isSendable }
+        diagnostics.record("ask.retrieved", [
+            "matched": .int(retrievalPlan.matchedCount),
+            "ranked": .int(retrievalPlan.rankedEntryIDs.count),
+            "excerpts": .int(retrievalPlan.excerptOnlyEntryIDs.count),
+            "continuity": .int(retrievalPlan.continuityEntryIDs.count),
+            "rollupMonths": .int(retrievalPlan.rollupMonths.count),
+            "about": .int(retrievalPlan.aboutEntityIDs.count),
+            "aggregate": .bool(retrievalPlan.isAggregate),
+            "rangeInherited": .bool(retrievalPlan.rangeWasInherited),
+            "turn": .int(turnIndex),
+        ])
         guard !built.isEmpty else {
             let failure = AIJobFailure(raw: AskFailureText.noEntries)
             diagnostics.record("ask.failed", [
                 "error": .string(failure.raw),
                 "turn": .int(turnIndex),
-                "eligible": .int(journal.entries.count),
+                "eligible": .int(eligible),
             ])
             finish(question: question, turn: failureTurn(failure), in: context)
             return
@@ -266,26 +314,37 @@ final class AskService {
             "durationMilliseconds": .int(Int(now().timeIntervalSince(startedAt) * 1000)),
             "provider": .string(provider.kind.rawValue),
             "turn": .int(turnIndex),
-            "eligible": .int(journal.entries.count),
+            "eligible": .int(eligible),
+            "matched": .int(built.matchedCount),
         ])
         finish(question: question, turn: turn, context: built, in: context)
     }
 
     // MARK: - Pieces
 
-    private func buildContext(for question: String, provider: AskProvider, in context: ModelContext) -> AskContextBuilder.Context {
-        build(question: question, from: AskSources.journal(in: context), provider: provider)
-    }
-
-    private func build(question: String, from journal: AskSources.Journal, provider: AskProvider) -> AskContextBuilder.Context {
-        AskContextBuilder.build(
+    // `asked` says whether this question is already the last turn, which it is once send() has
+    // appended it and is not while the user is still typing.
+    private func plan(for question: String, asked: Bool, provider: AskProvider) -> AskRetrieval.Plan {
+        let questions = turns.filter { $0.role == .user }.map(\.text)
+        let previous = Array((asked ? questions.dropLast() : questions[...]).reversed())
+        let cited = turns
+            .filter { $0.role == .assistant && $0.failureRaw == nil }
+            .reversed()
+            .map(\.citedEntryIDs)
+        let query = AskRetrievalQuery.build(
             question: question,
-            entries: journal.entries,
-            entities: journal.entities,
-            handles: handles,
+            previousQuestions: previous,
+            citedEntryIDs: cited,
+            index: index.index,
             now: now(),
-            calendar: calendar,
-            budget: budget(for: provider, question: question)
+            calendar: calendar
+        )
+        return AskRetrieval.plan(
+            query: query,
+            index: index.index,
+            budget: budget(for: provider, question: question),
+            provider: provider.kind,
+            calendar: calendar
         )
     }
 

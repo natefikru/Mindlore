@@ -140,22 +140,42 @@ struct AskServiceTests {
         #expect(ask.turns.last?.text == "Turn on AI in Settings to ask questions.")
     }
 
-    // Only what this request carried may be cited: an entry from an earlier turn isn't in this
-    // prompt, so a citation naming it would point at something the model never read.
+    // Only what this request carried may be cited: a handle the prompt didn't hand out points at
+    // something the model never read.
     @Test func citationsAreLimitedToTheHandlesThisRequestSent() async throws {
         entry("Paddled the river.", daysAgo: 400)
         entry("Sarah brought the kayak.", daysAgo: 1)
         let ask = service()
-        generator.results = [answer("Both.", citing: ["E1", "E2"]), answer("Only the kayak.", citing: ["E1", "E2"])]
+        generator.results = [answer("Both.", citing: ["E1", "E2"]), answer("Only the kayak.", citing: ["E1", "E9"])]
 
         await ask.send("river kayak", in: context)
-        #expect(ask.turns.last?.citedEntryIDs.count == 2)
+        let firstRequest = try #require(generator.requests.last)
+        let offered = try #require(citationHandles(in: firstRequest))
+        // Exactly the entries this prompt carried, no more.
+        #expect(offered.count == ask.turns.last?.sentEntryIDs.count)
 
         await ask.send("kayak", in: context)
-        let second = try #require(generator.requests.last)
-        let enumerated = try #require(citationHandles(in: second))
-        #expect(enumerated.count == 1, "the earlier turn's entry is not in this prompt")
+        let secondRequest = try #require(generator.requests.last)
+        let enumerated = try #require(citationHandles(in: secondRequest))
+        #expect(enumerated.contains("E9") == false, "a handle this prompt never used isn't offered")
         #expect(ask.turns.last?.citedEntryIDs.count == 1, "and a citation naming it is dropped")
+    }
+
+    // The conversation's own entries come back, from their own slice. The model can see it said
+    // something about the river; without this it cannot re-read the entry it said it from, so it
+    // either hedges or fills the gap.
+    @Test func anEntryTheLastAnswerCitedIsSentAgainEvenWhenTheFollowUpDoesNotMatchIt() async throws {
+        let river = entry("Paddled the river.", daysAgo: 400)
+        entry("Sarah brought the kayak.", daysAgo: 1)
+        let ask = service()
+        generator.results = [answer("The river.", citing: ["E1"]), answer("Because of the weather.", citing: ["E1"])]
+
+        await ask.send("river", in: context)
+        #expect(ask.turns.last?.sentEntryIDs == [river.id])
+
+        // Nothing in this question matches the river entry, and it still goes out.
+        await ask.send("why do you think that was?", in: context)
+        #expect(ask.turns.last?.sentEntryIDs.contains(river.id) == true)
     }
 
     private func citationHandles(in request: TextRequest) -> [String]? {

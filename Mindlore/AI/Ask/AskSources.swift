@@ -1,63 +1,10 @@
 import Foundation
 import SwiftData
 
-// What Ask is allowed to read, gathered once per question. Everything the builder sees comes
-// from here, so the rules about what may leave the phone live in one place.
+// What Ask is allowed to read. Everything that reaches a provider comes from here, so the rules
+// about what may leave the phone live in one place: `documents` says what the index may hold and
+// which of it is sendable, and `blocks` is the only thing that reads entry text for a prompt.
 enum AskSources {
-    struct Journal {
-        var entries: [AskContextBuilder.EntryInput] = []
-        var entities: [AskContextBuilder.EntityInput] = []
-    }
-
-    // Every entry the app would run AI on, however old. Transcription keeps the aiEnabledAt
-    // boundary because it uploads recordings the user never asked it to; a question is the
-    // opposite, and a journal that answers only the last few weeks answers nothing worth asking.
-    static func journal(in context: ModelContext) -> Journal {
-        let all = ((try? context.fetch(FetchDescriptor<Entry>())) ?? []).filter { !$0.isDeleted }
-        let eligible = all.filter(InsightsCoordinator.canRunAI)
-        guard !eligible.isEmpty else { return Journal() }
-
-        let directory = EntityDirectory(in: context)
-        var entityIDsByEntry: [UUID: [UUID]] = [:]
-        for link in ((try? context.fetch(FetchDescriptor<EntityLink>())) ?? []).filter({ !$0.isDeleted }) {
-            guard let entryID = link.entryID, let entityID = link.entityID else { continue }
-            let root = directory.root(of: entityID)
-            entityIDsByEntry[entryID, default: []].append(root)
-        }
-
-        let entries = eligible.map { entry in
-            AskContextBuilder.EntryInput(
-                id: entry.id,
-                date: entry.entryDate,
-                title: entry.title,
-                text: entry.text,
-                entityIDs: Array(Set(entityIDsByEntry[entry.id] ?? []))
-            )
-        }
-
-        var openLooseEnds: [UUID: [String]] = [:]
-        for looseEnd in LooseEnd.all(in: context) where looseEnd.isOpen {
-            for root in Set(looseEnd.entityIDs.map(directory.root(of:))) {
-                openLooseEnds[root, default: []].append(looseEnd.text)
-            }
-        }
-
-        let mentioned = Set(entries.flatMap(\.entityIDs))
-        let entities = ((try? context.fetch(FetchDescriptor<Entity>())) ?? [])
-            .filter { !$0.isDeleted && $0.isBrowsable && mentioned.contains($0.id) }
-            .map { entity in
-                AskContextBuilder.EntityInput(
-                    id: entity.id,
-                    name: entity.name,
-                    aliases: entity.aliases,
-                    bio: entity.bio,
-                    openLooseEnds: openLooseEnds[entity.id] ?? []
-                )
-            }
-
-        return Journal(entries: entries, entities: entities)
-    }
-
     // MARK: - The index
 
     nonisolated struct Gathered: Sendable {
@@ -112,8 +59,13 @@ enum AskSources {
             )
         }
 
+        // Only entities a sendable entry actually mentions. An entity reached only through a draft
+        // or an entry still awaiting text has a bio and loose ends written from text Ask may not
+        // send, and describing it would be a side door around the rule above. A7's review found this
+        // once already.
+        let mentioned = Set(documents.filter(\.isSendable).flatMap(\.entityIDs))
         let entities = allEntities
-            .filter { $0.isBrowsable && directory.root(of: $0.id) == $0.id }
+            .filter { $0.isBrowsable && directory.root(of: $0.id) == $0.id && mentioned.contains($0.id) }
             .map { AskIndex.Entity(id: $0.id, name: $0.name, aliases: $0.aliases, kindRaw: $0.kindRaw, isBrowsable: true) }
 
         return Gathered(documents: documents, entities: entities)

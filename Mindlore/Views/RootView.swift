@@ -91,8 +91,11 @@ struct RootView: View {
         )
         let appRouter = AppRouter(opened: lifecycle.opened, closed: lifecycle.closed)
         _router = State(initialValue: appRouter)
+        // The index is rebuilt when either counter moves. The graph's is the one that catches
+        // insights, whose save deliberately leaves the entry's own stamp alone.
         _ask = State(initialValue: AskService(
             resolve: { AIServices.askGenerator(settings: settings, accounts: accounts) },
+            revisions: { .init(saver: saver.revision, graph: graph.revision) },
             store: AskStore(flush: { saver.flush() })
         ))
         let ingestor = RecordingIngestor()

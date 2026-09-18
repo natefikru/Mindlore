@@ -54,7 +54,9 @@ final class AskIndexStore {
     @ObservationIgnored private var inFlight: Task<Void, Never>?
     @ObservationIgnored private(set) var buildCount = 0
 
-    init(
+    // nonisolated so it can be a default argument of AskService's own initializer, the way AskStore
+    // is.
+    nonisolated init(
         builder: any AskIndexBuilding = AskIndexBuilder(),
         diagnostics: DiagnosticsLog = .shared,
         now: @escaping () -> Date = Date.init
