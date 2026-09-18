@@ -37,7 +37,7 @@ struct LooseEndPromptTests {
 
     @Test func theBarIsHighAndTheEntryDateIsGiven() throws {
         let plan = plan([], entryDate: Date(timeIntervalSince1970: 1_700_000_000))
-        #expect(plan.request.system.contains("Never a feeling"))
+        #expect(plan.request.system.contains("No: a feeling or a mood."))
         #expect(plan.request.system.contains("an empty list is the normal answer"))
         #expect(plan.request.system.contains("at most 2 new ones"))
         #expect(plan.request.system.contains("This entry was written on 2023-11-14"))

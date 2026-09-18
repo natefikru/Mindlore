@@ -212,11 +212,19 @@ nonisolated enum InsightsPromptBuilder {
                 properties.append(.init("resolved", .array(.enumeration(handleList), description: "Handles of known loose ends this entry clearly settles. Usually empty.")))
             }
             var guide = """
-            A loose end is only something concrete that a later entry could settle: waiting to hear \
-            from someone, a decision not yet made, an event or deadline coming up, something the author \
-            said they would do. Never a feeling, a mood, or a vague intention such as thinking more \
-            about something. Most entries have none, and an empty list is the normal answer. Write at \
-            most \(maxNewLooseEnds) new ones.
+            A loose end is a commitment: a plan to make, a task to do, a decision not yet made, or \
+            something being waited on. It has to still be open when the entry ends, be worth keeping \
+            for days or weeks, and be something a later entry could settle.
+
+            Yes: call the landlord about the lease. Decide whether to take the Denver job. Waiting to \
+            hear back from the clinic. Book flights before the wedding.
+
+            No: a feeling or a mood. An intention to think about something more. Anything already done \
+            by the end of the entry, such as grabbing coffee after this or finishing a page. Anything \
+            that settles itself within the day.
+
+            Most entries have none, and an empty list is the normal answer. Write at most \
+            \(maxNewLooseEnds) new ones.
             """
             if let entryDate {
                 guide += " This entry was written on \(Self.day(entryDate, calendar: calendar)); read relative dates from that day."
