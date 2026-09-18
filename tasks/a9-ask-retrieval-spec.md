@@ -610,3 +610,56 @@ Folded in above:
     `UUID` so names are a second lookup, `refreshIfNeeded` has an in-flight guard, and the claim that a
     fake builder proves off-actor execution is dropped, since a fake without `@concurrent` runs on the
     caller.
+
+## Code review of PR 1's diff (sub-agent, verdict "rework", 15 findings)
+
+Read-only agent this time, and `tasks/lessons.md` says why. All fifteen were real; three were bugs a
+user would have hit. Fixed across three commits.
+
+**Bugs:**
+
+1. **The index went blind to a recording's text.** `TranscriptionCoordinator`, `TitleCoordinator`,
+   and `PageTranscriptionCoordinator` all save through `saveStampingEntries`, which bumps neither
+   `EntrySaver` nor `GraphServices`, and the entry count does not move because the entry was already
+   there awaiting text. `graph.revision` only moves if insights later succeed, which they do not when
+   insights are off, the key is missing, or the phone is offline. So: record, watch the text arrive,
+   ask about it, get "nothing to go on" until the next launch. `JournalSaves.recordSave` now sits
+   inside `saveStampingEntries`, so a save path is covered by existing rather than by being
+   remembered, and `Revisions` carries a third counter.
+2. **The excerpt rule was exactly inverted.** Keying it off `matchedInBody == false` made the set the
+   entries that never mention the person, whose naming sentences do not exist, so it fell back to the
+   whole entry every time and fired only on entries it should have left alone. Revision 2's "sharpest
+   finding" fix was therefore dead on arrival. It keys off the entity now, the way the old tier 1
+   did, and the excerpt keeps the sentences the question asked about as well as the ones naming her.
+3. **An entity could be described from text Ask may not send.** `blocks` re-checked entries against
+   `canRunAI` but not entities, so in the stale window it exists for, an entity whose only mention had
+   gone back to awaiting text still handed over its bio and its open loose ends. A7's review finding 2
+   through a second door.
+
+**Regression against A7:** a question sharing no word with the journal became a dead end, where tier
+4 sent the five newest entries. "Nothing to go on" is the one failure with no Retry on it. Restored,
+with `Plan.matchedNothing` so PR 2's prompt can say which it is.
+
+**Budget arithmetic:** the About slice was reserved whole whenever the question named anyone, costing
+two ranked entries on the commonest question shape and, on device, able to reserve the whole budget
+and send no entry at all. The index carries a length per entity now (never the prose) and the reserve
+is what the block will take, capped by the slice and by half the budget. `estimatedCharacters` omitted
+About blocks and counted rollups PR 1 never renders; rollups are planned only when something renders
+them, and a test plans, renders, and compares rather than checking the estimate against the budget.
+
+**Scoring:** the context stream was normalized by body length, so a two-word entry linked to Maya
+out-scored a long detailed one about her. It has its own normalizer. Prefix expansion truncated
+alphabetically at 64, so typing "ma" never reached the name being typed; it keeps the rarest.
+
+**Tests:** the quality harness asserted a mean of 0.93 over fifteen questions, which let any one of
+them go to zero and still pass, and a corpus where every answer owns a rare keyword mostly measured
+that the tokenizer runs. It asserts per question now, with four cases that turn on the ranking
+itself. Writing those corrected two guesses about the ranking that had not been measured: the older
+deadline entry leads because length normalization outweighs forty days, and the shoulder question is
+the near tie recency exists to break, which only stays right because the floor is 0.7. The in-flight
+test could not tell a guard from a fingerprint comparison, and now holds a build open on a
+continuation.
+
+**Also:** the aggregate markers "never" and "compare" came out, three unused declarations went,
+`document(withID:)` stopped being a linear scan on the keystroke path, and the comment claiming
+`blocks` is a bounded fetch now says what it really does.
