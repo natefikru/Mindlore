@@ -15,7 +15,6 @@ nonisolated final class CNContactDirectory: ContactDirectory {
             CNContactIdentifierKey as any CNKeyDescriptor,
             CNContactFormatter.descriptorForRequiredKeys(for: .fullName),
             CNContactThumbnailImageDataKey as any CNKeyDescriptor,
-            CNContactOrganizationNameKey as any CNKeyDescriptor,
         ]
     }
 
@@ -34,13 +33,13 @@ nonisolated final class CNContactDirectory: ContactDirectory {
         }
     }
 
-    func requestAccess() async -> ContactAccess {
+    @concurrent func requestAccess() async -> ContactAccess {
         // A throw here means denied, which the status read below reports anyway.
         _ = try? await store.requestAccess(for: .contacts)
         return await access
     }
 
-    func search(_ query: String) async -> [ContactMatch] {
+    @concurrent func search(_ query: String) async -> [ContactMatch] {
         let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
         // CNContact's name predicate rejects an empty string, and matching everything is not
         // something this app should do anyway.
@@ -49,7 +48,7 @@ nonisolated final class CNContactDirectory: ContactDirectory {
         return fetch(predicate).prefix(Self.maxResults).map { $0 }
     }
 
-    func contact(_ identifier: String) async -> ContactMatch? {
+    @concurrent func contact(_ identifier: String) async -> ContactMatch? {
         guard await access.canRead else { return nil }
         if let cached = await cache.match(for: identifier) { return cached }
         let found = fetch(CNContact.predicateForContacts(withIdentifiers: [identifier])).first
@@ -65,13 +64,9 @@ nonisolated final class CNContactDirectory: ContactDirectory {
     static func match(_ contact: CNContact) -> ContactMatch {
         let formatted = CNContactFormatter.string(from: contact, style: .fullName)?
             .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        let organization = contact.organizationName.trimmingCharacters(in: .whitespacesAndNewlines)
-        // A contact filed under a company has no personal name to show.
-        let name = formatted.isEmpty ? organization : formatted
         return ContactMatch(
             identifier: contact.identifier,
-            name: name.isEmpty ? "No name" : name,
-            secondary: formatted.isEmpty || organization.isEmpty ? nil : organization,
+            name: formatted.isEmpty ? "No name" : formatted,
             thumbnail: contact.thumbnailImageData
         )
     }

@@ -17,17 +17,17 @@ enum EntityProseStore {
         var touchedEntryIDs: Set<UUID> = []
     }
 
-    static func rewriteAll(oldName: String, newName: String, entityID: UUID, in context: ModelContext) -> Result {
-        walk(name: oldName, newName: newName, entityID: entityID, in: context)
+    static func rewriteAll(oldName: String, newName: String, entityID: UUID, kind: EntityKind, in context: ModelContext) -> Result {
+        walk(name: oldName, newName: newName, entityID: entityID, kind: kind, in: context)
     }
 
     // What a rename would change, counted off the name the entity has now.
-    static func countOnly(name: String, entityID: UUID, in context: ModelContext) -> EntityProseRewriter.Counts {
-        walk(name: name, newName: nil, entityID: entityID, in: context).counts
+    static func countOnly(name: String, entityID: UUID, kind: EntityKind, in context: ModelContext) -> EntityProseRewriter.Counts {
+        walk(name: name, newName: nil, entityID: entityID, kind: kind, in: context).counts
     }
 
     // newName nil counts without writing.
-    private static func walk(name: String, newName: String?, entityID: UUID, in context: ModelContext) -> Result {
+    private static func walk(name: String, newName: String?, entityID: UUID, kind: EntityKind, in context: ModelContext) -> Result {
         var result = Result()
         let old = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !old.isEmpty else { return result }
@@ -41,34 +41,61 @@ enum EntityProseStore {
             return true
         }
 
-        rewriteBios(old, apply: apply, into: &result, in: context)
-        rewriteEntryProse(old, entityID: entityID, apply: apply, into: &result, in: context)
+        // A tag's name is an ordinary lowercase word ("river", "work"). Exact case then matches
+        // every normal occurrence, so tags are never rewritten at all.
+        guard kind != .tag else { return result }
+
+        let evidence = Evidence.gather(entityID: entityID, oldName: old, in: context)
+        rewriteBios(old, evidence: evidence, apply: apply, into: &result, in: context)
+        rewriteEntryProse(old, evidence: evidence, apply: apply, into: &result, in: context)
         rewriteLooseEnds(old, entityID: entityID, apply: apply, into: &result, in: context)
         return result
     }
 
     private typealias Apply = (String, (String) -> Void) -> Bool
 
-    // Any entity's bio can name any other, so this is the one walk that can't be narrowed by
-    // links. A bio the user wrote is the user's words, and the rule that protects an entry
-    // protects it, the same guard EntityBioDrafter.mayWrite applies.
-    private static func rewriteBios(_ old: String, apply: Apply, into result: inout Result, in context: ModelContext) {
-        for entity in (try? context.fetch(FetchDescriptor<Entity>())) ?? [] where !entity.isDeleted && !entity.bioEditedByUser {
+    // Which entries actually call this entity by the old name, and which entities those entries
+    // also mention. Names like April, Grace, Will, and May are ordinary words, so being linked is
+    // not enough: the entry has to have used that exact spelling for this entity.
+    private struct Evidence {
+        var entryIDs: Set<UUID> = []
+        var entityIDs: Set<UUID> = []
+
+        static func gather(entityID: UUID, oldName: String, in context: ModelContext) -> Evidence {
+            let links = ((try? context.fetch(FetchDescriptor<EntityLink>())) ?? []).filter { !$0.isDeleted }
+            var evidence = Evidence(entityIDs: [entityID])
+            for link in links where link.entityID == entityID {
+                let spellings = [link.writtenSurface, link.surface].compactMap { $0 }
+                guard spellings.contains(oldName), let entryID = link.entryID else { continue }
+                evidence.entryIDs.insert(entryID)
+            }
+            // A bio is only rewritten for an entity that shares one of those entries, so a
+            // stranger's bio that happens to say "April" is never touched.
+            for link in links where link.entryID.map({ evidence.entryIDs.contains($0) }) == true {
+                if let id = link.entityID { evidence.entityIDs.insert(id) }
+            }
+            return evidence
+        }
+    }
+
+    // Any entity's bio can name any other, so this walk isn't narrowed to one entity, only to the
+    // ones that share an entry where this name was actually written. A bio the user wrote is the
+    // user's words, the same guard EntityBioDrafter.mayWrite applies.
+    private static func rewriteBios(_ old: String, evidence: Evidence, apply: Apply, into result: inout Result, in context: ModelContext) {
+        for entity in (try? context.fetch(FetchDescriptor<Entity>())) ?? []
+        where !entity.isDeleted && !entity.bioEditedByUser && evidence.entityIDs.contains(entity.id) {
             guard let bio = entity.bio else { continue }
             if apply(bio, { entity.bio = $0 }) { result.counts.bios += 1 }
         }
     }
 
-    // Only the entries this entity is actually linked to: an entry that never mentioned Sarah has
-    // no business containing her name. Links carry the ids; the relationships are not read.
-    private static func rewriteEntryProse(_ old: String, entityID: UUID, apply: Apply, into result: inout Result, in context: ModelContext) {
-        let linkedEntryIDs = Set(((try? context.fetch(FetchDescriptor<EntityLink>())) ?? [])
-            .filter { !$0.isDeleted && $0.entityID == entityID }
-            .compactMap(\.entryID))
-        guard !linkedEntryIDs.isEmpty else { return }
+    // Only entries that wrote this name for this entity: an entry that never mentioned Sarah has
+    // no business containing her name, and one that says "April" the month never linked it here.
+    private static func rewriteEntryProse(_ old: String, evidence: Evidence, apply: Apply, into result: inout Result, in context: ModelContext) {
+        guard !evidence.entryIDs.isEmpty else { return }
 
         for entry in (try? context.fetch(FetchDescriptor<Entry>())) ?? []
-        where !entry.isDeleted && linkedEntryIDs.contains(entry.id) {
+        where !entry.isDeleted && evidence.entryIDs.contains(entry.id) {
             var touched = false
 
             // A title the user typed is the user's words, the same rule as a hand-edited bio.

@@ -27,11 +27,11 @@ nonisolated struct PlaceMatch: Sendable, Equatable, Identifiable {
 // No method hands back an MKMapItem: it is not Sendable, so the view builds one from the
 // identifier and coordinate on the main actor when the user asks for Apple Maps.
 nonisolated protocol PlaceDirectory: Sendable {
-    func search(_ query: String) async -> [PlaceMatch]
-    func thumbnail(for coordinate: PlaceCoordinate, size: CGSize, dark: Bool) async -> Data?
+    @concurrent func search(_ query: String) async -> [PlaceMatch]
+    @concurrent func thumbnail(for coordinate: PlaceCoordinate, size: CGSize, dark: Bool) async -> Data?
 }
 
 nonisolated struct UnavailablePlaceDirectory: PlaceDirectory {
-    func search(_ query: String) async -> [PlaceMatch] { [] }
-    func thumbnail(for coordinate: PlaceCoordinate, size: CGSize, dark: Bool) async -> Data? { nil }
+    @concurrent func search(_ query: String) async -> [PlaceMatch] { [] }
+    @concurrent func thumbnail(for coordinate: PlaceCoordinate, size: CGSize, dark: Bool) async -> Data? { nil }
 }

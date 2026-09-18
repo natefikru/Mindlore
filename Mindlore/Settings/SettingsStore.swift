@@ -190,7 +190,7 @@ final class SettingsStore {
 
     // The user's own name, so only the change is logged, never the value. It reaches the AI
     // provider in a prompt only under the name voice; the other two have no use for it.
-    var userName: String {
+    private(set) var userName: String {
         didSet { writeJSON(userName, Key.userName) }
     }
 

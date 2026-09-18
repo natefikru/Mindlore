@@ -123,7 +123,7 @@ struct ContactLinkTests {
         let sarah = try person()
         editor.linkContact(sarah, identifier: "ABC-123", in: harness.context)
         let directory = FakeContactDirectory(granted: .denied, contacts: [
-            ContactMatch(identifier: "ABC-123", name: "Sarah Kim", secondary: nil, thumbnail: nil)
+            ContactMatch(identifier: "ABC-123", name: "Sarah Kim", thumbnail: nil)
         ])
 
         #expect(await directory.contact("ABC-123") == nil)
@@ -134,7 +134,7 @@ struct ContactLinkTests {
     // Limited access is a real state on iOS 18 and later: the search sees only what was granted.
     @Test func limitedAccessStillReads() async throws {
         let directory = FakeContactDirectory(granted: .limited, contacts: [
-            ContactMatch(identifier: "ABC-123", name: "Sarah Kim", secondary: nil, thumbnail: nil)
+            ContactMatch(identifier: "ABC-123", name: "Sarah Kim", thumbnail: nil)
         ])
 
         #expect(await directory.contact("ABC-123")?.name == "Sarah Kim")
@@ -145,7 +145,7 @@ struct ContactLinkTests {
     // this app should ever do.
     @Test func anEmptyQueryFindsNothing() async throws {
         let directory = FakeContactDirectory(contacts: [
-            ContactMatch(identifier: "ABC-123", name: "Sarah Kim", secondary: nil, thumbnail: nil)
+            ContactMatch(identifier: "ABC-123", name: "Sarah Kim", thumbnail: nil)
         ])
 
         #expect(await directory.search("").isEmpty)

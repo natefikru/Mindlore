@@ -11,7 +11,7 @@ nonisolated final class MKPlaceDirectory: PlaceDirectory {
     private let snapshots = SnapshotCache()
     private static let maxResults = 25
 
-    func search(_ query: String) async -> [PlaceMatch] {
+    @concurrent func search(_ query: String) async -> [PlaceMatch] {
         let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return [] }
 
@@ -38,7 +38,7 @@ nonisolated final class MKPlaceDirectory: PlaceDirectory {
 
     // A still image, not a live Map: the slot is 44 points square on a card that opens and closes
     // constantly, and a map view there costs far more than a picture of one.
-    func thumbnail(for coordinate: PlaceCoordinate, size: CGSize, dark: Bool) async -> Data? {
+    @concurrent func thumbnail(for coordinate: PlaceCoordinate, size: CGSize, dark: Bool) async -> Data? {
         guard coordinate.isValid, size.width > 0, size.height > 0 else { return nil }
         let key = SnapshotCache.Key(coordinate: coordinate, size: size, dark: dark)
         if let cached = await snapshots.image(for: key) { return cached }

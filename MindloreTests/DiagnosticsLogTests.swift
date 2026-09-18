@@ -224,6 +224,9 @@ struct AIDiagnosticsPrivacyTests {
         let insights = InsightsCoordinator(
             resolve: { .success(.init(generator: generator, model: "m", label: "openai:m")) },
             sections: { AIServices.insightSections(settings) },
+            // The user's own name goes into the system prompt under the name voice, so it runs
+            // through a real pass here to prove it never reaches the log.
+            promptVoice: { PromptVoice(voice: .name, name: sentinel) },
             autoApplyCleanedText: { false },
             presence: EditorPresence(),
             diagnostics: log
@@ -290,6 +293,7 @@ struct AIDiagnosticsPrivacyTests {
         try context.save()
         editor.linkPlace(placeForMap, identifier: "MAPS-\(sentinel)", coordinate: PlaceCoordinate(latitude: 47.6062, longitude: -122.3321), in: context)
         editor.unlinkPlace(placeForMap, in: context)
+        log.record("graph.contactAccess", ["status": .string(ContactAccess.denied.rawValue)])
         _ = graph.vocabulary(in: context)
         graph.sweep(in: context)
 
@@ -339,7 +343,7 @@ struct AIDiagnosticsPrivacyTests {
                       "mind.reviewAnswered", "mind.focused", "mind.filtersChanged",
                       "mind.lensChanged", "mind.replayed", "mind.entryOpened",
                       "graph.renameRewrote", "graph.contactLinked", "graph.contactUnlinked",
-                      "graph.placeLinked", "graph.placeUnlinked"] {
+                      "graph.placeLinked", "graph.placeUnlinked", "graph.contactAccess"] {
             #expect(contents.contains(event), "\(event) was never exercised")
         }
         #expect(contents.contains("title.failed"))

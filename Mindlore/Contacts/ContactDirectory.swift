@@ -12,7 +12,6 @@ nonisolated enum ContactAccess: String, Sendable, Equatable {
 nonisolated struct ContactMatch: Sendable, Equatable, Identifiable {
     let identifier: String
     let name: String
-    let secondary: String?
     let thumbnail: Data?
 
     var id: String { identifier }
@@ -23,15 +22,15 @@ nonisolated struct ContactMatch: Sendable, Equatable, Identifiable {
 // fetches block, and a card render must not hold the main actor through one.
 nonisolated protocol ContactDirectory: Sendable {
     var access: ContactAccess { get async }
-    func requestAccess() async -> ContactAccess
+    @concurrent func requestAccess() async -> ContactAccess
     // Name components only, and never an empty query: CNContact's name predicate rejects one.
-    func search(_ query: String) async -> [ContactMatch]
-    func contact(_ identifier: String) async -> ContactMatch?
+    @concurrent func search(_ query: String) async -> [ContactMatch]
+    @concurrent func contact(_ identifier: String) async -> ContactMatch?
 }
 
 nonisolated struct UnavailableContactDirectory: ContactDirectory {
     var access: ContactAccess { get async { .denied } }
-    func requestAccess() async -> ContactAccess { .denied }
-    func search(_ query: String) async -> [ContactMatch] { [] }
-    func contact(_ identifier: String) async -> ContactMatch? { nil }
+    @concurrent func requestAccess() async -> ContactAccess { .denied }
+    @concurrent func search(_ query: String) async -> [ContactMatch] { [] }
+    @concurrent func contact(_ identifier: String) async -> ContactMatch? { nil }
 }

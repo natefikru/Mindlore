@@ -121,8 +121,27 @@ struct RenameRewriteTests {
         #expect(result.counts.titles == 0)
     }
 
-    // A bio about Tom can name Sarah, so bios are the one walk links can't narrow.
-    @Test func renamingOneEntityFixesAnotherEntitysBio() throws {
+    // A bio about Tom can name Sarah, so the bio walk isn't narrowed to the renamed entity. It is
+    // narrowed to entities that share an entry where the name was actually written, which is how
+    // a stranger's bio saying "April" survives an April being renamed.
+    @Test func renamingOneEntityFixesTheBioOfSomeoneWhoSharesAnEntry() throws {
+        let entry = try harness.entry("Walked with Sarah and Tom.", mentions: [("Sarah", .person), ("Tom", .person)])
+        entry.insights?.summary = "Sarah and Tom walked with me."
+        harness.indexer.sweep(in: harness.context)
+        try harness.context.save()
+        let tom = try harness.entity("Tom")
+        tom.bio = "Tom is Sarah's brother."
+        try harness.context.save()
+        let sarah = try harness.entity("Sarah")
+
+        rename(sarah, to: "Sarah Kim")
+
+        #expect(tom.bio == "Tom is Sarah Kim's brother.")
+    }
+
+    // The failure the rule exists for: April, Grace, Will, and May are ordinary words. A bio that
+    // says one, on someone who never shared an entry with that person, is left alone.
+    @Test func aStrangersBioThatHappensToSayTheNameIsLeftAlone() throws {
         try sarahEntry()
         let tom = Entity(name: "Tom", key: EntityNormalizer.key(for: "Tom", kind: .person), kind: .person)
         tom.bio = "Tom is Sarah's brother."
@@ -130,9 +149,24 @@ struct RenameRewriteTests {
         try harness.context.save()
         let sarah = try harness.entity("Sarah")
 
-        rename(sarah, to: "Sarah Kim")
+        let result = rename(sarah, to: "Sarah Kim")
 
-        #expect(tom.bio == "Tom is Sarah Kim's brother.")
+        #expect(tom.bio == "Tom is Sarah's brother.")
+        #expect(result.counts.bios == 0)
+    }
+
+    // A tag's name is an ordinary lowercase word, so exact case would match every occurrence.
+    @Test func aTagIsNeverRewritten() throws {
+        let entry = try harness.entry("Walked by the river.", tags: ["river"])
+        entry.insights?.summary = "A walk by the river."
+        harness.indexer.sweep(in: harness.context)
+        try harness.context.save()
+        let river = try harness.entity("river")
+
+        let result = rename(river, to: "riverside")
+
+        #expect(entry.insights?.summary == "A walk by the river.")
+        #expect(result.counts.isEmpty)
     }
 
     // An entry that never mentioned her has no business containing her name.

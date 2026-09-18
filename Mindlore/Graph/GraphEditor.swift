@@ -57,7 +57,7 @@ struct GraphEditor {
 
         // A merged loser is not what any screen shows, so its name is not in the app's prose.
         guard !entity.isMerged else { return RenameOutcome(outcome: .applied) }
-        let rewrite = EntityProseStore.rewriteAll(oldName: oldName, newName: trimmed, entityID: entity.id, in: context)
+        let rewrite = EntityProseStore.rewriteAll(oldName: oldName, newName: trimmed, entityID: entity.id, kind: entity.kind, in: context)
         if !rewrite.counts.isEmpty {
             diagnostics.record("graph.renameRewrote", [
                 "id": .id(entity.id),
@@ -85,7 +85,7 @@ struct GraphEditor {
         guard !entity.isMerged else { return .init() }
         // The same walk the rename uses, counting instead of writing, so what the sheet promises
         // and what happens can't disagree. The rename counts again when it actually runs.
-        return EntityProseStore.countOnly(name: entity.name, entityID: entity.id, in: context)
+        return EntityProseStore.countOnly(name: entity.name, entityID: entity.id, kind: entity.kind, in: context)
     }
 
     // A mention stays a mention and a tag stays a tag: a person can become a place, but never a

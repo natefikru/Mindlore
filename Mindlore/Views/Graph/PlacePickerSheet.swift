@@ -46,8 +46,7 @@ struct PlacePickerSheet: View {
                 }
             }
             .searchable(text: $query, prompt: "Search places")
-            .onSubmit(of: .search) { Task { await search() } }
-            .navigationTitle("Find this place")
+                .navigationTitle("Find this place")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -55,12 +54,11 @@ struct PlacePickerSheet: View {
                 }
             }
         }
-        .task {
-            query = entityName
-            await search()
-        }
+        .onAppear { query = entityName }
         .task(id: query) {
-            // A beat so a fast typist doesn't send a request on every keystroke.
+            // A beat so a fast typist doesn't send a request on every keystroke. The only search
+            // path: seeding the query on open re-keys this task rather than searching twice, and
+            // each search leaves the phone.
             try? await Task.sleep(for: .milliseconds(400))
             guard !Task.isCancelled else { return }
             await search()

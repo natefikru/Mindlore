@@ -47,8 +47,10 @@ struct ContactPickerSheet: View {
         .task {
             access = await contacts.access
             if access == .notDetermined { access = await contacts.requestAccess() }
+            // What the user granted, so the device loop can see a denial without a name in sight.
+            DiagnosticsLog.shared.record("graph.contactAccess", ["status": .string(access.rawValue)])
+            // Seeding the query re-keys the search task below, which is the only search path.
             query = entityName
-            await search()
         }
     }
 
@@ -77,12 +79,7 @@ struct ContactPickerSheet: View {
                         } label: {
                             HStack(spacing: 12) {
                                 ContactThumbnail(data: match.thumbnail)
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text(match.name).foregroundStyle(.primary)
-                                    if let secondary = match.secondary {
-                                        Text(secondary).font(.caption).foregroundStyle(.secondary)
-                                    }
-                                }
+                                Text(match.name).foregroundStyle(.primary)
                             }
                         }
                         .accessibilityIdentifier("contactMatch")
@@ -91,9 +88,9 @@ struct ContactPickerSheet: View {
             }
         }
         .searchable(text: $query, prompt: "Search contacts")
-        .onSubmit(of: .search) { Task { await search() } }
         .task(id: query) {
-            // A beat so a fast typist doesn't fetch on every keystroke.
+            // A beat so a fast typist doesn't fetch on every keystroke. The only search path:
+            // seeding the query on open re-keys this task rather than searching twice.
             try? await Task.sleep(for: .milliseconds(250))
             guard !Task.isCancelled else { return }
             await search()
