@@ -29,6 +29,16 @@ nonisolated struct UITestingHTTPClient: HTTPClient {
             let insights = #"{"summary":"A walk by the river with Sarah.","primaryMood":"calm","secondaryMoods":["grateful"],"lifeAreas":["friends"],"tags":["river"],"mentions":[{"name":"Sarah","kind":"person"},{"name":"Tom","kind":"person"}],"looseEnds":[{"text":"Call the landlord","about":["Sarah"],"due":null,"sameAs":null}],"cleanedText":null,"writtenDate":null}"#
             let completion: [String: Any] = ["model": "stub", "choices": [["message": ["content": insights], "finish_reason": "stop"]]]
             json = String(decoding: (try? JSONSerialization.data(withJSONObject: completion)) ?? Data(), as: UTF8.self)
+        } else if let body, let text = String(data: body, encoding: .utf8), text.contains(AskPrompt.schemaName) {
+            // Ask: answer with the first handle the request actually handed out, so the citation
+            // chip in the UI test points at a real entry.
+            let handle = Self.firstAskHandle(inRequestBody: text) ?? "E1"
+            let answer = String(decoding: (try? JSONSerialization.data(withJSONObject: [
+                "answer": "You walked by the river with Sarah.",
+                "citations": [handle],
+            ])) ?? Data(), as: UTF8.self)
+            let completion: [String: Any] = ["model": "stub", "choices": [["message": ["content": answer], "finish_reason": "stop"]]]
+            json = String(decoding: (try? JSONSerialization.data(withJSONObject: completion)) ?? Data(), as: UTF8.self)
         } else if let body, let text = String(data: body, encoding: .utf8), text.contains(EntityBioDrafter.schemaName) {
             let name = Self.bioName(inRequestBody: text) ?? "Someone"
             let bio = String(decoding: (try? JSONSerialization.data(withJSONObject: ["bio": "\(name) is a friend I walk by the river with."])) ?? Data(), as: UTF8.self)
@@ -38,6 +48,17 @@ nonisolated struct UITestingHTTPClient: HTTPClient {
             json = #"{"model":"stub","choices":[{"message":{"content":"Stub Title"},"finish_reason":"stop"}]}"#
         }
         return HTTPResponse(status: 200, headers: [:], data: Data(json.utf8))
+    }
+
+    // The first block handle in the user message, which is the entry Ask would cite.
+    static func firstAskHandle(inRequestBody body: String) -> String? {
+        guard let json = try? JSONSerialization.jsonObject(with: Data(body.utf8)) as? [String: Any],
+              let messages = json["messages"] as? [[String: Any]],
+              let user = messages.last?["content"] as? String,
+              let regex = try? NSRegularExpression(pattern: "\\[(E\\d+)\\]"),
+              let match = regex.firstMatch(in: user, range: NSRange(user.startIndex..., in: user)),
+              let range = Range(match.range(at: 1), in: user) else { return nil }
+        return String(user[range])
     }
 
     // The bio request's user message starts with "Name: ...".

@@ -45,9 +45,11 @@ about: a guess standing in for a preference.
 **Settings picker,** built like `titleGenerator`: `askGenerator` with `off`, `onDevice`, and
 `openAI`.
 
-- The default is `openAI` when `AIServices.textUsable`, and `onDevice` when it isn't and
-  `FoundationModelsAvailability.isAvailable`, decided the first time Ask is opened and written to
-  settings, so it never silently changes afterwards.
+- Until the user picks, the default follows the phone (owner, 2026-09-18, during the device pass):
+  `onDevice` while that is all there is, and `openAI` as soon as `AIServices.textUsable`, so saving
+  a key moves questions without a trip to Settings. It is re-checked every time Ask opens and
+  written down. Picking in the picker is final: `askGeneratorChosenByUser` is set, and nothing
+  automatic moves it again.
 - `onDevice` is offered only while Foundation Models is available, the same gate the title
   picker uses.
 - `off`, or a picked provider that can't run, gives the unavailable state below. Search always
@@ -137,10 +139,9 @@ nonisolated enum AskContextBuilder {
   draft or a pre-AI entry would reach the provider through an excerpt.
   - `canRunAI` holds
   - the entry isn't deleted
-  - **for OpenAI only**, unless the "Include entries from before AI was on" switch is on,
-    `createdAt >= aiEnabledAt`. This is a rule about what leaves the phone, so the on-device path
-    doesn't apply it: nothing is sent anywhere, and with AI never on the switch would otherwise
-    leave a local-only Ask with nothing to read.
+  - no date boundary at all (owner, 2026-09-18, during the device pass): transcription keeps
+    `aiEnabledAt` because it uploads recordings nobody asked it to, while a question is the
+    opposite, and on the demo journal the boundary hid all 300 entries behind a switch.
 - **Priority order**, filling a character budget. OpenAI gets 24,000 characters of blocks.
   On-device the 6,000 is the **whole prompt**: the system prompt and the folded previous turn
   come out of it first, and 1,500 characters are held back for the answer, because Foundation
@@ -243,9 +244,8 @@ content: String }`.
   new-conversation button clears them.
 - **History** (`AskHistoryView`). A list by `updatedAt`, newest first, titled by the first
   question, showing that date. Swiping deletes, and tapping reopens.
-- **Settings.** An "Ask" section in the AI settings. It holds the "Include entries from before AI
-  was on" toggle (`askIncludesOlderEntries`, off by default), with a footer: "Entries written
-  before you turned on AI stay on your phone unless this is on."
+- **Settings.** An "Ask" section in the AI settings, holding who answers. There is no entry-age
+  switch: see the eligibility rule above.
 - **Unavailable.** When neither provider is available: "Turn on AI in Settings to ask questions.
   Search works either way." Search still works.
 

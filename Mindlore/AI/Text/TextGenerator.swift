@@ -11,10 +11,24 @@ nonisolated struct TextImage: Sendable, Equatable {
     var detail: Detail = .high
 }
 
+// One earlier turn of a conversation. Only providers that take a message list read these;
+// a single-shot job leaves the array empty and the request is byte-identical to before.
+nonisolated struct TextMessage: Sendable, Equatable {
+    enum Role: String, Sendable {
+        case user
+        case assistant
+    }
+
+    let role: Role
+    let content: String
+}
+
 nonisolated struct TextRequest: Sendable {
     var model: String
     var system: String
     var user: String
+    // Earlier turns, oldest first, sent between the system prompt and `user`.
+    var messages: [TextMessage] = []
     var images: [TextImage] = []
     // With a schema the response text is JSON matching it; without one it is free text.
     var schema: JSONSchema?

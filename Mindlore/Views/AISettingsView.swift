@@ -70,6 +70,10 @@ struct AISettingsView: View {
                     LabeledContent("Titles", value: titleSummary)
                 }
                 .accessibilityIdentifier("titleSettingsLink")
+                NavigationLink { AskSettingsView() } label: {
+                    LabeledContent("Ask", value: askSummary)
+                }
+                .accessibilityIdentifier("askSettingsLink")
                 NavigationLink { InsightsSettingsView() } label: {
                     LabeledContent("Insights", value: settings.insightsTrigger == .automatic ? "Automatic" : "When I ask")
                 }
@@ -106,6 +110,14 @@ struct AISettingsView: View {
         case .failed(let message):
             Label(message, systemImage: "exclamationmark.triangle")
                 .foregroundStyle(.orange)
+        }
+    }
+
+    private var askSummary: String {
+        switch settings.askGenerator {
+        case .off: "Off"
+        case .onDevice: "This iPhone"
+        case .openAI: "OpenAI"
         }
     }
 

@@ -1,6 +1,7 @@
 import AVFoundation
 import UIKit
 import Foundation
+import SwiftData
 import Testing
 @testable import Mindlore
 
@@ -179,5 +180,47 @@ struct OpenAILiveTests {
         for mention in partial + garbled {
             #expect(!mention.name.hasPrefix("Decoy"), "\(mention.name) is not in either entry")
         }
+    }
+
+    // Ask, end to end against the real model: a fact seeded among filler, then a follow-up turn
+    // that has to keep the same handle.
+    @Test func askFindsASeededFactAndKeepsItAcrossATurn() async throws {
+        let container = try ModelContainerFactory.make(.inMemory)
+        let context = container.mainContext
+        let now = Date()
+        let texts = [
+            "Rain all morning, so I stayed in and read.",
+            "Long meeting about the budget. Nothing decided.",
+            "I adopted a greyhound named Pepper on Tuesday. She slept the whole way home.",
+            "Made soup. Burned the first batch.",
+            "Walked to the bridge and back before dark.",
+            "Called the landlord about the radiator again.",
+        ]
+        for (index, text) in texts.enumerated() {
+            let entry = Entry(createdAt: now.addingTimeInterval(-Double(index) * 86_400), text: text)
+            entry.entryDate = entry.createdAt
+            context.insert(entry)
+        }
+        try context.save()
+
+        let generator = OpenAICompatibleTextGenerator(baseURL: baseURL, apiKey: key, http: http)
+        let ask = AskService(
+            resolve: { .success(AskProvider(generator: generator, model: ProviderDefaults.textModel, label: "openai:live", kind: .openAI)) },
+            store: AskStore(save: { try $0.save() })
+        )
+
+        await ask.send("What's my dog's name?", in: context)
+        let first = try #require(ask.turns.last)
+        print("LIVE ask answer: \(first.text) citing \(first.citedEntryIDs.count) of \(first.sentEntryIDs.count) sent, \(first.sentCharacters) characters")
+        #expect(first.failureRaw == nil)
+        #expect(first.text.lowercased().contains("pepper"))
+        let pepperEntry = try #require(((try? context.fetch(FetchDescriptor<Entry>())) ?? []).first { $0.text.contains("Pepper") })
+        #expect(first.citedEntryIDs == [pepperEntry.id])
+
+        await ask.send("When did I get her?", in: context)
+        let second = try #require(ask.turns.last)
+        print("LIVE ask follow-up: \(second.text)")
+        #expect(second.failureRaw == nil)
+        #expect(second.citedEntryIDs.contains(pepperEntry.id), "the follow-up cites the same entry under the same handle")
     }
 }
