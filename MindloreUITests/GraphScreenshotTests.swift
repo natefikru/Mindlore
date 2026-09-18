@@ -33,6 +33,28 @@ final class GraphScreenshotTests: XCTestCase {
         XCTAssertTrue(chip.exists, "chip: \(identifier)")
     }
 
+    // A8: the grouped journal list on a year of entries, for looking at by eye.
+    @MainActor
+    func testDemoJournalList() throws {
+        app.launchArguments = ["-seedDemoJournal", "300"]
+        app.launchEnvironment = [:]
+        app.launch()
+
+        let journal = app.tabBars.buttons["Journal"]
+        XCTAssertTrue(journal.waitForExistence(timeout: 60))
+        journal.tap()
+        XCTAssertTrue(app.descendants(matching: .any)["entryRow"].firstMatch.waitForExistence(timeout: 20))
+        sleep(1)
+        attach("journal-grouped-top")
+
+        app.buttons["areaFilter-work"].tap()
+        sleep(1)
+        attach("journal-filter-one")
+        app.buttons["areaFilter-health"].tap()
+        sleep(1)
+        attach("journal-filter-two")
+    }
+
     // The 300-entry demo journal on the Mind tab at rest, with the panel up, focused, and zoomed,
     // for looking at by eye. The demo seed only runs outside -uiTesting, so this launch uses the
     // demo store alone.

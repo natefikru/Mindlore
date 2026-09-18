@@ -388,10 +388,11 @@ struct EntryEditorView: View {
             Spacer()
             Button("Review") { reviewingCleanup = true }
                 .accessibilityIdentifier("reviewCleanupButton")
-            Button("Not now", role: .cancel) {
+            Button("Decline", role: .cancel) {
                 cleanupDismissed = true
                 DiagnosticsLog.shared.record("cleanup.dismissed", ["id": .id(entry.id)])
             }
+            .accessibilityIdentifier("declineCleanupButton")
         }
         .buttonStyle(.borderless)
     }
