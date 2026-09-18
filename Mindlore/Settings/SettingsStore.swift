@@ -20,7 +20,6 @@ final class SettingsStore {
         static let titleGenerator = "titleGenerator"
         static let askGenerator = "askGenerator"
         static let askGeneratorChosenByUser = "askGeneratorChosenByUser"
-        static let askIncludesOlderEntries = "askIncludesOlderEntries"
         static let insightsTrigger = "insightsTrigger"
         static let insightSummary = "insightSummary"
         static let insightMoods = "insightMoods"
@@ -153,11 +152,6 @@ final class SettingsStore {
         return chosen
     }
 
-    // Entries written before AI was turned on stay on the phone unless this is on.
-    var askIncludesOlderEntries: Bool {
-        didSet { write(askIncludesOlderEntries, Key.askIncludesOlderEntries, logged: .bool(askIncludesOlderEntries)) }
-    }
-
     var insightsTrigger: InsightsTrigger {
         didSet { write(insightsTrigger.rawValue, Key.insightsTrigger, logged: .string(insightsTrigger.rawValue)) }
     }
@@ -251,7 +245,6 @@ final class SettingsStore {
         storedTitleGenerator = string(Key.titleGenerator).flatMap(TitleGenerator.init(rawValue:))
         storedAskGenerator = string(Key.askGenerator).flatMap(AskGenerator.init(rawValue:))
         askGeneratorChosenByUser = bool(Key.askGeneratorChosenByUser, false)
-        askIncludesOlderEntries = bool(Key.askIncludesOlderEntries, false)
         insightsTrigger = string(Key.insightsTrigger).flatMap(InsightsTrigger.init(rawValue:)) ?? .automatic
         insightSummary = bool(Key.insightSummary, true)
         insightMoods = bool(Key.insightMoods, true)

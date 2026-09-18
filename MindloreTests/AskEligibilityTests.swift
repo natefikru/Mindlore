@@ -25,8 +25,8 @@ struct AskEligibilityTests {
         return entry
     }
 
-    private func journal(appliesAIEnabledAt: Bool = true, aiEnabledAt: Date? = nil, includesOlder: Bool = false) -> AskSources.Journal {
-        AskSources.journal(in: context, appliesAIEnabledAt: appliesAIEnabledAt, aiEnabledAt: aiEnabledAt, includesOlderEntries: includesOlder)
+    private func journal() -> AskSources.Journal {
+        AskSources.journal(in: context)
     }
 
     @Test func draftsAwaitingTextAndUnapprovedPagesAreNeverSent() {
@@ -41,24 +41,14 @@ struct AskEligibilityTests {
         #expect(journal().entries.map(\.id) == [ready.id])
     }
 
-    @Test func entriesFromBeforeAIWasOnGoToOpenAIOnlyWithTheSwitchOn() {
-        let enabledAt = now.addingTimeInterval(-86_400)
-        let older = entry("Before AI.", createdAt: now.addingTimeInterval(-2 * 86_400))
-        let newer = entry("After AI.")
+    // Transcription keeps the aiEnabledAt boundary, because it uploads recordings nobody asked
+    // it to. A question is the opposite: the user asked, and a journal that answers only the
+    // weeks since AI went on answers nothing worth asking.
+    @Test func howOldAnEntryIsNeverKeepsItOutOfAnAnswer() {
+        let ancient = entry("Years ago.", createdAt: now.addingTimeInterval(-2_000 * 86_400))
+        let yesterday = entry("Yesterday.", createdAt: now.addingTimeInterval(-86_400))
 
-        #expect(journal(aiEnabledAt: enabledAt).entries.map(\.id) == [newer.id])
-        #expect(Set(journal(aiEnabledAt: enabledAt, includesOlder: true).entries.map(\.id)) == [older.id, newer.id])
-    }
-
-    // Nothing leaves the phone on the on-device path, and with AI never turned on the switch
-    // would otherwise leave a local-only Ask with nothing to read.
-    @Test func theOnDevicePathIgnoresTheAIEnabledBoundary() {
-        let enabledAt = now.addingTimeInterval(-86_400)
-        let older = entry("Before AI.", createdAt: now.addingTimeInterval(-2 * 86_400))
-        let newer = entry("After AI.")
-
-        let entries = journal(appliesAIEnabledAt: false, aiEnabledAt: enabledAt).entries
-        #expect(Set(entries.map(\.id)) == [older.id, newer.id])
+        #expect(Set(journal().entries.map(\.id)) == [ancient.id, yesterday.id])
     }
 
     @Test func anEntityWhoseOnlyEntryIsADraftContributesNoExcerpt() throws {

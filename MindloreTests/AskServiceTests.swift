@@ -15,19 +15,12 @@ struct AskServiceTests {
         context = container.mainContext
     }
 
-    private func service(
-        kind: AskProviderKind = .openAI,
-        failure: AIJobFailure? = nil,
-        includesOlder: Bool = false,
-        aiEnabledAt: Date? = nil
-    ) -> AskService {
+    private func service(kind: AskProviderKind = .openAI, failure: AIJobFailure? = nil) -> AskService {
         AskService(
             resolve: { [generator] in
                 if let failure { return .failure(failure) }
                 return .success(AskProvider(generator: generator, model: "m", label: "openai:m", kind: kind))
             },
-            includesOlderEntries: { includesOlder },
-            aiEnabledAt: { aiEnabledAt },
             store: AskStore(save: { try $0.save() }),
             diagnostics: .disabled,
             now: { self.now }
@@ -102,26 +95,6 @@ struct AskServiceTests {
 
     // On device the whole session is 6,000 characters, so a question long enough to fill it
     // leaves no room for a single block, and there is nothing worth asking with.
-    // A journal held back by the pre-AI boundary is not an empty one: the answer points at the
-    // switch that would open it, instead of reading as a dead end.
-    @Test func entriesHeldBackByTheAIBoundarySayWhyAndWhereTheSwitchIs() async throws {
-        let enabledAt = now
-        entry("Paddled the river.", createdAt: now.addingTimeInterval(-86_400))
-        let ask = service(aiEnabledAt: enabledAt)
-
-        await ask.send("river?", in: context)
-
-        #expect(generator.requests.isEmpty)
-        #expect(ask.turns.last?.failureRaw == AskFailureText.onlyOlderEntries)
-        #expect(ask.turns.last?.text.contains("Include entries from before AI was on") == true)
-
-        // With the switch on, the same question goes out.
-        let including = service(includesOlder: true, aiEnabledAt: enabledAt)
-        generator.results = [answer("You paddled.", citing: ["E1"])]
-        await including.send("river?", in: context)
-        #expect(generator.requests.count == 1)
-    }
-
     @Test func aQuestionThatLeavesNoRoomForABlockSendsNoRequest() async throws {
         entry("The river was high.")
         let ask = AskService(

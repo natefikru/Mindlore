@@ -89,8 +89,6 @@ struct RootView: View {
         _router = State(initialValue: appRouter)
         _ask = State(initialValue: AskService(
             resolve: { AIServices.askGenerator(settings: settings, accounts: accounts) },
-            includesOlderEntries: { settings.askIncludesOlderEntries },
-            aiEnabledAt: { settings.aiEnabledAt },
             store: AskStore(flush: { saver.flush() })
         ))
         let ingestor = RecordingIngestor()

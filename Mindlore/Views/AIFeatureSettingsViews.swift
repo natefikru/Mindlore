@@ -175,13 +175,6 @@ struct AskSettingsView: View {
                 Text(footer)
             }
 
-            Section {
-                Toggle("Include entries from before AI was on", isOn: $settings.askIncludesOlderEntries)
-                    .accessibilityIdentifier("askIncludesOlderEntriesToggle")
-            } footer: {
-                Text("Entries written before you turned on AI stay on your phone unless this is on.")
-            }
-            .disabled(settings.askGenerator != .openAI)
         }
         .navigationTitle("Ask")
         .navigationBarTitleDisplayMode(.inline)

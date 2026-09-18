@@ -7,27 +7,15 @@ enum AskSources {
     struct Journal {
         var entries: [AskContextBuilder.EntryInput] = []
         var entities: [AskContextBuilder.EntityInput] = []
-        // Entries that would have been sent but were written before AI was turned on. Without
-        // this a journal full of older entries is indistinguishable from an empty one.
-        var heldBackAsOlder = 0
     }
 
-    // `sendableOutsideThePhone` is the OpenAI rule: an entry written before AI was turned on
-    // stays here unless the user says otherwise. The on-device path passes false, because
-    // nothing it reads leaves the phone, and with AI never on the switch would otherwise leave
-    // a local-only Ask with nothing to read.
-    static func journal(
-        in context: ModelContext,
-        appliesAIEnabledAt: Bool,
-        aiEnabledAt: Date?,
-        includesOlderEntries: Bool
-    ) -> Journal {
+    // Every entry the app would run AI on, however old. Transcription keeps the aiEnabledAt
+    // boundary because it uploads recordings the user never asked it to; a question is the
+    // opposite, and a journal that answers only the last few weeks answers nothing worth asking.
+    static func journal(in context: ModelContext) -> Journal {
         let all = ((try? context.fetch(FetchDescriptor<Entry>())) ?? []).filter { !$0.isDeleted }
-        let runnable = all.filter(InsightsCoordinator.canRunAI)
-        let boundary = appliesAIEnabledAt && !includesOlderEntries ? aiEnabledAt : nil
-        let eligible = boundary.map { enabledAt in runnable.filter { $0.createdAt >= enabledAt } } ?? runnable
-        let heldBack = runnable.count - eligible.count
-        guard !eligible.isEmpty else { return Journal(heldBackAsOlder: heldBack) }
+        let eligible = all.filter(InsightsCoordinator.canRunAI)
+        guard !eligible.isEmpty else { return Journal() }
 
         let directory = EntityDirectory(in: context)
         var entityIDsByEntry: [UUID: [UUID]] = [:]
@@ -67,7 +55,7 @@ enum AskSources {
                 )
             }
 
-        return Journal(entries: entries, entities: entities, heldBackAsOlder: heldBack)
+        return Journal(entries: entries, entities: entities)
     }
 
     // The three example questions the empty state offers, from the journal the user actually has.

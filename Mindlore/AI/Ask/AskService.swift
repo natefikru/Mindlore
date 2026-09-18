@@ -78,8 +78,6 @@ final class AskService {
     var draftQuestion = ""
 
     @ObservationIgnored private let resolve: () -> Result<AskProvider, AIJobFailure>
-    @ObservationIgnored private let includesOlderEntries: () -> Bool
-    @ObservationIgnored private let aiEnabledAt: () -> Date?
     @ObservationIgnored private let store: AskStore
     @ObservationIgnored private let diagnostics: DiagnosticsLog
     @ObservationIgnored private let now: () -> Date
@@ -91,16 +89,12 @@ final class AskService {
 
     init(
         resolve: @escaping () -> Result<AskProvider, AIJobFailure>,
-        includesOlderEntries: @escaping () -> Bool = { false },
-        aiEnabledAt: @escaping () -> Date? = { nil },
         store: AskStore = AskStore(),
         diagnostics: DiagnosticsLog = .shared,
         now: @escaping () -> Date = { .now },
         calendar: Calendar = .current
     ) {
         self.resolve = resolve
-        self.includesOlderEntries = includesOlderEntries
-        self.aiEnabledAt = aiEnabledAt
         self.store = store
         self.diagnostics = diagnostics
         self.now = now
@@ -198,21 +192,14 @@ final class AskService {
             return
         }
 
-        let journal = journal(for: provider, in: context)
+        let journal = AskSources.journal(in: context)
         let built = build(question: question, from: journal, provider: provider)
         guard !built.isEmpty else {
-            // A journal held back by the pre-AI boundary is not an empty one, and the difference
-            // is the difference between a dead end and a switch to turn on.
-            let raw = journal.entries.isEmpty && journal.heldBackAsOlder > 0
-                ? AskFailureText.onlyOlderEntries
-                : AskFailureText.noEntries
-            let failure = AIJobFailure(raw: raw)
+            let failure = AIJobFailure(raw: AskFailureText.noEntries)
             diagnostics.record("ask.failed", [
                 "error": .string(failure.raw),
                 "turn": .int(turnIndex),
                 "eligible": .int(journal.entries.count),
-                "heldBackAsOlder": .int(journal.heldBackAsOlder),
-                "includesOlder": .bool(includesOlderEntries()),
             ])
             finish(question: question, turn: failureTurn(failure), in: context)
             return
@@ -273,26 +260,15 @@ final class AskService {
             "durationMilliseconds": .int(Int(now().timeIntervalSince(startedAt) * 1000)),
             "provider": .string(provider.kind.rawValue),
             "turn": .int(turnIndex),
-            "includesOlder": .bool(includesOlderEntries()),
             "eligible": .int(journal.entries.count),
-            "heldBackAsOlder": .int(journal.heldBackAsOlder),
         ])
         finish(question: question, turn: turn, context: built, in: context)
     }
 
     // MARK: - Pieces
 
-    private func journal(for provider: AskProvider, in context: ModelContext) -> AskSources.Journal {
-        AskSources.journal(
-            in: context,
-            appliesAIEnabledAt: provider.kind == .openAI,
-            aiEnabledAt: aiEnabledAt(),
-            includesOlderEntries: includesOlderEntries()
-        )
-    }
-
     private func buildContext(for question: String, provider: AskProvider, in context: ModelContext) -> AskContextBuilder.Context {
-        build(question: question, from: journal(for: provider, in: context), provider: provider)
+        build(question: question, from: AskSources.journal(in: context), provider: provider)
     }
 
     private func build(question: String, from journal: AskSources.Journal, provider: AskProvider) -> AskContextBuilder.Context {
