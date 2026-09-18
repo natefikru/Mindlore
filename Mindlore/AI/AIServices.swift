@@ -55,6 +55,30 @@ extension AIServices {
         settings.aiEnabled && accounts.hasUsableKey && accounts.settingsAccount(for: .text) != nil
     }
 
+    // Ask's provider, from the setting the user picked, the same shape as titleGenerator.
+    static func askGenerator(settings: SettingsStore, accounts: ProviderAccountStore) -> Result<AskProvider, AIJobFailure> {
+        switch settings.askGenerator {
+        case .off:
+            return .failure(AIJobFailure(raw: "settings.off"))
+        case .onDevice:
+            guard FoundationModelsAvailability.isAvailable else {
+                return .failure(AIJobFailure(FoundationModelsAvailability.unavailableReason))
+            }
+            return .success(.init(generator: FoundationModelsTextGenerator(), model: "", label: FoundationModelsTextGenerator.label, kind: .onDevice))
+        case .openAI:
+            return textGenerator(settings: settings, accounts: accounts)
+                .map { .init(generator: $0.generator, model: $0.model, label: $0.label, kind: .openAI) }
+        }
+    }
+
+    static func askUsable(settings: SettingsStore, accounts: ProviderAccountStore) -> Bool {
+        switch settings.askGenerator {
+        case .off: false
+        case .onDevice: FoundationModelsAvailability.isAvailable
+        case .openAI: textUsable(settings: settings, accounts: accounts)
+        }
+    }
+
     static func insightsGenerator(settings: SettingsStore, accounts: ProviderAccountStore) -> Result<InsightsCoordinator.Generator, AIJobFailure> {
         textGenerator(settings: settings, accounts: accounts)
     }
@@ -63,10 +87,10 @@ extension AIServices {
         InsightSections(
             summary: settings.insightSummary,
             moods: settings.insightMoods,
-            themes: settings.insightThemes,
+            lifeAreas: settings.insightLifeAreas,
             tags: settings.insightTags,
             mentions: settings.insightMentions,
-            openThreads: settings.insightOpenThreads,
+            looseEnds: settings.insightLooseEnds,
             cleanedText: settings.insightCleanedText,
             suggestEntryDates: settings.suggestEntryDates,
             customPrompts: settings.customInsightPrompts

@@ -1,6 +1,6 @@
 import Foundation
 
-// Which entity each tag, theme, and name on an entry's insights opens. Built from that entry's
+// Which entity each tag and name on an entry's insights opens. Built from that entry's
 // links, looked up by the link's kind: the exact words first, then the normalized key, so a
 // value still finds its link when only case or punctuation differs.
 nonisolated struct EntityChipIndex: Equatable {

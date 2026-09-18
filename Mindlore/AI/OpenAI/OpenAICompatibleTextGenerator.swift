@@ -62,12 +62,15 @@ nonisolated struct OpenAICompatibleTextGenerator: TextGenerator {
             userContent = parts
         }
 
+        var messages: [[String: Any]] = [["role": "system", "content": system]]
+        for message in request.messages {
+            messages.append(["role": message.role.rawValue, "content": message.content])
+        }
+        messages.append(["role": "user", "content": userContent])
+
         var body: [String: Any] = [
             "model": request.model,
-            "messages": [
-                ["role": "system", "content": system],
-                ["role": "user", "content": userContent],
-            ],
+            "messages": messages,
         ]
         if let maxOutputTokens = request.maxOutputTokens {
             body["max_completion_tokens"] = maxOutputTokens

@@ -125,3 +125,45 @@ xcodebuild ... -destination 'platform=iOS Simulator,id=<udid>' test ...
 ```
 
 Before blaming a branch for a UI failure, ask whether anything else is using the simulator.
+
+## Size the UI run to the change
+
+A follow-up that touched only the recorder and the peek card started the whole 12-class,
+10-minute phase-scoped set. The two classes that exercise those views said everything the rest
+could. Run the broad set when a sub-phase first lands or after another lane's app changes are
+merged in; for a follow-up, run the classes that open the views the commit changed.
+
+## Swapping a screen's content under an open keyboard drops the next keystroke
+
+Ask's tab showed the conversation, and replaced it with search results as soon as the field held
+text. Typing "river" left `r` in the field and the conversation still on screen: SwiftUI resigned
+focus when the content of the `NavigationStack` changed, and everything after the first character
+went nowhere. It looks exactly like a broken text field, and no unit test can see it.
+
+Keep the focused field and the view around it stable. Put the thing that appears beside the
+content, not in place of it: Ask's results are a panel in `safeAreaInset(edge: .bottom)`, so the
+field is never rebuilt.
+
+The same change fixed a second complaint that sounded unrelated ("writing a follow-up started a
+new chat"). It hadn't: the results were covering the conversation.
+
+## Prove the launch argument reached the app
+
+`scripts/device/launch.sh` took a run id and dropped everything after it, so
+`launch.sh demo -- -seedDemoJournal` launched the real journal without a word of complaint. Three
+device runs were reported and reasoned about as the 300-entry seed while they were the owner's own
+entries, and an "Ask found nothing" investigation went looking in the wrong place.
+
+A tool that silently ignores an argument is worse than one that fails. When a run depends on a
+launch argument, check the app's own evidence that it arrived (the store it opened, a count in the
+log), not that the process started.
+
+## Screenshot the screen before calling it done
+
+Every Ask test passed while the tab had: a keyboard Send key that inserted a newline, an empty
+list drawing separator lines across the screen, and a cost line that read like a search result
+count. Tests assert behavior nobody looks at; nothing asserted what the screen looked like.
+
+`AskScreenshotTests` (like `GraphScreenshotTests`) drives the states and attaches screenshots.
+Pull them out of the result bundle with `xcrun xcresulttool export attachments` and look. Three
+rounds of that fixed more than the sub-agent review did.

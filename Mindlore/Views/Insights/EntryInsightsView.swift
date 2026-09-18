@@ -45,7 +45,7 @@ struct EntryInsightsView: View {
             textReviewPending: entry.textReviewPending,
             hasText: !entry.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
             hasInsights: insights != nil,
-            insightsAreEmpty: insights.map(Self.isEmpty) ?? false,
+            insightsAreEmpty: insights.map { Self.isEmpty($0, in: modelContext) } ?? false,
             insightsAreCurrent: insights?.isCurrent(for: entry) ?? false,
             running: insightsCoordinator.isRunning(entry),
             failure: AIJobPolicy.failure(.insights, entry),
@@ -104,6 +104,7 @@ struct EntryInsightsView: View {
                     MoodPickerView(insights: insights) {
                         saver.noteChange()
                         saver.flush()
+                        graph.moodsEdited()
                         DiagnosticsLog.shared.record("insights.moodsEdited", ["id": .id(entry.id)])
                     }
                 }
@@ -194,16 +195,9 @@ struct EntryInsightsView: View {
                     .accessibilityIdentifier("editMoodsButton")
             }
         }
-        if !insights.themes.isEmpty {
-            InsightCard(title: "Themes", caption: "What this entry is about.", copyText: insights.themes.joined(separator: "\n")) {
-                ForEach(insights.themes, id: \.self) { theme in
-                    if let chip = chips.chip(for: theme, kind: .theme) {
-                        NavigationLink(value: EntityRoute(id: chip.entityID)) { Text(theme) }
-                            .accessibilityIdentifier("entityChip-theme-\(theme)")
-                    } else {
-                        Text(theme)
-                    }
-                }
+        if insights.areas.contains(where: { !settings.isHidden($0) }) {
+            InsightCard(title: "Life areas", caption: "What part of life this entry is about.") {
+                LifeAreaChips(areas: insights.areas)
             }
         }
         // Chip cards have no card-wide Copy: each chip has its own menu.
@@ -219,14 +213,7 @@ struct EntryInsightsView: View {
                 }
             }
         }
-        if !insights.openThreads.isEmpty {
-            InsightCard(title: "Loose ends", copyText: insights.openThreads.joined(separator: "\n")) {
-                ForEach(insights.openThreads, id: \.self) { thread in
-                    Label(thread, systemImage: "circle")
-                        .labelStyle(.titleAndIcon)
-                }
-            }
-        }
+        LooseEndsCard(entryID: entry.id)
         ForEach(insights.customResults, id: \.promptID) { result in
             InsightCard(title: result.name, copyText: result.content) {
                 Text(result.content)
@@ -255,9 +242,10 @@ struct EntryInsightsView: View {
         label.split(separator: ":").last.map(String.init) ?? label
     }
 
-    static func isEmpty(_ insights: EntryInsights) -> Bool {
-        insights.summary == nil && insights.primaryMoodRaw == nil && insights.themes.isEmpty && insights.tags.isEmpty
-            && insights.mentions.isEmpty && insights.openThreads.isEmpty && insights.customResults.isEmpty
+    static func isEmpty(_ insights: EntryInsights, in context: ModelContext) -> Bool {
+        insights.summary == nil && insights.primaryMoodRaw == nil && insights.areasRaw.isEmpty && insights.tags.isEmpty
+            && insights.mentions.isEmpty && insights.customResults.isEmpty
+            && !(insights.entry.map { LooseEnd.hasAny(from: $0.id, in: context) } ?? false)
     }
 
     private func run() {
@@ -308,15 +296,15 @@ struct WhatWasSentView: View {
             Section("Asked for") {
                 ForEach(Self.sections(settings, source: entry.source), id: \.self) { Text($0) }
             }
-            if let insights = entry.insights, insights.sentTagCount + insights.sentThemeCount + insights.sentNameCount > 0 {
+            if let insights = entry.insights, insights.sentTagCount + insights.sentNameCount + insights.sentLooseEndCount > 0 {
                 Section {
                     if insights.sentTagCount > 0 { LabeledContent("Tags", value: "\(insights.sentTagCount)") }
-                    if insights.sentThemeCount > 0 { LabeledContent("Themes", value: "\(insights.sentThemeCount)") }
                     if insights.sentNameCount > 0 { LabeledContent("Names", value: "\(insights.sentNameCount)") }
+                    if insights.sentLooseEndCount > 0 { LabeledContent("Loose ends", value: "\(insights.sentLooseEndCount)") }
                 } header: {
                     Text("Also sent: words this journal already uses")
                 } footer: {
-                    Text("Tags, themes, and the names of people, places, and other things from your other entries, including names you typed yourself, so the wording matches what you already have.")
+                    Text("Tags, the names of people, places, and other things, and loose ends from your other entries, including names you typed yourself, so the wording matches what you already have and a later entry can close what an earlier one left open.")
                 }
             }
             Section {
@@ -337,10 +325,10 @@ struct WhatWasSentView: View {
         var names: [String] = []
         if settings.insightSummary { names.append("Summary") }
         if settings.insightMoods { names.append("Moods") }
-        if settings.insightThemes { names.append("Themes") }
+        if settings.insightLifeAreas { names.append("Life areas") }
         if settings.insightTags { names.append("Tags") }
         if settings.insightMentions { names.append("Mentioned") }
-        if settings.insightOpenThreads { names.append("Loose ends") }
+        if settings.insightLooseEnds { names.append("Loose ends") }
         if settings.insightCleanedText && (source == .voice || source == .photo) { names.append("Cleaned-up text") }
         if settings.suggestEntryDates && source == .typed { names.append("Written date") }
         names.append(contentsOf: settings.customInsightPrompts.filter(\.enabled).map(\.name))

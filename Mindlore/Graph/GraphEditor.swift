@@ -50,12 +50,11 @@ struct GraphEditor {
         return .applied
     }
 
-    // A mention stays a mention and a label stays a label: a person can become a place, and a
-    // tag a theme, but a person never a tag. Labels match only their own kind, so crossing over
-    // would strand the entity's links.
+    // A mention stays a mention and a tag stays a tag: a person can become a place, but never a
+    // tag. Tags match only their own kind, so crossing over would strand the entity's links.
     static func kinds(changeableFrom kind: EntityKind) -> [EntityKind] {
         switch kind {
-        case .tag, .theme: [.tag, .theme]
+        case .tag: [.tag]
         default: [.person, .place, .organization, .project, .event, .other]
         }
     }

@@ -194,12 +194,15 @@ struct GraphServicesTests {
         harness.indexer.sweep(in: harness.context)
 
         let moved = Date(timeIntervalSince1970: 50_000)
+        let looseEnd = LooseEnd(text: "Call Sarah", sourceEntryID: entry.id, sourceEntryDate: entry.entryDate)
+        harness.context.insert(looseEnd)
         entry.entryDate = moved
-        services.entryDateChanged(in: harness.context)
+        services.entryDateChanged(for: entry, in: harness.context)
 
         let sarah = try harness.entity("Sarah")
         #expect(sarah.firstLinkedAt == moved)
         #expect(sarah.lastLinkedAt == moved)
+        #expect(looseEnd.sourceEntryDate == moved && looseEnd.createdAt == moved && looseEnd.lastMentionedAt == moved)
         #expect(services.revision == 1)
     }
 
@@ -270,61 +273,20 @@ struct GraphServicesTests {
 
     // MARK: - 7.2: The picture's data
 
-    @Test func localGraphDepthOneIncludesOnlyDirectCoMentions() throws {
-        try harness.entry(mentions: [("Sarah", .person), ("Tom", .person)])
-        try harness.entry(mentions: [("Tom", .person), ("Ana", .person)])
-        harness.indexer.sweep(in: harness.context)
-        let sarah = try harness.entity("Sarah")
-        let tom = try harness.entity("Tom")
-        let ana = try harness.entity("Ana")
-
-        let data = services.localGraph(around: sarah.id, depth: 1, in: harness.context)
-
-        #expect(Set(data.nodes.map(\.id)) == [sarah.id, tom.id])
-        #expect(!data.nodes.map(\.id).contains(ana.id))
-        #expect(data.edges.count == 1)
-        #expect(Set([data.edges[0].a, data.edges[0].b]) == [sarah.id, tom.id])
-    }
-
-    @Test func localGraphDepthTwoIncludesTheNeighboursNeighbour() throws {
-        try harness.entry(mentions: [("Sarah", .person), ("Tom", .person)])
-        try harness.entry(mentions: [("Tom", .person), ("Ana", .person)])
-        harness.indexer.sweep(in: harness.context)
-        let sarah = try harness.entity("Sarah")
-        let tom = try harness.entity("Tom")
-        let ana = try harness.entity("Ana")
-
-        let data = services.localGraph(around: sarah.id, depth: 2, in: harness.context)
-
-        #expect(Set(data.nodes.map(\.id)) == [sarah.id, tom.id, ana.id])
-        #expect(data.edges.count == 2)
-    }
-
-    @Test func localGraphWithNoCoOccurrenceReturnsOneNodeAndNoEdges() throws {
-        try harness.entry(mentions: [("Sarah", .person)])
-        harness.indexer.sweep(in: harness.context)
-        let sarah = try harness.entity("Sarah")
-
-        let data = services.localGraph(around: sarah.id, depth: 2, in: harness.context)
-
-        #expect(data.nodes.map(\.id) == [sarah.id])
-        #expect(data.edges.isEmpty)
-    }
-
-    @Test func localGraphNeverShowsAHiddenPartner() throws {
+    @Test func theMapNeverShowsAHiddenPartner() throws {
         try harness.entry(mentions: [("Sarah", .person), ("Tom", .person)])
         harness.indexer.sweep(in: harness.context)
         let sarah = try harness.entity("Sarah")
         let tom = try harness.entity("Tom")
         services.setHidden(true, on: tom.id, in: harness.context)
 
-        let data = services.localGraph(around: sarah.id, depth: 2, in: harness.context)
+        let data = services.globalGraph(kinds: nil, minimumLinkCount: 0, in: harness.context)
 
         #expect(data.nodes.map(\.id) == [sarah.id])
         #expect(data.edges.isEmpty)
     }
 
-    @Test func localGraphResolvesAMergedPartnerToItsWinner() throws {
+    @Test func theMapResolvesAMergedPartnerToItsWinner() throws {
         try harness.entry(mentions: [("Sarah", .person), ("Tom", .person)])
         harness.indexer.sweep(in: harness.context)
         let sarah = try harness.entity("Sarah")
@@ -334,7 +296,7 @@ struct GraphServicesTests {
         try harness.context.save()
         _ = services.merge(tom.id, into: lewis.id, in: harness.context)
 
-        let data = services.localGraph(around: sarah.id, depth: 2, in: harness.context)
+        let data = services.globalGraph(kinds: nil, minimumLinkCount: 0, in: harness.context)
 
         #expect(Set(data.nodes.map(\.id)) == [sarah.id, lewis.id])
         #expect(!data.nodes.map(\.id).contains(tom.id))
@@ -404,22 +366,24 @@ struct GraphServicesTests {
         #expect(!data.nodes.map(\.id).contains(ana.id))
     }
 
-    // Known limitation, locked in rather than left to surprise someone on a device: the
-    // standalone-node clause reads Entity.linkCount, a persisted, all-time count, so scrubbing
-    // asOf before every one of an entity's mentions still shows it as a dot once its lifetime
-    // count clears minimumLinkCount. asOf only ever removes edges, never this count.
-    @Test func globalGraphStandaloneNodeIgnoresAsOfScrubbing() throws {
+    // A node's size and the minimum read its mentions up to asOf, so scrubbing back before an
+    // entity's mentions takes it off the map (what replay needs).
+    @Test func globalGraphCountsOnlyMentionsUpToAsOf() throws {
         let cutoff = Date(timeIntervalSince1970: 10_000)
+        try harness.entry(entryDate: cutoff.addingTimeInterval(-1), mentions: [("Sarah", .person)])
         try harness.entry(entryDate: cutoff.addingTimeInterval(1), mentions: [("Sarah", .person)])
-        try harness.entry(entryDate: cutoff.addingTimeInterval(2), mentions: [("Sarah", .person)])
+        try harness.entry(entryDate: cutoff.addingTimeInterval(2), mentions: [("Tom", .person)])
+        try harness.entry(entryDate: cutoff.addingTimeInterval(3), mentions: [("Tom", .person)])
         harness.indexer.sweep(in: harness.context)
         let sarah = try harness.entity("Sarah")
-        #expect(sarah.linkCount == 2)
 
-        let data = services.globalGraph(asOf: cutoff, kinds: nil, minimumLinkCount: 2, in: harness.context)
+        let atCutoff = services.globalGraph(asOf: cutoff, kinds: nil, minimumLinkCount: 1, in: harness.context)
+        #expect(atCutoff.nodes.map(\.id) == [sarah.id])
+        #expect(atCutoff.nodes.first?.linkCount == 1)
+        #expect(services.globalGraph(asOf: cutoff, kinds: nil, minimumLinkCount: 2, in: harness.context).nodes.isEmpty)
 
-        #expect(data.nodes.map(\.id) == [sarah.id])
-        #expect(data.edges.isEmpty)
+        let later = services.globalGraph(asOf: cutoff.addingTimeInterval(10), kinds: nil, minimumLinkCount: 2, in: harness.context)
+        #expect(later.nodes.count == 2)
     }
 
     @Test func globalGraphKeepsAnIsolatedNodeAboveThresholdWithNoSurvivingEdge() throws {

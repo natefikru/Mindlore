@@ -56,11 +56,6 @@ nonisolated enum EntityMatcher {
     static func score(_ a: Candidate, _ b: Candidate) -> Double? {
         guard !a.key.isEmpty, !b.key.isEmpty else { return nil }
 
-        // A tag and a theme are different kinds of thing, so they only meet when they are
-        // written identically. Anything fuzzier between them is a coincidence of wording.
-        if isTagAndTheme(a.kind, b.kind) {
-            return a.key == b.key ? 1 : nil
-        }
         guard a.kind == b.kind || a.kind == .other || b.kind == .other else { return nil }
         if a.key == b.key { return 1 }
 
@@ -68,10 +63,6 @@ nonisolated enum EntityMatcher {
     }
 
     // MARK: - Pieces
-
-    private static func isTagAndTheme(_ a: EntityKind, _ b: EntityKind) -> Bool {
-        (a == .tag && b == .theme) || (a == .theme && b == .tag)
-    }
 
     // "sarah" against "sarah kim": every word of one appears in the other.
     static func isSubset(_ a: String, _ b: String) -> Bool {

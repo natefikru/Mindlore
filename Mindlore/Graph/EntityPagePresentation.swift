@@ -39,8 +39,8 @@ nonisolated enum EntityPagePresentation {
 
     // A fresh, single-mention, never-touched name is worth double-checking: dictation is the
     // likeliest source of a wrong spelling, and nobody has confirmed this one is right yet.
-    // Restricted to the kinds bio auto-drafting already limits itself to (5a): tags and themes
-    // rarely appear word for word, so a misspelling there isn't the scenario this is for.
+    // Restricted to the kinds bio auto-drafting already limits itself to (5a): tags rarely
+    // appear word for word, so a misspelling there isn't the scenario this is for.
     static func showsSpellingPrompt(confirmedByUser: Bool, linkCount: Int, kind: EntityKind) -> Bool {
         !confirmedByUser && linkCount <= 1 && EntityBioDrafter.automaticKinds.contains(kind)
     }
@@ -209,5 +209,28 @@ nonisolated enum BioDraftPresentation {
         default:
             return "Couldn't draft a description. Try again."
         }
+    }
+}
+
+nonisolated extension EntityPagePresentation {
+    // MARK: - Loose ends
+
+    struct LooseEndItem: Equatable, Identifiable {
+        let id: UUID
+        let entityIDs: [UUID]
+        let isOpen: Bool
+        let lastMentionedAt: Date
+        let statusChangedAt: Date?
+    }
+
+    // The loose ends about one entity, through merges: open ones by latest mention, then the
+    // rest (settled, faded, let go) by when that happened.
+    static func looseEnds(_ items: [LooseEndItem], about entityID: UUID, root: (UUID) -> UUID) -> (open: [UUID], earlier: [UUID]) {
+        let about = items.filter { $0.entityIDs.contains { root($0) == entityID } }
+        let open = about.filter(\.isOpen).sorted { $0.lastMentionedAt > $1.lastMentionedAt }
+        let earlier = about.filter { !$0.isOpen }.sorted {
+            ($0.statusChangedAt ?? $0.lastMentionedAt) > ($1.statusChangedAt ?? $1.lastMentionedAt)
+        }
+        return (open.map(\.id), earlier.map(\.id))
     }
 }

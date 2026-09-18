@@ -183,6 +183,7 @@ struct AIDiagnosticsPrivacyTests {
         // Settings and keys: prompt wording and the key itself pass through here.
         let settings = SettingsStore(store: FakeKeyValueStore(), diagnostics: log)
         settings.customInsightPrompts = [CustomInsightPrompt(id: UUID(), name: "Name \(sentinel)", instructions: "Ask about \(sentinel)", enabled: true)]
+        settings.rename(.work, to: "Work \(sentinel)")
         let errorBody = #"{"error":{"message":"your text \#(sentinel) was rejected","code":"invalid_value"}}"#
         let http = FakeHTTPClient(
             .success(HTTPResponse(status: 400, headers: [:], data: Data(errorBody.utf8))),
@@ -217,7 +218,7 @@ struct AIDiagnosticsPrivacyTests {
         // Insights: sentinel text in, sentinel-laden result out, and a failing run.
         let generator = FakeTextGenerator()
         generator.results = [
-            .success(#"{"summary":"About \#(sentinel)","primaryMood":"calm","themes":["\#(sentinel)"],"tags":["\#(sentinel)"],"mentions":[{"name":"\#(sentinel)","kind":"person"}],"openThreads":["\#(sentinel)"]}"#),
+            .success(#"{"summary":"About \#(sentinel)","primaryMood":"calm","lifeAreas":["work"],"tags":["\#(sentinel)"],"mentions":[{"name":"\#(sentinel)","kind":"person"}],"looseEnds":[{"text":"Call \#(sentinel)","about":["\#(sentinel)"],"due":null,"sameAs":null}]}"#),
             .failure(AIError.badRequest(code: "invalid_value")),
         ]
         let insights = InsightsCoordinator(
@@ -231,7 +232,9 @@ struct AIDiagnosticsPrivacyTests {
         entry.insightsPending = true
         await insights.processQueue(context: context)
         #expect(entry.insights?.summary?.contains(sentinel) == true)
+        #expect(LooseEnd.all(in: context).contains { $0.text.contains(sentinel) })
         await insights.runAI(for: entry, context: context)
+        #expect(LooseEnd.fade(in: context, now: .distantFuture, diagnostics: log) > 0)
 
         // Titles, including a generator that throws a DecodingError carrying the sentinel.
         let titles = TitleCoordinator(
@@ -277,27 +280,114 @@ struct AIDiagnosticsPrivacyTests {
         _ = graph.vocabulary(in: context)
         graph.sweep(in: context)
 
-        // The picture: local and global graph reads over entities named with the sentinel, and
-        // the render event they both log. graph.rendered only ever carries counts and a duration,
-        // but this proves it, over data that would leak if anything upstream forgot to resolve
-        // to plain ids first.
+        // Mind: the map, the panel's rows, a review answer, and the focus and filter events,
+        // over entities named with the sentinel. They carry counts and kinds only, but this proves
+        // it over data that would leak if anything upstream forgot to resolve to plain ids first.
         let services = GraphServices(diagnostics: log)
-        let localData = services.localGraph(around: namedID, depth: 2, in: context)
-        services.recordGraphRendered(nodes: localData.nodes.count, edges: localData.edges.count, settleMilliseconds: 12.5)
+        _ = services.primaryAreas(in: context)
+        _ = MindDirectory.rows(in: context)
+        let pair = ReviewQueue.Question.same(a: namedID, b: second.id)
+        services.answer(pair, with: .skip, in: context)
+        services.answer(pair, with: .notSame, in: context)
+        services.recordMindFocused(source: .search, onMap: false)
+        services.recordMindFiltersChanged(kinds: 3, minimum: 1, entries: true, regions: true, nodes: 2)
         let globalData = services.globalGraph(kinds: nil, minimumLinkCount: 0, in: context)
-        services.recordGraphRendered(nodes: globalData.nodes.count, edges: globalData.edges.count, settleMilliseconds: 34.0)
+        services.recordGraphRendered(GraphRenderStats(
+            nodes: globalData.nodes.count, edges: globalData.edges.count, settleMilliseconds: nil,
+            frameSamples: 0, frameP50Milliseconds: nil, frameP95Milliseconds: nil, workP95Milliseconds: nil,
+            entryNodes: 1, lens: .mood, replay: true
+        ))
+
+        // A5b: lenses, entry dots, regions, and a replay over the same data, with the renamed
+        // Work area as a region label.
+        let snapshot = services.mapSnapshot(in: context)
+        let filters = MindFilters(kinds: Set(EntityKind.allCases), minimumMentions: 0, showsEntries: true, groupsByArea: true)
+        let frame = MindView.frame(snapshot, filters: filters, visibleAreas: settings.visibleLifeAreas, asOf: .distantFuture)
+        for lens in MindLens.allCases {
+            _ = lens.paint(snapshot, onMap: Set(frame.nodes.map(\.id)), asOf: .distantFuture, generation: 1)
+        }
+        services.recordMindLensChanged(MindLens.recency.rawValue)
+        let player = MindReplayPlayer()
+        player.start(now: .distantFuture) { services.mapSnapshot(in: context) }
+        _ = player.step(elapsed: 5)
+        player.stop()
+        services.recordMindReplayed(steps: 100, durationMilliseconds: 10_000, stepP95Milliseconds: 3, finished: true, nodes: frame.nodes.count)
+        services.recordMindEntryOpened()
 
         let contents = file.contents()
         #expect(contents.contains("ai.keySaved"))
         #expect(contents.contains("pages.transcription.completed"))
         #expect(contents.contains("insights.completed"))
         #expect(contents.contains("insights.failed"))
+        #expect(contents.contains("looseEnds.written"))
+        #expect(contents.contains("looseEnds.faded"))
         for event in ["graph.indexed", "graph.entityEdited", "graph.hidden", "graph.suggestionDismissed",
-                      "graph.merged", "graph.unmerged", "graph.repointed", "graph.rendered"] {
+                      "graph.merged", "graph.unmerged", "graph.repointed", "graph.rendered",
+                      "mind.reviewAnswered", "mind.focused", "mind.filtersChanged",
+                      "mind.lensChanged", "mind.replayed", "mind.entryOpened"] {
             #expect(contents.contains(event), "\(event) was never exercised")
         }
         #expect(contents.contains("title.failed"))
         #expect(contents.contains("settings.changed"))
+        #expect(contents.contains(sentinel) == false)
+    }
+}
+
+// Ask: the question, the entries it reads, their titles, an entity's name, and the answer are all
+// the sentinel. Success, failure, and a journal with nothing to go on each write their event.
+@MainActor
+struct AskDiagnosticsPrivacyTests {
+    private static let sentinel = DiagnosticsPrivacyTests.sentinel
+
+    @Test func askNeverLogsTheQuestionTheEntriesOrTheAnswer() async throws {
+        let file = DiagnosticsFile()
+        let log = DiagnosticsLog(fileURL: file.url)
+        let sentinel = Self.sentinel
+        let container = try ModelContainerFactory.make(.inMemory)
+        let context = container.mainContext
+
+        let generator = FakeTextGenerator()
+        let ask = AskService(
+            resolve: { .success(AskProvider(generator: generator, model: "m", label: "openai:m", kind: .openAI)) },
+            store: AskStore(save: { try $0.save() }),
+            diagnostics: log
+        )
+
+        // Nothing in the journal yet: the question still must not be logged.
+        await ask.send("What about \(sentinel)?", in: context)
+        #expect(ask.turns.last?.failureRaw == AskFailureText.noEntries)
+
+        let entry = Entry(text: "Dear diary, \(sentinel)")
+        entry.title = "Title \(sentinel)"
+        context.insert(entry)
+        let entity = Entity(name: "Name \(sentinel)", key: "name", kind: .person)
+        entity.bio = "Bio \(sentinel)"
+        context.insert(entity)
+        let link = EntityLink(surface: "Surface \(sentinel)", kind: .person)
+        context.insert(link)
+        link.entityID = entity.id
+        link.entryID = entry.id
+        let looseEnd = LooseEnd(text: "Loose end \(sentinel)", sourceEntryID: entry.id, sourceEntryDate: .now, entityIDs: [entity.id])
+        context.insert(looseEnd)
+        try context.save()
+
+        ask.newConversation()
+        generator.results = [
+            .success(#"{"answer":"Answer \#(sentinel)","citations":["E1"]}"#),
+            .failure(AIError.badRequest(code: "invalid_value")),
+        ]
+        await ask.send("Tell me about \(sentinel)", in: context)
+        #expect(ask.turns.last?.text.contains(sentinel) == true)
+        await ask.send("And \(sentinel) since?", in: context)
+        #expect(ask.turns.last?.failureRaw == "ai.badRequest")
+
+        let conversation = try #require(ask.conversations(in: context).first)
+        ask.delete(conversation, in: context)
+
+        let contents = file.contents()
+        for event in ["ask.answered", "ask.failed", "ask.conversationDeleted"] {
+            #expect(contents.contains(event), "\(event) was never exercised")
+        }
         #expect(contents.contains(sentinel) == false)
     }
 }

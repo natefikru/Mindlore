@@ -51,11 +51,15 @@ private struct EntityPage: View {
     @Environment(\.entityRouteReplacer) private var routeReplacer
     @Environment(EntrySaver.self) private var saver
     @Environment(GraphServices.self) private var graph
+    @Environment(AppRouter.self) private var router
     @Environment(SettingsStore.self) private var settings
     @Environment(ProviderAccountStore.self) private var accounts
     @Query private var matches: [Entity]
     @Query private var links: [EntityLink]
     @Query private var entities: [Entity]
+    @Query(sort: \LooseEnd.lastMentionedAt, order: .reverse) private var allLooseEnds: [LooseEnd]
+    @State private var showsEarlierLooseEnds = false
+    @State private var looseEndSplit = LooseEndSplit()
     @State private var editingBio = false
     @State private var renaming = false
     @State private var addingAlias = false
@@ -65,8 +69,9 @@ private struct EntityPage: View {
     @State private var collidingEdit: ((Bool) -> GraphEditor.EditOutcome)?
     @State private var repointing: MentionRef?
     @State private var previewingRow: EntityPagePresentation.EntryRow?
+    @State private var showsEntries = false
+    @State private var showsAllPartners = false
     @State private var coOccurring: [EntityPagePresentation.CoOccurrenceRow] = []
-    @State private var localGraphRoute: LocalGraphRoute?
 
     init(id: UUID, showsLoser: Bool) {
         self.id = id
@@ -84,6 +89,7 @@ private struct EntityPage: View {
                     mergedAwaySection(entity, into: winnerID)
                 }
                 about(entity)
+                looseEndsSection
                 aliasesSection(entity)
                 entriesSection
                 mentionedWithSection
@@ -98,8 +104,9 @@ private struct EntityPage: View {
             .onAppear {
                 if !showsLoser { graph.pageOpened(id, in: modelContext) }
             }
+            .task(id: looseEndKey) { loadLooseEnds() }
             .task(id: graph.revision) {
-                coOccurring = EntityPagePresentation.coOccurrenceRows(graph.mentionedWith(of: id, in: modelContext))
+                coOccurring = EntityPagePresentation.coOccurrenceRows(graph.mentionedWith(of: id, in: modelContext, limit: .max))
             }
             .sheet(isPresented: $editingBio) {
                 BioEditorSheet(initial: entity.bio ?? "") { text in
@@ -118,9 +125,6 @@ private struct EntityPage: View {
             }
             .sheet(item: $previewingRow) { row in
                 EntryPreview(entryID: row.id)
-            }
-            .sheet(item: $localGraphRoute) { route in
-                LocalGraphView(subjectID: route.id)
             }
             .sheet(isPresented: $renaming) {
                 RenameEntitySheet(initial: entity.name, kind: entity.kind, defaultsToKeepingOldName: hasVoiceSourcedLink) { name, keepOldName in
@@ -222,17 +226,23 @@ private struct EntityPage: View {
                     LabeledContent("Name", value: entity.name)
                 }
                 .accessibilityIdentifier("entityRename")
-                Picker(selection: Binding(
-                    get: { entity.kind },
-                    set: { kind in apply { graph.setKind(kind, on: id, in: modelContext) } }
-                )) {
-                    ForEach(GraphEditor.kinds(changeableFrom: entity.kind), id: \.self) { kind in
-                        Label(kind.label, systemImage: kind.symbol).tag(kind)
+                let kinds = GraphEditor.kinds(changeableFrom: entity.kind)
+                if kinds.count > 1 {
+                    Picker(selection: Binding(
+                        get: { entity.kind },
+                        set: { kind in apply { graph.setKind(kind, on: id, in: modelContext) } }
+                    )) {
+                        ForEach(kinds, id: \.self) { kind in
+                            Label(kind.label, systemImage: kind.symbol).tag(kind)
+                        }
+                    } label: {
+                        Text("Kind")
                     }
-                } label: {
-                    Text("Kind")
+                    .accessibilityIdentifier("entityKind")
+                } else {
+                    LabeledContent("Kind", value: entity.kind.label)
+                        .accessibilityIdentifier("entityKind")
                 }
-                .accessibilityIdentifier("entityKind")
             }
         }
     }
@@ -276,8 +286,10 @@ private struct EntityPage: View {
 
     private func actionsSection(_ entity: Entity) -> some View {
         Section {
-            Button("Graph") { localGraphRoute = LocalGraphRoute(id: id) }
-                .accessibilityIdentifier("entityGraph")
+            if !entity.hidden {
+                Button("Show in Mind") { router.showInMind(id) }
+                    .accessibilityIdentifier("entityShowInMind")
+            }
             Button("Merge into…") { merging = true }
                 .accessibilityIdentifier("entityMergeInto")
             Button(entity.hidden ? "Unhide" : "Hide") {
@@ -360,65 +372,163 @@ private struct EntityPage: View {
             .accessibilityIdentifier("entityBioDraft")
     }
 
+    // One row that says how many entries mention them and expands in place, so a busy person's
+    // page isn't a wall of entries. In place rather than pushed, so the three stacks that push
+    // entity pages need no new route type.
     @ViewBuilder
     private var entriesSection: some View {
-        let rows = entryRows
-        if !rows.isEmpty {
-            Section("Entries") {
-                ForEach(rows) { row in
-                    VStack(alignment: .leading, spacing: 4) {
-                        Button {
-                            saver.flush()
-                            previewingRow = row
-                        } label: {
-                            VStack(alignment: .leading, spacing: 4) {
-                                HStack(alignment: .firstTextBaseline) {
-                                    Text(row.heading).font(.headline)
-                                    Spacer()
-                                    if row.guessed != nil {
-                                        Text("Guessed")
-                                            .font(.caption)
-                                            .foregroundStyle(.orange)
-                                    }
-                                }
-                                Text(row.date.formatted(date: .abbreviated, time: .omitted))
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                                if let sentence = row.sentence {
-                                    Text(sentence)
-                                        .font(.subheadline)
-                                        .foregroundStyle(.secondary)
-                                        .lineLimit(3)
-                                }
-                            }
+        let mine = links.filter { $0.entityID == id && !$0.isDeleted }
+        let count = Set(mine.compactMap(\.entryID)).count
+        if count > 0 {
+            let guessed = Set(mine.filter(\.inferred).compactMap(\.entryID)).count
+            Section {
+                Button {
+                    withAnimation { showsEntries.toggle() }
+                } label: {
+                    HStack {
+                        Text(count == 1 ? "1 mentioned entry" : "\(count) mentioned entries")
+                            .foregroundStyle(.primary)
+                        Spacer()
+                        if guessed > 0 {
+                            Text("\(guessed) guessed").foregroundStyle(.orange)
                         }
-                        .buttonStyle(.plain)
-                        .accessibilityIdentifier("entityEntryRow-\(row.id)")
-                        if let guessed = row.guessed {
-                            Button("Not them") { repointing = guessed }
-                                .buttonStyle(.borderless)
-                                .font(.subheadline)
-                                .accessibilityIdentifier("entityNotThem")
-                        }
+                        Image(systemName: "chevron.right")
+                            .font(.footnote.weight(.semibold))
+                            .foregroundStyle(.tertiary)
+                            .rotationEffect(.degrees(showsEntries ? 90 : 0))
+                    }
+                }
+                .tint(.primary)
+                .accessibilityIdentifier("entityEntriesSummary")
+                if showsEntries {
+                    ForEach(entryRows) { row in
+                        entryRow(row)
                     }
                 }
             }
         }
     }
 
+    private func entryRow(_ row: EntityPagePresentation.EntryRow) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Button {
+                saver.flush()
+                previewingRow = row
+            } label: {
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack(alignment: .firstTextBaseline) {
+                        Text(row.heading).font(.headline)
+                        Spacer()
+                        if row.guessed != nil {
+                            Text("Guessed")
+                                .font(.caption)
+                                .foregroundStyle(.orange)
+                        }
+                    }
+                    Text(row.date.formatted(date: .abbreviated, time: .omitted))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    if let sentence = row.sentence {
+                        Text(sentence)
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(3)
+                    }
+                }
+            }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("entityEntryRow-\(row.id)")
+            if let guessed = row.guessed {
+                Button("Not them") { repointing = guessed }
+                    .buttonStyle(.borderless)
+                    .font(.subheadline)
+                    .accessibilityIdentifier("entityNotThem")
+            }
+        }
+    }
+
+    // Open loose ends about this entity first; settled, faded, and let-go ones fold away. Worked
+    // out in a task, not in body, so typing in a sheet on this page never redoes it.
+    @ViewBuilder
+    private var looseEndsSection: some View {
+        let byID = Dictionary(allLooseEnds.filter { !$0.isDeleted }.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        let open = looseEndSplit.open.compactMap { byID[$0] }
+        let earlier = looseEndSplit.earlier.compactMap { byID[$0] }
+        if !open.isEmpty || !earlier.isEmpty {
+            Section("Loose ends") {
+                ForEach(open) { looseEnd in
+                    EntityLooseEndRow(looseEnd: looseEnd)
+                        .swipeActions {
+                            Button("Done") { setLooseEnd(looseEnd, .resolved) }
+                                .tint(.green)
+                            Button("Let go") { setLooseEnd(looseEnd, .dismissed) }
+                                .tint(.gray)
+                        }
+                }
+                if !earlier.isEmpty {
+                    DisclosureGroup("Earlier (\(earlier.count))", isExpanded: $showsEarlierLooseEnds) {
+                        ForEach(earlier) { looseEnd in
+                            EntityLooseEndRow(looseEnd: looseEnd)
+                                .swipeActions {
+                                    Button("Reopen") { setLooseEnd(looseEnd, .open) }
+                                }
+                        }
+                    }
+                    .accessibilityIdentifier("entityEarlierLooseEnds")
+                }
+            }
+            .accessibilityIdentifier("entityLooseEnds")
+        }
+    }
+
+    // Changes when a loose end is added, removed, or has its status changed.
+    private var looseEndKey: LooseEndKey {
+        LooseEndKey(
+            revision: graph.revision,
+            count: allLooseEnds.count,
+            lastChange: allLooseEnds.compactMap(\.statusChangedAt).max()
+        )
+    }
+
+    private func loadLooseEnds() {
+        let directory = EntityDirectory(in: modelContext)
+        let items = allLooseEnds.filter { !$0.isDeleted }.map {
+            EntityPagePresentation.LooseEndItem(id: $0.id, entityIDs: $0.entityIDs, isOpen: $0.isOpen, lastMentionedAt: $0.lastMentionedAt, statusChangedAt: $0.statusChangedAt)
+        }
+        let split = EntityPagePresentation.looseEnds(items, about: id, root: directory.root(of:))
+        looseEndSplit = LooseEndSplit(open: split.open, earlier: split.earlier)
+    }
+
+    // Saved without stamping entries, the same as the insights card.
+    private func setLooseEnd(_ looseEnd: LooseEnd, _ status: LooseEndStatus) {
+        saver.flush()
+        looseEnd.setByUser(status)
+        try? modelContext.save()
+    }
+
+    // The strongest few partners inline and the rest one tap away, so the page agrees with the
+    // graph, which draws every partner.
     @ViewBuilder
     private var mentionedWithSection: some View {
         if !coOccurring.isEmpty {
             Section("Mentioned with") {
-                ForEach(coOccurring) { row in
+                ForEach(showsAllPartners ? coOccurring[...] : coOccurring.prefix(Self.inlinePartners)) { row in
                     NavigationLink(value: EntityRoute(id: row.id)) {
                         Label(row.name, systemImage: row.kind.symbol)
                     }
                     .accessibilityIdentifier("mentionedWithRow-\(row.name)")
                 }
+                if coOccurring.count > Self.inlinePartners {
+                    Button(showsAllPartners ? "Show fewer" : "Show all \(coOccurring.count)") {
+                        withAnimation { showsAllPartners.toggle() }
+                    }
+                    .accessibilityIdentifier("mentionedWithSeeAll")
+                }
             }
         }
     }
+
+    private static let inlinePartners = 8
 
     @ViewBuilder
     private var mergedInSection: some View {
@@ -581,7 +691,7 @@ private struct RenameEntitySheet: View {
 }
 
 // Read-only: reaching the full editor would mean dismissing through however many sheets got the
-// user to this entity page (the insights sheet, or Connections), each with its own stack.
+// user to this entity page (the insights sheet, a name's card, or Mind), each with its own stack.
 private struct EntryPreview: View {
     let entryID: UUID
     @Environment(\.dismiss) private var dismiss
@@ -643,4 +753,42 @@ private struct AliasChip: View {
         .padding(.vertical, 5)
         .background(.quaternary, in: Capsule())
     }
+}
+
+private struct EntityLooseEndRow: View {
+    let looseEnd: LooseEnd
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(looseEnd.text)
+                .strikethrough(looseEnd.status == .resolved)
+                .foregroundStyle(looseEnd.isOpen ? .primary : .secondary)
+            Text(caption)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("entityLooseEnd-\(looseEnd.status.rawValue)")
+    }
+
+    private var caption: String {
+        let from = "From \(looseEnd.sourceEntryDate.formatted(date: .abbreviated, time: .omitted))"
+        switch looseEnd.status {
+        case .open: return looseEnd.dueDate.map { "\(from) · by \($0.formatted(date: .abbreviated, time: .omitted))" } ?? from
+        case .resolved: return "\(from) · \(looseEnd.userTouched ? "marked done" : "settled by a later entry")"
+        case .faded: return "\(from) · faded"
+        case .dismissed: return "\(from) · let go"
+        }
+    }
+}
+
+private struct LooseEndSplit: Equatable {
+    var open: [UUID] = []
+    var earlier: [UUID] = []
+}
+
+private struct LooseEndKey: Equatable {
+    let revision: Int
+    let count: Int
+    let lastChange: Date?
 }

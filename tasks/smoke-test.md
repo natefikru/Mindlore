@@ -16,7 +16,7 @@ Events never contain entry text. `id` values are entry UUIDs, so one recording c
 
 ### 1. First voice entry, online
 
-Wi-Fi on. Tap the mic, allow the microphone, speak for about 15 seconds, tap Done. Note whether a Speech Recognition permission prompt appears.
+Wi-Fi on. Tap Record in the tab bar's accessory, allow the microphone, speak for about 15 seconds, tap Done. Note whether a Speech Recognition permission prompt appears.
 
 Expect, in order:
 - `recorder.started` with a `route` (for example `MicrophoneBuiltIn`)

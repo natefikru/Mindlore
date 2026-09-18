@@ -56,18 +56,13 @@ struct EntityChipIndexStoreTests {
         harness = try BioHarness()
     }
 
-    @Test func aTagThemeAndNameEachOpenTheirEntity() throws {
+    @Test func aTagAndNameEachOpenTheirEntity() throws {
         let entry = try harness.entry("A walk with Sarah.", mentions: [("Sarah", .person)], tags: ["river"])
-        entry.insights?.themes = ["a walk"]
-        entry.insights?.generatedAt = Date(timeIntervalSince1970: 3_000)
-        try harness.context.save()
-        harness.graph.indexer.sweep(in: harness.context)
 
         let index = services.chipIndex(for: entry.id, in: harness.context)
 
         #expect(index.chip(for: "Sarah", kind: .person)?.entityID == (try harness.entity("Sarah")).id)
         #expect(index.chip(for: "river", kind: .tag)?.entityID == (try harness.entity("river")).id)
-        #expect(index.chip(for: "a walk", kind: .theme)?.entityID == (try harness.entity("a walk")).id)
     }
 
     // A dictated lowercase first name, kept as written, is linked to the full name by guessing.

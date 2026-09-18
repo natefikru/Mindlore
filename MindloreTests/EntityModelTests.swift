@@ -8,7 +8,7 @@ struct EntityKindTests {
     // Add new kinds at the end of this list.
     @Test func rawValuesArePinned() {
         #expect(EntityKind.allCases.map(\.rawValue) == [
-            "person", "place", "organization", "project", "event", "other", "tag", "theme",
+            "person", "place", "organization", "project", "event", "other", "tag",
         ])
         #expect(EntityLinkSource.allCases.map(\.rawValue) == ["ai", "user"])
     }
@@ -54,8 +54,8 @@ struct EntityKindTests {
         let link = EntityLink(surface: "Sarah", kind: .person)
         #expect(link.sourceRaw == "ai")
         link.source = .user
-        link.kind = .theme
-        #expect(link.sourceRaw == "user" && link.kindRaw == "theme")
+        link.kind = .tag
+        #expect(link.sourceRaw == "user" && link.kindRaw == "tag")
     }
 
     // A merge loser leaves every list without the user having hidden it, so unmerge can tell
@@ -304,7 +304,7 @@ struct EntityPersistenceTests {
         #expect(!merged[0].hidden && !merged[0].isBrowsable)
     }
 
-    // What Connections sorts on. An entity that has never been linked has no lastLinkedAt and
+    // What a SortDescriptor over entities sees. An entity that has never been linked has no lastLinkedAt and
     // must not sort as if it were the most recent thing in the journal.
     @Test func entitiesSortByCountAndRecencyWithNeverLinkedOnesLast() throws {
         let container = try ModelContainerFactory.make(.inMemory)

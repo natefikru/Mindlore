@@ -39,6 +39,9 @@ final class DraftUITests: XCTestCase {
         XCTAssertTrue(done.waitForExistence(timeout: 5))
         done.tap()
         XCTAssertFalse(done.waitForExistence(timeout: 2))
+        // A draft opened for typing, so finishing it keeps the editor and offers no reading Done.
+        XCTAssertFalse(app.buttons["doneEditingButton"].exists)
+        XCTAssertTrue(editor.exists)
 
         app.navigationBars.buttons.element(boundBy: 0).tap()
         XCTAssertTrue(app.staticTexts["Started this on the train and finished at home."].waitForExistence(timeout: 5))
