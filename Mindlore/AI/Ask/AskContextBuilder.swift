@@ -190,6 +190,16 @@ nonisolated enum AskContextBuilder {
         return body.isEmpty ? String(text.prefix(limit)).trimmingCharacters(in: .whitespacesAndNewlines) : body
     }
 
+    // What rendering this entry would cost, without rendering it. The index stores this per document
+    // so a plan can divide a budget with no entry text in hand, which is what makes the line under
+    // the field free. Deliberately an upper bound: sanitizing only ever removes characters, so the
+    // estimate never promises more room than there is.
+    static func blockCharacterEstimate(title: String, text: String) -> Int {
+        let header = "[E00] 2026-09-18 ".count + title.count
+        let fence = openDelimiter.count + closeDelimiter.count + 3
+        return header + fence + min(text.count, maxEntryCharacters)
+    }
+
     static func block(handle: String, date: Date, title: String, text: String) -> String {
         var header = "[\(handle)] \(dateFormatter.string(from: date))"
         if let title = InsightsPromptBuilder.promptSafe(sanitized(title)) {
