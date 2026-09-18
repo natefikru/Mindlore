@@ -78,7 +78,7 @@ struct EntityPeekCard: View {
                 // line stays below at full width, or the avatar and the button squeeze it into
                 // three wrapped lines.
                 HStack(spacing: 12) {
-                    EntityAvatar(kind: summary.kind, contactIdentifier: summary.contactIdentifier)
+                    EntityAvatar(kind: summary.kind, contactIdentifier: summary.contactIdentifier, place: summary.place)
                     Text(summary.name)
                         .font(.title3.weight(.semibold))
                         .lineLimit(2)

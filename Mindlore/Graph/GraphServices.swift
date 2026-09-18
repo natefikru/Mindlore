@@ -87,6 +87,16 @@ final class GraphServices {
         edit(entityID, in: context) { editor.unlinkContact($0, in: context) }
     }
 
+    @discardableResult
+    func linkPlace(_ entityID: UUID, identifier: String?, coordinate: PlaceCoordinate, in context: ModelContext) -> GraphEditor.EditOutcome {
+        edit(entityID, in: context) { editor.linkPlace($0, identifier: identifier, coordinate: coordinate, in: context) }
+    }
+
+    @discardableResult
+    func unlinkPlace(_ entityID: UUID, in context: ModelContext) -> GraphEditor.EditOutcome {
+        edit(entityID, in: context) { editor.unlinkPlace($0, in: context) }
+    }
+
     // What a rename would rewrite, for the sheet's warning before it happens.
     func renamePreview(_ entityID: UUID, in context: ModelContext) -> EntityProseRewriter.Counts {
         guard let entity = editor.entity(withID: entityID, in: context) else { return .init() }

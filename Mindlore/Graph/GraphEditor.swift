@@ -113,6 +113,12 @@ struct GraphEditor {
             entity.contactIdentifier = nil
             diagnostics.record("graph.contactUnlinked", ["id": .id(entity.id)])
         }
+        if kind != .place, entity.placeCoordinate != nil || entity.placeIdentifier != nil {
+            entity.placeIdentifier = nil
+            entity.placeLatitude = nil
+            entity.placeLongitude = nil
+            diagnostics.record("graph.placeUnlinked", ["id": .id(entity.id)])
+        }
         entity.kind = kind
         // Keyed again under the new kind, or the resolver and the collision check stop
         // agreeing about what this answers to.
@@ -144,6 +150,30 @@ struct GraphEditor {
         guard entity.contactIdentifier != nil else { return .applied }
         entity.contactIdentifier = nil
         diagnostics.record("graph.contactUnlinked", ["id": .id(entity.id)])
+        return .applied
+    }
+
+    // The coordinate and, when Apple Maps gave one, the place's identifier. Never its name or
+    // address: the entity already carries the name the user calls it by.
+    @discardableResult
+    func linkPlace(_ entity: Entity, identifier: String?, coordinate: PlaceCoordinate, in context: ModelContext) -> EditOutcome {
+        guard entity.kind == .place, coordinate.isValid else { return .applied }
+        entity.placeIdentifier = identifier?.trimmingCharacters(in: .whitespacesAndNewlines)
+        entity.placeLatitude = coordinate.latitude
+        entity.placeLongitude = coordinate.longitude
+        claim(entity)
+        // A coordinate is personal data, so only our own id and whether it has an identifier.
+        diagnostics.record("graph.placeLinked", ["id": .id(entity.id), "identified": .bool(identifier != nil)])
+        return .applied
+    }
+
+    @discardableResult
+    func unlinkPlace(_ entity: Entity, in context: ModelContext) -> EditOutcome {
+        guard entity.placeCoordinate != nil || entity.placeIdentifier != nil else { return .applied }
+        entity.placeIdentifier = nil
+        entity.placeLatitude = nil
+        entity.placeLongitude = nil
+        diagnostics.record("graph.placeUnlinked", ["id": .id(entity.id)])
         return .applied
     }
 

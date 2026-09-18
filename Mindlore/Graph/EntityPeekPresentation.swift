@@ -14,6 +14,8 @@ enum EntityPeekPresentation {
         // The linked CNContact, when there is one. The card reads the photo itself: the summary
         // stays pure so it can be tested without an address book.
         var contactIdentifier: String? = nil
+        // Where a linked place is, so the card can draw its map. Nil for everything else.
+        var place: PlaceCoordinate? = nil
     }
 
     static let recentDays = 30
@@ -69,6 +71,7 @@ enum EntityPeekPresentation {
         )
         result.openLooseEnd = looseEnd?.text
         result.contactIdentifier = entity.contactIdentifier
+        result.place = entity.placeCoordinate
         return result
     }
 }

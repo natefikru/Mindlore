@@ -284,6 +284,12 @@ struct AIDiagnosticsPrivacyTests {
         try context.save()
         editor.linkContact(personForContact, identifier: "CN-\(sentinel)", in: context)
         editor.unlinkContact(personForContact, in: context)
+        // A coordinate is personal data in its own right, so a linked place logs a bool.
+        let placeForMap = Entity(name: "Place \(sentinel)", key: "place", kind: .place)
+        context.insert(placeForMap)
+        try context.save()
+        editor.linkPlace(placeForMap, identifier: "MAPS-\(sentinel)", coordinate: PlaceCoordinate(latitude: 47.6062, longitude: -122.3321), in: context)
+        editor.unlinkPlace(placeForMap, in: context)
         _ = graph.vocabulary(in: context)
         graph.sweep(in: context)
 
@@ -332,7 +338,8 @@ struct AIDiagnosticsPrivacyTests {
                       "graph.merged", "graph.unmerged", "graph.repointed", "graph.rendered",
                       "mind.reviewAnswered", "mind.focused", "mind.filtersChanged",
                       "mind.lensChanged", "mind.replayed", "mind.entryOpened",
-                      "graph.renameRewrote", "graph.contactLinked", "graph.contactUnlinked"] {
+                      "graph.renameRewrote", "graph.contactLinked", "graph.contactUnlinked",
+                      "graph.placeLinked", "graph.placeUnlinked"] {
             #expect(contents.contains(event), "\(event) was never exercised")
         }
         #expect(contents.contains("title.failed"))

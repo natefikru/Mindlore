@@ -1,3 +1,4 @@
+import MapKit
 import SwiftData
 import SwiftUI
 
@@ -64,6 +65,7 @@ private struct EntityPage: View {
     @State private var editingBio = false
     @State private var renaming = false
     @State private var pickingContact = false
+    @State private var pickingPlace = false
     @State private var linkedContact: ContactMatch?
     @State private var contactLookedUp = false
     @State private var addingAlias = false
@@ -96,6 +98,9 @@ private struct EntityPage: View {
                 looseEndsSection
                 if entity.kind == .person, !entity.isMerged {
                     contactSection(entity)
+                }
+                if entity.kind == .place, !entity.isMerged {
+                    placeSection(entity)
                 }
                 aliasesSection(entity)
                 entriesSection
@@ -132,6 +137,11 @@ private struct EntityPage: View {
             }
             .sheet(item: $previewingRow) { row in
                 EntryPreview(entryID: row.id)
+            }
+            .sheet(isPresented: $pickingPlace) {
+                PlacePickerSheet(entityName: entity.name) { match in
+                    apply { graph.linkPlace(id, identifier: match.identifier, coordinate: match.coordinate, in: modelContext) }
+                }
             }
             .sheet(isPresented: $pickingContact) {
                 ContactPickerSheet(entityName: entity.name) { match in
@@ -220,7 +230,7 @@ private struct EntityPage: View {
                 .accessibilityIdentifier("entitySpellingPrompt")
             }
             HStack(alignment: .top, spacing: 12) {
-                EntityAvatar(kind: entity.kind, contactIdentifier: entity.contactIdentifier, size: 52)
+                EntityAvatar(kind: entity.kind, contactIdentifier: entity.contactIdentifier, place: entity.placeCoordinate, size: 52)
                 VStack(alignment: .leading, spacing: 4) {
                 Text(EntityPagePresentation.mentionSummary(count: entity.linkCount))
                 if let range = EntityPagePresentation.dateRange(first: entity.firstLinkedAt, last: entity.lastLinkedAt) {
@@ -274,6 +284,50 @@ private struct EntityPage: View {
                 graph.unmerge(id, in: modelContext)
             }
             .accessibilityIdentifier("entityUnmerge")
+        }
+    }
+
+    // Where this place actually is, with a handoff to Apple Maps. The preview is drawn from the
+    // coordinate every time rather than stored.
+    @ViewBuilder
+    private func placeSection(_ entity: Entity) -> some View {
+        Section {
+            if let coordinate = entity.placeCoordinate {
+                PlaceMapPreview(coordinate: coordinate)
+                    .frame(height: 140)
+                    .listRowInsets(EdgeInsets())
+                    .accessibilityIdentifier("entityPlaceMap")
+                Button {
+                    Task {
+                        let item = await MKPlaceDirectory.mapItem(
+                            identifier: entity.placeIdentifier,
+                            coordinate: coordinate,
+                            name: entity.name
+                        )
+                        item.openInMaps()
+                    }
+                } label: {
+                    Label("Open in Apple Maps", systemImage: "map")
+                }
+                .accessibilityIdentifier("entityPlaceOpenMaps")
+                Button("Unlink", role: .destructive) {
+                    apply { graph.unlinkPlace(entity.id, in: modelContext) }
+                }
+                .accessibilityIdentifier("entityPlaceUnlink")
+            } else {
+                Button {
+                    pickingPlace = true
+                } label: {
+                    Label("Find this place", systemImage: "mappin.and.ellipse")
+                }
+                .accessibilityIdentifier("entityPlaceLink")
+            }
+        } header: {
+            Text("Place")
+        } footer: {
+            if entity.placeCoordinate == nil {
+                Text("Shows a map here and on its card, and opens it in Apple Maps.")
+            }
         }
     }
 
