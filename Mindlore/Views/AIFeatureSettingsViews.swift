@@ -153,6 +153,49 @@ struct TitleSettingsView: View {
     }
 }
 
+struct AskSettingsView: View {
+    @Environment(SettingsStore.self) private var settings
+    @Environment(ProviderAccountStore.self) private var accounts
+    private let onDeviceAvailable = FoundationModelsAvailability.isAvailable
+
+    var body: some View {
+        @Bindable var settings = settings
+
+        Form {
+            Section {
+                Picker("Answer with", selection: $settings.askGenerator) {
+                    Text("Nothing").tag(AskGenerator.off)
+                    if onDeviceAvailable || settings.askGenerator == .onDevice {
+                        Text("This iPhone").tag(AskGenerator.onDevice)
+                    }
+                    Text("OpenAI").tag(AskGenerator.openAI)
+                }
+                .accessibilityIdentifier("askGeneratorPicker")
+            } footer: {
+                Text(footer)
+            }
+
+        }
+        .navigationTitle("Ask")
+        .navigationBarTitleDisplayMode(.inline)
+    }
+
+    private var footer: String {
+        switch settings.askGenerator {
+        case .off:
+            "Searching your journal still works. Nothing is sent anywhere."
+        case .onDevice:
+            onDeviceAvailable
+                ? "Questions are answered by Apple's on-device model, so nothing leaves this iPhone. It reads less of your journal at once than OpenAI can, and once you save a key Mindlore moves questions to OpenAI unless you pick here yourself."
+                : "This iPhone can't run Apple's on-device model. Choose OpenAI, or turn Ask off and keep searching."
+        case .openAI:
+            settings.aiEnabled && accounts.openAIAccount != nil
+                ? "The entries a question needs are sent to OpenAI with the question, and every answer says what went out."
+                : "Turn on AI and save a key to answer questions with OpenAI."
+        }
+    }
+}
+
 struct InsightsSettingsView: View {
     @Environment(SettingsStore.self) private var settings
     @Environment(ProviderAccountStore.self) private var accounts

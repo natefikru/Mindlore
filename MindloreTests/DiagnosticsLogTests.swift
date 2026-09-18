@@ -333,6 +333,65 @@ struct AIDiagnosticsPrivacyTests {
     }
 }
 
+// Ask: the question, the entries it reads, their titles, an entity's name, and the answer are all
+// the sentinel. Success, failure, and a journal with nothing to go on each write their event.
+@MainActor
+struct AskDiagnosticsPrivacyTests {
+    private static let sentinel = DiagnosticsPrivacyTests.sentinel
+
+    @Test func askNeverLogsTheQuestionTheEntriesOrTheAnswer() async throws {
+        let file = DiagnosticsFile()
+        let log = DiagnosticsLog(fileURL: file.url)
+        let sentinel = Self.sentinel
+        let container = try ModelContainerFactory.make(.inMemory)
+        let context = container.mainContext
+
+        let generator = FakeTextGenerator()
+        let ask = AskService(
+            resolve: { .success(AskProvider(generator: generator, model: "m", label: "openai:m", kind: .openAI)) },
+            store: AskStore(save: { try $0.save() }),
+            diagnostics: log
+        )
+
+        // Nothing in the journal yet: the question still must not be logged.
+        await ask.send("What about \(sentinel)?", in: context)
+        #expect(ask.turns.last?.failureRaw == AskFailureText.noEntries)
+
+        let entry = Entry(text: "Dear diary, \(sentinel)")
+        entry.title = "Title \(sentinel)"
+        context.insert(entry)
+        let entity = Entity(name: "Name \(sentinel)", key: "name", kind: .person)
+        entity.bio = "Bio \(sentinel)"
+        context.insert(entity)
+        let link = EntityLink(surface: "Surface \(sentinel)", kind: .person)
+        context.insert(link)
+        link.entityID = entity.id
+        link.entryID = entry.id
+        let looseEnd = LooseEnd(text: "Loose end \(sentinel)", sourceEntryID: entry.id, sourceEntryDate: .now, entityIDs: [entity.id])
+        context.insert(looseEnd)
+        try context.save()
+
+        ask.newConversation()
+        generator.results = [
+            .success(#"{"answer":"Answer \#(sentinel)","citations":["E1"]}"#),
+            .failure(AIError.badRequest(code: "invalid_value")),
+        ]
+        await ask.send("Tell me about \(sentinel)", in: context)
+        #expect(ask.turns.last?.text.contains(sentinel) == true)
+        await ask.send("And \(sentinel) since?", in: context)
+        #expect(ask.turns.last?.failureRaw == "ai.badRequest")
+
+        let conversation = try #require(ask.conversations(in: context).first)
+        ask.delete(conversation, in: context)
+
+        let contents = file.contents()
+        for event in ["ask.answered", "ask.failed", "ask.conversationDeleted"] {
+            #expect(contents.contains(event), "\(event) was never exercised")
+        }
+        #expect(contents.contains(sentinel) == false)
+    }
+}
+
 @MainActor
 private final class SentinelPageTranscriber: PageTranscriber {
     let text: String

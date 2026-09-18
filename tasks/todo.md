@@ -630,15 +630,15 @@ Build spec: `tasks/a5b-map-extras-spec.md`.
   - UI tests: edit an existing entry via Edit, and tap a name to see the card
 
 ### A7: Ask
-- [ ] Search as you type (entries, entities, tags).
-- [ ] `TextRequest.messages` and its OpenAI encoding. `AskContextBuilder` (with the `canRunAI`
+- [x] Search as you type (entries, entities, tags).
+- [x] `TextRequest.messages` and its OpenAI encoding. `AskContextBuilder` (with the `canRunAI`
       and `aiEnabledAt` filters), `AskService`, the answer parsing for both providers, the chat
       UI with `Text(verbatim:)`, and "What was sent".
-- [ ] `AskConversation` and `AskMessage`, the history list, new conversation by default, reopen
+- [x] `AskConversation` and `AskMessage`, the history list, new conversation by default, reopen
       and continue, and swipe to delete.
-- [ ] `ask.answered` diagnostics and a privacy test case (sentinel in the question, entries, and
+- [x] `ask.answered` diagnostics and a privacy test case (sentinel in the question, entries, and
       the answer).
-- [ ] Tests:
+- [x] Tests:
   - search predicates
   - context budget order and truncation
   - drafts, unapproved pages, and pre-AI entries are never sent unless the switch is on
@@ -1003,6 +1003,56 @@ A5b (2026-09-17, build spec in `tasks/a5b-map-extras-spec.md`):
   and the replay test), `GraphScreenshotTests.testDemoJournalMind` (new lens, dots, regions, and
   replay shots), and `ReadModeUITests` pass. The dot test taps the point the canvas reports
   under `-uiTesting`, so it goes through the real hit rule.
+
+A7 (2026-09-18, build spec in `tasks/a7-ask-spec.md`, PR #7 into `feature/phase-a`):
+
+- Built in the spec's six units, each with its own tests and commit. 933 unit tests pass.
+- The provider is a setting (`askGenerator`: off, on this iPhone, OpenAI), decided once the first
+  time Ask opens and never re-decided, so saving a key later doesn't quietly move where a question
+  goes. `AskProviderTests` pins that table.
+- What may be sent is gathered in one place (`AskSources.journal`): `canRunAI` entries only, and
+  for OpenAI only entries created after `aiEnabledAt` unless the owner turns the switch on. The
+  on-device path ignores that boundary, since nothing leaves the phone. Entity excerpts draw from
+  the same filtered array, so a draft can't reach a provider through a bio.
+- Owner changes during the device pass (2026-09-18), all folded into the spec:
+  - Where a question goes follows the phone until the user picks: on device while that is all
+    there is, OpenAI as soon as a key is saved, re-checked every time Ask opens. A pick in the
+    picker sets `askGeneratorChosenByUser` and ends the automatic part.
+  - The pre-AI entry boundary is gone, along with its setting. Transcription keeps it because it
+    uploads recordings nobody asked it to; a question is the opposite. On the demo journal the
+    boundary hid all 300 entries behind a switch and Ask said it had nothing to go on.
+  - Search is a panel over the bottom of the screen, not the screen. Covering the conversation
+    while the user typed a follow-up read as "it started a new chat".
+  - An entity block lists the other spellings the journal uses, and the prompt says they are one
+    person. Asking about a renamed Luis got "The entries mention Lewis, not Luis" back.
+- Deviations from the spec:
+  - The entity block is fenced like an entry, not sent as bare lines. A bio and a loose end are
+    written from entry text, which can come from a photographed page.
+  - A month name counts as a date only when the question frames it as one ("in March", "March
+    2025"). "may" and "march" are ordinary words, and a bare match sent a month of entries for a
+    question about nothing of the kind.
+  - The cost line under the field waits 600 ms longer than the search does, because working it out
+    reads the whole journal.
+- Code review (10 findings, verdict "minor fixes"). The one that mattered: the citation enum was
+  built from the conversation's whole handle map rather than the handles this request carried, so
+  a second turn could cite an entry the model never read. Also fixed: a handle with stray
+  whitespace was dropped, "[ E3 ]" stayed in the text, the date range used a closed `contains`,
+  tier 4 didn't count an entity's own block as something found, and `isRunning` was set after the
+  first await instead of before it.
+- The UI tests found what no unit test could: swapping the tab's content between the conversation
+  and the search results resigned keyboard focus, so the second keystroke was dropped. The results
+  now sit over the conversation.
+- `AskUITests`, `RecordingUITests` (the accessory over the Ask input), and `ReadModeUITests` pass
+  on the a7-ask simulator.
+- Device (2026-09-18, iPhone 17 Pro, runs `a7-ask-1` to `a7-ask-demo4`): real questions against
+  the owner's journal and the 300-entry demo seed. Everything above came out of that loop.
+  `ask.answered` carries entries, citations, characters, duration, provider, turn, and eligible.
+  Two things the loop caught that no test could:
+  - `scripts/device/launch.sh` dropped every argument after the run id, so `-seedDemoJournal`
+    never reached the app and three runs tested the real journal while reporting otherwise.
+  - Screenshots of the tab (`AskScreenshotTests`, like Mind's) showed what "ugly" meant: the
+    keyboard's Send key inserted a newline, an empty list drew separators across the screen, and
+    the cost line read like a search result count.
 
 Owner answers after revision 1 (2026-09-17): the tab is Mind, a fresh install is fine, and Ask
 keeps saved conversations and opens a new one by default. Folded in above.

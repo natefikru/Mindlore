@@ -1,0 +1,69 @@
+import Foundation
+import SwiftData
+
+// What Ask is allowed to read, gathered once per question. Everything the builder sees comes
+// from here, so the rules about what may leave the phone live in one place.
+enum AskSources {
+    struct Journal {
+        var entries: [AskContextBuilder.EntryInput] = []
+        var entities: [AskContextBuilder.EntityInput] = []
+    }
+
+    // Every entry the app would run AI on, however old. Transcription keeps the aiEnabledAt
+    // boundary because it uploads recordings the user never asked it to; a question is the
+    // opposite, and a journal that answers only the last few weeks answers nothing worth asking.
+    static func journal(in context: ModelContext) -> Journal {
+        let all = ((try? context.fetch(FetchDescriptor<Entry>())) ?? []).filter { !$0.isDeleted }
+        let eligible = all.filter(InsightsCoordinator.canRunAI)
+        guard !eligible.isEmpty else { return Journal() }
+
+        let directory = EntityDirectory(in: context)
+        var entityIDsByEntry: [UUID: [UUID]] = [:]
+        for link in ((try? context.fetch(FetchDescriptor<EntityLink>())) ?? []).filter({ !$0.isDeleted }) {
+            guard let entryID = link.entryID, let entityID = link.entityID else { continue }
+            let root = directory.root(of: entityID)
+            entityIDsByEntry[entryID, default: []].append(root)
+        }
+
+        let entries = eligible.map { entry in
+            AskContextBuilder.EntryInput(
+                id: entry.id,
+                date: entry.entryDate,
+                title: entry.title,
+                text: entry.text,
+                entityIDs: Array(Set(entityIDsByEntry[entry.id] ?? []))
+            )
+        }
+
+        var openLooseEnds: [UUID: [String]] = [:]
+        for looseEnd in LooseEnd.all(in: context) where looseEnd.isOpen {
+            for root in Set(looseEnd.entityIDs.map(directory.root(of:))) {
+                openLooseEnds[root, default: []].append(looseEnd.text)
+            }
+        }
+
+        let mentioned = Set(entries.flatMap(\.entityIDs))
+        let entities = ((try? context.fetch(FetchDescriptor<Entity>())) ?? [])
+            .filter { !$0.isDeleted && $0.isBrowsable && mentioned.contains($0.id) }
+            .map { entity in
+                AskContextBuilder.EntityInput(
+                    id: entity.id,
+                    name: entity.name,
+                    aliases: entity.aliases,
+                    bio: entity.bio,
+                    openLooseEnds: openLooseEnds[entity.id] ?? []
+                )
+            }
+
+        return Journal(entries: entries, entities: entities)
+    }
+
+    // The three example questions the empty state offers, from the journal the user actually has.
+    static func examples(in context: ModelContext, limit: Int = 2) -> [String] {
+        let recent = ((try? context.fetch(FetchDescriptor<Entity>())) ?? [])
+            .filter { !$0.isDeleted && $0.isBrowsable && $0.kind != .tag && $0.lastLinkedAt != nil }
+            .sorted { ($0.lastLinkedAt ?? .distantPast) > ($1.lastLinkedAt ?? .distantPast) }
+            .prefix(limit)
+        return recent.map { "What's been going on with \($0.name)?" } + ["What did I do last week?"]
+    }
+}
