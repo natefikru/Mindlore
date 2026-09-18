@@ -158,13 +158,21 @@ entity.
 | `Entity.bio` | one fetch of every entity, skipping `bioEditedByUser`. Any entity's bio can name any other. |
 | `EntryInsights.summary` | the entries this entity links to, via `EntityLink.entityID` |
 | `LooseEnd.text` | `LooseEnd.entityIDs` containing the id, resolved through `mergedIntoID` |
+| `Entry.title` | the same entries, skipping any title where `titleWasGenerated` is false |
+| `EntryInsights.customResults` | the same entries: decode `customCardsData`, rewrite each result's `content`, re-encode |
 
-**Never touched**: `Entry.text`, `Entry.originalText`, `Entry.title` (see Open questions),
-`EntryInsights.cleanedText` (the user's own words, tidied, and `cleanupAppliedHash` measures against
-them), `EntryInsights.sourceTextHash` (so a rewrite never makes insights look stale),
-`EntityLink.surface` and `writtenSurface`, and any bio the user edited by hand. A bio the user wrote is
-the user's words, and the same rule that protects an entry protects it, matching
-`EntityBioDrafter.mayWrite` (`:36-38`).
+Titles and custom cards are in on the owner's call (2026-09-18). A title is the app's own sentence and
+shows on every row of the journal, which is exactly the stale name this item exists to fix, and a
+custom card's text is the model's words even though the instruction is the user's. A title the user
+typed is protected the way a user-edited bio is, through `titleWasGenerated`
+(`Entry.swift:25-26`). A custom result's `name` is the user's own prompt name and is never touched,
+only its `content`.
+
+**Never touched**: `Entry.text`, `Entry.originalText`, `EntryInsights.cleanedText` (the user's own
+words, tidied, and `cleanupAppliedHash` measures against them), `EntryInsights.sourceTextHash` (so a
+rewrite never makes insights look stale), `EntityLink.surface` and `writtenSurface`, any bio the user
+edited by hand, and any title the user typed. The rule is the same one throughout: the app may correct
+its own sentences, never the user's. It matches `EntityBioDrafter.mayWrite` (`:36-38`).
 
 ### The matching rule
 
@@ -183,7 +191,7 @@ rule, which errs toward leaving prose alone:
 
 ```swift
 nonisolated enum EntityProseRewriter {
-    struct Counts: Equatable { var bios = 0; var summaries = 0; var looseEnds = 0 }
+    struct Counts: Equatable { var bios = 0; var summaries = 0; var looseEnds = 0; var titles = 0; var cards = 0 }
     static func rewrite(_ text: String, from old: String, to new: String) -> String?  // nil when nothing changed
 }
 ```
@@ -206,8 +214,8 @@ using the generic `edit` and saves through the exempting path instead:
 
 One save, one revision bump, and no entry's `updatedAt` moves.
 
-`graph.renameRewrote` logs `["id": .id(entity.id), "bios": .int, "summaries": .int, "looseEnds": .int]`.
-No text, no names.
+`graph.renameRewrote` logs `["id": .id(entity.id), "bios": .int, "summaries": .int, "looseEnds": .int,
+"titles": .int, "cards": .int]`. No text, no names.
 
 ### The alias and the sheet
 
@@ -222,10 +230,10 @@ references.
 
 The counts depend on the **old** name, not the typed one, so there is nothing to recompute per
 keystroke. `EntityView` computes them once when the sheet opens (it has the `modelContext`;
-`RenameEntitySheet` does not) and passes them in. The sheet reads "Also updates up to N summaries,
-N bios, and N loose ends the app wrote." It says "up to" because a background insights pass or bio
-draft can land while the sheet is open. The real numbers are counted again at commit and are what
-`graph.renameRewrote` logs.
+`RenameEntitySheet` does not) and passes them in. The sheet reads "Also updates up to N things the app
+wrote about them." It says "up to" because a background insights pass or bio draft can land while the
+sheet is open. The real numbers are counted again at commit and are what `graph.renameRewrote` logs,
+which gains `titles` and `cards` alongside `bios`, `summaries`, and `looseEnds`.
 
 The rewrite is not undoable, like every other edit in the app.
 
@@ -463,9 +471,11 @@ Unit (Swift Testing, `iPhone 17 a8-polish`, id `0B8A87E2-B7F2-442B-A8A7-1E88BD03
   occurrences in one string are both replaced and the later index stays valid; no match returns nil;
   an empty or whitespace old name is a no-op.
 - **`GraphEditorTests`** (added): a rename rewrites the bios, summaries, and loose ends that name the
-  entity; **renaming A rewrites B's bio when B's bio names A**; `Entry.text`, `originalText`,
+  entity; **renaming A rewrites B's bio when B's bio names A**; a generated title and a custom card's
+  `content` are rewritten while the card's `name` is not; `Entry.text`, `originalText`,
   `cleanedText`, `sourceTextHash`, and `EntityLink.surface` are untouched; **`updatedAt` does not move
-  on a rewritten entry**; `insights.isCurrent(for:)` stays true; a user-edited bio is skipped; a
+  on a rewritten entry**; `insights.isCurrent(for:)` stays true; a user-edited bio and a user-typed
+  title (`titleWasGenerated == false`) are skipped; a
   summary on an entry that never linked the entity is skipped; the old name always becomes an alias
   and a capitalization-only rename adds none; a rename of a merged loser rewrites nothing; the dry-run
   counts match what the rename then does.
@@ -572,22 +582,18 @@ For each unit: build, run the unit suite, commit, push. A sub-agent reviews the 
 - A contacts or places UI test.
 - `CLAUDE.md`'s Graph section, which A10 rewrites.
 
-## Open questions for the owner
+## Owner answers (2026-09-18)
 
-1. **Does a rename rewrite entry titles?** A title is the app's own sentence and shows on every row, so
-   a renamed person reading the old name there is exactly the wrinkle this item is fixing. The plan
-   names bios, summaries, and loose ends only. Recommendation: include titles, treating a user-edited
-   title the way a user-edited bio is treated. Custom insight cards are the same question;
-   recommendation: include them, since the model wrote the text even though the user wrote the
-   instruction.
-2. **Dropping the "keep the old name" toggle** from the rename sheet, so the alias is always kept, and
-   deleting `hasVoiceSourcedLink` with it. Recommendation: drop it. The rule has no exception in the
-   plan, and the alias is what keeps old entries resolving.
-3. **A conservative rewrite means some misses.** "Sarah Monday" and a lowercase "sarah" are left alone
-   by design, because silently editing the wrong words is worse than leaving a stale name. Confirm
-   that trade, or ask for a diff preview instead (which is not in this phase's budget).
-4. **Default voice.** Recommendation: first person, since that is what a journal sounds like and it
-   needs no name to work.
+All four as recommended, folded in above:
+
+1. **A rename rewrites titles and custom card content too**, beyond the plan's three fields. A
+   user-typed title is protected through `titleWasGenerated`, a custom card's `name` is never touched.
+2. **The conservative match rule stands.** "Sarah Monday" and a lowercase "sarah" are left alone by
+   design. Silently editing the wrong words is worse than leaving a stale name, and no diff preview is
+   built this phase.
+3. **The "keep the old name" toggle is dropped.** The alias is always kept, and
+   `hasVoiceSourcedLink` goes with it.
+4. **First person is the default voice.**
 
 ## Review fixes (sub-agent review of this spec, verdict "rework", 16 findings)
 
