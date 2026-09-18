@@ -201,6 +201,23 @@ struct AskIndexTests {
         #expect(results == [id(for: "inside"), id(for: "outside")])
     }
 
+    @Test func aNamedRangeIsAnsweredEvenWhenNoWordOfTheQuestionAppearsInIt() {
+        let index = AskIndex.build(from: [
+            input("inside", text: "an ordinary day", daysAgo: 5),
+            input("outside", text: "an ordinary day", daysAgo: 400),
+        ])
+        let range = DateInterval(start: date(daysAgo: 6), end: date(daysAgo: 4))
+        // "feeling" is in neither entry. The person still asked about those days, and the old tier 3
+        // would have sent them, so returning nothing here would be a regression.
+        #expect(ranked(index, query("feeling", namedRange: range)) == [id(for: "inside")])
+    }
+
+    @Test func aQuestionThatNamesNoTimeAndMatchesNothingStillSendsNothing() {
+        let index = AskIndex.build(from: [input("a", text: "an ordinary day")])
+        // The restraint the old tier 4 learned: don't quietly send five entries and bill for them.
+        #expect(index.search(query("ayahuasca")).isEmpty)
+    }
+
     @Test func anEmptyQueryRanksByRecency() {
         let index = AskIndex.build(from: [
             input("old", text: "Anything", daysAgo: 90),

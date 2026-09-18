@@ -349,25 +349,35 @@ nonisolated struct AskIndex: Sendable {
             }
         }
 
-        let hasTerms = !query.terms.isEmpty
-        var scored: [Scored] = []
-        for index in documents.indices where allowed[index] {
-            var score: Double
-            if hasTerms {
-                score = bodyScores[index] + Self.contextFactor * contextScores[index]
-                guard score > 0 else { continue }
-            } else {
-                // A question that is nothing but stop words ("Why?") has only recency to go on.
-                // What carries the conversation in that case is the carried terms and the
-                // continuity slice, not this.
-                score = 1
+        // A question that is nothing but stop words ("Why?") has only recency to go on. What carries
+        // the conversation there is the carried terms and the continuity slice, not this.
+        func assemble(scoringTerms: Bool) -> [Scored] {
+            var scored: [Scored] = []
+            for index in documents.indices where allowed[index] {
+                var score: Double
+                if scoringTerms {
+                    score = bodyScores[index] + Self.contextFactor * contextScores[index]
+                    guard score > 0 else { continue }
+                } else {
+                    score = 1
+                }
+                let document = documents[index]
+                if let range = query.inheritedRange, document.date >= range.start, document.date < range.end {
+                    score *= Self.inheritedRangeBoost
+                }
+                score *= recencyMultiplier(for: document.date, asOf: query.asOf)
+                scored.append(Scored(document: Int32(index), score: score, matchedInBody: matchedInBody[index]))
             }
-            let document = documents[index]
-            if let range = query.inheritedRange, document.date >= range.start, document.date < range.end {
-                score *= Self.inheritedRangeBoost
-            }
-            score *= recencyMultiplier(for: document.date, asOf: query.asOf)
-            scored.append(Scored(document: Int32(index), score: score, matchedInBody: matchedInBody[index]))
+            return scored
+        }
+
+        var scored = assemble(scoringTerms: !query.terms.isEmpty)
+        // A question that named a stretch of time is asking for that stretch, so it gets it even
+        // when none of its words appear in any of it. "How have I been feeling this year?" shares
+        // "feeling" with almost no entry, and returning nothing would be a regression: the old tier
+        // 3 sent the range. A question that names no time and matches nothing still sends nothing.
+        if scored.isEmpty, !query.terms.isEmpty, query.namedRange != nil {
+            scored = assemble(scoringTerms: false)
         }
 
         return scored.sorted { lhs, rhs in
@@ -376,6 +386,17 @@ nonisolated struct AskIndex: Sendable {
             let right = documents[Int(rhs.document)]
             // A stable order, newest first, so two identical scores don't shuffle between runs.
             return left.date == right.date ? lhs.document < rhs.document : left.date > right.date
+        }
+    }
+
+    // How many entries the question could be answered from at all, before a single term is scored.
+    // When a question names a stretch of time, this is the honest denominator: the person asked
+    // about a period, and the period is what the answer is being generalized from.
+    func candidateCount(for query: Query) -> Int {
+        documents.reduce(into: 0) { count, document in
+            if query.sendableOnly, !document.isSendable { return }
+            if let range = query.namedRange, !(document.date >= range.start && document.date < range.end) { return }
+            count += 1
         }
     }
 
