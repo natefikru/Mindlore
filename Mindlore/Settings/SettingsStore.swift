@@ -19,6 +19,7 @@ final class SettingsStore {
         static let textModel = "textModel"
         static let titleGenerator = "titleGenerator"
         static let askGenerator = "askGenerator"
+        static let askGeneratorChosenByUser = "askGeneratorChosenByUser"
         static let askIncludesOlderEntries = "askIncludesOlderEntries"
         static let insightsTrigger = "insightsTrigger"
         static let insightSummary = "insightSummary"
@@ -121,28 +122,34 @@ final class SettingsStore {
         }
     }
 
-    // nil until Ask first opens, which is when the default is decided and written. After that
-    // only the user changes it, so an added key or a model that stops being available never
-    // silently moves where questions go.
+    // Where a question goes. Until the user picks in Settings this follows the phone: it answers
+    // on device while that's all there is, and hands over to OpenAI as soon as a key is saved
+    // (owner, 2026-09-18). The moment the user picks, that choice is theirs and nothing moves it.
     private var storedAskGenerator: AskGenerator?
+    private var askGeneratorChosenByUser: Bool
 
     var askGenerator: AskGenerator {
         get { storedAskGenerator ?? .off }
         set {
             storedAskGenerator = newValue
             write(newValue.rawValue, Key.askGenerator, logged: .string(newValue.rawValue))
+            guard !askGeneratorChosenByUser else { return }
+            askGeneratorChosenByUser = true
+            store.set(true, forKey: Key.askGeneratorChosenByUser)
         }
     }
 
-    var hasChosenAskGenerator: Bool { storedAskGenerator != nil }
+    var hasChosenAskGenerator: Bool { askGeneratorChosenByUser }
 
-    // Called the first time Ask opens. OpenAI when it can run, otherwise the free on-device
-    // model, otherwise nothing but search.
+    // Called every time Ask opens, so saving a key later moves questions to OpenAI without the
+    // user having to go and find the setting.
     @discardableResult
-    func chooseAskGeneratorIfNeeded(textUsable: Bool, onDeviceAvailable: Bool) -> AskGenerator {
-        if let storedAskGenerator { return storedAskGenerator }
+    func refreshAskGeneratorDefault(textUsable: Bool, onDeviceAvailable: Bool) -> AskGenerator {
+        guard !askGeneratorChosenByUser else { return askGenerator }
         let chosen: AskGenerator = textUsable ? .openAI : (onDeviceAvailable ? .onDevice : .off)
-        askGenerator = chosen
+        guard chosen != storedAskGenerator else { return chosen }
+        storedAskGenerator = chosen
+        write(chosen.rawValue, Key.askGenerator, logged: .string(chosen.rawValue))
         return chosen
     }
 
@@ -243,6 +250,7 @@ final class SettingsStore {
         textModel = string(Key.textModel) ?? ProviderDefaults.textModel
         storedTitleGenerator = string(Key.titleGenerator).flatMap(TitleGenerator.init(rawValue:))
         storedAskGenerator = string(Key.askGenerator).flatMap(AskGenerator.init(rawValue:))
+        askGeneratorChosenByUser = bool(Key.askGeneratorChosenByUser, false)
         askIncludesOlderEntries = bool(Key.askIncludesOlderEntries, false)
         insightsTrigger = string(Key.insightsTrigger).flatMap(InsightsTrigger.init(rawValue:)) ?? .automatic
         insightSummary = bool(Key.insightSummary, true)

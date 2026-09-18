@@ -84,9 +84,9 @@ struct AskView: View {
             showsHistory = false
         }
         .task {
-            // The provider is decided once, the first time Ask opens, and written down. After
-            // that only the user moves it.
-            settings.chooseAskGeneratorIfNeeded(
+            // Until the user picks in Settings, the phone answers and a saved key takes over.
+            // Checked on every open, so adding a key moves questions without a trip to Settings.
+            settings.refreshAskGeneratorDefault(
                 textUsable: AIServices.textUsable(settings: settings, accounts: accounts),
                 onDeviceAvailable: FoundationModelsAvailability.isAvailable
             )
@@ -204,10 +204,19 @@ struct AskView: View {
         .background(.bar)
     }
 
+    // Off is rarely a decision: nearly always it means this iPhone can't run Apple's model and
+    // no key has been saved yet, so the message says that rather than implying a choice.
     private func unavailableMessage(_ failure: AIJobFailure) -> String {
-        failure.raw == "settings.off" || failure.raw == "settings.aiOff" || failure.raw == "ai.missingKey"
-            ? "Turn on AI in Settings to ask questions. Search works either way."
-            : "\(AskFailureText.message(for: failure)) Search works either way."
+        switch failure.raw {
+        case "settings.off" where !settings.hasChosenAskGenerator:
+            "Ask needs an OpenAI key on this iPhone. Search works either way."
+        case "settings.off":
+            "Ask is off in Settings. Search works either way."
+        case "settings.aiOff", "ai.missingKey":
+            "Turn on AI in Settings to ask questions. Search works either way."
+        default:
+            "\(AskFailureText.message(for: failure)) Search works either way."
+        }
     }
 
     private func send() {

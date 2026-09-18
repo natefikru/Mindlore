@@ -2,9 +2,8 @@ import Foundation
 import Testing
 @testable import Mindlore
 
-// Where a question goes: the setting decides, and the default is decided once, the first time
-// Ask opens. A rule that kept re-deciding would move a question's destination behind the user's
-// back, which is what tasks/lessons.md warns about.
+// Where a question goes. Until the user picks, the app follows the phone: on device while that is
+// all there is, OpenAI once a key is saved. A pick in the picker ends that for good.
 @MainActor
 struct AskProviderTests {
     private func stores() -> (SettingsStore, ProviderAccountStore) {
@@ -19,36 +18,45 @@ struct AskProviderTests {
         #expect(settings.askGenerator == .off)
     }
 
-    @Test func theFirstOpenPicksOpenAIWhenItCanRunAndTheOnDeviceModelOtherwise() {
-        let (usable, _) = stores()
-        #expect(usable.chooseAskGeneratorIfNeeded(textUsable: true, onDeviceAvailable: false) == .openAI)
+    // The phone answers while it is all there is, and a saved key takes over on the next open.
+    @Test func theDefaultFollowsThePhoneUntilAKeyIsSaved() {
+        let (settings, _) = stores()
 
-        let (local, _) = stores()
-        #expect(local.chooseAskGeneratorIfNeeded(textUsable: false, onDeviceAvailable: true) == .onDevice)
+        #expect(settings.refreshAskGeneratorDefault(textUsable: false, onDeviceAvailable: true) == .onDevice)
+        #expect(settings.refreshAskGeneratorDefault(textUsable: true, onDeviceAvailable: true) == .openAI)
+        #expect(settings.askGenerator == .openAI)
+        #expect(settings.hasChosenAskGenerator == false, "the app decided this, not the user")
 
-        let (neither, _) = stores()
-        #expect(neither.chooseAskGeneratorIfNeeded(textUsable: false, onDeviceAvailable: false) == .off)
+        // And back, if the key goes away again.
+        #expect(settings.refreshAskGeneratorDefault(textUsable: false, onDeviceAvailable: true) == .onDevice)
     }
 
-    // Saving a key later must not move a question that the user left on this iPhone.
-    @Test func aChoiceOnceMadeIsNeverRedecided() {
+    @Test func withNeitherProviderThereIsOnlySearch() {
         let (settings, _) = stores()
-        settings.chooseAskGeneratorIfNeeded(textUsable: false, onDeviceAvailable: true)
 
-        #expect(settings.chooseAskGeneratorIfNeeded(textUsable: true, onDeviceAvailable: true) == .onDevice)
+        #expect(settings.refreshAskGeneratorDefault(textUsable: false, onDeviceAvailable: false) == .off)
+    }
+
+    // Once the user picks, that is the answer. A key saved afterwards doesn't move a question
+    // they deliberately kept on their phone.
+    @Test func aUserChoiceEndsTheAutomaticPart() {
+        let (settings, _) = stores()
+        settings.refreshAskGeneratorDefault(textUsable: false, onDeviceAvailable: true)
+        #expect(settings.hasChosenAskGenerator == false)
+
+        settings.askGenerator = .onDevice
         #expect(settings.hasChosenAskGenerator)
 
-        settings.askGenerator = .openAI
-        #expect(settings.chooseAskGeneratorIfNeeded(textUsable: true, onDeviceAvailable: true) == .openAI)
+        #expect(settings.refreshAskGeneratorDefault(textUsable: true, onDeviceAvailable: true) == .onDevice)
     }
 
-    @Test func theChoiceSurvivesARelaunch() {
+    @Test func aUserChoiceSurvivesARelaunch() {
         let store = FakeKeyValueStore()
         SettingsStore(store: store, diagnostics: .disabled).askGenerator = .onDevice
 
         let relaunched = SettingsStore(store: store, diagnostics: .disabled)
-        #expect(relaunched.askGenerator == .onDevice)
         #expect(relaunched.hasChosenAskGenerator)
+        #expect(relaunched.refreshAskGeneratorDefault(textUsable: true, onDeviceAvailable: true) == .onDevice)
     }
 
     @Test func offMeansSearchOnly() {

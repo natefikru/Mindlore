@@ -45,9 +45,11 @@ about: a guess standing in for a preference.
 **Settings picker,** built like `titleGenerator`: `askGenerator` with `off`, `onDevice`, and
 `openAI`.
 
-- The default is `openAI` when `AIServices.textUsable`, and `onDevice` when it isn't and
-  `FoundationModelsAvailability.isAvailable`, decided the first time Ask is opened and written to
-  settings, so it never silently changes afterwards.
+- Until the user picks, the default follows the phone (owner, 2026-09-18, during the device pass):
+  `onDevice` while that is all there is, and `openAI` as soon as `AIServices.textUsable`, so saving
+  a key moves questions without a trip to Settings. It is re-checked every time Ask opens and
+  written down. Picking in the picker is final: `askGeneratorChosenByUser` is set, and nothing
+  automatic moves it again.
 - `onDevice` is offered only while Foundation Models is available, the same gate the title
   picker uses.
 - `off`, or a picked provider that can't run, gives the unavailable state below. Search always

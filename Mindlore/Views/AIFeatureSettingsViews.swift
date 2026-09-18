@@ -193,7 +193,7 @@ struct AskSettingsView: View {
             "Searching your journal still works. Nothing is sent anywhere."
         case .onDevice:
             onDeviceAvailable
-                ? "Questions are answered by Apple's on-device model, so nothing leaves this iPhone. It reads less of your journal at once than OpenAI can."
+                ? "Questions are answered by Apple's on-device model, so nothing leaves this iPhone. It reads less of your journal at once than OpenAI can, and once you save a key Mindlore moves questions to OpenAI unless you pick here yourself."
                 : "This iPhone can't run Apple's on-device model. Choose OpenAI, or turn Ask off and keep searching."
         case .openAI:
             settings.aiEnabled && accounts.openAIAccount != nil
