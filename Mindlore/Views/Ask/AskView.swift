@@ -19,6 +19,8 @@ struct AskView: View {
     @FocusState private var fieldFocused: Bool
 
     static let searchDelay = Duration.milliseconds(250)
+    // Tall enough for a few rows, short enough that the conversation stays on screen behind it.
+    static let searchPanelHeight: CGFloat = 320
     // The cost line waits longer than the search does: working it out reads the whole journal,
     // and nobody needs it until they have stopped typing.
     static let costDelay = Duration.milliseconds(600)
@@ -27,31 +29,22 @@ struct AskView: View {
         ask.draftQuestion.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    // Results replace the conversation while the field is focused and something is typed.
     private var isSearching: Bool {
         fieldFocused && !query.isEmpty
+    }
+
+    // Nothing to show is not worth a panel: a question that matches nothing in the journal is
+    // just written and sent. The exception is a conversation that hasn't started, where the
+    // screen is otherwise empty and silence would read as broken.
+    private var showsSearchPanel: Bool {
+        isSearching && (!results.isEmpty || ask.turns.isEmpty)
     }
 
     var body: some View {
         @Bindable var ask = ask
 
         NavigationStack {
-            // The results sit over the conversation rather than replacing it: swapping the
-            // stack's own content while the keyboard is up resigns focus, and the next
-            // keystroke is lost.
-            ZStack {
-                conversation
-                if isSearching {
-                    AskSearchResultsView(
-                        results: results,
-                        tagFilter: tagFilter,
-                        openEntry: open(entryID:),
-                        openEntity: { peekTarget = PeekTarget(id: $0) },
-                        selectTag: selectTag
-                    )
-                    .background(Color(.systemBackground))
-                }
-            }
+            conversation
             .navigationTitle("Ask")
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
@@ -66,7 +59,28 @@ struct AskView: View {
                     .accessibilityIdentifier("askNewConversation")
                 }
             }
-            .safeAreaInset(edge: .bottom) { composer }
+            .safeAreaInset(edge: .bottom) {
+                VStack(spacing: 0) {
+                    // Search is a panel over the bottom of the screen, not the screen itself:
+                    // typing a follow-up must never look like it wiped the conversation you are
+                    // following up on.
+                    if showsSearchPanel {
+                        Divider()
+                        AskSearchResultsView(
+                            results: results,
+                            tagFilter: tagFilter,
+                            openEntry: open(entryID:),
+                            openEntity: { peekTarget = PeekTarget(id: $0) },
+                            selectTag: selectTag,
+                            maxHeight: Self.searchPanelHeight
+                        )
+                        .background(Color(.systemBackground))
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                    }
+                    composer
+                }
+                .animation(.snappy(duration: 0.2), value: showsSearchPanel)
+            }
         }
         .sheet(isPresented: $showsHistory) {
             AskHistoryView { conversation in
@@ -203,10 +217,11 @@ struct AskView: View {
             .padding(.trailing, 6)
             .padding(.vertical, 6)
             .background(Color(.secondarySystemBackground), in: Capsule())
-            // What sending would cost, not what the search found: the two sit next to each other,
-            // so the line says which it is.
+            // What asking would cost, not what the search found: the two sit next to each other,
+            // so the line says which it is. On the on-device model nothing is sent anywhere, so
+            // it says "reads" rather than claiming a send that never happens.
             if canSend, estimate.entries > 0 {
-                Text("Asking sends ^[\(estimate.entries) entry](inflect: true), about \(roundedCharacters) characters")
+                Text("Asking \(ask.answersLeaveThePhone ? "sends" : "reads") ^[\(estimate.entries) entry](inflect: true), about \(roundedCharacters) characters")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .padding(.leading, 14)

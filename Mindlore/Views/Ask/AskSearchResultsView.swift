@@ -9,13 +9,23 @@ struct AskSearchResultsView: View {
     let openEntry: (UUID) -> Void
     let openEntity: (UUID) -> Void
     let selectTag: (String) -> Void
+    // How tall the rows may get. The "nothing matches" line ignores it and stays one line high,
+    // so an empty panel doesn't reserve a screenful for a sentence.
+    let maxHeight: CGFloat
 
     var body: some View {
         if results.isEmpty {
-            ContentUnavailableView("Nothing found", systemImage: "magnifyingglass")
+            // One line, not a full-height placeholder: at this point the user is usually writing
+            // a question, not hunting for an entry, and a wall of empty state reads as an error.
+            Label("Nothing in the journal matches that", systemImage: "magnifyingglass")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal)
+                .padding(.vertical, 12)
                 .accessibilityIdentifier("askSearchEmpty")
         } else {
-            list
+            list.frame(maxHeight: maxHeight)
         }
     }
 

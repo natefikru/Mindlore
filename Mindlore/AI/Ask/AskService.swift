@@ -103,6 +103,12 @@ final class AskService {
 
     var isAvailable: Bool { resolve().isSuccess }
 
+    // Whether answering this question would leave the phone, for the line under the field.
+    var answersLeaveThePhone: Bool {
+        if case .success(let provider) = resolve() { return provider.kind == .openAI }
+        return false
+    }
+
     var unavailableFailure: AIJobFailure? {
         if case .failure(let failure) = resolve() { return failure }
         return nil

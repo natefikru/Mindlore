@@ -1014,6 +1014,17 @@ A7 (2026-09-18, build spec in `tasks/a7-ask-spec.md`, PR #7 into `feature/phase-
   for OpenAI only entries created after `aiEnabledAt` unless the owner turns the switch on. The
   on-device path ignores that boundary, since nothing leaves the phone. Entity excerpts draw from
   the same filtered array, so a draft can't reach a provider through a bio.
+- Owner changes during the device pass (2026-09-18), all folded into the spec:
+  - Where a question goes follows the phone until the user picks: on device while that is all
+    there is, OpenAI as soon as a key is saved, re-checked every time Ask opens. A pick in the
+    picker sets `askGeneratorChosenByUser` and ends the automatic part.
+  - The pre-AI entry boundary is gone, along with its setting. Transcription keeps it because it
+    uploads recordings nobody asked it to; a question is the opposite. On the demo journal the
+    boundary hid all 300 entries behind a switch and Ask said it had nothing to go on.
+  - Search is a panel over the bottom of the screen, not the screen. Covering the conversation
+    while the user typed a follow-up read as "it started a new chat".
+  - An entity block lists the other spellings the journal uses, and the prompt says they are one
+    person. Asking about a renamed Luis got "The entries mention Lewis, not Luis" back.
 - Deviations from the spec:
   - The entity block is fenced like an entry, not sent as bare lines. A bio and a loose end are
     written from entry text, which can come from a photographed page.
@@ -1033,8 +1044,15 @@ A7 (2026-09-18, build spec in `tasks/a7-ask-spec.md`, PR #7 into `feature/phase-
   now sit over the conversation.
 - `AskUITests`, `RecordingUITests` (the accessory over the Ask input), and `ReadModeUITests` pass
   on the a7-ask simulator.
-- Device: not run yet. The spec's step is a few real questions against the demo seed with the
-  owner's key, the keyboard with the recording accessory showing, and a relaunch into history.
+- Device (2026-09-18, iPhone 17 Pro, runs `a7-ask-1` to `a7-ask-demo4`): real questions against
+  the owner's journal and the 300-entry demo seed. Everything above came out of that loop.
+  `ask.answered` carries entries, citations, characters, duration, provider, turn, and eligible.
+  Two things the loop caught that no test could:
+  - `scripts/device/launch.sh` dropped every argument after the run id, so `-seedDemoJournal`
+    never reached the app and three runs tested the real journal while reporting otherwise.
+  - Screenshots of the tab (`AskScreenshotTests`, like Mind's) showed what "ugly" meant: the
+    keyboard's Send key inserted a newline, an empty list drew separators across the screen, and
+    the cost line read like a search result count.
 
 Owner answers after revision 1 (2026-09-17): the tab is Mind, a fresh install is fine, and Ask
 keeps saved conversations and opens a new one by default. Folded in above.

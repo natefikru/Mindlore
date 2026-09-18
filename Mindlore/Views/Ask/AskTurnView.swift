@@ -174,7 +174,9 @@ struct AskWhatWasSentView: View {
                     LabeledContent("Entries", value: turn.sentEntryIDs.count.formatted())
                     LabeledContent("Characters", value: turn.sentCharacters.formatted())
                 } footer: {
-                    Text("Only these entries were sent, inside delimiters, with your question.")
+                    Text(turn.providerLabel == FoundationModelsTextGenerator.label
+                        ? "Only these entries were read, and nothing left this iPhone."
+                        : "Only these entries were sent, inside delimiters, with your question.")
                 }
                 Section("Entries") {
                     let refs = AskEntryRefs.refs(turn.sentEntryIDs, in: modelContext)
