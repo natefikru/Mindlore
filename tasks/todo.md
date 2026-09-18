@@ -630,15 +630,15 @@ Build spec: `tasks/a5b-map-extras-spec.md`.
   - UI tests: edit an existing entry via Edit, and tap a name to see the card
 
 ### A7: Ask
-- [ ] Search as you type (entries, entities, tags).
-- [ ] `TextRequest.messages` and its OpenAI encoding. `AskContextBuilder` (with the `canRunAI`
+- [x] Search as you type (entries, entities, tags).
+- [x] `TextRequest.messages` and its OpenAI encoding. `AskContextBuilder` (with the `canRunAI`
       and `aiEnabledAt` filters), `AskService`, the answer parsing for both providers, the chat
       UI with `Text(verbatim:)`, and "What was sent".
-- [ ] `AskConversation` and `AskMessage`, the history list, new conversation by default, reopen
+- [x] `AskConversation` and `AskMessage`, the history list, new conversation by default, reopen
       and continue, and swipe to delete.
-- [ ] `ask.answered` diagnostics and a privacy test case (sentinel in the question, entries, and
+- [x] `ask.answered` diagnostics and a privacy test case (sentinel in the question, entries, and
       the answer).
-- [ ] Tests:
+- [x] Tests:
   - search predicates
   - context budget order and truncation
   - drafts, unapproved pages, and pre-AI entries are never sent unless the switch is on
@@ -1003,6 +1003,38 @@ A5b (2026-09-17, build spec in `tasks/a5b-map-extras-spec.md`):
   and the replay test), `GraphScreenshotTests.testDemoJournalMind` (new lens, dots, regions, and
   replay shots), and `ReadModeUITests` pass. The dot test taps the point the canvas reports
   under `-uiTesting`, so it goes through the real hit rule.
+
+A7 (2026-09-18, build spec in `tasks/a7-ask-spec.md`, PR #7 into `feature/phase-a`):
+
+- Built in the spec's six units, each with its own tests and commit. 933 unit tests pass.
+- The provider is a setting (`askGenerator`: off, on this iPhone, OpenAI), decided once the first
+  time Ask opens and never re-decided, so saving a key later doesn't quietly move where a question
+  goes. `AskProviderTests` pins that table.
+- What may be sent is gathered in one place (`AskSources.journal`): `canRunAI` entries only, and
+  for OpenAI only entries created after `aiEnabledAt` unless the owner turns the switch on. The
+  on-device path ignores that boundary, since nothing leaves the phone. Entity excerpts draw from
+  the same filtered array, so a draft can't reach a provider through a bio.
+- Deviations from the spec:
+  - The entity block is fenced like an entry, not sent as bare lines. A bio and a loose end are
+    written from entry text, which can come from a photographed page.
+  - A month name counts as a date only when the question frames it as one ("in March", "March
+    2025"). "may" and "march" are ordinary words, and a bare match sent a month of entries for a
+    question about nothing of the kind.
+  - The cost line under the field waits 600 ms longer than the search does, because working it out
+    reads the whole journal.
+- Code review (10 findings, verdict "minor fixes"). The one that mattered: the citation enum was
+  built from the conversation's whole handle map rather than the handles this request carried, so
+  a second turn could cite an entry the model never read. Also fixed: a handle with stray
+  whitespace was dropped, "[ E3 ]" stayed in the text, the date range used a closed `contains`,
+  tier 4 didn't count an entity's own block as something found, and `isRunning` was set after the
+  first await instead of before it.
+- The UI tests found what no unit test could: swapping the tab's content between the conversation
+  and the search results resigned keyboard focus, so the second keystroke was dropped. The results
+  now sit over the conversation.
+- `AskUITests`, `RecordingUITests` (the accessory over the Ask input), and `ReadModeUITests` pass
+  on the a7-ask simulator.
+- Device: not run yet. The spec's step is a few real questions against the demo seed with the
+  owner's key, the keyboard with the recording accessory showing, and a relaunch into history.
 
 Owner answers after revision 1 (2026-09-17): the tab is Mind, a fresh install is fine, and Ask
 keeps saved conversations and opens a new one by default. Folded in above.
