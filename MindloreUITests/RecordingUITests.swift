@@ -52,8 +52,9 @@ final class RecordingUITests: XCTestCase {
         app.navigationBars.buttons.element(boundBy: 0).tap()
         XCTAssertTrue(app.descendants(matching: .any)["entryRow"].waitForExistence(timeout: 5))
         // Recordings share one folder across UI test stores, so a run that died mid-recording would
-        // surface here as a recovered second entry.
-        XCTAssertEqual(app.cells.count, 1)
+        // surface here as a recovered second entry. Entry rows, not cells: the list is sectioned
+        // by date, and a section header is a cell too.
+        XCTAssertEqual(app.cells.containing(.any, identifier: "entryRow").count, 1)
     }
 
     @MainActor

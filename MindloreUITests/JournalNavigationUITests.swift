@@ -26,8 +26,9 @@ final class JournalNavigationUITests: XCTestCase {
         app.navigationBars.buttons.element(boundBy: 0).tap()
     }
 
+    // Entry rows, not cells: the list is sectioned by date, and a section header is a cell too.
     private var rows: XCUIElementQuery {
-        app.cells
+        app.cells.containing(.any, identifier: "entryRow")
     }
 
     // Clearing a new entry deletes it as the editor slides away, which must not crash or flash.
