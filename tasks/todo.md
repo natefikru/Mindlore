@@ -710,7 +710,11 @@ Retrieval, not the Ask surface. Research in `tasks/a9-ask-retrieval-research.md`
 - [x] `AskRetrievalQualityTests`: 25 entries, 15 questions, expected answers written from the entry
       text first, asserted per question, follow-ups scored with continuity disabled.
 - [x] Sub-agent review of the diff, fixes in three commits.
-- [ ] Device pass against `-seedDemoJournal 300` (ask first).
+- [ ] ~~Device pass against `-seedDemoJournal 300`~~ deferred (owner, 2026-09-18: no iPhone to
+      hand). Carried to A10's device list, which already has "Ask with real questions". Two things
+      only the phone shows honestly: how long the index build's main-actor fetch takes on a real
+      journal (`ask.indexed` logs `fetchMilliseconds` apart from the total for exactly this), and
+      the record-then-ask path that `JournalSaves` was added to fix.
 
 **PR 2, the surface**
 - [ ] Counts-only rollups and the aggregate path.
@@ -1182,4 +1186,7 @@ A9b PR 1 (2026-09-18, build spec in `tasks/a9-ask-retrieval-spec.md`):
     the newest entries, and "nothing to go on" is the one failure with no Retry on it.
 - Tests: 1129 unit tests pass, 1024 at the base, plus the four Ask UI tests. Screenshots pulled and
   looked at, per the A7 lesson.
-- **Still open: the device pass.** PR #10 stays draft until it runs.
+- **The device pass is deferred, not done** (owner, 2026-09-18: no iPhone available). It carries to
+  A10, where "Ask with real questions" already sits. What it would have shown that the simulator
+  cannot: the index build's fetch time on a real journal, and recording an entry and then asking
+  about it, which is the path `JournalSaves` exists to fix.
