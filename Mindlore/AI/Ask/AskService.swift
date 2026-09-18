@@ -24,7 +24,13 @@ nonisolated struct AskTurn: Identifiable, Equatable, Sendable {
     var providerLabel: String = ""
     var sentEntryIDs: [UUID] = []
     var sentCharacters: Int = 0
+    var matchedCount = 0
+    var rollupMonthCount = 0
     var failureRaw: String?
+
+    // Whether the answer was written from a sample of a larger set, which is what "What was sent"
+    // has to say out loud.
+    var wasCut: Bool { matchedCount > sentEntryIDs.count }
 
     var failure: AIJobFailure? { failureRaw.map(AIJobFailure.init(raw:)) }
     // "Nothing to go on" is a note about the journal, not something to offer a Retry for.
@@ -82,6 +88,10 @@ final class AskService {
     // Read through a closure rather than held, so the service owes nothing to EntrySaver or
     // GraphServices and tests can move either counter by hand.
     @ObservationIgnored private let revisions: () -> AskIndexStore.Revisions
+    // How the app writes about the journal's owner, the same closure shape InsightsCoordinator and
+    // GraphServices take. The name reaches a provider only under the name voice, which
+    // PromptVoice.init enforces by construction.
+    @ObservationIgnored private let promptVoice: () -> PromptVoice
     @ObservationIgnored private let store: AskStore
     @ObservationIgnored private let diagnostics: DiagnosticsLog
     @ObservationIgnored private let now: () -> Date
@@ -95,6 +105,7 @@ final class AskService {
         resolve: @escaping () -> Result<AskProvider, AIJobFailure>,
         index: AskIndexStore = AskIndexStore(),
         revisions: @escaping () -> AskIndexStore.Revisions = { .init() },
+        promptVoice: @escaping () -> PromptVoice = { .default },
         store: AskStore = AskStore(),
         diagnostics: DiagnosticsLog = .shared,
         now: @escaping () -> Date = { .now },
@@ -103,6 +114,7 @@ final class AskService {
         self.resolve = resolve
         self.index = index
         self.revisions = revisions
+        self.promptVoice = promptVoice
         self.store = store
         self.diagnostics = diagnostics
         self.now = now
@@ -146,6 +158,8 @@ final class AskService {
                 providerLabel: $0.providerLabel,
                 sentEntryIDs: $0.sentEntryIDs,
                 sentCharacters: $0.sentCharacters,
+                matchedCount: $0.matchedCount,
+                rollupMonthCount: $0.rollupMonthCount,
                 failureRaw: $0.failureRaw
             )
         }
@@ -231,9 +245,14 @@ final class AskService {
         let retrieval = retrieval(for: question, asked: true, provider: provider)
         let selection = AskSources.blocks(for: retrieval.plan, in: context)
         let retrievalPlan = retrieval.plan
+        let summaries = AskRollups.blocks(
+            for: AskRollups.months(for: retrievalPlan.rollupMonths, in: index.index, calendar: calendar),
+            calendar: calendar
+        )
         let built = AskContextBuilder.render(
             plan: retrievalPlan,
             selection: selection,
+            rollups: summaries,
             terms: retrieval.query.terms.map(\.text),
             handles: handles,
             budget: budget(for: provider, question: question)
@@ -264,8 +283,17 @@ final class AskService {
         let known = built.handlesSent
         var request = TextRequest(
             model: provider.model,
-            system: AskPrompt.system(today: now(), calendar: calendar),
-            user: AskPrompt.user(context: built, question: question),
+            system: AskPrompt.system(
+                today: now(),
+                calendar: calendar,
+                voice: promptVoice(),
+                hasSummaries: built.rollupMonthCount > 0
+            ),
+            user: AskPrompt.user(
+                context: built,
+                question: question,
+                notes: AskPrompt.notes(for: built, plan: retrievalPlan, calendar: calendar)
+            ),
             schemaName: AskPrompt.schemaName
         )
         switch provider.kind {
@@ -294,6 +322,8 @@ final class AskService {
             turn.providerLabel = provider.label
             turn.sentEntryIDs = built.entryIDs
             turn.sentCharacters = built.characters
+            turn.matchedCount = built.matchedCount
+            turn.rollupMonthCount = built.rollupMonthCount
             finish(question: question, turn: turn, context: built, in: context)
             return
         }
@@ -307,7 +337,9 @@ final class AskService {
             citedEntryIDs: answer.handles.compactMap { built.handles[$0] },
             providerLabel: provider.label,
             sentEntryIDs: built.entryIDs,
-            sentCharacters: built.characters
+            sentCharacters: built.characters,
+            matchedCount: built.matchedCount,
+            rollupMonthCount: built.rollupMonthCount
         )
         diagnostics.record("ask.answered", [
             "entries": .int(built.entryIDs.count),
@@ -346,6 +378,7 @@ final class AskService {
             index: index.index,
             budget: budget(for: provider, question: question),
             provider: provider.kind,
+            rollups: true,
             calendar: calendar
         )
         return (query, plan)
@@ -358,7 +391,7 @@ final class AskService {
         case .openAI:
             return AskContextBuilder.openAIBudget
         case .onDevice:
-            let fixed = AskPrompt.system(today: now(), calendar: calendar).count
+            let fixed = AskPrompt.system(today: now(), calendar: calendar, voice: promptVoice(), hasSummaries: false).count
                 + AskPrompt.folded(previous: previousTurn(), into: "").count
                 + question.count
                 + AskContextBuilder.onDeviceAnswerHeadroom
@@ -441,6 +474,8 @@ final class AskService {
                     providerLabel: turn.providerLabel,
                     sentEntryIDs: turn.sentEntryIDs,
                     sentCharacters: turn.sentCharacters,
+                    matchedCount: turn.matchedCount,
+                    rollupMonthCount: turn.rollupMonthCount,
                     failureRaw: turn.failureRaw
                 )
                 context.insert(message)

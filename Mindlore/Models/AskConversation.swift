@@ -64,6 +64,11 @@ final class AskMessage {
     // What "What was sent" shows.
     var sentEntryIDs: [UUID] = []
     var sentCharacters: Int = 0
+    // How many entries matched before the cut, and how many months of summary went with them. A
+    // reopened conversation cannot work either out again: the index it was answered against is
+    // gone. Defaulted and not unique, so the CloudKit rules hold.
+    var matchedCount: Int = 0
+    var rollupMonthCount: Int = 0
     // AIJobFailure.raw when the answer failed, or "ask.noEntries" when there was nothing to send.
     var failureRaw: String?
 
@@ -77,6 +82,8 @@ final class AskMessage {
         providerLabel: String = "",
         sentEntryIDs: [UUID] = [],
         sentCharacters: Int = 0,
+        matchedCount: Int = 0,
+        rollupMonthCount: Int = 0,
         failureRaw: String? = nil
     ) {
         self.id = id
@@ -87,6 +94,8 @@ final class AskMessage {
         self.citedEntryIDs = citedEntryIDs
         self.providerLabel = providerLabel
         self.sentEntryIDs = sentEntryIDs
+        self.matchedCount = matchedCount
+        self.rollupMonthCount = rollupMonthCount
         self.sentCharacters = sentCharacters
         self.failureRaw = failureRaw
     }
