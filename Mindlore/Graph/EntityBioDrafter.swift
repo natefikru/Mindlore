@@ -62,22 +62,24 @@ struct EntityBioDrafter {
         return insights.isCurrent(for: entry)
     }
 
-    static func request(name: String, kind: EntityKind, excerpts: BioExcerpts.Selection, model: String) -> TextRequest? {
+    static func request(name: String, kind: EntityKind, excerpts: BioExcerpts.Selection, model: String, voice: PromptVoice = .default) -> TextRequest? {
         guard let name = InsightsPromptBuilder.promptSafe(name) else { return nil }
         let system = """
-        Based only on how \(name) is described in these excerpts from the writer's journal, write one \
-        neutral sentence about who or what \(name) is to the writer. Do not speculate beyond what is said. \
+        Based only on how \(name) is described in these excerpts from the author's journal, write one \
+        neutral sentence about who or what \(name) is to the author. Do not speculate beyond what is said. \
         Return null if the excerpts do not say enough.
+
+        \(voice.instruction)
         """
         let user = "Name: \(name)\nKind: \(kind.rawValue)\nExcerpts:\n" + excerpts.sentences.map { "- \($0)" }.joined(separator: "\n")
         return TextRequest(model: model, system: system, user: user, schema: schema, schemaName: schemaName, maxOutputTokens: 300)
     }
 
-    func draft(entityID: UUID, using generator: ResolvedTextGenerator, in context: ModelContext) async -> Outcome {
+    func draft(entityID: UUID, using generator: ResolvedTextGenerator, voice: PromptVoice = .default, in context: ModelContext) async -> Outcome {
         guard let entity = Self.fetch(entityID, in: context), Self.mayWrite(entity) else { return .skipped }
         let excerpts = excerpts(for: entityID, in: context)
         guard !excerpts.isEmpty else { return .noExcerpts }
-        guard let request = Self.request(name: entity.name, kind: entity.kind, excerpts: excerpts, model: generator.model) else {
+        guard let request = Self.request(name: entity.name, kind: entity.kind, excerpts: excerpts, model: generator.model, voice: voice) else {
             return .skipped
         }
 

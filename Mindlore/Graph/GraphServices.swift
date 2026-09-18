@@ -24,12 +24,14 @@ final class GraphServices {
 
     @ObservationIgnored private let resolveText: () -> Result<ResolvedTextGenerator, AIJobFailure>
     @ObservationIgnored private let automaticBiosUsable: () -> Bool
+    @ObservationIgnored private let promptVoice: () -> PromptVoice
     @ObservationIgnored private var drafts: [UUID: Task<Void, Never>] = [:]
 
     init(
         diagnostics: DiagnosticsLog = .shared,
         resolveText: @escaping () -> Result<ResolvedTextGenerator, AIJobFailure> = { .failure(AIJobFailure(raw: "settings.aiOff")) },
-        automaticBiosUsable: @escaping () -> Bool = { false }
+        automaticBiosUsable: @escaping () -> Bool = { false },
+        promptVoice: @escaping () -> PromptVoice = { .default }
     ) {
         indexer = GraphIndexer(diagnostics: diagnostics)
         editor = GraphEditor(diagnostics: diagnostics)
@@ -37,6 +39,7 @@ final class GraphServices {
         self.diagnostics = diagnostics
         self.resolveText = resolveText
         self.automaticBiosUsable = automaticBiosUsable
+        self.promptVoice = promptVoice
     }
 
     // MARK: - Edits from a page
@@ -530,7 +533,7 @@ final class GraphServices {
     private func startDraft(_ entityID: UUID, using generator: ResolvedTextGenerator, in context: ModelContext) {
         drafting.insert(entityID)
         drafts[entityID] = Task {
-            let outcome = await drafter.draft(entityID: entityID, using: generator, in: context)
+            let outcome = await drafter.draft(entityID: entityID, using: generator, voice: promptVoice(), in: context)
             switch outcome {
             case .failed(let failure): bioFailures[entityID] = failure
             case .noExcerpts: withoutExcerpts.insert(entityID)

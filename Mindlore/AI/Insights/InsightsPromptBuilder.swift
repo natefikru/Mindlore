@@ -125,7 +125,7 @@ nonisolated enum InsightsPromptBuilder {
         return items.compactMap(promptSafe).filter { seen.insert($0.lowercased()).inserted }.prefix(cap).map { $0 }
     }
 
-    static func plan(text fullText: String, source: EntrySource, sections: InsightSections, vocabulary: JournalVocabulary, model: String, entryDate: Date? = nil, calendar: Calendar = .current) -> InsightsRequestPlan {
+    static func plan(text fullText: String, source: EntrySource, sections: InsightSections, vocabulary: JournalVocabulary, model: String, entryDate: Date? = nil, voice: PromptVoice = .default, calendar: Calendar = .current) -> InsightsRequestPlan {
         let text = String(fullText.prefix(maxInputCharacters))
         var properties: [JSONSchema.Property] = []
         var guidance: [String] = []
@@ -139,7 +139,7 @@ nonisolated enum InsightsPromptBuilder {
         if sections.moods {
             let moods = Mood.allCases.map(\.rawValue)
             // Always answered: every entry gets a mood, and neutral covers the ones that carry none.
-            properties.append(.init("primaryMood", .enumeration(moods, description: "The strongest mood the writer expresses, including a quiet one. Use neutral when the entry carries no clear feeling, such as a list or a note to self.")))
+            properties.append(.init("primaryMood", .enumeration(moods, description: "The strongest mood the author expresses, including a quiet one. Use neutral when the entry carries no clear feeling, such as a list or a note to self.")))
             properties.append(.init("secondaryMoods", .array(.enumeration(moods), description: "Up to \(maxSecondaryMoods) other moods also present. Empty if the entry carries only one mood or none.")))
             let vocabulary = MoodCategory.allCases.map { category in
                 "\(category.name): " + Mood.allCases.filter { $0.category == category }.map { "\($0.rawValue) (\($0.meaning))" }.joined(separator: ", ")
@@ -152,7 +152,7 @@ nonisolated enum InsightsPromptBuilder {
             guidance.append("""
             Life areas come only from this list. Pick the one area the entry is mostly about; add a \
             second only when the entry is clearly about both. Pick mind only when the entry is about \
-            the writer's inner life itself, not just because it is written reflectively.
+            the author's inner life itself, not just because it is written reflectively.
             """ + "\n" + areas)
         }
         if sections.tags {
@@ -201,7 +201,7 @@ nonisolated enum InsightsPromptBuilder {
             }
             let handleList = Array(handles.keys).sorted { $0.count == $1.count ? $0 < $1 : $0.count < $1.count }
             properties.append(.init("looseEnds", .array(.object([
-                .init("text", .string(description: "What is left open, in a few words, in the writer's language.")),
+                .init("text", .string(description: "What is left open, in a few words, in the author's language.")),
                 .init("about", .array(.string(), description: "Names from mentions this concerns. Empty if none.")),
                 .init("due", .string(description: "Its date as yyyy-MM-dd, only if the entry gives one. Null otherwise.", nullable: true)),
                 .init("sameAs", handleList.isEmpty
@@ -213,7 +213,7 @@ nonisolated enum InsightsPromptBuilder {
             }
             var guide = """
             A loose end is only something concrete that a later entry could settle: waiting to hear \
-            from someone, a decision not yet made, an event or deadline coming up, something the writer \
+            from someone, a decision not yet made, an event or deadline coming up, something the author \
             said they would do. Never a feeling, a mood, or a vague intention such as thinking more \
             about something. Most entries have none, and an empty list is the normal answer. Write at \
             most \(maxNewLooseEnds) new ones.
@@ -240,7 +240,7 @@ nonisolated enum InsightsPromptBuilder {
             skippedReason = "tooLong"
         }
         if asksForCleanedText {
-            properties.append(.init("cleanedText", .string(description: "The entry with punctuation, capitalization, paragraph breaks, and obvious transcription mistakes fixed. Keep the writer's words, order, and meaning; do not summarize, shorten, or add anything. Null if it needs no changes.", nullable: true)))
+            properties.append(.init("cleanedText", .string(description: "The entry with punctuation, capitalization, paragraph breaks, and obvious transcription mistakes fixed. Keep the author's words, order, and meaning; do not summarize, shorten, or add anything. Null if it needs no changes.", nullable: true)))
         }
 
         let asksForWrittenDate = sections.suggestEntryDates && source == .typed
@@ -260,7 +260,9 @@ nonisolated enum InsightsPromptBuilder {
         var system = """
         You organize a personal journal entry for the person who wrote it. Be direct and concise. \
         Observe and organize only: do not give advice, reassurance, encouragement, or therapy-style reflection, \
-        and do not use diagnostic language. Do not restate the entry back. Use the writer's language.
+        and do not use diagnostic language. Do not restate the entry back. Use the author's language.
+
+        \(voice.instruction)
 
         Fill in every field the entry supports, however short it is: a one-line entry still has a summary, \
         usually a mood, a life area, and often a tag. Leave a field empty only when the entry genuinely \

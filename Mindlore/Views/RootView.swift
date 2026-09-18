@@ -38,12 +38,14 @@ struct RootView: View {
 
         let graph = GraphServices(
             resolveText: { AIServices.textGenerator(settings: settings, accounts: accounts) },
-            automaticBiosUsable: { AIServices.automaticInsightsUsable(settings: settings, accounts: accounts) }
+            automaticBiosUsable: { AIServices.automaticInsightsUsable(settings: settings, accounts: accounts) },
+            promptVoice: { settings.promptVoice }
         )
         _graph = State(initialValue: graph)
         let insights = InsightsCoordinator(
             resolve: { AIServices.insightsGenerator(settings: settings, accounts: accounts) },
             sections: { AIServices.insightSections(settings) },
+            promptVoice: { settings.promptVoice },
             autoApplyCleanedText: { settings.autoApplyCleanedText },
             autoApplyEntryDate: { settings.autoApplySuggestedEntryDate },
             presence: presence,
