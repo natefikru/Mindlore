@@ -91,8 +91,12 @@ struct RootView: View {
         )
         let appRouter = AppRouter(opened: lifecycle.opened, closed: lifecycle.closed)
         _router = State(initialValue: appRouter)
+        // The index is rebuilt when any of the three counters moves: the saver for the editor's own
+        // writes, the graph for insights and entity edits, and JournalSaves for every other save
+        // path, which is what catches a recording's transcribed text.
         _ask = State(initialValue: AskService(
             resolve: { AIServices.askGenerator(settings: settings, accounts: accounts) },
+            revisions: { .init(saver: saver.revision, graph: graph.revision, stamped: JournalSaves.revision) },
             store: AskStore(flush: { saver.flush() })
         ))
         let ingestor = RecordingIngestor()

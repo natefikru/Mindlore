@@ -1,9 +1,12 @@
 import Foundation
 
-// Picks what a question actually needs from the journal and turns it into prompt blocks, inside
-// a character budget. Pure: the caller fetches, filters for what may be sent, and hands the
-// arrays over. Every tier, the entity excerpts included, draws only from `entries`, so an entry
-// the caller excluded can never reach a provider through a side door.
+// Turns what AskRetrieval.plan chose into prompt blocks, and holds the real budget while doing it.
+//
+// It no longer decides anything. The four tiers that used to live here each appended entries until
+// the budget ran out, so the budget defined the list; now the plan defines the list and this spends
+// the budget slice by slice, in order, each slice capped so an earlier one cannot eat the room the
+// entries needed. Pure: the caller fetched, filtered for what may be sent, and hands the arrays
+// over.
 nonisolated enum AskContextBuilder {
     static let openAIBudget = 24_000
     static let onDeviceBudget = 6_000
@@ -12,8 +15,9 @@ nonisolated enum AskContextBuilder {
     static let maxEntryCharacters = 2_000
     static let maxLooseEndsPerEntity = 5
     static let maxAliasesPerEntity = 5
-    static let maxExcerptEntriesPerEntity = 10
-    static let recentEntryCount = 5
+
+    // The fence, the "About <name>" line, and the "Still open:" header an About block always pays.
+    static let aboutBlockOverhead = 40
 
     static let openDelimiter = "<<<entry"
     static let closeDelimiter = "entry>>>"
@@ -46,8 +50,12 @@ nonisolated enum AskContextBuilder {
         var characters: Int = 0
         // The entries that actually went in, in the order they appear. What "What was sent" lists.
         var entryIDs: [UUID] = []
+        // How many entries matched before the cut, so the prompt and the cost line can own up to it.
+        var matchedCount = 0
+        var rollupMonthCount = 0
 
         var isEmpty: Bool { entryIDs.isEmpty }
+        var wasCut: Bool { matchedCount > entryIDs.count }
 
         var text: String { blocks.map(\.text).joined(separator: "\n\n") }
 
@@ -64,76 +72,73 @@ nonisolated enum AskContextBuilder {
         }
     }
 
-    static func build(
-        question: String,
-        entries: [EntryInput],
-        entities: [EntityInput],
+    // Renders in prompt order: who the question is about, then any summary, then the entries the
+    // conversation was already discussing, then the best matches. Best matches go last on purpose,
+    // nearest the question.
+    static func render(
+        plan: AskRetrieval.Plan,
+        selection: AskSources.Selection,
+        rollups: [String] = [],
+        // What the question asked, so an excerpt keeps the sentences that answer it and not only
+        // the ones naming the person.
+        terms: [String] = [],
         handles: [String: UUID] = [:],
-        now: Date,
-        calendar: Calendar = .current,
         budget: Int
     ) -> Context {
-        var builder = Builder(handles: handles, budget: budget)
-        let newestFirst = entries.sorted { $0.date > $1.date }
+        var builder = Builder(handles: handles)
+        let entriesByID = Dictionary(selection.entries.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
 
-        // 1. Entities the question names: who they are, what is still open about them, and the
-        //    sentences the journal wrote about them.
-        let named = entities.filter { entity in
-            ([entity.name] + entity.aliases).contains { NameMatching.range(of: $0, in: question) != nil }
-        }
-        for entity in named {
+        builder.beginSlice(cap: plan.slices.about, budget: budget)
+        for entity in selection.entities {
             builder.addEntity(entity)
-            let linked = newestFirst.filter { $0.entityIDs.contains(entity.id) }.prefix(maxExcerptEntriesPerEntity)
-            for entry in linked {
-                let sentences = BioExcerpts.sentences(in: entry.text, naming: [entity.name] + entity.aliases)
-                guard !sentences.isEmpty else { continue }
-                builder.addEntry(entry, text: sentences.joined(separator: " "))
-            }
         }
 
-        // 2. What the question's own words match.
-        let keywords = Self.keywords(in: question)
-        if !keywords.isEmpty {
-            let scored = newestFirst
-                .map { entry -> (entry: EntryInput, matches: Int) in
-                    let haystack = entry.title + " " + entry.text
-                    return (entry, keywords.filter { NameMatching.range(of: $0, in: haystack) != nil }.count)
-                }
-                .filter { $0.matches > 0 }
-                .enumerated()
-                .sorted { lhs, rhs in
-                    lhs.element.matches == rhs.element.matches ? lhs.offset < rhs.offset : lhs.element.matches > rhs.element.matches
-                }
-            for scored in scored {
-                builder.addEntry(scored.element.entry, text: scored.element.entry.text)
-            }
+        builder.beginSlice(cap: plan.slices.rollups, budget: budget)
+        for rollup in rollups {
+            builder.addFenced(rollup)
         }
 
-        // 3. A stretch of time the question names.
-        if let range = AskDates.range(in: question, now: now, calendar: calendar) {
-            // Half-open, as AskDates documents it: DateInterval.contains would include the
-            // first instant of the next day.
-            for entry in newestFirst where entry.date >= range.start && entry.date < range.end {
-                builder.addEntry(entry, text: entry.text)
-            }
+        builder.beginSlice(cap: plan.slices.continuity, budget: budget)
+        for id in plan.continuityEntryIDs {
+            guard let entry = entriesByID[id] else { continue }
+            builder.addEntry(entry, text: text(for: entry, plan: plan, entities: selection.entities, terms: terms))
         }
 
-        // 4. Only when nothing above matched at all, an entity's own block included. A question
-        //    the journal has nothing to say about shouldn't quietly send five entries and bill
-        //    for them.
-        if builder.context.blocks.isEmpty {
-            for entry in newestFirst.prefix(recentEntryCount) {
-                builder.addEntry(entry, text: entry.text)
-            }
+        // Everything left, so a slice that went unused is not wasted.
+        builder.beginSlice(cap: budget, budget: budget)
+        for id in plan.rankedEntryIDs {
+            guard let entry = entriesByID[id] else { continue }
+            builder.addEntry(entry, text: text(for: entry, plan: plan, entities: selection.entities, terms: terms))
         }
 
-        return builder.context
+        var context = builder.context
+        context.matchedCount = max(plan.matchedCount, context.entryIDs.count)
+        context.rollupMonthCount = plan.rollupMonths.count
+        return context
     }
 
-    // MARK: - Keywords
+    // An entry reached because the question is about someone is quoted at the sentences that concern
+    // them, which is what the old tier 1 did and why ten of them fit where three whole blocks would.
+    // The question's own words count as well as the name: "what did Maya say about the move" should
+    // keep the sentence about the move, not only the ones spelling Maya.
+    private static func text(for entry: EntryInput, plan: AskRetrieval.Plan, entities: [EntityInput], terms: [String]) -> String {
+        guard plan.excerptEntryIDs.contains(entry.id) else { return entry.text }
+        let names = entities
+            .filter { entry.entityIDs.contains($0.id) }
+            .flatMap { [$0.name] + $0.aliases }
+        let wanted = names + terms
+        guard !wanted.isEmpty else { return entry.text }
+        let sentences = BioExcerpts.sentences(in: entry.text, naming: wanted)
+        // An entry linked to her that never spells her name, and whose words the question does not
+        // use either, has no sentences to pick. It goes in whole rather than not at all.
+        return sentences.isEmpty ? entry.text : sentences.joined(separator: " ")
+    }
 
-    // Small, fixed, and English, like the date phrases. A word under three letters carries no
-    // search value here, and a stop word matches half the journal.
+    // MARK: - Stop words
+
+    // Small, fixed, and English, like the date phrases. A stop word matches half the journal.
+    // AskRetrievalQuery.terms is the only reader now, and it keeps two-letter words: this list
+    // already covers the two-letter English noise, and the old three-letter floor cost "AI".
     static let stopWords: Set<String> = [
         "the", "and", "but", "for", "was", "were", "with", "that", "this", "those", "these",
         "what", "when", "where", "who", "whom", "why", "how", "did", "does", "doing", "done",
@@ -148,16 +153,6 @@ nonisolated enum AskContextBuilder {
         "years", "day", "days", "today", "yesterday", "time", "times", "anything", "everything",
         "something", "nothing", "happened", "happening", "happen",
     ]
-
-    static func keywords(in question: String) -> [String] {
-        var words: [String] = []
-        var seen: Set<String> = []
-        question.enumerateSubstrings(in: question.startIndex..., options: .byWords) { substring, _, _, _ in
-            guard let word = substring?.lowercased(), word.count >= 3, !stopWords.contains(word) else { return }
-            if seen.insert(word).inserted { words.append(word) }
-        }
-        return words
-    }
 
     // MARK: - Safety
 
@@ -190,6 +185,16 @@ nonisolated enum AskContextBuilder {
         return body.isEmpty ? String(text.prefix(limit)).trimmingCharacters(in: .whitespacesAndNewlines) : body
     }
 
+    // What rendering this entry would cost, without rendering it. The index stores this per document
+    // so a plan can divide a budget with no entry text in hand, which is what makes the line under
+    // the field free. Deliberately an upper bound: sanitizing only ever removes characters, so the
+    // estimate never promises more room than there is.
+    static func blockCharacterEstimate(title: String, text: String) -> Int {
+        let header = "[E00] 2026-09-18 ".count + title.count
+        let fence = openDelimiter.count + closeDelimiter.count + 3
+        return header + fence + min(text.count, maxEntryCharacters)
+    }
+
     static func block(handle: String, date: Date, title: String, text: String) -> String {
         var header = "[\(handle)] \(dateFormatter.string(from: date))"
         if let title = InsightsPromptBuilder.promptSafe(sanitized(title)) {
@@ -211,16 +216,29 @@ nonisolated enum AskContextBuilder {
 
     private struct Builder {
         var context: Context
-        let budget: Int
         private var usedEntries: Set<UUID> = []
         private var usedEntities: Set<UUID> = []
         private var nextHandle: Int
+        // Where the slice being filled has to stop. The budget is spent in order, and a slice that
+        // goes unused leaves its room to whatever comes after it, which is why ranked is last.
+        private var sliceEnd = 0
 
-        init(handles: [String: UUID], budget: Int) {
+        init(handles: [String: UUID]) {
             context = Context(handles: handles)
-            self.budget = budget
             let used = handles.keys.compactMap { Int($0.dropFirst()) }
             nextHandle = (used.max() ?? 0) + 1
+        }
+
+        mutating func beginSlice(cap: Int, budget: Int) {
+            sliceEnd = min(budget, context.characters + max(0, cap))
+        }
+
+        // A rollup is generated from entries, so it is no more trusted than one and goes inside the
+        // same fence.
+        mutating func addFenced(_ body: String) {
+            let text = body.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !text.isEmpty else { return }
+            append(Block(text: "\(openDelimiter)\n\(sanitized(text))\n\(closeDelimiter)", entryID: nil))
         }
 
         // A bio and a loose end are written from entry text, which can come from a photographed
@@ -252,7 +270,7 @@ nonisolated enum AskContextBuilder {
             append(Block(text: fenced, entryID: nil))
         }
 
-        // One entry goes in once, at the first tier that asked for it.
+        // One entry goes in once, in whichever slice reached it first.
         mutating func addEntry(_ entry: EntryInput, text: String) {
             guard !usedEntries.contains(entry.id) else { return }
             let body = trimmed(sanitized(text).trimmingCharacters(in: .whitespacesAndNewlines))
@@ -272,7 +290,7 @@ nonisolated enum AskContextBuilder {
         @discardableResult
         private mutating func append(_ block: Block) -> Bool {
             let separator = context.blocks.isEmpty ? 0 : 2
-            guard context.characters + separator + block.text.count <= budget else { return false }
+            guard context.characters + separator + block.text.count <= sliceEnd else { return false }
             context.blocks.append(block)
             context.characters += separator + block.text.count
             return true

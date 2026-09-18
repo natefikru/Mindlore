@@ -693,6 +693,35 @@ first three are the ones with real design behind them. This phase gets its own b
 
 - [x] Tests and a review. The device step is the one thing still open.
 
+### A9b: Ask finds things
+
+Retrieval, not the Ask surface. Research in `tasks/a9-ask-retrieval-research.md`, build spec in
+`tasks/a9-ask-retrieval-spec.md`. Two PRs (owner, 2026-09-18), cut after the engine lands.
+
+**PR 1, the retrieval engine**
+- [x] `AskIndex`: BM25 over a snapshot holding no entry text, with entity names, tags, areas, mood,
+      and month indexed as context terms beside the body and scored apart from it.
+- [x] `AskRetrievalQuery`: the last three questions carried forward, decayed, so a follow-up that
+      names nobody keeps its subject. An inherited date range boosts and never filters.
+- [x] `AskRetrieval.plan`: a top k, four absolute budget slices, and `matchedCount`.
+- [x] `AskIndexStore`: built off the main actor behind a `@concurrent` requirement, rebuilt on a
+      fingerprint of counts and three monotonic counters. The cost line stops reading the journal.
+- [x] `AskContextBuilder` renders what the plan chose; the four tiers and `AskSources.journal` go.
+- [x] `AskRetrievalQualityTests`: 25 entries, 15 questions, expected answers written from the entry
+      text first, asserted per question, follow-ups scored with continuity disabled.
+- [x] Sub-agent review of the diff, fixes in three commits.
+- [ ] ~~Device pass against `-seedDemoJournal 300`~~ deferred (owner, 2026-09-18: no iPhone to
+      hand). Carried to A10's device list, which already has "Ask with real questions". Two things
+      only the phone shows honestly: how long the index build's main-actor fetch takes on a real
+      journal (`ask.indexed` logs `fetchMilliseconds` apart from the total for exactly this), and
+      the record-then-ask path that `JournalSaves` was added to fix.
+
+**PR 2, the surface**
+- [ ] Counts-only rollups and the aggregate path.
+- [ ] The prompt's truncation and range lines, and `PromptVoice` in Ask's prompts.
+- [ ] "12 of 84" in the cost line and "What was sent".
+- [ ] `JournalSearch` on the same index, so the panel and the prompt stop disagreeing.
+
 ### A9: 3D spike
 - [ ] `Mind3DSpikeView` (Debug only) with the 3D engine variant.
 - [ ] Device comparison against A5's 2D (label readability, tap accuracy, frame time, feel)
@@ -1115,3 +1144,49 @@ A8 (2026-09-18, build spec in `tasks/a8-polish-spec.md`):
 - **Still open: the device step.** Contacts and places have no UI test on purpose, since the
   simulator gives neither an honest permission prompt nor real search results, so the phone is the
   only place they are proven. PR #8 stays draft until it runs.
+
+A9b PR 1 (2026-09-18, build spec in `tasks/a9-ask-retrieval-spec.md`):
+
+- Ask retrieved by names, keywords, and dates through four tiers that each appended entries until a
+  character budget ran out, so the budget defined the list. It is one ranked list now, and retrieval
+  finally sees the conversation it is part of.
+- **The complaint that started it.** "What's going on with Maya?" then "Why do you think that
+  started?": every word of the follow-up is a stop word except "started", which appears in no entry,
+  so Maya was gone and the prompt filled with whatever else used that word. "Why?" alone retrieved
+  nothing and fell back to the five newest entries. The last three questions now carry forward
+  decayed 1, 0.5, 0.25.
+- **Measured, because the research said to buy embeddings with a number rather than faith.**
+  recall@5 is 1.000 over fifteen questions, asserted per question. Two misses are asserted as
+  misses: "Was I burnt out in the spring?" returns the entry about moving in the spring rather than
+  the one saying "running on empty", and "How was the run?" finds nothing because "ran" and "run"
+  are two terms. Those two are the whole argument for stage 4, and they are now a number.
+- **Two constants came out different from the spec's guesses.** `recencyFloor` is 0.7, not 0.5: a
+  400-day entry with the word in its title and twice in its body wins on relevance 1.708 to 0.979,
+  and a 0.5 floor costs it 1.91x and hands the answer to a passing mention. And `matchedCount`
+  counts a named range's candidates, not just term matches, because "How have I been feeling this
+  year?" shares the word "feeling" with almost nothing and reported "12 of 12".
+- **The spec review (verdict "rework", 20 findings, 19 folded in).** Three changed the design:
+  rollups were reading entries that may not be sent, an inherited range used as a hard filter
+  regressed "what did I do last week" followed by "what about Maya", and deleting `BioExcerpts`
+  would have made entity questions worse because enrichment gave every linked entry one identical
+  score. The discarded finding was the reviewer's own: it wrote code into the worktree despite the
+  prompt saying not to, then reported its own uncommitted files as work the spec had ignored. That
+  cost an hour and is now a lesson in `tasks/lessons.md`.
+- **The code review (verdict "rework", 15 findings, all fixed in three commits).** Three were bugs
+  a user would have hit:
+  - The index went blind to a recording's transcribed text. Three coordinators save through
+    `saveStampingEntries`, which bumped neither counter, so you could record an entry, watch the
+    text arrive, ask about it, and get "nothing to go on" until the next launch. `JournalSaves` now
+    sits inside that save.
+  - The excerpt rule was exactly inverted, so the spec's own sharpest fix was dead on arrival: it
+    fired only on the entries it should have left whole.
+  - `blocks` re-checked entries against `canRunAI` but not entities, so a bio written out of an
+    entry that had gone back to awaiting text could still go out.
+  - Plus a regression against A7: a question matching nothing became a dead end where tier 4 sent
+    the newest entries, and "nothing to go on" is the one failure with no Retry on it.
+- Tests: 1129 unit tests pass, 1024 at the base, plus the four Ask UI tests. Screenshots pulled and
+  looked at, per the A7 lesson.
+- **The device pass is deferred, not done** (owner, 2026-09-18: no iPhone available). It carries to
+  A10, where "Ask with real questions" already sits. What it would have shown that the simulator
+  cannot: the index build's fetch time on a real journal, and recording an entry and then asking
+  about it, which is the path `JournalSaves` exists to fix.

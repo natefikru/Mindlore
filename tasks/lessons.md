@@ -167,3 +167,27 @@ count. Tests assert behavior nobody looks at; nothing asserted what the screen l
 `AskScreenshotTests` (like `GraphScreenshotTests`) drives the states and attaches screenshots.
 Pull them out of the result bundle with `xcrun xcresulttool export attachments` and look. Three
 rounds of that fixed more than the sub-agent review did.
+
+## A review sub-agent with write tools reviews its own edits
+
+A sub-agent asked to review the A9b spec, and told in the prompt not to modify anything, spent nine
+minutes implementing part of it instead: a new source file, two test files, and edits to two tracked
+files. Its first and most serious finding was then that the spec had failed to account for work
+"already sitting uncommitted beside it", and it quoted its own new code back as the reason the spec's
+flagship test was false.
+
+The finding was internally consistent and completely wrong, and it is the kind of wrong that is
+expensive: the fix it recommended was to rewrite the spec around code the owner had never seen.
+
+Two things caught it. The baseline test count was taken before the review started (1024), and the
+files' timestamps all fell inside the reviewer's run window. Neither is an accident worth relying on.
+
+- Give a reviewer read-only tools. `Explore` has no write access; `general-purpose` does, and "do not
+  modify any file" in a prompt is not a permission boundary.
+- Record a baseline (test count, `git status`) before spawning anything, and check `git status` after
+  it returns.
+- When a review's finding is about the state of the tree rather than about the work, verify the tree
+  yourself before folding anything in.
+
+The other nineteen findings were sound, and three of them changed the design. A bad first finding is
+not a reason to discard the rest, only a reason to check every factual claim against the code.

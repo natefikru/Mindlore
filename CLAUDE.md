@@ -63,6 +63,57 @@ The project uses file-system synchronized groups, so new files under `Mindlore/`
 
 **Insights** (`Mindlore/AI/Insights/`). One structured request per entry, with a field per enabled section (`InsightsPromptBuilder`), parsed tolerantly: unknown moods and mention kinds are dropped, tags normalized, lists capped. Cleaned-up text is offered for transcribed entries (voice and pages, never typed), applies only to the exact text it was made from, and keeps `Entry.originalText` plus `cleanupAppliedHash` so revert survives regenerating or deleting insights.
 
+**Ask** (`Mindlore/AI/Ask/`, `Mindlore/Views/Ask/`). Questions answered from the journal, with every
+answer citing the entries it used. `AskService` owns a conversation; `AskConversation` and
+`AskMessage` persist it, linked by id like `EntityLink`. `askGenerator` in Settings picks who answers
+(off, on-device, OpenAI), and on-device is a fallback: its whole prompt is about 3,300 characters
+after the system prompt and the answer headroom come out.
+
+- **`AskSources` is the single gate on what may leave the phone**, and the only thing that reads
+  entry text for a prompt. `documents(in:)` gathers every non-draft entry and marks each `isSendable`
+  from `InsightsCoordinator.canRunAI`; `blocks(for:)` fetches the text of just the entries a plan
+  chose and re-checks eligibility, because the index is a snapshot. Entity bios and loose ends are
+  written out of entry text, so an entity is only ever described when a *sendable* entry mentions it,
+  checked in both places. Hidden entities are neither a term nor nameable. Age never excludes an
+  entry: `aiEnabledAt` is transcription's rule, because that uploads recordings nobody asked it to,
+  and a question is the opposite.
+- **Retrieval is one ranked list, not tiers.** `AskIndex` is an immutable BM25 snapshot holding no
+  entry text, built off the main actor behind `AskIndexBuilding`'s `@concurrent` requirement. A
+  document is indexed twice: its own words (title weighted 2) and its context (entity names and
+  aliases, tags, life areas, mood, month, weighted 1.5), scored apart with `contextFactor` so a body
+  hit beats a context-only one. That is how a question about Maya reaches an entry that never spells
+  her name, without forty linked entries scoring the same. Recency reuses `EntityGraph`'s 90-day
+  half-life with a floor of 0.7, which breaks ties without overturning relevance; the constant's
+  comment carries the measurement.
+- **`AskRetrievalQuery` gives retrieval the conversation.** The last three questions contribute terms
+  decayed 1, 0.5, 0.25, highest weight winning rather than the sum, so "Why do you think that
+  started?" stays about whoever the turn before was about. A range the question names filters; a range
+  an earlier question named carries one turn, only boosts, and is dropped once the new question names
+  someone. Nothing about this is stored: a reopened conversation rebuilds it from the messages.
+- **`AskRetrieval.plan` decides, `AskContextBuilder` renders.** The plan takes a top k (15, or 5 on
+  device) and divides the budget into four absolute slices (about, rollups, continuity, ranked),
+  reading no entry text, which is what makes the cost line under the field free. The renderer holds
+  the real budget slice by slice, so nothing can eat the room the entries needed. `matchedCount` is
+  how many matched before the cut; a question naming a stretch of time is measured against that
+  stretch, which is what stops a year being answered from two weeks. A question matching nothing
+  falls back to the newest entries rather than failing.
+- **The index rebuilds on a fingerprint**, not a timer: entry, link, and entity counts plus three
+  monotonic counters (`EntrySaver.revision`, `GraphServices.revision`, `JournalSaves.revision`).
+  Ordinals, never dates, so a clock stepping back cannot hide a change. `JournalSaves` sits inside
+  `saveStampingEntries` because the transcription and title coordinators save straight through it:
+  without it a recording's text never reached the index.
+- **Prompt safety is unchanged from A7.** Journal text is data inside `<<<entry` fences, delimiters
+  and handle-shaped text are stripped, citations are enumerated from the handles this request
+  actually carried, and answers render with `Text(verbatim:)`.
+- **Diagnostics** (`ask.indexed`, `ask.retrieved`, `ask.answered`, `ask.failed`) carry counts,
+  durations, bools, and rounded scores. Never a term, a tag, a name, a question, or a handle map.
+- **Measured, not assumed.** `AskRetrievalQualityTests` is a fixed 25-entry corpus and 15 questions
+  whose expected answers were written from the entry text before retrieval ran once, asserted per
+  question, with follow-ups scored with the continuity slice disabled so they cannot pass on what the
+  last turn was already holding. Two known misses are asserted as misses: a synonym ("burnt out"
+  against "running on empty") and morphology ("ran" against "run"). Those are the argument for
+  embeddings, and they stay measured rather than argued.
+
 **Graph** (`Mindlore/Graph/`, `Mindlore/Views/Graph/`). Turns the mentions and tags `EntryInsights`
 already stores into entities people, places, organizations, projects, events, and tags can share, resolve to, merge into, and see co-occurrence and a force-directed picture
 of. `Entity` is the persisted node (name, `kindRaw`, `aliases`, `bio*`, `hidden`, `mergedIntoID`,

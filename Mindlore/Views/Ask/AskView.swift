@@ -15,7 +15,7 @@ struct AskView: View {
     @State private var peekTarget: PeekTarget?
     @State private var showsHistory = false
     @State private var sentTurn: AskTurn?
-    @State private var estimate = (entries: 0, characters: 0)
+    @State private var estimate = AskService.Estimate()
     @FocusState private var fieldFocused: Bool
 
     static let searchDelay = Duration.milliseconds(250)
@@ -98,6 +98,8 @@ struct AskView: View {
             showsHistory = false
         }
         .task {
+            // The journal is read here, once, rather than on every pause in typing.
+            await ask.refreshIndex(in: modelContext)
             // Until the user picks in Settings, the phone answers and a saved key takes over.
             // Checked on every open, so adding a key moves questions without a trip to Settings.
             settings.refreshAskGeneratorDefault(
@@ -109,17 +111,20 @@ struct AskView: View {
             guard query.count >= JournalSearch.minimumQueryCharacters else {
                 results = JournalSearch.Results()
                 tagFilter = nil
-                estimate = (0, 0)
+                estimate = AskService.Estimate()
                 return
             }
             try? await Task.sleep(for: Self.searchDelay)
             guard !Task.isCancelled else { return }
             results = JournalSearch.results(for: query, in: modelContext)
             tagFilter = nil
-            estimate = (0, 0)
+            estimate = AskService.Estimate()
             try? await Task.sleep(for: Self.costDelay)
             guard !Task.isCancelled else { return }
-            estimate = ask.estimate(for: query, in: modelContext)
+            // An entry can have arrived while Ask stayed on screen, and this costs five counters.
+            await ask.refreshIndex(in: modelContext)
+            guard !Task.isCancelled else { return }
+            estimate = ask.estimate(for: query)
         }
     }
 
