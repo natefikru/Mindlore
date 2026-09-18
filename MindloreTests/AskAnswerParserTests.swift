@@ -32,6 +32,19 @@ struct AskAnswerParserTests {
         #expect(answer.text == "You walked by the river [E9], with Sarah.")
     }
 
+    @Test func aSpacedMarkerIsCitedAndRemoved() {
+        let answer = AskAnswerParser.parseMarkers("The kayak was in the shed [ E2 ].", known: known)
+
+        #expect(answer.handles == ["E2"])
+        #expect(answer.text == "The kayak was in the shed.")
+    }
+
+    @Test func aCitationWithStrayWhitespaceStillCounts() throws {
+        let answer = try AskAnswerParser.parseJSON(#"{"answer":"Yes.","citations":[" E1 ","not a handle","E"]}"#, known: known)
+
+        #expect(answer.handles == ["E1"])
+    }
+
     @Test func aLowercaseMarkerIsStillTheSameHandle() {
         let answer = AskAnswerParser.parseMarkers("The kayak was in the shed [e2].", known: known)
 

@@ -54,6 +54,13 @@ nonisolated enum AskContextBuilder {
         func handle(for entryID: UUID) -> String? {
             handles.first { $0.value == entryID }?.key
         }
+
+        // Only the handles this request actually carried. `handles` also holds earlier turns'
+        // entries, which are not in this prompt: a model citing one of those would be pointing
+        // at something it never read.
+        var handlesSent: Set<String> {
+            Set(entryIDs.compactMap(handle(for:)))
+        }
     }
 
     static func build(
@@ -103,14 +110,17 @@ nonisolated enum AskContextBuilder {
 
         // 3. A stretch of time the question names.
         if let range = AskDates.range(in: question, now: now, calendar: calendar) {
-            for entry in newestFirst where range.contains(entry.date) {
+            // Half-open, as AskDates documents it: DateInterval.contains would include the
+            // first instant of the next day.
+            for entry in newestFirst where entry.date >= range.start && entry.date < range.end {
                 builder.addEntry(entry, text: entry.text)
             }
         }
 
-        // 4. Only when nothing above matched. A question the journal has nothing to say about
-        //    shouldn't quietly send five entries and bill for them.
-        if builder.context.isEmpty {
+        // 4. Only when nothing above matched at all, an entity's own block included. A question
+        //    the journal has nothing to say about shouldn't quietly send five entries and bill
+        //    for them.
+        if builder.context.blocks.isEmpty {
             for entry in newestFirst.prefix(recentEntryCount) {
                 builder.addEntry(entry, text: entry.text)
             }

@@ -147,6 +147,32 @@ struct AskServiceTests {
         #expect(ask.turns.last?.text == "Turn on AI in Settings to ask questions.")
     }
 
+    // Only what this request carried may be cited: an entry from an earlier turn isn't in this
+    // prompt, so a citation naming it would point at something the model never read.
+    @Test func citationsAreLimitedToTheHandlesThisRequestSent() async throws {
+        entry("Paddled the river.", daysAgo: 400)
+        entry("Sarah brought the kayak.", daysAgo: 1)
+        let ask = service()
+        generator.results = [answer("Both.", citing: ["E1", "E2"]), answer("Only the kayak.", citing: ["E1", "E2"])]
+
+        await ask.send("river kayak", in: context)
+        #expect(ask.turns.last?.citedEntryIDs.count == 2)
+
+        await ask.send("kayak", in: context)
+        let second = try #require(generator.requests.last)
+        let enumerated = try #require(citationHandles(in: second))
+        #expect(enumerated.count == 1, "the earlier turn's entry is not in this prompt")
+        #expect(ask.turns.last?.citedEntryIDs.count == 1, "and a citation naming it is dropped")
+    }
+
+    private func citationHandles(in request: TextRequest) -> [String]? {
+        guard let schema = request.schema, case .object(let properties, _, _) = schema,
+              let citations = properties.first(where: { $0.name == "citations" })?.schema,
+              case .array(let items, _, _) = citations,
+              case .enumeration(let values, _, _) = items else { return nil }
+        return values
+    }
+
     @Test func historyIsCappedAtSixTurnsAndCarriesNoBlocks() async throws {
         entry("Paddled the river.")
         let ask = service()

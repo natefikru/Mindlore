@@ -159,6 +159,7 @@ final class AskService {
     func send(_ question: String, in context: ModelContext) async {
         let trimmed = question.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty, !isRunning else { return }
+        isRunning = true
         draftQuestion = ""
         turns.append(AskTurn(id: UUID(), role: .user, text: trimmed))
         await answer(trimmed, in: context)
@@ -168,6 +169,7 @@ final class AskService {
     func retryLast(in context: ModelContext) async {
         guard !isRunning, let last = turns.last, last.role == .assistant, last.canRetry,
               let question = turns.dropLast().last, question.role == .user else { return }
+        isRunning = true
         turns.removeLast()
         if isSaved, let message = AskMessage.all(forConversation: conversationID, in: context).first(where: { $0.id == last.id }) {
             store.write({ context.delete(message) }, in: context)
@@ -183,7 +185,10 @@ final class AskService {
         return (built.entryIDs.count, built.characters)
     }
 
+    // Entered with isRunning already true, set by the caller before its first await, so two
+    // taps can never both get past the guard.
     private func answer(_ question: String, in context: ModelContext) async {
+        defer { isRunning = false }
         let provider: AskProvider
         switch resolve() {
         case .success(let resolved):
@@ -201,7 +206,7 @@ final class AskService {
             return
         }
 
-        let known = Set(built.handles.keys)
+        let known = built.handlesSent
         var request = TextRequest(
             model: provider.model,
             system: AskPrompt.system(today: now(), calendar: calendar),
@@ -218,8 +223,6 @@ final class AskService {
 
         let askedIn = conversationID
         let startedAt = now()
-        isRunning = true
-        defer { isRunning = false }
 
         let answer: AskAnswerParser.Answer
         do {

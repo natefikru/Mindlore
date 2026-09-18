@@ -25,9 +25,19 @@ nonisolated enum AskAnswerParser {
     // change a sentence the user is reading.
     static func parseMarkers(_ text: String, known: Set<String>) -> Answer {
         let found = markers(in: text).filter { known.contains($0) }
+        // Removed by the same pattern that found them, so a marker written "[ E3 ]" goes too.
         var stripped = text
-        for handle in Set(found) {
-            stripped = stripped.replacingOccurrences(of: "[\(handle)]", with: "", options: [.caseInsensitive])
+        if let regex = try? NSRegularExpression(pattern: markerPattern) {
+            var result = ""
+            var cursor = text.startIndex
+            for match in regex.matches(in: text, range: NSRange(text.startIndex..., in: text)) {
+                guard let whole = Range(match.range, in: text), let inner = Range(match.range(at: 1), in: text),
+                      let handle = normalized(String(text[inner])), known.contains(handle) else { continue }
+                result += text[cursor..<whole.lowerBound]
+                cursor = whole.upperBound
+            }
+            result += text[cursor...]
+            stripped = result
         }
         let tidied = stripped
             .replacingOccurrences(of: " ,", with: ",")
@@ -37,18 +47,29 @@ nonisolated enum AskAnswerParser {
         return Answer(text: tidied, handles: filtered(found, known: known))
     }
 
+    static let markerPattern = "\\[\\s*([Ee]\\d+)\\s*\\]"
+
     static func markers(in text: String) -> [String] {
-        guard let regex = try? NSRegularExpression(pattern: "\\[\\s*([Ee]\\d+)\\s*\\]") else { return [] }
+        guard let regex = try? NSRegularExpression(pattern: markerPattern) else { return [] }
         return regex.matches(in: text, range: NSRange(text.startIndex..., in: text)).compactMap { match in
-            Range(match.range(at: 1), in: text).map { "E" + text[$0].dropFirst() }
+            Range(match.range(at: 1), in: text).flatMap { normalized(String(text[$0])) }
         }
+    }
+
+    // "e3", " E3 " and "E3" are the same handle; anything else is not one at all.
+    static func normalized(_ handle: String) -> String? {
+        let trimmed = handle.trimmingCharacters(in: .whitespaces)
+        guard let first = trimmed.first, first == "E" || first == "e" else { return nil }
+        let digits = trimmed.dropFirst()
+        guard !digits.isEmpty, digits.allSatisfy(\.isNumber) else { return nil }
+        return "E" + digits
     }
 
     // In the order the answer used them, each one once.
     private static func filtered(_ handles: [String], known: Set<String>) -> [String] {
         var seen: Set<String> = []
         return handles
-            .map { "E" + $0.trimmingCharacters(in: .whitespaces).dropFirst(($0.first == "e" || $0.first == "E") ? 1 : 0) }
+            .compactMap(normalized)
             .filter { known.contains($0) && seen.insert($0).inserted }
     }
 }
