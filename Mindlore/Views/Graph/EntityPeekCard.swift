@@ -73,16 +73,17 @@ struct EntityPeekCard: View {
     private func content(id: UUID) -> some View {
         if let summary {
             VStack(alignment: .leading, spacing: 8) {
-                HStack(alignment: .firstTextBaseline) {
-                    Label {
-                        Text(summary.name)
-                            .font(.title3.weight(.semibold))
-                    } icon: {
-                        Image(systemName: summary.kind.symbol)
-                            .foregroundStyle(summary.kind.color)
-                    }
-                    .accessibilityIdentifier("entityPeekName")
-                    Spacer()
+                // Centre-aligned, not baseline-aligned: a square photo next to .title3 text would
+                // sit on the text's baseline and push the Open button down with it. The details
+                // line stays below at full width, or the avatar and the button squeeze it into
+                // three wrapped lines.
+                HStack(spacing: 12) {
+                    EntityAvatar(kind: summary.kind, contactIdentifier: summary.contactIdentifier)
+                    Text(summary.name)
+                        .font(.title3.weight(.semibold))
+                        .lineLimit(2)
+                        .accessibilityIdentifier("entityPeekName")
+                    Spacer(minLength: 8)
                     Button("Open") { open(EntityRoute(id: id)) }
                         .buttonStyle(.borderedProminent)
                         .accessibilityIdentifier("entityPeekOpen")

@@ -54,6 +54,7 @@ private struct EntityPage: View {
     @Environment(AppRouter.self) private var router
     @Environment(SettingsStore.self) private var settings
     @Environment(ProviderAccountStore.self) private var accounts
+    @Environment(\.contactDirectory) private var contacts
     @Query private var matches: [Entity]
     @Query private var links: [EntityLink]
     @Query private var entities: [Entity]
@@ -62,6 +63,9 @@ private struct EntityPage: View {
     @State private var looseEndSplit = LooseEndSplit()
     @State private var editingBio = false
     @State private var renaming = false
+    @State private var pickingContact = false
+    @State private var linkedContact: ContactMatch?
+    @State private var contactLookedUp = false
     @State private var addingAlias = false
     @State private var draftText = ""
     @State private var merging = false
@@ -90,6 +94,9 @@ private struct EntityPage: View {
                 }
                 about(entity)
                 looseEndsSection
+                if entity.kind == .person, !entity.isMerged {
+                    contactSection(entity)
+                }
                 aliasesSection(entity)
                 entriesSection
                 mentionedWithSection
@@ -125,6 +132,13 @@ private struct EntityPage: View {
             }
             .sheet(item: $previewingRow) { row in
                 EntryPreview(entryID: row.id)
+            }
+            .sheet(isPresented: $pickingContact) {
+                ContactPickerSheet(entityName: entity.name) { match in
+                    apply { graph.linkContact(id, identifier: match.identifier, in: modelContext) }
+                    linkedContact = match
+                    contactLookedUp = true
+                }
             }
             .sheet(isPresented: $renaming) {
                 RenameEntitySheet(initial: entity.name, kind: entity.kind, rewrites: graph.renamePreview(id, in: modelContext)) { name in
@@ -205,7 +219,9 @@ private struct EntityPage: View {
                 }
                 .accessibilityIdentifier("entitySpellingPrompt")
             }
-            VStack(alignment: .leading, spacing: 4) {
+            HStack(alignment: .top, spacing: 12) {
+                EntityAvatar(kind: entity.kind, contactIdentifier: entity.contactIdentifier, size: 52)
+                VStack(alignment: .leading, spacing: 4) {
                 Text(EntityPagePresentation.mentionSummary(count: entity.linkCount))
                 if let range = EntityPagePresentation.dateRange(first: entity.firstLinkedAt, last: entity.lastLinkedAt) {
                     Text(range)
@@ -217,6 +233,8 @@ private struct EntityPage: View {
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                 }
+                }
+                Spacer(minLength: 0)
             }
             .accessibilityElement(children: .combine)
             if !entity.isMerged {
@@ -256,6 +274,51 @@ private struct EntityPage: View {
                 graph.unmerge(id, in: modelContext)
             }
             .accessibilityIdentifier("entityUnmerge")
+        }
+    }
+
+    // Read-only, and only ever what the user picked. The name and photo are read live from
+    // Contacts, so nothing about the contact is stored here but its identifier.
+    @ViewBuilder
+    private func contactSection(_ entity: Entity) -> some View {
+        Section {
+            if let identifier = entity.contactIdentifier {
+                if let linkedContact {
+                    LabeledContent("Contact", value: linkedContact.name)
+                        .accessibilityIdentifier("entityContactName")
+                } else if contactLookedUp {
+                    // Deleted from the phone, or access was narrowed since it was linked. The
+                    // identifier is kept either way: granting access again brings it back.
+                    Label("Mindlore can't read this contact", systemImage: "person.crop.circle.badge.questionmark")
+                        .foregroundStyle(.secondary)
+                        .accessibilityIdentifier("entityContactUnreadable")
+                } else {
+                    ProgressView()
+                }
+                Button("Unlink", role: .destructive) {
+                    apply { graph.unlinkContact(entity.id, in: modelContext) }
+                    linkedContact = nil
+                }
+                .accessibilityIdentifier("entityContactUnlink")
+                .task(id: identifier) {
+                    contactLookedUp = false
+                    linkedContact = await contacts.contact(identifier)
+                    contactLookedUp = true
+                }
+            } else {
+                Button {
+                    pickingContact = true
+                } label: {
+                    Label("Link to a contact", systemImage: "person.crop.circle.badge.plus")
+                }
+                .accessibilityIdentifier("entityContactLink")
+            }
+        } header: {
+            Text("Contact")
+        } footer: {
+            if entity.contactIdentifier == nil {
+                Text("Shows their photo here and on their card. Mindlore reads only the contact you pick.")
+            }
         }
     }
 

@@ -15,6 +15,7 @@ struct RootView: View {
     @State private var network = NetworkMonitor()
     @State private var indexing: GraphIndexingProgress?
     @State private var graph: GraphServices
+    private let contacts: any ContactDirectory = CNContactDirectory()
     @State private var router: AppRouter
     @State private var confirmingDiscard = false
     private let context: ModelContext
@@ -151,6 +152,9 @@ struct RootView: View {
         .environment(graph)
         .environment(router)
         .environment(recording)
+        // The address book, injected like every other boundary: nothing asks for permission
+        // until the user taps a row on a person's page.
+        .environment(\.contactDirectory, contacts)
         .overlay {
             if let indexing {
                 GraphIndexingOverlay(progress: indexing)

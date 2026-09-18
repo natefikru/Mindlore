@@ -52,6 +52,11 @@ final class Entity {
     // Suggestion partners the user said were not the same thing.
     var notSameAs: [UUID] = []
 
+    // The CNContact this person is, when the user has linked one. Only the identifier: the name,
+    // the photo, and everything else stay in Contacts and are read live, so the app never holds a
+    // copy of the address book.
+    var contactIdentifier: String?
+
     // Denormalized so the map and Mind's panel read them without walking links. GraphIndexer.recount owns them.
     var linkCount: Int = 0
     var firstLinkedAt: Date?

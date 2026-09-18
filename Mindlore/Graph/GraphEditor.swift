@@ -83,8 +83,8 @@ struct GraphEditor {
     // not change as the user types.
     func renamePreview(_ entity: Entity, in context: ModelContext) -> EntityProseRewriter.Counts {
         guard !entity.isMerged else { return .init() }
-        // A sentinel the matcher will never find in prose, so nothing is written and the walk
-        // only counts. The rename itself counts again when it actually runs.
+        // The same walk the rename uses, counting instead of writing, so what the sheet promises
+        // and what happens can't disagree. The rename counts again when it actually runs.
         return EntityProseStore.countOnly(name: entity.name, entityID: entity.id, in: context)
     }
 
@@ -107,6 +107,12 @@ struct GraphEditor {
                 return .collides(with: clash.id)
             }
         }
+        // Past the collision guard, which returns before touching anything: only a person can be
+        // a contact, so changing away from one drops the link in the same edit.
+        if kind != .person, entity.contactIdentifier != nil {
+            entity.contactIdentifier = nil
+            diagnostics.record("graph.contactUnlinked", ["id": .id(entity.id)])
+        }
         entity.kind = kind
         // Keyed again under the new kind, or the resolver and the collision check stop
         // agreeing about what this answers to.
@@ -115,6 +121,29 @@ struct GraphEditor {
         entity.kindEditedByUser = true
         claim(entity)
         diagnostics.record("graph.entityEdited", ["id": .id(entity.id), "field": "kind", "kind": .string(kind.rawValue)])
+        return .applied
+    }
+
+    // MARK: - The phone's own world
+
+    // Only the identifier is stored. The contact's name and photo are read live from Contacts,
+    // so the app never holds a copy of the address book and a contact edited on the phone shows
+    // its new photo here without anything syncing.
+    @discardableResult
+    func linkContact(_ entity: Entity, identifier: String, in context: ModelContext) -> EditOutcome {
+        let trimmed = identifier.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard entity.kind == .person, !trimmed.isEmpty, entity.contactIdentifier != trimmed else { return .applied }
+        entity.contactIdentifier = trimmed
+        claim(entity)
+        diagnostics.record("graph.contactLinked", ["id": .id(entity.id)])
+        return .applied
+    }
+
+    @discardableResult
+    func unlinkContact(_ entity: Entity, in context: ModelContext) -> EditOutcome {
+        guard entity.contactIdentifier != nil else { return .applied }
+        entity.contactIdentifier = nil
+        diagnostics.record("graph.contactUnlinked", ["id": .id(entity.id)])
         return .applied
     }
 

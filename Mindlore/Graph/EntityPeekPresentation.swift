@@ -11,6 +11,9 @@ enum EntityPeekPresentation {
         let lastMentioned: Date?
         let recentEntryCount: Int
         var openLooseEnd: String? = nil
+        // The linked CNContact, when there is one. The card reads the photo itself: the summary
+        // stays pure so it can be tested without an address book.
+        var contactIdentifier: String? = nil
     }
 
     static let recentDays = 30
@@ -65,6 +68,7 @@ enum EntityPeekPresentation {
             now: now
         )
         result.openLooseEnd = looseEnd?.text
+        result.contactIdentifier = entity.contactIdentifier
         return result
     }
 }
