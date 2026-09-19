@@ -17,7 +17,8 @@ struct GrowingTextEditor: UIViewRepresentable {
         view.delegate = context.coordinator
         view.isScrollEnabled = false
         view.backgroundColor = .clear
-        view.font = .preferredFont(forTextStyle: .body)
+        view.font = .journal(.body)
+        view.textColor = UIColor(Palette.ink)
         view.adjustsFontForContentSizeCategory = true
         view.textContainerInset = UIEdgeInsets(top: 8, left: 0, bottom: 8, right: 0)
         view.textContainer.lineFragmentPadding = 0

@@ -91,6 +91,7 @@ struct EntryEditorView: View {
             }
             .scrollDismissesKeyboard(.interactively)
         }
+        .background(Palette.paper.ignoresSafeArea())
         .navigationTitle(title)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
@@ -275,14 +276,14 @@ struct EntryEditorView: View {
             }
             if isReading, let entry {
                 Text(entry.displayTitle)
-                    .font(.title3.weight(.semibold))
+                    .font(.system(.title3, design: .serif, weight: .semibold))
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.horizontal, 21)
                     .padding(.top, 8)
                     .accessibilityIdentifier("entryTitleText")
             } else {
                 TextField(entry.map(\.displayTitle) ?? "Title", text: titleBinding)
-                    .font(.title3.weight(.semibold))
+                    .font(.system(.title3, design: .serif, weight: .semibold))
                     .padding(.horizontal, 21)
                     .padding(.top, 8)
                     .submitLabel(.next)
@@ -436,7 +437,9 @@ struct EntryEditorView: View {
 
     private func readBody(for entry: Entry) -> some View {
         Text(readText(for: entry))
-            .font(.body)
+            .journalText()
+            .lineSpacing(6)
+            .foregroundStyle(Palette.ink)
             .textSelection(.enabled)
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, 21)

@@ -69,6 +69,7 @@ struct SpeechSettingsView: View {
                 .disabled(!AIServices.pagesUsable(settings: settings, accounts: accounts) && !settings.aiEnabled)
             }
         }
+        .paperBackground()
         .navigationTitle("Speech to Text")
         .navigationBarTitleDisplayMode(.inline)
     }
@@ -100,6 +101,7 @@ struct PageSettingsView: View {
                 Text("Photographed journal pages are sent to this model, one page at a time. You review the text before anything else runs on it.")
             }
         }
+        .paperBackground()
         .navigationTitle("Journal Pages")
         .navigationBarTitleDisplayMode(.inline)
     }
@@ -133,6 +135,7 @@ struct TitleSettingsView: View {
                 }
             }
         }
+        .paperBackground()
         .navigationTitle("Titles")
         .navigationBarTitleDisplayMode(.inline)
     }
@@ -176,6 +179,7 @@ struct AskSettingsView: View {
             }
 
         }
+        .paperBackground()
         .navigationTitle("Ask")
         .navigationBarTitleDisplayMode(.inline)
     }
@@ -277,6 +281,7 @@ struct InsightsSettingsView: View {
                 .accessibilityIdentifier("customInsightsLink")
             }
         }
+        .paperBackground()
         .navigationTitle("Insights")
         .navigationBarTitleDisplayMode(.inline)
     }
@@ -329,6 +334,7 @@ struct CustomInsightsSettingsView: View {
                 .accessibilityIdentifier("addCustomPromptButton")
             }
         }
+        .paperBackground()
         .navigationTitle("Custom Insights")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar { EditButton() }
@@ -368,6 +374,7 @@ private struct CustomPromptEditor: View {
                     Text("Written for the AI, about the entry. It answers with nothing when the entry gives it nothing to say.")
                 }
             }
+            .paperBackground()
             .navigationTitle("Custom Insight")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {

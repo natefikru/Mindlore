@@ -66,6 +66,18 @@ final class AppRouter {
         self.closed = closed
     }
 
+    // The entry the Keep card is showing, right after a recording. An overlay rather than a sheet: it
+    // appears while the recorder's cover is still leaving, and a sheet presented then is dropped.
+    private(set) var keptEntryID: UUID?
+
+    func showKeep(_ id: UUID) {
+        keptEntryID = id
+    }
+
+    func dismissKeep() {
+        keptEntryID = nil
+    }
+
     // Replaces Journal's path rather than appending, so a finished recording never lands on top of
     // another open entry.
     func showEntry(_ id: UUID, forReading: Bool = false) {
@@ -74,6 +86,7 @@ final class AppRouter {
             pendingJump = .entry(route)
             return
         }
+        keptEntryID = nil
         dismissPresentationsToken += 1
         tab = .journal
         journalPath = [route]
@@ -100,6 +113,7 @@ final class AppRouter {
             pendingJump = .mind(entityID)
             return
         }
+        keptEntryID = nil
         dismissPresentationsToken += 1
         mindFocusToken += 1
         mindFocusRequest = MindFocusRequest(id: entityID, token: mindFocusToken)

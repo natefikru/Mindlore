@@ -751,6 +751,8 @@ Retrieval, not the Ask surface. Research in `tasks/a9-ask-retrieval-research.md`
 
 ## Not in scope
 
+- **Phase B, "Feel":** the UI and UX phase (identity, the Keep moment, Today, first run, App
+  Intents). Planned in `tasks/phase-b-ux.md` on `feature/phase-b`, and it comes before Reflect.
 - **Reflect:** weekly and monthly recaps, area balance charts, mood over time. That's the next
   phase.
 - **Semantic search and embeddings.** Ask uses names, keywords, and dates only.

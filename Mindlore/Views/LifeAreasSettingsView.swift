@@ -18,6 +18,7 @@ struct LifeAreasSettingsView: View {
             LifeAreaDebugSection()
             #endif
         }
+        .paperBackground()
         .navigationTitle("Life areas")
         .navigationBarTitleDisplayMode(.inline)
     }

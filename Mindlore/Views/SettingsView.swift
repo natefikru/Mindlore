@@ -20,6 +20,7 @@ struct SettingsView: View {
                     Text("When this is off, a recording is deleted once its text has been generated and you've closed the entry.")
                 }
             }
+            .paperBackground()
             .navigationTitle("Settings")
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {

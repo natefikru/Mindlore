@@ -33,6 +33,7 @@ struct AskHistoryView: View {
                     refresh()
                 }
             }
+            .paperBackground()
             .overlay {
                 if conversations.isEmpty {
                     ContentUnavailableView("No conversations yet", systemImage: "clock.arrow.circlepath")

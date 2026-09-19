@@ -63,6 +63,7 @@ struct EntryInsightsView: View {
                         .opacity(state == .stale ? 0.6 : 1)
                 }
             }
+            .paperBackground()
             .navigationTitle("Insights")
             .navigationBarTitleDisplayMode(.inline)
             .navigationDestination(for: EntityRoute.self) { route in
