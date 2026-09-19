@@ -1,4 +1,5 @@
 import Foundation
+import NaturalLanguage
 
 // One ranked list where Ask used to have four tiers. An immutable snapshot of the journal's words,
 // built off the main actor and holding no entry text: the plan chooses ids, and AskSources fetches
@@ -99,6 +100,12 @@ nonisolated struct AskIndex: Sendable {
     static let contextWeight: Double = 1.5
     // How much a context hit counts against a body hit. Below 1 on purpose.
     static let contextFactor = 0.4
+    // A lemma is weaker evidence than the word the person actually wrote, so it is indexed beside
+    // the surface form rather than instead of it, at a fraction of its weight. Indexing both at
+    // equal weight is what flattens idf: "read" and "reading" collapse into one term, the entries
+    // that used to be separated by which form they used stop being separable, and two questions
+    // that worked regress. Measured: at 1.0 two regressed, at this weight neither does.
+    static let lemmaFactor = 0.4
     // A two-year-old entry that answers the question shouldn't be buried under last Tuesday, so
     // age can cost a score 1.43x at most. It breaks ties; it doesn't overturn relevance.
     //
@@ -196,18 +203,31 @@ nonisolated struct AskIndex: Sendable {
             var length = 0
             var contextLength = 0
 
+            func put(_ token: String, weight: Double, isBody: Bool, countsTowardLength: Bool) {
+                let id = intern(token, into: &termIDs)
+                var found = weights[id] ?? (0, 0)
+                if isBody {
+                    found.body += Float(weight)
+                    if countsTowardLength { length += 1 }
+                } else {
+                    found.context += Float(weight)
+                    if countsTowardLength { contextLength += 1 }
+                }
+                weights[id] = found
+            }
+
             func add(_ text: String, weight: Double, isBody: Bool) {
-                for token in tokens(in: text) {
-                    let id = intern(token, into: &termIDs)
-                    var found = weights[id] ?? (0, 0)
-                    if isBody {
-                        found.body += Float(weight)
-                        length += 1
-                    } else {
-                        found.context += Float(weight)
-                        contextLength += 1
-                    }
-                    weights[id] = found
+                let surface = tokens(in: text)
+                for token in surface {
+                    put(token, weight: weight, isBody: isBody, countsTowardLength: true)
+                }
+                // The lemma of every word the entry did not already spell that way, so "ran" is
+                // findable by "run". It does not lengthen the document: length is how many words
+                // were written, and BM25 normalizes by it, so counting a shadow term would make
+                // every entry look more diluted than it is.
+                let written = Set(surface)
+                for lemma in lemmas(in: text) where !written.contains(lemma) {
+                    put(lemma, weight: weight * lemmaFactor, isBody: isBody, countsTowardLength: false)
                 }
             }
 
@@ -296,6 +316,30 @@ nonisolated struct AskIndex: Sendable {
     }
 
     private static let apostrophes: Set<Character> = ["'", "\u{2019}"]
+
+    // Apple's lemmatizer, run over the whole string so it has the sentence context it needs.
+    // A stemmer would not do: the misses this exists for are irregular verbs, and "ran" stems to
+    // "ran". Only a lexicon turns it into "run". Costs about 2ms an entry, which is why it runs at
+    // index time, off the main actor, and never on a query path that is already hot.
+    static func lemmas(in text: String) -> [String] {
+        guard !text.isEmpty else { return [] }
+        let tagger = NLTagger(tagSchemes: [.lemma])
+        tagger.string = text
+        var found: [String] = []
+        tagger.enumerateTags(in: text.startIndex..<text.endIndex, unit: .word, scheme: .lemma, options: [.omitPunctuation, .omitWhitespace]) { tag, _ in
+            guard let lemma = tag?.rawValue else { return true }
+            // Through the same gate as a surface token, so folding, the apostrophe split, and the
+            // minimum length all apply and a lemma can never be a term shape the index never sees.
+            // Stop words are dropped here rather than by the caller: a surface stop word is
+            // harmless because no query ever asks for one, but a lemma is generated, and
+            // "going" lemmatizes to "go" while "what" and "why" stay themselves. Without this the
+            // query side asks for all of them and a question of nothing but stop words stops
+            // being a question about its subject.
+            found.append(contentsOf: tokens(in: lemma).filter { !AskContextBuilder.stopWords.contains($0) })
+            return true
+        }
+        return found
+    }
 
     static func monthAndYear(of date: Date) -> String {
         monthYearFormatter.string(from: date)
@@ -426,7 +470,7 @@ nonisolated struct AskIndex: Sendable {
     // nothing but stop words ("my", "go", "today"), is the caller's cue to fall back to matching the
     // middle of a word, which is what the old predicate did and what JournalSearch still does.
     func search(text: String, sendableOnly: Bool = false, asOf: Date) -> [Scored] {
-        let terms = AskRetrievalQuery.terms(in: text).map { Term(text: $0) }
+        let terms = AskRetrievalQuery.expanded(text).map { Term(text: $0.text, weight: $0.weight) }
         guard !terms.isEmpty else { return [] }
         return search(Query(terms: terms, expandsLastTerm: true, sendableOnly: sendableOnly, asOf: asOf))
     }

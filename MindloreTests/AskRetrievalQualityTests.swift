@@ -88,6 +88,10 @@ struct AskRetrievalQualityTests {
             Scenario(question: "What did I put in the garden?", expected: ["garden"]),
             Scenario(question: "Did I go running?", expected: ["running"]),
             Scenario(question: "What did Sarah and I do together?", expected: ["river-sarah", "kayak", "birthday"]),
+            // Was a known miss until AskIndex started indexing lemmas: "run" against "ran" is an
+            // irregular verb, so a stemmer would not have moved it and a lexicon did. Promoted
+            // rather than quietly enjoyed, which is what the miss assertion asks for.
+            Scenario(question: "How was the run?", expected: ["running"], note: "lemma, was a known miss"),
         ]
     }
 
@@ -98,8 +102,6 @@ struct AskRetrievalQualityTests {
             // The vocabulary gap. The journal says "running on empty"; nobody asks it that way.
             // Worse, "spring" pulls in the entry about Maya moving in the spring instead.
             Scenario(question: "Was I burnt out in the spring?", expected: ["burnout"], note: "synonym"),
-            // Morphology. "Ran" and "run" are different terms without stemming.
-            Scenario(question: "How was the run?", expected: ["running"], note: "no stemming"),
         ]
     }
 
