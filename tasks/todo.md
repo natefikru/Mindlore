@@ -728,6 +728,37 @@ Retrieval, not the Ask surface. Research in `tasks/a9-ask-retrieval-research.md`
 - [ ] Device comparison against A5's 2D (label readability, tap accuracy, frame time, feel)
       written in the review log. The owner decides. Delete the spike unless 3D wins.
 
+**The comparison, when there is a phone.** Not run yet: the pass was set up on 2026-09-19 and the
+phone was remote, `tunnelState: disconnected`.
+
+```bash
+cd .claude/worktrees/a9-3d-spike        # or wherever the branch is checked out
+scripts/device/deploy.sh
+scripts/device/launch.sh 3d-spike -- -seedDemoJournal 300
+scripts/device/pull-logs.sh 3d-spike    # after backing out of the spike
+```
+
+`deploy.sh` keeps app data and `seedIfEmpty` only fills an empty store, so on a phone that already
+holds entries the seed does not run and the spike draws that journal instead. Read the node count
+off the spike's own readout and out of `graph.rendered3D` before believing the argument took; see
+"Prove the launch argument reached the app" in `tasks/lessons.md`. A 300-node comparison needs the
+app deleted from the phone first.
+
+1. Settings, first row, 3D spike. Do the 40 labels read at rest, and in the dense cluster? Against
+   Mind's 2D labels at the same zoom.
+2. Tap ten nodes you mean to hit, hubs and leaves. Count the misses. Tap the sphere: labels carry
+   no collision shape, by design.
+3. Orbit with one finger, pinch to zoom. Does a quick tap after orbiting still select, or does the
+   drag eat it? That is the one gesture risk the review flagged.
+4. Orbit for five seconds, back out, `pull-logs.sh`. Compare `graph.rendered3D`'s p50/p95 against
+   `graph.rendered`'s from a Mind visit in the same run, remembering the two sample the same rule
+   over different windows.
+5. Does the depth tell you anything 2D does not, or is it a good-looking ball you cannot read?
+
+Deleting the spike, if 3D loses: `rm -rf Mindlore/Views/Mind/Spike3D
+MindloreTests/GraphSimulation3DTests.swift`, the `#if DEBUG` row in `SettingsView`, and the
+`graph.rendered3D` block and list entry in `DiagnosticsLogTests`.
+
 ### A10: Privacy, review, device, docs
 - [ ] Privacy test covers every new event.
 - [ ] Sub-agent code review over the whole diff. Fixes go in separate commits.
