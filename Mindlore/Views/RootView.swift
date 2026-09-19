@@ -110,7 +110,12 @@ struct RootView: View {
             makeLiveSession: { SpeechAnalyzerLiveSession(locale: $0) },
             speechEngine: { settings.speechEngine },
             afterIngest: { await transcription.processQueue(context: context) },
-            onFinished: { appRouter.showEntry($0.id) },
+            // A recording ends in the Keep card, not the editor. Nothing opens, so nothing closes to
+            // start the entry's automatic pass: the card's arrival is that moment.
+            onFinished: { entry in
+                aiPass.recordingKept(entry, in: context)
+                appRouter.showKeep(entry.id)
+            },
             takePrompt: {
                 let text = RecordingSession.takePrompt(in: context)
                 if text != nil { saver.noteChange() }
@@ -168,6 +173,15 @@ struct RootView: View {
         // until the user taps a row on a person's page.
         .environment(\.contactDirectory, contacts)
         .environment(\.placeDirectory, places)
+        .overlay {
+            if let kept = router.keptEntryID {
+                KeepCard(entryID: kept)
+                    .id(kept)
+                    .environment(graph)
+                    .environment(insights)
+                    .environment(router)
+            }
+        }
         .overlay {
             if let indexing {
                 GraphIndexingOverlay(progress: indexing)

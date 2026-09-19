@@ -253,22 +253,32 @@ B0 must not turn into a refactor of every view.
   it with `simctl ui <udid> appearance dark` on a booted device. 1177 unit tests pass.
 
 ### B1: The Keep moment (M)
-- [ ] `Views/Capture/KeepCard.swift`, `KeepModel.swift` (observes the entry by id, re-fetches
+- [x] `Views/Capture/KeepCard.swift`, `KeepModel.swift` (observes the entry by id, re-fetches
       after each await, tolerates the entry being deleted underneath it).
-- [ ] Shared insight card pieces pulled out of `InsightCards.swift`.
-- [ ] `RecordAccessory`, `RecordingView`, and the `onFinished` route in `RootView` (line 113
+- [x] Shared insight card pieces pulled out of `InsightCards.swift`.
+- [x] `RecordAccessory`, `RecordingView`, and the `onFinished` route in `RootView` (line 113
       today), which shows the card instead of calling `appRouter.showEntry`. Voice only.
-- [ ] `keep.shown` and `keep.dismissed` events, counts only, with privacy test cases.
-- [ ] Unit tests for `KeepModel`'s progression on the existing fakes, including AI off, offline,
+- [x] `keep.shown` and `keep.dismissed` events, counts only, with privacy test cases.
+- [x] Unit tests for `KeepModel`'s progression on the existing fakes, including AI off, offline,
       and text arriving late from the cloud path. Tests for the pass: text arriving under the
       card fires `.textReady` once, tapping through to the editor and closing it doesn't fire a
       second pass, and typing in the editor mid-run drops the stale insights.
-- [ ] "Closed" and "N new connections" come from stored data: `LooseEnd.resolvedByEntryID ==
+- [x] "Closed" and "N new connections" come from stored data: `LooseEnd.resolvedByEntryID ==
       entry.id`, and the entry's `EntityLink`s whose entity has `linkCount == 1` or
       `firstLinkedAt` from this entry. Fetched by id after `graph.revision` moves. `RecordingUITests` expects the editor after
       Finish: keep a tap-through and update it.
 - Leaves alone: coordinators, `AIPassTrigger`, `EntrySaver`.
 - Device: haptics, real transcription timing.
+- Built as an overlay on `RootView`, not a sheet: the card appears while the recorder's cover is
+  still leaving, and a sheet presented in that moment is dropped. Any router jump takes it down.
+- Found while building: a live-transcribed recording is never `awaitingText`, so it never reaches
+  the transcription queue and `.textReady` never fires for it. With no editor opening there was
+  no editor closing either, and its insights would have waited for the next launch sweep.
+  `AIPassTrigger.recordingKept` fires a new `.kept` moment as the card appears; an entry still
+  waiting for its text is left for `.textReady`.
+- `KeepSnapshot` reads what was noticed from stored links and loose ends (merges resolved, hidden
+  names, tags, and "other" left out, new names first, capped at six). `KeepScreenshotTests` drives
+  the stubbed pipeline and photographs the card filling in. 1191 unit tests pass.
 
 ### B2a: Journal rows (S to M)
 - [ ] `EntryListView` rows, toolbar, filter chips. Row counting in UI tests already counts

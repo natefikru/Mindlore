@@ -43,8 +43,18 @@ final class RecordingUITests: XCTestCase {
         XCTAssertTrue(finish.waitForExistence(timeout: 5))
         finish.tap()
 
-        // Finishing lands on the new entry, on the Journal tab.
+        // Finishing ends in the Keep card, wherever the user is, and the recording is already an entry.
+        XCTAssertTrue(app.descendants(matching: .any)["keepCard"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.staticTexts["Kept"].exists)
+        let shot = XCTAttachment(screenshot: app.screenshot())
+        shot.name = "keep-card"
+        shot.lifetime = .keepAlways
+        add(shot)
+
+        // The card leads to the new entry, on the Journal tab.
+        app.buttons["keepOpenEntry"].tap()
         XCTAssertTrue(app.textViews["entryEditor"].waitForExistence(timeout: 10))
+        XCTAssertFalse(app.descendants(matching: .any)["keepCard"].exists)
         XCTAssertTrue(app.tabBars.buttons["Journal"].isSelected)
         // The accessory is only there while a recording runs.
         XCTAssertFalse(app.buttons["recordingAccessory"].exists)
