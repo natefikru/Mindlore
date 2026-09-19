@@ -1321,3 +1321,27 @@ A9 (2026-09-19):
 - Tests: 1187 unit tests pass. No UI tests; a throwaway one drove the screenshots and was deleted.
 - **Still the owner's call.** The comparison is label readability, tap accuracy, frame time, and
   feel at 300 nodes, on the phone, against Mind's 2D map. The spike is deleted unless 3D wins.
+
+HTTP byte count flake (2026-09-19):
+
+- **Not a race, and not the test's fault.** `URLSessionHTTPClientTests` was failing on
+  `tracker.bytesSent >= 20_000` with 0. The guess going in was that `countOfBytesSent` was being read
+  a moment too early. Measured instead, 300 successful 20 KB uploads and 100 closed mid-upload
+  against the local server: the counter read 0 in 141 of 300 and 75 of 100, and it still read 0
+  100 ms later. It only moves when a `didSendBodyData` report is delivered, and those were exactly
+  the runs where none was. Reading it later would never have helped, and neither would
+  `didCompleteWithError`, which a per-task delegate on the async API never received (0 of 400).
+- **The task's metrics are the honest number.** `didFinishCollecting` had landed before
+  `upload(for:from:)` returned or threw in 400 of 400, with the right body bytes and the header
+  bytes as well (339 to 341). `TaskTracker.bytesSent` is now the larger of the metrics and the live
+  counter. The assertion is untouched, and the closed-mid-upload test now also holds the tracker
+  above 0, which is the reading production depends on.
+- **In production it was a latent wrong answer, narrow.** `AIError.from` calls a failure offline only
+  when the code is a never-connected one *and* no bytes went out. The second half was a coin toss,
+  so the guard was doing nothing: any never-connected code became offline whatever had been sent,
+  and an offline failure rolls the attempt back instead of counting it. What keeps it narrow is
+  that the ordinary failure after bytes go out is `networkConnectionLost` (every one of the 100
+  closed uploads), which is not in the set. Not reproduced: a never-connected code after bytes left.
+  All of this is the simulator over loopback; the phone's radio may report progress differently.
+- Tests: the HTTP suite 40 times in a row, 200 of 200 passing, against a 47 percent failure rate
+  for the same read before. 1207 unit tests pass, as at the base. No UI tests.

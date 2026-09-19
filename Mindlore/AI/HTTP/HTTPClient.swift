@@ -57,17 +57,30 @@ nonisolated final class URLSessionHTTPClient: HTTPClient {
     }
 }
 
-// Captures the task so a failure can tell whether any bytes reached the network.
+// Tells a failure whether any bytes reached the network. `countOfBytesSent` alone cannot: it only
+// moves when a progress report is delivered, and an upload that finishes or dies first leaves it
+// at 0 for good (141 of 300 successful 20 KB uploads, 75 of 100 closed mid-upload, measured on the
+// simulator 2026-09-19, still 0 100 ms later). The task's metrics had landed before the call
+// returned in all 400, and count the header bytes too, so they are the floor and the live counter
+// only covers a task whose metrics never came.
 nonisolated final class TaskTracker: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
     private let lock = NSLock()
     private var task: URLSessionTask?
+    private var metricsBytesSent: Int64 = 0
 
     func urlSession(_ session: URLSession, didCreateTask task: URLSessionTask) {
         lock.withLock { self.task = task }
     }
 
+    func urlSession(_ session: URLSession, task: URLSessionTask, didFinishCollecting metrics: URLSessionTaskMetrics) {
+        let sent = metrics.transactionMetrics.reduce(Int64(0)) {
+            $0 + $1.countOfRequestHeaderBytesSent + $1.countOfRequestBodyBytesSent
+        }
+        lock.withLock { metricsBytesSent = sent }
+    }
+
     var bytesSent: Int64 {
-        lock.withLock { task?.countOfBytesSent ?? 0 }
+        lock.withLock { max(metricsBytesSent, task?.countOfBytesSent ?? 0) }
     }
 
     var sawTask: Bool {
