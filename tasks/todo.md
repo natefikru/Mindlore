@@ -1226,3 +1226,29 @@ A9b PR 2 (2026-09-18):
 - Tests: 1160 unit tests pass, 1024 at the base, and 5 Ask UI tests. The cost line now has a UI test
   that fails if it prints its own markup again.
 - **The device pass is deferred with PR 1's**, to A10.
+
+A9c (2026-09-19):
+
+- **The measurement first, then one thing it justified.** `AskRetrievalParaphraseTests` turned the
+  two known misses into a rate: 57 entries, 25 questions the journal answers in different words,
+  sorted by why they are hard, against 8 control questions that share the entries' words. Control
+  1.00 at recall@5, paraphrases 0.20, and 18 of the 25 found nothing at all.
+- **Lemmas, because a stemmer would not have done it.** Both morphology misses are irregular verbs,
+  and "ran" stems to "ran". `AskIndex` stores the lemma of anything an entry inflected beside the
+  word actually written, at `lemmaFactor` 0.4 and not counted in document length. Equal weight
+  collapses "read" and "reading" and regresses two questions that worked; counting a shadow term
+  makes every entry look more diluted than it is under BM25. `AskRetrievalQuery.expanded` is the
+  query half and the panel shares it, or the panel would expand fewer words than the question did.
+- Paraphrases 0.20 to 0.31, morphology 0.50 to 1.00, control still 1.00. "How was the run?" was
+  promoted out of the known misses, which is what that assertion asks for when one starts passing.
+- **Indirect description stays at 0.00** over seven questions, before and after. "Did my rent go up?"
+  against "Ninety more a month" shares no word at all. That class is the case for embeddings, and it
+  is now a measured class rather than an argument.
+- Three mistakes are pinned as tests in `AskIndexLemmaTests`, because each raised the paraphrase
+  number while breaking something the number cannot see. The worst: lemmas that skipped the stop
+  list turned "Why do you think that started?" into a question about "go" and "what", took four
+  tests red, and pushed the score **up** to 0.43 on spurious matches.
+- Tests: 1171 unit tests pass, 1162 at the base, and the Ask UI tests still pass.
+- **The device pass joins PR 1 and PR 2's, in A10**, plus one of its own: lemmatization measures
+  2.0 ms an entry in the simulator, so a thousand-entry rebuild is about two seconds off the main
+  actor. Unverified on a phone.
