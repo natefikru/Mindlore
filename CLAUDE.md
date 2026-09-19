@@ -84,7 +84,14 @@ after the system prompt and the answer headroom come out.
   hit beats a context-only one. That is how a question about Maya reaches an entry that never spells
   her name, without forty linked entries scoring the same. Recency reuses `EntityGraph`'s 90-day
   half-life with a floor of 0.7, which breaks ties without overturning relevance; the constant's
-  comment carries the measurement.
+  comment carries the measurement. A document also stores the **lemma** of anything it inflected,
+  beside the word actually written, at `lemmaFactor` 0.4 and not counted in document length, so
+  "run" finds "ran". Both weights matter: at 1.0 "read" and "reading" collapse into one term and
+  questions that worked regress, and counting a shadow term would make every entry look more
+  diluted than it is under BM25. `AskIndex.lemmas` drops stop words itself, because a surface stop
+  word is harmless (no query asks for one) but "going" lemmatizes to the stop word "go".
+  `AskRetrievalQuery.expanded` is the query half, and both the prompt and the panel go through it,
+  or the panel would expand fewer words than the question did.
 - **`AskRetrievalQuery` gives retrieval the conversation.** The last three questions contribute terms
   decayed 1, 0.5, 0.25, highest weight winning rather than the sum, so "Why do you think that
   started?" stays about whoever the turn before was about. A range the question names filters; a range
@@ -121,12 +128,19 @@ after the system prompt and the answer headroom come out.
   sent. A row that ranked on something invisible, a tag or a mood or a month, says which.
 - **Diagnostics** (`ask.indexed`, `ask.retrieved`, `ask.answered`, `ask.failed`) carry counts,
   durations, bools, and rounded scores. Never a term, a tag, a name, a question, or a handle map.
-- **Measured, not assumed.** `AskRetrievalQualityTests` is a fixed 25-entry corpus and 15 questions
-  whose expected answers were written from the entry text before retrieval ran once, asserted per
-  question, with follow-ups scored with the continuity slice disabled so they cannot pass on what the
-  last turn was already holding. Two known misses are asserted as misses: a synonym ("burnt out"
-  against "running on empty") and morphology ("ran" against "run"). Those are the argument for
-  embeddings, and they stay measured rather than argued.
+- **Measured, not assumed.** Two suites, doing different jobs. `AskRetrievalQualityTests` is the
+  regression guard: a fixed 25-entry corpus and 16 questions whose expected answers were written
+  from the entry text before retrieval ran once, asserted per question, with follow-ups scored with
+  the continuity slice disabled so they cannot pass on what the last turn was already holding. Its
+  known misses are asserted *as* misses, so one starting to work goes red and has to be promoted
+  rather than quietly enjoyed; that is how "How was the run?" moved into the fair set when lemmas
+  landed. One miss remains, the synonym ("burnt out" against "running on empty").
+  `AskRetrievalParaphraseTests` is the rate: 57 entries, 25 questions the journal answers in
+  different words, sorted by why they are hard, against 8 control questions that share the entries'
+  words. Control 1.00 at recall@5; paraphrases 0.20 before lemmas and 0.31 after, with morphology
+  1.00 and **indirect description 0.00** over seven questions. That last class is what nothing
+  lexical reaches ("Did my rent go up?" against "Ninety more a month"), and it is the argument for
+  embeddings, measured rather than argued.
 
 **Graph** (`Mindlore/Graph/`, `Mindlore/Views/Graph/`). Turns the mentions and tags `EntryInsights`
 already stores into entities people, places, organizations, projects, events, and tags can share, resolve to, merge into, and see co-occurrence and a force-directed picture
