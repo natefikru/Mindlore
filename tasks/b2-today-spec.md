@@ -284,6 +284,35 @@ One commit.
   the type and adds one caller; the rest is a separate pass.
 - iPad layouts, localisation, user-picked accents.
 
+## Build log
+
+Revision 2 built in five commits off `feature/phase-a` at `dc81233`, as PR #16. What the build
+found that the plan did not say:
+
+- B2a was mostly done by B0. The row already had its serif title, area dots, date, source glyph,
+  and preview; what was missing was the surface, the separators, the sparkles, and the chips.
+- There were no swipe actions to preserve, only `.onDelete` and its per-section offsets. Making the
+  card the row's *background* rather than a wrapper leaves that mapping untouched.
+- `TodayHeader` needed `.accessibilityElement(children: .contain)` before `todayHeader` resolved as
+  an element at all; the UI test failed on the identifier, not on the behaviour.
+- The demo journal's settings suite outlives the run that wrote it, so a dismissal UI test would
+  have gone flaky after three same-day runs. `-resetDemoSettings` (Debug only) clears it.
+
+Read-only sub-agent review of the whole diff (2026-09-19), against a recorded baseline of a clean
+tree and 1255 passing tests. Two real bugs, both fixed in their own commit:
+
+1. Muting a lapsed name refreshed Today twice and logged two `today.shown` events for one tap: the
+   edit bumps `graph.revision`, which the fingerprint already watches, and the explicit refresh
+   after it was a second pass. The explicit call goes. A dismissal keeps its explicit refresh,
+   because a settings write moves no counter.
+2. `resurfacingEnabled` and `userName` were not in the fingerprint, so turning resurfacing off in
+   Settings left the card it forbids on screen until an unrelated save happened. The composer test
+   proving "off means never a candidate" was true and unreachable. Both are in the fingerprint now.
+
+The review found the date fetches, the leap-day handling, the `.onDelete` mapping, the privacy
+fields, and the new suites clean, and confirmed the privacy test asserts against composed copy
+rather than the facts fed in.
+
 ## Review log
 
 Revision 1 (read-only sub-agent review, 2026-09-19; 19 findings, the factual ones re-checked

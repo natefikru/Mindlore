@@ -281,19 +281,41 @@ B0 must not turn into a refactor of every view.
   the stubbed pipeline and photographs the card filling in. 1191 unit tests pass.
 
 ### B2a: Journal rows (S to M)
-- [ ] `EntryListView` rows, toolbar, filter chips. Row counting in UI tests already counts
+- [x] `EntryListView` rows, toolbar, filter chips. Row counting in UI tests already counts
       `entryRow`, not cells (A8), so restyled rows are safe; check it still holds.
 - Leaves alone: `JournalGroups`, `JournalFilter` logic.
+- Smaller than this plan assumed: B0 had already given the row its serif title, area dots, date,
+  source glyph, and preview. What was left was the surface (no `.listRowBackground`, so the system
+  row material drew over Paper), the separators, the sparkles, and the chips, which were still
+  hand-rolled rather than `chip()`.
+- There were no swipe actions to keep: deletion is `.onDelete` on the per-section `ForEach`,
+  routed through `JournalGroups.ids(at:in:)`, and the card is the row's background rather than a
+  wrapper so that mapping is untouched.
+- The toolbar menu is deferred. 11 UI test files tap `newEntryButton` directly, and a `Menu` makes
+  every one of them open it first for no behaviour the user gains. Owner decision 9's "once the
+  accessory is proven" is the moment for both.
 
 ### B2b: Today (L)
-- [ ] `Views/Today/TodayComposer.swift` (pure, `nonisolated`, injected date and plain inputs),
+- [x] `Views/Today/TodayComposer.swift` (pure, `nonisolated`, injected date and plain inputs),
       `TodaySource.swift` (main actor, does the fetching and resolution), `TodayCards.swift`,
       `WeekStrip.swift`. Today is a header section of the `List`, above `JournalGroups`'
       sections, carrying no `entryRow`.
-- [ ] `Entity.resurfacingMuted`, the day-scoped dismissal key in `SettingsStore`.
-- [ ] Unit tests: card priority, on-this-day date maths across leap years and day-only entries
+- [x] `Entity.resurfacingMuted`, the day-scoped dismissal key in `SettingsStore`.
+- [x] Unit tests: card priority, on-this-day date maths across leap years and day-only entries
       (`entryDateIsDayOnly` is noon), hidden and merged entities on both entity and loose-end
       cards, faded loose ends never shown, both kinds of dismissal, a clock stepping back.
+- `resurfacingMuted` had to join `GraphIndexer.recount`'s keep-list. Without it a muted entity that
+  loses its last link is deleted, and the next mention rebuilds it under a new id with the mute
+  forgotten: the person comes back precisely because they were quiet.
+- A loose end names everyone it is about in one sentence, so one hidden or muted subject
+  suppresses the whole card. Privacy over completeness.
+- The refresh fingerprint is `EntrySaver.revision`, `GraphServices.revision`, `JournalSaves.revision`
+  and the day. Not a count: an add plus a delete returns a count to where it was.
+- Every entry fetch filters `entryDate <= now` itself. The composer excludes future dates too, but a
+  future entry fetched as the newest row arrives already labelled "the latest".
+- `-resetDemoSettings` (Debug, beside the demo journal) clears the demo defaults suite, so the
+  dismissal UI test starts from the same place however many times it runs in a day.
+- Full spec, research, and the plan review: `tasks/b2-today-spec.md`. 1255 unit tests pass.
 
 **Cut line.** After B0, B1, B2a, and B2b the app has an identity, a payoff for every entry, and a reason to
 open it tomorrow. If the phase stopped here, the brief would be answered.

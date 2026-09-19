@@ -161,12 +161,18 @@ struct EntryListView: View {
         let graph: Int
         let stamped: Int
         let day: String
+        let resurfacing: Bool
+        let name: String
     }
 
+    // The three counters, the day, and the two settings the composer reads. Without the settings
+    // in here, turning resurfacing off in the sheet leaves the card it forbids on the screen until
+    // something unrelated saves.
     private var todayFingerprint: TodayFingerprint {
         TodayFingerprint(
             saver: saver.revision, graph: graph.revision,
-            stamped: JournalSaves.revision, day: TodayDismissal.stamp(.now)
+            stamped: JournalSaves.revision, day: TodayDismissal.stamp(.now),
+            resurfacing: settings.resurfacingEnabled, name: settings.userName
         )
     }
 
@@ -186,9 +192,11 @@ struct EntryListView: View {
         refreshToday()
     }
 
+    // No refresh here: the edit bumps graph.revision, which is already in the fingerprint, and
+    // refreshing as well would fetch twice and log two today.shown events for one tap. A dismissal
+    // is the other way round, because a settings write moves no counter.
     private func muteFromToday(_ who: EntityFacts) {
         graph.setResurfacingMuted(true, on: who.id, in: modelContext)
-        refreshToday()
     }
 
     // One card per row over Paper. The card is the row's background rather than a wrapper around its
