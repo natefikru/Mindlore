@@ -129,7 +129,28 @@ enum JournalSearch {
         if matched.month { return "written in \(AskIndex.monthAndYear(of: entry.entryDate))" }
         // Ranked on a name the entry never spells. The index knows which entities, but not with
         // which words, so this says the shape of it rather than guessing at a name.
-        return document.entityIDs.isEmpty ? nil : "mentions someone by this name"
+        if !document.entityIDs.isEmpty { return "mentions someone by this name" }
+        // Ranked on a lemma: the entry says "ran" and the question said "run". Every other reason
+        // has been ruled out by here, and a prefix match is not one of them, because "kay" is a
+        // substring of "kayak" and matchedWord would have found it. Without this the row that
+        // lemmas earned is the one kind of row that appears with nothing said about why.
+        return lemmaMatched(query: query, in: entry) ? "a different form of a word you typed" : nil
+    }
+
+    // The entry is what gets lemmatized, because the entry is what carries the inflection: the
+    // journal says "ran" and the question says "run", not the other way round. Lemmatizing the
+    // query instead reads as the cheaper option and answers the rarer half of the pair.
+    //
+    // It only runs for a row that has no other reason to show, which is a small share of them, and
+    // it stops after the first thousand characters. A lemma in paragraph nine of a long entry goes
+    // uncaptioned rather than costing the panel a full lemmatization per row per keystroke.
+    static let lemmaReasonCharacters = 1_000
+
+    static func lemmaMatched(query: String, in entry: Entry) -> Bool {
+        let asked = Set(AskRetrievalQuery.terms(in: query))
+        guard !asked.isEmpty else { return false }
+        let text = String((entry.title + " " + entry.text).prefix(lemmaReasonCharacters))
+        return AskIndex.lemmas(in: text).contains { asked.contains($0) }
     }
 
     static func displayTitle(for entry: Entry) -> String {

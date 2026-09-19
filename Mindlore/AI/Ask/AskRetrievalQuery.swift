@@ -67,12 +67,14 @@ nonisolated struct AskRetrievalQuery: Sendable, Equatable {
         // Kept in order, this question's words first and the oldest turn's last, so the list reads
         // the way the conversation ran.
         var order: [String] = []
+        func put(_ term: String, weight: Double) {
+            if weights[term] == nil { order.append(term) }
+            if weight > (weights[term] ?? 0) { weights[term] = weight }
+        }
+
         func add(_ texts: [String], weight: Double) {
             for text in texts {
-                for term in terms(in: text) {
-                    if weights[term] == nil { order.append(term) }
-                    if weight > (weights[term] ?? 0) { weights[term] = weight }
-                }
+                for expanded in expanded(text, weight: weight) { put(expanded.text, weight: expanded.weight) }
             }
         }
 
@@ -115,6 +117,27 @@ nonisolated struct AskRetrievalQuery: Sendable, Equatable {
     // hold, then filtered by the stop list. The three-letter floor AskContextBuilder.keywords
     // applies is gone: the stop list already covers the two-letter English noise, and dropping it
     // cost "AI" and "NY".
+    // The words a text asks for: the ones it wrote, then the lemma of anything it inflected.
+    //
+    // The other side of what the index does. A question written "ran" also asks for "run",
+    // discounted the same way the index discounts a lemma it stored, so "ran" finding "run" and
+    // "run" finding "ran" score alike rather than depending which way round the pair fell.
+    //
+    // Both the prompt (through `build`) and the search panel (through `AskIndex.search(text:)`)
+    // go through here, because a panel that expanded fewer words than the question did is the
+    // disagreement between the two that A9b PR 2 removed.
+    static func expanded(_ text: String, weight: Double = 1) -> [(text: String, weight: Double)] {
+        // The array, not a set: order is what makes the term list read the way the conversation
+        // ran, and a set shuffles this question's own words.
+        let ordered = terms(in: text)
+        let written = Set(ordered)
+        var result = ordered.map { (text: $0, weight: weight) }
+        for lemma in AskIndex.lemmas(in: text) where !written.contains(lemma) {
+            result.append((text: lemma, weight: weight * AskIndex.lemmaFactor))
+        }
+        return result
+    }
+
     static func terms(in text: String) -> [String] {
         var seen: Set<String> = []
         var result: [String] = []
