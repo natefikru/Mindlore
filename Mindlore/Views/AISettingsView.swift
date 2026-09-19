@@ -87,6 +87,7 @@ struct AISettingsView: View {
             }
             .disabled(!settings.aiEnabled && settings.titleGenerator != .onDevice)
         }
+        .paperBackground()
         .navigationTitle("AI")
         .task {
             // Fills the model pickers; without a key this does nothing.

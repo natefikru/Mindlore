@@ -48,6 +48,7 @@ struct EntryListView: View {
                     }
                 }
             }
+            .paperBackground()
             .overlay {
                 if entries.isEmpty {
                     ContentUnavailableView(
@@ -268,7 +269,7 @@ private struct EntryRow: View {
                         .accessibilityLabel("Journal pages")
                 }
                 Text(entry.text.isEmpty && entry.title.isEmpty ? "No text yet" : entry.displayTitle)
-                    .font(.headline)
+                    .font(.system(.headline, design: .serif))
                     .lineLimit(1)
                     .foregroundStyle(entry.text.isEmpty && entry.title.isEmpty ? .secondary : .primary)
                 Spacer(minLength: 4)

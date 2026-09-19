@@ -197,3 +197,26 @@ files' timestamps all fell inside the reviewer's run window. Neither is an accid
 
 The other nineteen findings were sound, and three of them changed the design. A bad first finding is
 not a reason to discard the rest, only a reason to check every factual claim against the code.
+
+## A fresh simulator has no lemmas on its first run
+
+The first unit run on a newly created simulator failed eight `AskIndexLemmaTests` and one
+`AskRetrievalQualityTests` question: `AskIndex.lemmas(in:)` returned `[]` for everything. The
+second run on the same simulator passed all of them with no code change. `NLTagger`'s lemma scheme
+loads its language assets on first use, and until they are there it tags nothing and reports nothing.
+
+Two things follow. A red lemma suite on a new simulator is not a regression, so run it again before
+reading the diff. And the same cold start can happen on a phone: until the assets load, Ask quietly
+loses "run finds ran" with no error. The A10 device pass should ask a morphology question on a
+fresh install and check `ask.indexed`.
+
+## XCUIDevice.shared.appearance does not reach the simulator
+
+Setting it before `app.launch()` produced ten light screenshots, five of them named "dark". Set the
+appearance from outside, on a booted device (`simctl ui` fails with 405 on a shut-down one):
+
+```bash
+xcrun simctl boot <udid>; xcrun simctl ui <udid> appearance dark
+```
+
+Found only because the screenshots were opened. A screenshot's name is not evidence of its content.

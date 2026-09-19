@@ -50,6 +50,7 @@ struct JournalVoiceSettingsView: View {
                      : "Used only when the voice above is set to your name. It is not sent anywhere until then.")
             }
         }
+        .paperBackground()
         .navigationTitle("How AI writes about you")
         .navigationBarTitleDisplayMode(.inline)
         .onAppear { name = settings.userName }

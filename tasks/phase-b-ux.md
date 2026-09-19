@@ -225,25 +225,32 @@ sub-phase consumes them, and accent plus serif plus icon change the whole app in
 B0 must not turn into a refactor of every view.
 
 ### B0: Foundation and skin (S to M)
-- [ ] `Mindlore/Design/`: `Palette.swift` (names only, values in `Assets.xcassets`),
+- [x] `Mindlore/Design/`: `Palette.swift` (names only, values in `Assets.xcassets`),
       `Typography.swift`, `Motion.swift`, `Haptics.swift`, `CardStyle.swift`, `ChipStyle.swift`.
-- [ ] `AccentColor`, Paper, Card, ink, nine area colours, six kind colours, light and dark.
-- [ ] `LifeArea.color` and `EntityKind.color` are inline system-colour switches in a view file
+- [x] `AccentColor`, Paper, Card, ink, nine area colours, six kind colours, light and dark.
+- [x] `LifeArea.color` and `EntityKind.color` are inline system-colour switches in a view file
       today (`InsightCards.swift:19-33,94-104`). They move to `Design/Palette.swift` and read the
       asset catalog. The property name stays `color`, so the nine call sites don't change.
-- [ ] `GraphCanvasView` reads `kind.color` inside the per-frame draw closure (line 232). Resolve
+- [x] `GraphCanvasView` reads `kind.color` inside the per-frame draw closure (line 232). Resolve
       the palette once per appearance or colour-scheme change into the existing draw cache, not
       by name per node per frame.
-- [ ] Look at every place that composites over a colour (`EntityAvatar.swift:26`'s 0.15 fill,
+- [x] Look at every place that composites over a colour (`EntityAvatar.swift:26`'s 0.15 fill,
       `GraphCanvasView.swift:311`'s bucket opacity, `MindLens`, `SearchPanel`,
       `LifeAreasSettingsView`, `MoodPickerView`), in light and dark.
-- [ ] Serif on entry text and titles, including the one `UIFont` line in `GrowingTextEditor`.
+- [x] Serif on entry text and titles, including the one `UIFont` line in `GrowingTextEditor`.
       The two fixed font sizes go.
-- [ ] Paper behind `List` and `Form` screens.
-- [ ] App icon (needs the owner's eye; a generated first pass, then Icon Composer).
-- [ ] A `DesignScreenshotTests` class covering Journal, editor, Mind with the search panel up, a
+- [x] Paper behind `List` and `Form` screens.
+- [x] App icon, first pass: `scripts/design/icon.swift` draws the three variants with CoreGraphics
+      (ember disc, seven nodes reading as an M). Still wants the owner's eye and an Icon Composer
+      pass for layered glass.
+- [x] A `DesignScreenshotTests` class covering Journal, editor, Mind with the search panel up, a
       peek card, Ask, the insights sheet, and Life areas settings, in light and dark.
-- Leaves alone: every layout.
+- Leaves alone: every layout. Paper went behind the Journal list, the editor, the insights sheet,
+  and the Settings forms. Ask, Mind (pure black behind the graph), and the deep sheets keep the
+  system background until B5 and B7 restyle them. `EntityAvatar`'s glyph keeps its size: it is
+  proportional to a fixed frame, not a type size.
+- Dark screenshots: `XCUIDevice.shared.appearance` did not reach the simulator, so the tour sets
+  it with `simctl ui <udid> appearance dark` on a booted device. 1177 unit tests pass.
 
 ### B1: The Keep moment (M)
 - [ ] `Views/Capture/KeepCard.swift`, `KeepModel.swift` (observes the entry by id, re-fetches

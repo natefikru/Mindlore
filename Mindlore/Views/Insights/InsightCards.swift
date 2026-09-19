@@ -16,22 +16,6 @@ extension MoodCategory {
     }
 }
 
-extension LifeArea {
-    var color: Color {
-        switch self {
-        case .work: .blue
-        case .money: .green
-        case .health: .red
-        case .mind: .indigo
-        case .family: .orange
-        case .love: .pink
-        case .friends: .yellow
-        case .play: .purple
-        case .home: .brown
-        }
-    }
-}
-
 // An entry's life areas as small labelled capsules, with the user's names and without hidden areas.
 struct LifeAreaChips: View {
     @Environment(SettingsStore.self) private var settings
@@ -86,20 +70,6 @@ extension EntityKind {
         case .event: "Events"
         case .other: "Other"
         case .tag: "Tags"
-        }
-    }
-
-    // The graph canvas's node fill, and any kind legend beside it. Seven fixed, visually distinct
-    // colours; never derived from anything else, so a kind's colour stays stable across a session.
-    var color: Color {
-        switch self {
-        case .person: .blue
-        case .place: .green
-        case .organization: .purple
-        case .project: .orange
-        case .event: .red
-        case .tag: .teal
-        case .other: .gray
         }
     }
 

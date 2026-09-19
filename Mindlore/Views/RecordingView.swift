@@ -88,9 +88,10 @@ struct RecordingView: View {
             }
             Button { session.togglePause() } label: {
                 Image(systemName: isCapturing ? "pause.fill" : "record.circle")
-                    .font(.system(size: 40))
+                    .font(.largeTitle)
+                    .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
                     .frame(width: 96, height: 96)
-                    .background(isCapturing ? Color.secondary.opacity(0.2) : Color.red.opacity(0.9), in: Circle())
+                    .background(isCapturing ? Color.secondary.opacity(0.2) : Palette.ember, in: Circle())
                     .foregroundStyle(isCapturing ? Color.primary : Color.white)
             }
             .accessibilityLabel(isCapturing ? "Pause" : "Resume")
