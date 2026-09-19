@@ -39,6 +39,9 @@ final class DesignScreenshotTests: XCTestCase {
         XCTAssertTrue(row.waitForExistence(timeout: 20))
         attach("\(tag)-journal")
 
+        XCTAssertTrue(app.otherElements["todayHeader"].exists, "Today sits above the rows")
+        attach("\(tag)-today")
+
         row.tap()
         XCTAssertTrue(app.descendants(matching: .any)["entryReadText"].waitForExistence(timeout: 10))
         attach("\(tag)-read-mode")

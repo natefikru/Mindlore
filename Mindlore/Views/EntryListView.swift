@@ -14,6 +14,7 @@ struct EntryListView: View {
     @State private var pageOrder: PageOrderTarget?
     @State private var insightsEntry: Entry?
     @State private var pickedAreas: Set<LifeArea> = []
+    @State private var today = Today()
     @Environment(RecordingSession.self) private var recording
     @Environment(InsightsCoordinator.self) private var insightsCoordinator
 
@@ -33,6 +34,12 @@ struct EntryListView: View {
         @Bindable var router = router
         NavigationStack(path: $router.journalPath) {
             List {
+                if !today.isEmpty {
+                    TodayHeader(today: today, dismiss: dismissTodayCard, mute: muteFromToday)
+                        .listRowInsets(EdgeInsets())
+                        .listRowBackground(Color.clear)
+                        .listRowSeparator(.hidden)
+                }
                 if !offeredAreas.isEmpty {
                     areaFilterRow
                         .listRowInsets(EdgeInsets())
@@ -51,6 +58,9 @@ struct EntryListView: View {
                 }
             }
             .paperBackground()
+            // The three monotonic counters AskIndexStore keys off, plus the day. Never a count:
+            // an add and a delete return one to where it was, and the header would miss the change.
+            .task(id: todayFingerprint) { refreshToday() }
             .overlay {
                 if entries.isEmpty {
                     ContentUnavailableView(
@@ -144,6 +154,41 @@ struct EntryListView: View {
                 }
             }
         }
+    }
+
+    private struct TodayFingerprint: Equatable {
+        let saver: Int
+        let graph: Int
+        let stamped: Int
+        let day: String
+    }
+
+    private var todayFingerprint: TodayFingerprint {
+        TodayFingerprint(
+            saver: saver.revision, graph: graph.revision,
+            stamped: JournalSaves.revision, day: TodayDismissal.stamp(.now)
+        )
+    }
+
+    private func refreshToday() {
+        let started = Date.now
+        today = TodaySource.today(in: modelContext, settings: settings)
+        DiagnosticsLog.shared.record(
+            "today.shown",
+            TodayCopy.shownFields(today, milliseconds: Date.now.timeIntervalSince(started) * 1000)
+        )
+    }
+
+    private func dismissTodayCard(_ card: TodayCard) {
+        let rank = today.cards.firstIndex(of: card) ?? 0
+        settings.dismissTodayCard(card.id, on: TodayDismissal.stamp(.now))
+        DiagnosticsLog.shared.record("today.dismissed", TodayCopy.dismissedFields(card, rank: rank))
+        refreshToday()
+    }
+
+    private func muteFromToday(_ who: EntityFacts) {
+        graph.setResurfacingMuted(true, on: who.id, in: modelContext)
+        refreshToday()
     }
 
     // One card per row over Paper. The card is the row's background rather than a wrapper around its

@@ -39,7 +39,14 @@ struct MindloreApp: App {
         #endif
         // The demo journal keeps its own settings and Keychain entry, so AI starts off there and
         // nothing made up is ever sent with the real key.
-        let demoDefaults = demoCount == nil ? nil : UserDefaults(suiteName: "demo-journal")
+        #if DEBUG
+        // A UI test that dismisses something needs to start from the same place every run, and the
+        // demo suite otherwise outlives the run that wrote it.
+        if demoCount != nil, arguments.contains(DemoJournal.resetSettingsArgument) {
+            UserDefaults.standard.removePersistentDomain(forName: DemoJournal.settingsSuiteName)
+        }
+        #endif
+        let demoDefaults = demoCount == nil ? nil : UserDefaults(suiteName: DemoJournal.settingsSuiteName)
         let defaults = testStoreName.flatMap { UserDefaults(suiteName: "uitest-\($0)") } ?? demoDefaults ?? .standard
         // A real key handed to a UI test run stays in memory so it never touches the Keychain; test
         // runs with the stub's key use a Keychain service named for the run, so saving a key and

@@ -20,7 +20,7 @@ nonisolated enum TodayCopy {
         case .dueToday: "Due today"
         case .onThisDay(_, let span): heading(span)
         case .stillOpen: "Still open"
-        case .beenAWhile(let entity): entity.name
+        case .beenAWhile: "It's been a while"
         case .latestSummary: "Your last entry"
         }
     }
@@ -33,8 +33,8 @@ nonisolated enum TodayCopy {
             end.text
         case .onThisDay(let entry, _):
             entry.title.isEmpty ? (entry.summary ?? "") : entry.title
-        case .beenAWhile:
-            ""
+        case .beenAWhile(let entity):
+            entity.name
         case .latestSummary(let entry):
             entry.summary ?? entry.title
         }

@@ -21,10 +21,10 @@ struct SettingsView: View {
                 }
 
                 Section {
-                    Toggle("People you haven't written about", isOn: $settings.resurfacingEnabled)
+                    Toggle("Names you haven't written about", isOn: $settings.resurfacingEnabled)
                         .accessibilityIdentifier("resurfacingToggle")
                 } footer: {
-                    Text("Today can mention someone who hasn't appeared in your journal for a while. You can also turn off a single person from their card.")
+                    Text("Today can mention a person, a place, or a project that hasn't appeared in your journal for a while. You can also turn off a single one from its card.")
                 }
             }
             .paperBackground()

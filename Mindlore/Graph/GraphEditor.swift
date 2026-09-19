@@ -220,6 +220,14 @@ struct GraphEditor {
         diagnostics.record("graph.hidden", ["id": .id(entity.id), "hidden": .bool(hidden)])
     }
 
+    // Narrower than hidden: the person stays everywhere they already are, they just stop coming
+    // back on their own. claim() keeps them alive once their last link goes, the same as a hide.
+    func setResurfacingMuted(_ muted: Bool, on entity: Entity) {
+        entity.resurfacingMuted = muted
+        claim(entity)
+        diagnostics.record("graph.resurfacingMuted", ["id": .id(entity.id), "muted": .bool(muted)])
+    }
+
     func markNotSame(_ entity: Entity, as other: Entity) {
         if !entity.notSameAs.contains(other.id) { entity.notSameAs.append(other.id) }
         if !other.notSameAs.contains(entity.id) { other.notSameAs.append(entity.id) }
