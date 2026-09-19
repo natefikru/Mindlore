@@ -1,4 +1,5 @@
 import Foundation
+import NaturalLanguage
 import Testing
 @testable import Mindlore
 
@@ -200,7 +201,22 @@ struct AskRetrievalParaphraseTests {
 
     // MARK: - Plumbing
 
-    private func buildIndex() -> AskIndex {
+    // Apple's lemmatizer, run over a whole string so it has the sentence context it needs. A
+    // stemmer would not do: both morphology misses in the measurement are irregular verbs, and
+    // "ran" stems to "ran". Only a lexicon turns it into "run".
+    static func lemmatized(_ text: String) -> String {
+        guard !text.isEmpty else { return text }
+        let tagger = NLTagger(tagSchemes: [.lemma])
+        tagger.string = text
+        var words: [String] = []
+        tagger.enumerateTags(in: text.startIndex..<text.endIndex, unit: .word, scheme: .lemma, options: [.omitPunctuation, .omitWhitespace]) { tag, range in
+            words.append(tag?.rawValue ?? String(text[range]))
+            return true
+        }
+        return words.joined(separator: " ")
+    }
+
+    private func buildIndex(lemmatizing: Bool = false) -> AskIndex {
         var entities: [AskIndex.Entity] = []
         var idsByName: [String: UUID] = [:]
         for name in corpus.flatMap(\.people) where idsByName[name] == nil {
@@ -212,8 +228,8 @@ struct AskRetrievalParaphraseTests {
             AskIndex.DocumentInput(
                 id: id(for: doc.key),
                 date: now.addingTimeInterval(-Double(doc.daysAgo) * 86_400),
-                title: doc.title,
-                text: doc.text,
+                title: lemmatizing ? Self.lemmatized(doc.title) : doc.title,
+                text: lemmatizing ? Self.lemmatized(doc.text) : doc.text,
                 entityIDs: doc.people.compactMap { idsByName[$0] },
                 entityNames: doc.people,
                 tags: doc.tags,
@@ -240,9 +256,9 @@ struct AskRetrievalParaphraseTests {
         return calendar
     }()
 
-    private func topKeys(_ question: String, in index: AskIndex, k: Int) -> [String] {
+    private func topKeys(_ question: String, in index: AskIndex, k: Int, lemmatizing: Bool = false) -> [String] {
         let query = AskRetrievalQuery.build(
-            question: question,
+            question: lemmatizing ? Self.lemmatized(question) : question,
             previousQuestions: [],
             citedEntryIDs: [],
             index: index,
@@ -253,15 +269,15 @@ struct AskRetrievalParaphraseTests {
         return index.search(query.indexQuery).prefix(k).compactMap { keysByID[index.documents[Int($0.document)].id] }
     }
 
-    private func recall(_ scenario: Scenario, in index: AskIndex, k: Int) -> Double {
-        let found = Set(topKeys(scenario.question, in: index, k: k))
+    private func recall(_ scenario: Scenario, in index: AskIndex, k: Int, lemmatizing: Bool = false) -> Double {
+        let found = Set(topKeys(scenario.question, in: index, k: k, lemmatizing: lemmatizing))
         let hits = scenario.expected.filter { found.contains($0) }.count
         return Double(hits) / Double(scenario.expected.count)
     }
 
-    private func mean(_ scenarios: [Scenario], in index: AskIndex, k: Int) -> Double {
+    private func mean(_ scenarios: [Scenario], in index: AskIndex, k: Int, lemmatizing: Bool = false) -> Double {
         guard !scenarios.isEmpty else { return 0 }
-        return scenarios.reduce(0.0) { $0 + recall($1, in: index, k: k) } / Double(scenarios.count)
+        return scenarios.reduce(0.0) { $0 + recall($1, in: index, k: k, lemmatizing: lemmatizing) } / Double(scenarios.count)
     }
 
     // MARK: - The measurement
@@ -311,5 +327,56 @@ struct AskRetrievalParaphraseTests {
         // The finding. If this stops being true, lexical retrieval got better than expected and the
         // embeddings case needs rewriting rather than quietly winning.
         #expect(paraphraseAt5 < literalAt5, "paraphrases now score as well as literal questions; re-examine the case for embeddings")
+    }
+
+    // MARK: - Would normalizing word forms help?
+
+    // An experiment, not a change. Nothing in `Mindlore/` is touched: the corpus and the question
+    // are both put through Apple's lemmatizer before they reach the existing index, which is
+    // exactly what indexing lemmas would do. If it moves the number, it is worth building; if it
+    // does not, an afternoon has bought an answer instead of a guess.
+    @Test func lemmatizationExperiment() {
+        let plain = buildIndex()
+        let startedAt = Date()
+        let lemma = buildIndex(lemmatizing: true)
+        let indexingCost = Date().timeIntervalSince(startedAt)
+
+        var report = ["", "Lemmatization experiment (\(corpus.count) entries)", String(repeating: "=", count: 62)]
+        report.append("                          baseline        lemmatized")
+        report.append(String(format: "control                   @5 %.2f         @5 %.2f",
+                             mean(literal, in: plain, k: 5), mean(literal, in: lemma, k: 5, lemmatizing: true)))
+        for kind in Kind.allCases {
+            let group = paraphrases.filter { $0.kind == kind }
+            guard !group.isEmpty else { continue }
+            report.append(String(format: "%-24@  @5 %.2f         @5 %.2f", kind.rawValue as NSString,
+                                 mean(group, in: plain, k: 5), mean(group, in: lemma, k: 5, lemmatizing: true)))
+        }
+        let before = mean(paraphrases, in: plain, k: 5)
+        let after = mean(paraphrases, in: lemma, k: 5, lemmatizing: true)
+        report.append(String(repeating: "-", count: 62))
+        report.append(String(format: "all paraphrases           @5 %.2f         @5 %.2f", before, after))
+
+        // Which individual questions changed, in either direction. A normalizer that fixes two
+        // questions and breaks one is worth knowing about in that shape, not as an average.
+        var gained: [String] = []
+        var lost: [String] = []
+        for scenario in paraphrases + literal {
+            let a = recall(scenario, in: plain, k: 5)
+            let b = recall(scenario, in: lemma, k: 5, lemmatizing: true)
+            if b > a { gained.append(String(format: "  +%.2f  %@", b - a, scenario.question)) }
+            if b < a { lost.append(String(format: "  -%.2f  %@", a - b, scenario.question)) }
+        }
+        report.append("")
+        report.append("better: \(gained.isEmpty ? "none" : "")")
+        report.append(contentsOf: gained)
+        report.append("worse: \(lost.isEmpty ? "none" : "")")
+        report.append(contentsOf: lost)
+        report.append("")
+        report.append(String(format: "lemmatizing %d entries took %.0f ms (%.1f ms each)",
+                             corpus.count, indexingCost * 1000, indexingCost * 1000 / Double(corpus.count)))
+        report.append("")
+        print(report.joined(separator: "\n"))
+
+        #expect(after >= 0, "recorded, not asserted")
     }
 }
