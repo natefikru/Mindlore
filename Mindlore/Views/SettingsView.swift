@@ -19,6 +19,13 @@ struct SettingsView: View {
                 } footer: {
                     Text("When this is off, a recording is deleted once its text has been generated and you've closed the entry.")
                 }
+
+                Section {
+                    Toggle("People you haven't written about", isOn: $settings.resurfacingEnabled)
+                        .accessibilityIdentifier("resurfacingToggle")
+                } footer: {
+                    Text("Today can mention someone who hasn't appeared in your journal for a while. You can also turn off a single person from their card.")
+                }
             }
             .paperBackground()
             .navigationTitle("Settings")

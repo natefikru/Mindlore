@@ -45,6 +45,9 @@ final class Entity {
     var confirmedByUser: Bool = false
     // The user's own hide. A hidden entity still resolves, so it never comes back under a new id.
     var hidden: Bool = false
+    // "Don't show me this person again" on a Today resurfacing card. Narrower than hidden: they
+    // still appear everywhere else, they just never come back on their own.
+    var resurfacingMuted: Bool = false
     var mergedIntoID: UUID?
     var mergedAt: Date?
     // Exactly the aliases this loser added to its winner, so unmerge removes no more than that.

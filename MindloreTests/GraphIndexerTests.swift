@@ -414,6 +414,43 @@ struct GraphIndexerTests {
         #expect(try harness.entity("Sarah").lastLinkedAt == nil)
     }
 
+    // Muting a person on a Today card has to outlive their links. Pruning the entity would lose
+    // the mute, and the next time they were mentioned they would come back under a new id and
+    // resurface, which is the one thing the mute promises will not happen.
+    @Test func aMutedEntitySurvivesLosingItsLastLink() throws {
+        let entry = try harness.entry(mentions: [("Sarah", .person)])
+        harness.indexer.index(entry, in: harness.context)
+        harness.indexer.recount(in: harness.context)
+        try harness.context.save()
+        let sarah = try harness.entity("Sarah")
+        sarah.resurfacingMuted = true
+        try harness.context.save()
+
+        Entry.delete(entry, in: harness.context)
+        try harness.context.save()
+        harness.indexer.recount(in: harness.context)
+        try harness.context.save()
+
+        #expect(try harness.entities().map(\.name) == ["Sarah"])
+        #expect(try harness.entity("Sarah").resurfacingMuted)
+        #expect(try harness.entity("Sarah").linkCount == 0)
+    }
+
+    // The counterpart: nothing else changed, so an unmuted entity is still pruned.
+    @Test func anUnmutedEntityStillGoesWhenItsLastLinkDoes() throws {
+        let entry = try harness.entry(mentions: [("Sarah", .person)])
+        harness.indexer.index(entry, in: harness.context)
+        harness.indexer.recount(in: harness.context)
+        try harness.context.save()
+
+        Entry.delete(entry, in: harness.context)
+        try harness.context.save()
+        harness.indexer.recount(in: harness.context)
+        try harness.context.save()
+
+        #expect(try harness.entities().isEmpty)
+    }
+
     @Test func aMergeLoserSurvivesTheRecountThatFollowsIt() throws {
         try harness.entry(mentions: [("Sarah", .person)])
         try harness.entry(mentions: [("Sarah Kim", .person)])

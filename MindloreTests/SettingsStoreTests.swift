@@ -45,6 +45,56 @@ struct SettingsStoreTests {
         #expect(events[0]["value"] as? Bool == false)
     }
 
+    @Test func resurfacingIsOnUntilItIsTurnedOff() {
+        let store = FakeKeyValueStore()
+        #expect(SettingsStore(store: store).resurfacingEnabled == true)
+
+        store.values[SettingsStore.Key.resurfacingEnabled] = false
+        #expect(SettingsStore(store: store).resurfacingEnabled == false)
+    }
+
+    @Test func aDismissedTodayCardSurvivesARelaunch() {
+        let store = FakeKeyValueStore()
+        let settings = SettingsStore(store: store)
+
+        settings.dismissTodayCard("onThisDay", on: "2026-09-19")
+
+        #expect(SettingsStore(store: store).dismissedTodayCards(on: "2026-09-19") == ["onThisDay"])
+        #expect(SettingsStore(store: store).dismissedTodayCards(on: "2026-09-20").isEmpty)
+    }
+
+    // The keys can name an entity or a loose end, so the value never reaches the log.
+    @Test func dismissingACardLogsTheKeyAndNotTheCards() throws {
+        let file = DiagnosticsFile()
+        let settings = SettingsStore(store: FakeKeyValueStore(), diagnostics: DiagnosticsLog(fileURL: file.url))
+
+        settings.dismissTodayCard("beenAWhile:Sarah Kim", on: "2026-09-19")
+
+        let events = try file.events()
+        #expect(events.map { $0["event"] as? String } == ["settings.changed"])
+        #expect(events[0]["key"] as? String == "todayDismissed")
+        #expect(events[0]["value"] == nil)
+        #expect(!(try String(contentsOf: file.url, encoding: .utf8)).contains("Sarah Kim"))
+    }
+
+    @Test func dismissingTheSameCardTwiceWritesOnce() {
+        let store = FakeKeyValueStore()
+        let settings = SettingsStore(store: store)
+        settings.dismissTodayCard("onThisDay", on: "2026-09-19")
+        let written = store.values[SettingsStore.Key.todayDismissed] as? Data
+
+        settings.dismissTodayCard("onThisDay", on: "2026-09-19")
+
+        #expect(store.values[SettingsStore.Key.todayDismissed] as? Data == written)
+    }
+
+    @Test func aCorruptDismissalBlobReadsAsNothingDismissed() {
+        let store = FakeKeyValueStore()
+        store.values[SettingsStore.Key.todayDismissed] = Data("not json".utf8)
+
+        #expect(SettingsStore(store: store).dismissedTodayCards(on: "2026-09-19").isEmpty)
+    }
+
     @Test func initDoesNotWriteDefaultsBack() {
         let store = FakeKeyValueStore()
         _ = SettingsStore(store: store)
