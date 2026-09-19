@@ -312,7 +312,7 @@ struct AskServiceTests {
         await ask.send("What happened with the deadline?", in: context)
         let request = try #require(generator.requests.last)
 
-        #expect(request.user.contains("that match at all"))
+        #expect(request.user.contains("bear on this"))
         #expect(ask.turns.last?.wasCut == true)
         #expect(ask.turns.last?.matchedCount == 30)
     }
@@ -324,7 +324,7 @@ struct AskServiceTests {
 
         await ask.send("What happened with the deadline?", in: context)
         let request = try #require(generator.requests.last)
-        #expect(request.user.contains("that match at all") == false)
+        #expect(request.user.contains("bear on this") == false)
         #expect(ask.turns.last?.wasCut == false)
     }
 
@@ -364,11 +364,11 @@ struct AskServiceTests {
 
         await ask.send("ayahuasca", in: context)
         let request = try #require(generator.requests.last)
-        #expect(request.user.contains("Nothing in the journal matches this question"))
+        #expect(request.user.contains("Nothing here is about this question"))
         // And it still sends the newest entries rather than failing, which is what A7 did.
         #expect(ask.turns.last?.sentEntryIDs.isEmpty == false)
         // Nothing else may describe them as being about the question or about a period.
-        #expect(request.user.contains("that match at all") == false)
+        #expect(request.user.contains("bear on this") == false)
         #expect(request.user.contains("These entries are from") == false)
     }
 
@@ -381,13 +381,13 @@ struct AskServiceTests {
 
         await ask.send("How often did I write about work?", in: context)
         let aggregate = try #require(generator.requests.last)
-        #expect(aggregate.system.contains("not of the entries quoted below it"))
+        #expect(aggregate.system.contains("not only the ones quoted below it"))
         #expect(ask.turns.last?.rollupMonthCount ?? 0 > 0)
 
         await ask.newConversation()
         await ask.send("What happened on the ninth day?", in: context)
         let ordinary = try #require(generator.requests.last)
-        #expect(ordinary.system.contains("not of the entries quoted below it") == false)
+        #expect(ordinary.system.contains("not only the ones quoted below it") == false)
     }
 
     // MARK: - Voice

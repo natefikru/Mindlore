@@ -296,7 +296,8 @@ final class AskService {
                 today: now(),
                 calendar: calendar,
                 voice: promptVoice(),
-                hasSummaries: built.rollupMonthCount > 0
+                hasSummaries: built.rollupMonthCount > 0,
+                provider: provider.kind
             ),
             user: AskPrompt.user(
                 context: built,
@@ -400,7 +401,7 @@ final class AskService {
         case .openAI:
             return AskContextBuilder.openAIBudget
         case .onDevice:
-            let fixed = AskPrompt.system(today: now(), calendar: calendar, voice: promptVoice(), hasSummaries: false).count
+            let fixed = AskPrompt.system(today: now(), calendar: calendar, voice: promptVoice(), hasSummaries: false, provider: .onDevice).count
                 + AskPrompt.folded(previous: previousTurn(), into: "").count
                 + question.count
                 + AskPrompt.onDeviceNotesHeadroom
