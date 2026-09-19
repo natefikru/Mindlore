@@ -724,7 +724,7 @@ Retrieval, not the Ask surface. Research in `tasks/a9-ask-retrieval-research.md`
 - [x] Sub-agent review of the diff, fixes in one commit.
 
 ### A9: 3D spike
-- [ ] `Mind3DSpikeView` (Debug only) with the 3D engine variant.
+- [x] `Mind3DSpikeView` (Debug only) with the 3D engine variant.
 - [ ] Device comparison against A5's 2D (label readability, tap accuracy, frame time, feel)
       written in the review log. The owner decides. Delete the spike unless 3D wins.
 
@@ -1252,3 +1252,39 @@ A9c (2026-09-19):
 - **The device pass joins PR 1 and PR 2's, in A10**, plus one of its own: lemmatization measures
   2.0 ms an entry in the simulator, so a thousand-entry rebuild is about two seconds off the main
   actor. Unverified on a phone.
+
+A9 (2026-09-19):
+
+- **The spike is a twin, not a rewrite.** `GraphSimulation3D` is `GraphSimulation` in `SIMD3`, and it
+  reads 2D's own statics for the numbers that matter (`goldenAngle`, `radius(for:)`,
+  `targetDistance(weight:)`) rather than copying them, so a node is the same size and a spring wants
+  the same length in both pictures. Same tick order, same alpha schedule. What it drops is what a
+  spike does not need: regions, pins, and `update()`. It builds once from a snapshot.
+- **Fibonacci sphere in place of phyllotaxis**, with a cube-root radius: the 2D placement fills a
+  disc evenly with `sqrt`, and the 3D one fills a ball evenly with `cbrt`. The same directions are
+  the zero-distance fallback, which a test holds to unit length at the ends of several node counts.
+- **Everything is in `Mindlore/Views/Mind/Spike3D/`**, `#if DEBUG` throughout, including the
+  `graph.rendered3D` event as an extension on `GraphServices`. Deleting the spike is that folder,
+  the Settings row, and `GraphSimulation3DTests`, plus one line in the privacy test.
+- **Two RealityKit facts worth keeping** even if 3D loses. RealityKit's `Entity` collides with the
+  journal's own, so the scene file aliases it. And a `PerspectiveCamera`'s 60 degrees is *vertical*
+  by default, which on a portrait phone is about 15 degrees either side horizontally: the first
+  screenshot had a third of the graph off the left edge. Set `fieldOfViewOrientation = .horizontal`
+  and frame on the 90th-percentile radius, not the largest, or one far-flung node leaves the graph
+  filling half the screen.
+- **The numbers to beat, from the simulator.** The 300-entry demo journal draws 170 nodes and 914
+  edges at the default filters, and the 3D layout settles in about 3.0 s off the main actor. Over
+  one graph, the same 300 ticks: 2D 1583 ms, 3D 2330 ms in a Debug simulator build, which is the
+  1.5x the extra component costs an O(n^2) pass and nothing worse. Frame percentiles are
+  deliberately not quoted here: the simulator's renderer says nothing about the phone's, which is
+  what `graph.rendered3D` exists to measure beside `graph.rendered`. The two events sample the
+  same rule (while the picture moves) over different windows: 2D is still settling its layout as
+  it draws, and the spike's scene arrives settled, so 3D's percentiles cover the auto-rotate and
+  the gestures alone. They are the cost of moving the picture, not the same five seconds.
+- Review: one read-only pass over the diff, tree baselined first (1187 tests, five paths in
+  `git status`, unchanged afterwards). No correctness bug, no privacy leak, and the deletion claim
+  checked by grep. Two things came back and both are in: the view was re-sorting nodes
+  `MindMap.graph` had already ordered, and the frame-window difference above was undocumented.
+- Tests: 1187 unit tests pass. No UI tests; a throwaway one drove the screenshots and was deleted.
+- **Still the owner's call.** The comparison is label readability, tap accuracy, frame time, and
+  feel at 300 nodes, on the phone, against Mind's 2D map. The spike is deleted unless 3D wins.

@@ -9,6 +9,13 @@ struct SettingsView: View {
 
         NavigationStack {
             Form {
+#if DEBUG
+                Section {
+                    NavigationLink("3D spike") { Mind3DSpikeView() }
+                        .accessibilityIdentifier("spike3DLink")
+                }
+#endif
+
                 Section {
                     NavigationLink("AI") { AISettingsView() }
                         .accessibilityIdentifier("aiSettingsLink")

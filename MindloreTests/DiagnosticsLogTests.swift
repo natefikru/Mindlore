@@ -331,6 +331,16 @@ struct AIDiagnosticsPrivacyTests {
         services.recordMindReplayed(steps: 100, durationMilliseconds: 10_000, stepP95Milliseconds: 3, finished: true, nodes: frame.nodes.count)
         services.recordMindEntryOpened()
 
+        // A9: the 3D spike's own render line, over the same sentinel-named entities.
+        let spikeLayout = await GraphSimulation3D.settled(
+            nodes: GraphSimulation.Node.layoutOrdered(globalData.nodes), edges: globalData.edges, budget: 50
+        )
+        services.recordGraph3DRendered(Graph3DRenderStats(
+            nodes: spikeLayout.nodes.count, edges: spikeLayout.edgeIndices.count,
+            settleMilliseconds: spikeLayout.settleMilliseconds,
+            frameSamples: 3, frameP50Milliseconds: 8, frameP95Milliseconds: 17
+        ))
+
         let contents = file.contents()
         #expect(contents.contains("ai.keySaved"))
         #expect(contents.contains("pages.transcription.completed"))
@@ -341,7 +351,7 @@ struct AIDiagnosticsPrivacyTests {
         for event in ["graph.indexed", "graph.entityEdited", "graph.hidden", "graph.suggestionDismissed",
                       "graph.merged", "graph.unmerged", "graph.repointed", "graph.rendered",
                       "mind.reviewAnswered", "mind.focused", "mind.filtersChanged",
-                      "mind.lensChanged", "mind.replayed", "mind.entryOpened",
+                      "mind.lensChanged", "mind.replayed", "mind.entryOpened", "graph.rendered3D",
                       "graph.renameRewrote", "graph.contactLinked", "graph.contactUnlinked",
                       "graph.placeLinked", "graph.placeUnlinked", "graph.contactAccess"] {
             #expect(contents.contains(event), "\(event) was never exercised")
