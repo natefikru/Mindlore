@@ -13,6 +13,8 @@ import SwiftData
 // too, and a later entry settles one by saying so.
 enum DemoJournal {
     static let argument = "-seedDemoJournal"
+    static let resetSettingsArgument = "-resetDemoSettings"
+    static let settingsSuiteName = "demo-journal"
     static let storeFileName = "demo-journal.store"
 
     static func requestedCount(in arguments: [String]) -> Int? {

@@ -14,6 +14,7 @@ struct EntryListView: View {
     @State private var pageOrder: PageOrderTarget?
     @State private var insightsEntry: Entry?
     @State private var pickedAreas: Set<LifeArea> = []
+    @State private var today = Today()
     @Environment(RecordingSession.self) private var recording
     @Environment(InsightsCoordinator.self) private var insightsCoordinator
 
@@ -33,6 +34,12 @@ struct EntryListView: View {
         @Bindable var router = router
         NavigationStack(path: $router.journalPath) {
             List {
+                if !today.isEmpty {
+                    TodayHeader(today: today, dismiss: dismissTodayCard, mute: muteFromToday)
+                        .listRowInsets(EdgeInsets())
+                        .listRowBackground(Color.clear)
+                        .listRowSeparator(.hidden)
+                }
                 if !offeredAreas.isEmpty {
                     areaFilterRow
                         .listRowInsets(EdgeInsets())
@@ -42,6 +49,8 @@ struct EntryListView: View {
                     Section(JournalGroups.title(section.group)) {
                         ForEach(section.entries) { entry in
                             row(entry, in: section.group)
+                                .listRowBackground(rowCard)
+                                .listRowSeparator(.hidden)
                         }
                         // A section's swipe gives an offset into that section, not the flat list.
                         .onDelete { offsets in delete(offsets, in: section.entries) }
@@ -49,6 +58,9 @@ struct EntryListView: View {
                 }
             }
             .paperBackground()
+            // The three monotonic counters AskIndexStore keys off, plus the day. Never a count:
+            // an add and a delete return one to where it was, and the header would miss the change.
+            .task(id: todayFingerprint) { refreshToday() }
             .overlay {
                 if entries.isEmpty {
                     ContentUnavailableView(
@@ -74,6 +86,7 @@ struct EntryListView: View {
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     Button("Settings", systemImage: "gearshape") { showingSettings = true }
+                        .accessibilityIdentifier("settingsButton")
                 }
                 // Voice sits outermost, in the easiest-to-reach position. A running recording shows in
                 // the tab bar's accessory.
@@ -143,6 +156,61 @@ struct EntryListView: View {
         }
     }
 
+    private struct TodayFingerprint: Equatable {
+        let saver: Int
+        let graph: Int
+        let stamped: Int
+        let day: String
+        let resurfacing: Bool
+        let name: String
+    }
+
+    // The three counters, the day, and the two settings the composer reads. Without the settings
+    // in here, turning resurfacing off in the sheet leaves the card it forbids on the screen until
+    // something unrelated saves.
+    private var todayFingerprint: TodayFingerprint {
+        TodayFingerprint(
+            saver: saver.revision, graph: graph.revision,
+            stamped: JournalSaves.revision, day: TodayDismissal.stamp(.now),
+            resurfacing: settings.resurfacingEnabled, name: settings.userName
+        )
+    }
+
+    private func refreshToday() {
+        let started = Date.now
+        today = TodaySource.today(in: modelContext, settings: settings)
+        DiagnosticsLog.shared.record(
+            "today.shown",
+            TodayCopy.shownFields(today, milliseconds: Date.now.timeIntervalSince(started) * 1000)
+        )
+    }
+
+    private func dismissTodayCard(_ card: TodayCard) {
+        let rank = today.cards.firstIndex(of: card) ?? 0
+        settings.dismissTodayCard(card.id, on: TodayDismissal.stamp(.now))
+        DiagnosticsLog.shared.record("today.dismissed", TodayCopy.dismissedFields(card, rank: rank))
+        refreshToday()
+    }
+
+    // No refresh here: the edit bumps graph.revision, which is already in the fingerprint, and
+    // refreshing as well would fetch twice and log two today.shown events for one tap. A dismissal
+    // is the other way round, because a settings write moves no counter.
+    private func muteFromToday(_ who: EntityFacts) {
+        graph.setResurfacingMuted(true, on: who.id, in: modelContext)
+    }
+
+    // One card per row over Paper. The card is the row's background rather than a wrapper around its
+    // content, so the row stays a cell and the swipe-to-delete offsets are untouched.
+    private var rowCard: some View {
+        RoundedRectangle(cornerRadius: Corner.card, style: .continuous)
+            .fill(Palette.card)
+            .overlay(
+                RoundedRectangle(cornerRadius: Corner.card, style: .continuous)
+                    .strokeBorder(Palette.hairline)
+            )
+            .padding(.vertical, 3)
+    }
+
     private var newTypedEntryButton: some View {
         Button("New Written Entry", systemImage: "square.and.pencil") { router.journalPath.append(.new()) }
             .accessibilityIdentifier("newEntryButton")
@@ -185,18 +253,9 @@ struct EntryListView: View {
                     Button {
                         if selected { pickedAreas.remove(area) } else { pickedAreas.insert(area) }
                     } label: {
-                        Label {
-                            Text(settings.name(of: area))
-                        } icon: {
-                            Image(systemName: area.symbol)
-                                .foregroundStyle(selected ? Color.white : area.color)
-                        }
-                            .font(.subheadline)
+                        Label(settings.name(of: area), systemImage: area.symbol)
                             .lineLimit(1)
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 6)
-                            .foregroundStyle(selected ? Color.white : Color.primary)
-                            .background(selected ? area.color : Color(.secondarySystemFill), in: Capsule())
+                            .chip(tint: area.color, selected: selected)
                     }
                     .buttonStyle(.plain)
                     .accessibilityAddTraits(selected ? .isSelected : [])
@@ -206,6 +265,7 @@ struct EntryListView: View {
             .padding(.horizontal, 16)
             .padding(.vertical, 4)
         }
+        .sensoryFeedback(Haptics.selected, trigger: pickedAreas)
     }
 
     // AI work the user should be able to see from the list, without opening the entry.
@@ -290,11 +350,6 @@ private struct EntryRow: View {
                     .labelStyle(.iconOnly)
                     .foregroundStyle(.secondary)
                     .accessibilityIdentifier("analyzingBadge")
-                } else if let insights = entry.insights {
-                    Image(systemName: "sparkles")
-                        .font(.caption2)
-                        .foregroundStyle(insights.isCurrent(for: entry) ? Color.secondary : Color.orange)
-                        .accessibilityLabel(insights.isCurrent(for: entry) ? "Has insights" : "Insights out of date")
                 }
             }
             HStack(spacing: 6) {

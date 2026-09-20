@@ -36,6 +36,8 @@ final class SettingsStore {
         static let hiddenLifeAreas = "hiddenLifeAreas"
         static let journalVoice = "journalVoice"
         static let userName = "userName"
+        static let resurfacingEnabled = "resurfacingEnabled"
+        static let todayDismissed = "todayDismissed"
     }
 
     @ObservationIgnored private let store: any KeyValueStore
@@ -200,6 +202,30 @@ final class SettingsStore {
         userName = trimmed
     }
 
+    // "It's been a while" cards on Today. On by default; the one surface that can name a person
+    // the user hasn't written about, so it gets its own switch as well as a per-person mute on
+    // the Entity itself.
+    var resurfacingEnabled: Bool {
+        didSet { write(resurfacingEnabled, Key.resurfacingEnabled, logged: .bool(resurfacingEnabled)) }
+    }
+
+    // Which Today cards were dismissed, and on what day. Written as JSON so the card keys, which
+    // can name an entity or a loose end, never reach the diagnostics log.
+    private(set) var todayDismissal: TodayDismissal {
+        didSet { writeJSON(todayDismissal, Key.todayDismissed) }
+    }
+
+    func dismissedTodayCards(on day: String) -> Set<String> {
+        todayDismissal.keys(on: day)
+    }
+
+    func dismissTodayCard(_ key: String, on day: String) {
+        var updated = todayDismissal
+        updated.dismiss(key, on: day)
+        guard updated != todayDismissal else { return }
+        todayDismissal = updated
+    }
+
     var promptVoice: PromptVoice {
         PromptVoice(voice: journalVoice, name: userName)
     }
@@ -281,6 +307,8 @@ final class SettingsStore {
         hiddenLifeAreas = json(Key.hiddenLifeAreas, [])
         journalVoice = string(Key.journalVoice).flatMap(JournalVoice.init(rawValue:)) ?? .first
         userName = json(Key.userName, "")
+        resurfacingEnabled = bool(Key.resurfacingEnabled, true)
+        todayDismissal = json(Key.todayDismissed, TodayDismissal())
     }
 
     // Called once per launch. Entries created before this moment never get an automatic AI pass.

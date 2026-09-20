@@ -321,10 +321,11 @@ struct GraphIndexer {
             entity.firstLinkedAt = tally?.first
             entity.lastLinkedAt = tally?.last
             // Kept even with nothing pointing at it: anything the user touched, anything they
-            // hid (or it would come back the next time it is mentioned), a merge loser (the undo
-            // record), and a tie's other candidate.
+            // hid (or it would come back the next time it is mentioned), anything they muted on a
+            // Today card (same reason: pruning it loses the mute and it resurfaces under a new
+            // id), a merge loser (the undo record), and a tie's other candidate.
             if entity.linkCount == 0 && !entity.confirmedByUser && !entity.hidden && !entity.isMerged
-                && !tiedCandidates.contains(entity.id) {
+                && !entity.resurfacingMuted && !tiedCandidates.contains(entity.id) {
                 context.delete(entity)
             }
         }

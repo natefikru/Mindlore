@@ -210,6 +210,19 @@ every view and service resolves an entity by fetching its id, never by walking t
 
 **Views** (`Mindlore/Views/`). `RootView` owns the saver, ingestor, the four coordinators, `EditorPresence`, and `NetworkMonitor`, and passes them through the environment; it runs transcription in one lane and titles plus insights in another, and resumes both when the network returns. `EntryListView` lists entries and opens `EntryEditorView` or `RecordingView`. The editor is one scroll view: header (banners, player, page strip, title) above a `GrowingTextEditor` (a UITextView that grows with its text and never ends shorter than the screen, so a tap below short text puts the cursor at the end). `EntryInsightsView` is a sheet over the editor, never a push, because the editor's `onDisappear` runs its close rules.
 
+**Today** (`Mindlore/Views/Today/`). The header above the journal list: a greeting, a seven-dot
+week strip, and at most three cards. `TodayComposer` is `nonisolated` and reads no SwiftData, the
+same split as `EntityGraph`; `TodaySource` does the fetching, walks merges through
+`EntityDirectory` (`Graph/`), and drops hidden and muted entities. Card order is fixed: a thread
+the last entry closed or one due today, this day in an earlier year, the oldest thread still open,
+a well-linked name whose `lastLinkedAt` is over 30 days old, the latest entry's summary. Nothing
+backs two cards, there is one on-this-day card chosen once, and a dismissal is day-scoped
+(`TodayDismissal` in `SettingsStore`, thrown away when the day changes). `Entity.resurfacingMuted`
+is the per-name mute; it is in `GraphIndexer.recount`'s keep-list beside `hidden`, or a muted name
+that loses its last link is pruned and returns under a new id. A loose end with any hidden or muted
+subject never becomes a card. The header refreshes on `.task(id:)` over the three monotonic
+revision counters, the day, and the two settings the composer reads, never on a count.
+
 **Adding a provider.** Conform to the capability protocols, add a `ProviderKind` and preset, and resolve it in `AIServices`. The coordinators, settings shape, and views don't change.
 
 **Tests.** Fakes to reuse: `FakeHTTPClient`, `FakeSecretStore`, `FakeKeyValueStore`, `FakeTranscriber`, `FakeTextGenerator`, `FakePageTranscriber`, and the harnesses in `TranscriptionCoordinatorTests`, `PageTranscriptionTests`, and `InsightsTests`. `OpenAILiveTests` and the AI UI tests run against real OpenAI when `TEST_RUNNER_MINDLORE_OPENAI_KEY` is set, and against the app's stub (`-uiTestingFakeAI`, `UITestingHTTPClient`) otherwise; UI tests isolate settings and Keychain per `UITEST_STORE_NAME`, and `-uiTestingFakePages` replaces the camera. `MindloreTests/` uses Swift Testing (`import Testing`, `@Test`, `#expect`). For async code, inject dependencies and await the real task (for example `EntrySaver.scheduledSave`) rather than polling with `Task.yield()`, which can starve the main actor. `MindloreUITests/` uses XCTest and relaunches the app against a named file store to prove data survives.

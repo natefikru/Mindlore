@@ -127,6 +127,13 @@ final class GraphServices {
         }
     }
 
+    func setResurfacingMuted(_ muted: Bool, on entityID: UUID, in context: ModelContext) {
+        edit(entityID, in: context) {
+            editor.setResurfacingMuted(muted, on: $0)
+            return .applied
+        }
+    }
+
     // Returns the entity the merged one now stands for, which is where its page should go.
     @discardableResult
     func merge(_ loserID: UUID, into targetID: UUID, in context: ModelContext) -> UUID? {

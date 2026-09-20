@@ -276,6 +276,7 @@ struct AIDiagnosticsPrivacyTests {
         editor.setKind(.organization, on: first, in: context)
         editor.setHidden(true, on: second)
         editor.setHidden(false, on: second)
+        editor.setResurfacingMuted(true, on: second)
         editor.markNotSame(first, as: second)
         editor.merge(second, into: first, in: context)
         editor.unmerge(second, in: context)
@@ -348,7 +349,8 @@ struct AIDiagnosticsPrivacyTests {
         #expect(contents.contains("insights.failed"))
         #expect(contents.contains("looseEnds.written"))
         #expect(contents.contains("looseEnds.faded"))
-        for event in ["graph.indexed", "graph.entityEdited", "graph.hidden", "graph.suggestionDismissed",
+        for event in ["graph.indexed", "graph.entityEdited", "graph.hidden", "graph.resurfacingMuted",
+                      "graph.suggestionDismissed",
                       "graph.merged", "graph.unmerged", "graph.repointed", "graph.rendered",
                       "mind.reviewAnswered", "mind.focused", "mind.filtersChanged",
                       "mind.lensChanged", "mind.replayed", "mind.entryOpened", "graph.rendered3D",
