@@ -10,6 +10,8 @@ run_id="${1:-$(date +%Y%m%d-%H%M%S)}"
 shift || true
 # A lone -- separates our arguments from the app's; devicectl needs the app's after its own --.
 [ "${1:-}" = "--" ] && shift
+# Expanded with ${x[@]+...} below: bash 3.2 on macOS treats an empty array as unset under set -u,
+# so a launch with no app arguments died before it started.
 app_arguments=("$@")
 run_dir="$SMOKE_DIR/$run_id"
 mkdir -p "$run_dir"
@@ -20,7 +22,7 @@ xcrun devicectl device process launch \
     --device "$DEVICE_ID" \
     --terminate-existing \
     --console \
-    -- "$BUNDLE_ID" -diagnosticsRun "$run_id" "${app_arguments[@]}" 2>&1 \
+    -- "$BUNDLE_ID" -diagnosticsRun "$run_id" ${app_arguments[@]+"${app_arguments[@]}"} 2>&1 \
     | tee "$run_dir/console.log" \
     | grep --line-buffered -E "^MINDLORE |error|Error|crash|Terminated|exited" \
     | grep --line-buffered -v '"trigger":"throttle"' || true
