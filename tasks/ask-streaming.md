@@ -48,16 +48,16 @@ and not in a test. Re-scanning a few kilobytes per frame is free.
 
 ## Phase 2: the generator
 
-- [ ] `StreamingTextGenerator`: `func stream(_ request: TextRequest) -> AsyncThrowingStream<Event,
+- [x] `StreamingTextGenerator`: `func stream(_ request: TextRequest) -> AsyncThrowingStream<Event,
       any Error>`, where an event is `.delta(String)` or `.finished(TextResult)`.
       `OpenAICompatibleTextGenerator` conforms; nothing else does, and `AskService` checks
       conformance rather than the provider kind, so a future provider opts in by conforming.
-- [ ] The body gains `"stream": true` and `"stream_options": ["include_usage": true]`, so the final
+- [x] The body gains `"stream": true` and `"stream_options": ["include_usage": true]`, so the final
       chunk still carries token counts and `TextResult` keeps meaning what it means.
-- [ ] A server that rejects either flag falls back to the single-shot path for the rest of the
+- [x] A server that rejects either flag falls back to the single-shot path for the rest of the
       session, remembered the way `JSONModeMemory` already remembers a rejected strict schema. Same
       shape, same reasoning: an OpenAI-compatible server is not necessarily OpenAI.
-- [ ] `StreamingJSONString` above, with its own tests: escapes (`\n`, `\"`, `\\`), a `\uXXXX` split
+- [x] `StreamingJSONString` above, with its own tests: escapes (`\n`, `\"`, `\\`), a `\uXXXX` split
       across a boundary, a lone trailing backslash, and text containing `","citations":` which must
       not be read as the end of the field.
 

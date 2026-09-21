@@ -69,7 +69,7 @@ struct OpenAILiveTests {
         sections.customPrompts = [CustomInsightPrompt(id: UUID(), name: "Gratitude", instructions: "What am I grateful for?", enabled: true)]
         let text = "so today i met sarah at the coffee place on main street and we talked about the move to denver which im kind of anxious about but also grateful she offered to help i still need to call the landlord"
         let plan = InsightsPromptBuilder.plan(text: text, source: .voice, sections: sections, vocabulary: .init(tags: ["friends", "moving"]), model: ProviderDefaults.textModel)
-        let generator = OpenAICompatibleTextGenerator(baseURL: baseURL, apiKey: key, http: http, jsonModeMemory: JSONModeMemory())
+        let generator = OpenAICompatibleTextGenerator(baseURL: baseURL, apiKey: key, http: http, quirks: ProviderQuirks())
 
         let response = try await generator.generate(plan.request)
         let result = try InsightsPromptBuilder.parse(response.text, plan: plan)
@@ -94,7 +94,7 @@ struct OpenAILiveTests {
         ]
         let text = "Acme called this morning and offered me the job, and I accepted on the spot. Still no word from the landlord about the heating, it's freezing in here."
         let plan = InsightsPromptBuilder.plan(text: text, source: .typed, sections: InsightSections(), vocabulary: .init(looseEnds: known), model: ProviderDefaults.textModel, entryDate: .now)
-        let generator = OpenAICompatibleTextGenerator(baseURL: baseURL, apiKey: key, http: http, jsonModeMemory: JSONModeMemory())
+        let generator = OpenAICompatibleTextGenerator(baseURL: baseURL, apiKey: key, http: http, quirks: ProviderQuirks())
 
         let response = try await generator.generate(plan.request)
         let result = try InsightsPromptBuilder.parse(response.text, plan: plan).looseEnds
@@ -110,7 +110,7 @@ struct OpenAILiveTests {
     @Test func looseEndsAreCommitmentsNotPassingRemarks() async throws {
         let text = "Long day. I'm going to grab a coffee after this and then head home. The lease is up in April so I really need to call the landlord about renewing, I keep putting it off. Been thinking about the move to Denver a lot lately, I should think about it more."
         let plan = InsightsPromptBuilder.plan(text: text, source: .typed, sections: InsightSections(), vocabulary: .empty, model: ProviderDefaults.textModel, entryDate: .now)
-        let generator = OpenAICompatibleTextGenerator(baseURL: baseURL, apiKey: key, http: http, jsonModeMemory: JSONModeMemory())
+        let generator = OpenAICompatibleTextGenerator(baseURL: baseURL, apiKey: key, http: http, quirks: ProviderQuirks())
 
         let response = try await generator.generate(plan.request)
         let result = try InsightsPromptBuilder.parse(response.text, plan: plan).looseEnds
@@ -131,7 +131,7 @@ struct OpenAILiveTests {
     // A8's first-person item: the summary talks about the author the way the setting asks.
     @Test func summariesUseTheChosenVoice() async throws {
         let text = "Met Sarah at the coffee place on Main Street this morning and we talked about the move to Denver."
-        let generator = OpenAICompatibleTextGenerator(baseURL: baseURL, apiKey: key, http: http, jsonModeMemory: JSONModeMemory())
+        let generator = OpenAICompatibleTextGenerator(baseURL: baseURL, apiKey: key, http: http, quirks: ProviderQuirks())
 
         func summary(_ voice: PromptVoice) async throws -> String {
             let plan = await InsightsPromptBuilder.plan(text: text, source: .typed, sections: InsightSections(), vocabulary: .empty, model: ProviderDefaults.textModel, voice: voice)
@@ -158,7 +158,7 @@ struct OpenAILiveTests {
         let decoys: [InsightsPromptBuilder.KnownEntity] = (1...48).map { .init(name: "Decoy Person \($0)", kind: .person) }
         let named = [InsightsPromptBuilder.KnownEntity(name: "Sarah Kim", kind: .person), .init(name: "Harbor Coffee", kind: .place)] + decoys
         let vocabulary = InsightsPromptBuilder.JournalVocabulary(tags: ["work", "friends"], named: named)
-        let generator = OpenAICompatibleTextGenerator(baseURL: baseURL, apiKey: key, http: http, jsonModeMemory: JSONModeMemory())
+        let generator = OpenAICompatibleTextGenerator(baseURL: baseURL, apiKey: key, http: http, quirks: ProviderQuirks())
 
         func mentions(_ text: String, _ vocabulary: InsightsPromptBuilder.JournalVocabulary) async throws -> ([Mention], Int) {
             let plan = InsightsPromptBuilder.plan(text: text, source: .voice, sections: InsightSections(), vocabulary: vocabulary, model: ProviderDefaults.textModel)
