@@ -78,11 +78,21 @@ enum IntentHandler {
             recording.begin()
             return .recording
         case .newEntry:
+            putTheRecorderAway(recording)
             router.showNewEntry()
             return .newEntry
         case .ask(let question):
+            putTheRecorderAway(recording)
             router.showAsk(question: question)
             return .ask
         }
+    }
+
+    // The recorder is a full-screen cover, but unlike the editor's it can be put away from
+    // outside: the recording carries on in the tab bar's accessory, as it does when the user
+    // switches tabs mid-recording. Left up, a jump would land underneath it, and Ask would focus a
+    // field nobody can see.
+    private static func putTheRecorderAway(_ recording: RecordingSession) {
+        recording.minimize()
     }
 }

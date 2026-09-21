@@ -101,14 +101,31 @@ struct IntentTests {
         #expect(router.journalPath.first?.entryID != open)
     }
 
-    @Test func newEntryWaitsBehindTheRecorder() {
+    // A cover that runs its own close rules (the editor, page ordering) can't be closed from
+    // outside, so the jump waits for it.
+    @Test func newEntryWaitsBehindACoverThatCantBeClosedFromOutside() {
         let router = router()
-        router.setCover("recorder", open: true)
+        router.setCover("pageOrder", open: true)
 
         router.showNewEntry()
-        #expect(router.journalPath.isEmpty, "a full-screen cover can't be closed from outside")
+        #expect(router.journalPath.isEmpty)
 
-        router.setCover("recorder", open: false)
+        router.setCover("pageOrder", open: false)
+        #expect(router.journalPath.first?.isNew == true)
+    }
+
+    // The recorder isn't one of those covers: it is put away, and the recording keeps going in the
+    // accessory, so the new entry is on screen rather than underneath it.
+    @Test func newEntryWhileRecordingPutsTheRecorderAwayAndKeepsRecording() async throws {
+        let harness = try RecordingSessionHarness()
+        await harness.beginAndWait()
+        #expect(harness.session.isExpanded)
+        let router = router()
+
+        IntentHandler.handle(.newEntry, recording: harness.session, router: router)
+
+        #expect(!harness.session.isExpanded, "the recorder is put away")
+        #expect(harness.session.isRecording, "and the recording carries on")
         #expect(router.journalPath.first?.isNew == true)
     }
 
@@ -134,17 +151,30 @@ struct IntentTests {
         #expect(request?.question == nil)
     }
 
-    @Test func askWaitsBehindTheRecorder() {
+    @Test func askWaitsBehindACoverThatCantBeClosedFromOutside() {
         let router = router()
-        router.setCover("recorder", open: true)
+        router.setCover("pageOrder", open: true)
 
         router.showAsk(question: "anything")
         #expect(router.tab == .journal)
         #expect(router.askFieldRequest == nil)
 
-        router.setCover("recorder", open: false)
+        router.setCover("pageOrder", open: false)
         #expect(router.tab == .ask)
         #expect(router.consumeAskField()?.question == "anything")
+    }
+
+    @Test func askWhileRecordingPutsTheRecorderAwayAndKeepsRecording() async throws {
+        let harness = try RecordingSessionHarness()
+        await harness.beginAndWait()
+        let router = router()
+
+        IntentHandler.handle(.ask("How was the move?"), recording: harness.session, router: router)
+
+        #expect(!harness.session.isExpanded)
+        #expect(harness.session.isRecording)
+        #expect(router.tab == .ask)
+        #expect(router.consumeAskField()?.question == "How was the move?")
     }
 
     @Test func askingTwiceGivesTwoRequests() {
