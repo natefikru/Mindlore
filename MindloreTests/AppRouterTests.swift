@@ -192,6 +192,29 @@ struct AppRouterMindTests {
         #expect(router.consumeMindFocus() == sarah)
     }
 
+    @Test func showSettingsSelectsSettingsClosesSheetsAndLeavesJournalAlone() {
+        let router = AppRouter(opened: { _ in }, closed: { _ in })
+        let open = UUID()
+        router.journalPath = [JournalRoute(entryID: open)]
+        let token = router.dismissPresentationsToken
+
+        router.showSettings()
+
+        #expect(router.tab == .settings)
+        #expect(router.dismissPresentationsToken == token + 1)
+        #expect(router.journalPath == [JournalRoute(entryID: open)])
+    }
+
+    @Test func showSettingsWaitsForCovers() {
+        let router = AppRouter(opened: { _ in }, closed: { _ in })
+        router.setCover("pageOrder", open: true)
+        router.showSettings()
+        #expect(router.tab == .journal)
+
+        router.setCover("pageOrder", open: false)
+        #expect(router.tab == .settings)
+    }
+
     @Test func replacingInMindSwapsTheLastLoser() {
         let router = AppRouter(opened: { _ in }, closed: { _ in })
         let tom = UUID(), sarah = UUID(), other = UUID()

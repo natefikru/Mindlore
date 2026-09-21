@@ -94,10 +94,15 @@ final class InsightsCoordinator {
     // Creates, retries, or replaces insights for one entry, whatever its history.
     func runAI(for entry: Entry, context: ModelContext) async {
         guard !isRunning(entry), Self.canRunAI(on: entry) else { return }
-        // Cheap short-circuit so tapping Run AI with every section off doesn't spend the entry's
-        // automatic pass on a request `generate` will refuse to send. That guard is the real one;
-        // this one only avoids the side effects below.
-        guard !sections().isEmpty else { return }
+        // So tapping Run AI with nothing to ask doesn't spend the entry's automatic pass on a request
+        // `generate` will refuse to send. It asks the builder itself rather than
+        // `InsightSections.isEmpty`, which is wrong for this in both directions: isEmpty ignores the
+        // written date, so it blocked a typed entry with only "suggest entry dates" on (a valid
+        // one-field request), and it counts cleanup, which a typed entry is never offered. An empty
+        // vocabulary gives the same answer as the real one: vocabulary only ever adds a field inside
+        // a section that is already on.
+        let probe = InsightsPromptBuilder.plan(text: entry.text, source: entry.source, sections: sections(), vocabulary: .empty, model: "")
+        guard !probe.asksForNothing else { return }
         // The automatic pass exists so each entry is analyzed once without asking. Asking counts, or
         // closing the entry afterwards would pay for the same analysis again.
         entry.automaticAIPassUsed = true

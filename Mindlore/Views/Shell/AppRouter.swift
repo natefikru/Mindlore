@@ -56,6 +56,7 @@ final class AppRouter {
     enum PendingJump: Equatable {
         case entry(JournalRoute)
         case mind(UUID)
+        case settings
     }
 
     @ObservationIgnored private let opened: (UUID) -> Void
@@ -103,6 +104,7 @@ final class AppRouter {
         switch pending {
         case .entry(let route): showEntry(route.entryID, forReading: route.opensForReading)
         case .mind(let id): showInMind(id)
+        case .settings: showSettings()
         }
     }
 
@@ -125,6 +127,11 @@ final class AppRouter {
     // sheet, and a tab switch underneath a sheet leaves the sheet covering the tab it switched to,
     // so the token has to take the sheet down on the way. Journal's path is left alone, like Mind.
     func showSettings() {
+        // Like the other jumps: a full-screen cover can't be closed from outside, so wait for it.
+        guard openCovers.isEmpty else {
+            pendingJump = .settings
+            return
+        }
         keptEntryID = nil
         dismissPresentationsToken += 1
         tab = .settings
