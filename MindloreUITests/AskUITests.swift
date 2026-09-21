@@ -63,22 +63,20 @@ final class AskUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["entryReadText"].label.contains("river"))
     }
 
-    // The cost line is the one place the app tells you what asking will send, and it is built from
-    // a conditional string. Built as a String rather than Text it rendered its own inflection markup
-    // on screen, and every unit test passed while it did.
+    // The cost line is gone (owner, 2026-09-19): the chat no longer tells you what it is about to
+    // read. What replaces it is this, a screen that says nothing at all while you type, with the
+    // receipt still one tap away under an answer.
     @MainActor
-    func testTheCostLineReadsLikeASentence() throws {
+    func testTypingAQuestionSaysNothingAboutWhatItWouldSend() throws {
         writeTheRiverEntry()
         openAsk()
 
         field.tap()
         field.typeText("What did I do by the river?")
 
-        let cost = app.staticTexts["askCost"]
-        XCTAssertTrue(cost.waitForExistence(timeout: 10))
-        XCTAssertFalse(cost.label.contains("inflect"), "the line is showing its own markup: \(cost.label)")
-        XCTAssertFalse(cost.label.contains("^["), "the line is showing its own markup: \(cost.label)")
-        XCTAssertTrue(cost.label.contains("1 entry"), cost.label)
+        let entryRow = app.descendants(matching: .any).matching(NSPredicate(format: "identifier BEGINSWITH 'askSearchEntry-'")).firstMatch
+        XCTAssertTrue(entryRow.waitForExistence(timeout: 10), "the panel still searches while you type")
+        XCTAssertFalse(app.staticTexts["askCost"].exists)
     }
 
     @MainActor

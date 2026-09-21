@@ -126,12 +126,6 @@ final class AskService {
 
     var isAvailable: Bool { resolve().isSuccess }
 
-    // Whether answering this question would leave the phone, for the line under the field.
-    var answersLeaveThePhone: Bool {
-        if case .success(let provider) = resolve() { return provider.kind == .openAI }
-        return false
-    }
-
     var unavailableFailure: AIJobFailure? {
         if case .failure(let failure) = resolve() { return failure }
         return nil
@@ -210,29 +204,6 @@ final class AskService {
 
     func refreshIndex(in context: ModelContext) async {
         await indexStore.refreshIfNeeded(revisions: revisions(), in: context)
-    }
-
-    nonisolated struct Estimate: Equatable, Sendable {
-        var entries = 0
-        var characters = 0
-        // How many matched before the cut, which is what lets the line say "12 of 84".
-        var matched = 0
-
-        var wasCut: Bool { matched > entries }
-    }
-
-    // What sending this question would cost. Reads the index snapshot and fetches nothing, which is
-    // the point: this runs on a debounce while the user types, and it used to read the whole journal
-    // every time it fired.
-    func estimate(for question: String) -> Estimate {
-        let trimmed = question.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty, case .success(let provider) = resolve() else { return Estimate() }
-        let plan = retrieval(for: trimmed, asked: false, provider: provider).plan
-        return Estimate(
-            entries: plan.fetchedEntryIDs.count,
-            characters: plan.estimatedCharacters,
-            matched: plan.matchedCount
-        )
     }
 
     // Entered with isRunning already true, set by the caller before its first await, so two

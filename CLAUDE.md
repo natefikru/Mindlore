@@ -97,22 +97,43 @@ after the system prompt and the answer headroom come out.
   started?" stays about whoever the turn before was about. A range the question names filters; a range
   an earlier question named carries one turn, only boosts, and is dropped once the new question names
   someone. Nothing about this is stored: a reopened conversation rebuilds it from the messages.
-- **`AskRetrieval.plan` decides, `AskContextBuilder` renders.** The plan takes a top k (15, or 5 on
-  device) and divides the budget into four absolute slices (about, rollups, continuity, ranked),
-  reading no entry text, which is what makes the cost line under the field free. The renderer holds
-  the real budget slice by slice, so nothing can eat the room the entries needed. `matchedCount` is
-  how many matched before the cut; a question naming a stretch of time is measured against that
-  stretch, which is what stops a year being answered from two weeks. A question matching nothing
-  falls back to the newest entries rather than failing.
+- **`AskRetrieval.plan` decides, `AskContextBuilder` renders.** The plan takes a top k (20, or 5 on
+  device) and divides the budget into five absolute slices (about, rollups, digests, continuity,
+  ranked), reading no entry text. The renderer holds the real budget slice by slice, so nothing can
+  eat the room the entries needed. `matchedCount` is how many matched before the cut; a question
+  naming a stretch of time is measured against that stretch, which is what stops a year being
+  answered from two weeks. A question matching nothing falls back to the newest entries rather than
+  failing. `aggregateMatchCount` is absolute at 45, not a multiple of the ranked cap: raising the
+  cap must not quietly turn rollups off for a fifty-entry question.
+- **What didn't fit whole goes in as one line.** `AskDigests` renders up to 150 matched entries as
+  a handle, a date, a title, and ninety characters, inside one fence, for about what seven whole
+  entries cost; the OpenAI budget is 64,000 characters. That is what lets "what happened this year"
+  see the year instead of whichever twenty entries ranked highest. The room is reserved before the
+  ranked loop, from a count, or twenty whole entries eat the tail the lines exist to cover. A line
+  is entry text leaving the phone, so it is fetched through `AskSources` under the same eligibility
+  check and sanitized the same way; it carries a handle, so an answer can cite a day it only saw a
+  line of. `wasCut` counts a digest as having seen the entry, so a question whose whole matched set
+  fit in lines has nothing to hedge about. On device there are no digests: one block is most of the
+  budget.
 - **The index rebuilds on a fingerprint**, not a timer: entry, link, and entity counts plus three
   monotonic counters (`EntrySaver.revision`, `GraphServices.revision`, `JournalSaves.revision`).
   Ordinals, never dates, so a clock stepping back cannot hide a change. `JournalSaves` sits inside
   `saveStampingEntries` because the transcription and title coordinators save straight through it:
   without it a recording's text never reached the index.
-- **The prompt owns up to what the answer is written from.** `AskPrompt.notes` says "these are the
-  12 that best match, out of 84 that match at all", says which days the entries came from, and says
-  when nothing matched and these are simply the newest entries. An inherited range reads differently
-  from a named one, because it never filtered anything and entries outside it are in the prompt.
+- **The prompt owns up to what the answer is written from, and never says so out loud.** The
+  answers used to read like search results, and they narrated their own retrieval because the
+  prompt told them to: "say what you are looking at" went into every cut question. `AskPrompt.system`
+  now opens with who is speaking, then one silence rule with its worked contrast attached ("you were
+  fried the week of the deadline", never "your entry from 14 March says"), then two permissions:
+  name a pattern you actually see, ask one short question back, nothing that steers a life. Handles
+  are out of the prose; OpenAI returns citations in a field, and only the on-device model, which has
+  no structured output, still writes `[E3]` inline for `AskAnswerParser` to strip. That split is why
+  the prompt has a short form, since the whole on-device session is 6,000 characters.
+  `AskPrompt.notes` still says "you can see 20 of the 213 entries that bear on this", says which
+  days the entries came from, and says when nothing matched and these are simply the newest
+  entries, but every note now carries its own gag order, because a note stated as a fact came back
+  out inside the answer. `AskPromptToneTests` holds all of it, the old sentence asserted as absent.
+  An inherited range reads differently from a named one, because it never filtered anything and entries outside it are in the prompt.
   `AskRollups` adds one fenced block of counts and coverage ("September 2026: 31 entries, 2 to 30
   September") for an aggregate question, counting **the matched set**, not the month: counting the
   month instead is the confident wrong answer the rollup exists to prevent. Counts and coverage
@@ -126,6 +147,10 @@ after the system prompt and the answer headroom come out.
   substring predicate when the ranked path finds nothing (which also covers a query that is all stop
   words). Before this the panel could say "nothing matches that" about an entry the question then
   sent. A row that ranked on something invisible, a tag or a mood or a month, says which.
+- **The chat shows no plumbing.** No cost line under the field, no sentence about what asking
+  would send. The source chips under an answer stay, quiet and tappable, and "What was sent" is an
+  icon on the footer row; that sheet is where the receipt lives, and it says how many entries were
+  read in full against how many as one line.
 - **Diagnostics** (`ask.indexed`, `ask.retrieved`, `ask.answered`, `ask.failed`) carry counts,
   durations, bools, and rounded scores. Never a term, a tag, a name, a question, or a handle map.
 - **Measured, not assumed.** Two suites, doing different jobs. `AskRetrievalQualityTests` is the
