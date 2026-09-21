@@ -10,7 +10,7 @@ import Foundation
 //
 // Counts and coverage, plus mood and area distribution (owner, 2026-09-18, revised for Reflect
 // 2026-09-21): a block here carries numbers, a month name, two dates, and a mood/area shape built
-// from `ReflectAggregator` — the same aggregator Reflect's charts read, so there is one source for
+// from `ReflectAggregator`, the same aggregator Reflect's charts read, so there is one source for
 // these counts, not two. Top tags stay out: a tag is closer to the entry's own words than a mood
 // category or a life area name, so it stays off every block a model sees, same as a title or a
 // name.
@@ -58,7 +58,7 @@ nonisolated enum AskRollups {
     }
 
     // `AskIndex` stores the specific mood written (`Mood.rawValue`, e.g. "tired") and each area's
-    // fixed default name (`LifeArea.defaultName`, e.g. "Work") — see `AskSources.documents(in:)`.
+    // fixed default name (`LifeArea.defaultName`, e.g. "Work"), see `AskSources.documents(in:)`.
     // Rolling the mood up to its category, same as Reflect's own charts do, keeps the line a shape
     // rather than the specific word the entry used.
     private static func moodCategory(from raw: String?) -> MoodCategory? {
@@ -139,7 +139,7 @@ nonisolated enum AskRollups {
         count == 1 ? "1 entry" : "\(count) entries"
     }
 
-    // "mood: calm 4, reflective 3; areas: work 3, health 2" — numbers and category names only,
+    // "mood: calm 4, reflective 3; areas: work 3, health 2": numbers and category names only,
     // highest count first, capped so a busy period reads as a shape rather than a full table.
     private static func distributionSuffix(
         moodCounts: [MoodCategory: Int],

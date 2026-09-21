@@ -24,34 +24,41 @@ struct ReflectView: View {
     var body: some View {
         NavigationStack {
             Group {
-                if let period, period.entryCount > 0 {
-                    List {
-                        if let narrative {
+                if let period {
+                    if period.entryCount > 0 {
+                        List {
+                            if let narrative {
+                                Section {
+                                    Text(narrative)
+                                        .journalText(.body)
+                                        .foregroundStyle(Palette.ink)
+                                        .accessibilityIdentifier("reflectNarrative")
+                                }
+                            }
                             Section {
-                                Text(narrative)
-                                    .journalText(.body)
-                                    .foregroundStyle(Palette.ink)
-                                    .accessibilityIdentifier("reflectNarrative")
+                                areaBalance(period)
+                            } header: {
+                                Text("Areas")
+                            }
+                            Section {
+                                moodOverTime()
+                            } header: {
+                                Text("Mood")
                             }
                         }
-                        Section {
-                            areaBalance(period)
-                        } header: {
-                            Text("Areas")
-                        }
-                        Section {
-                            moodOverTime()
-                        } header: {
-                            Text("Mood")
-                        }
+                        .paperBackground()
+                    } else {
+                        ContentUnavailableView(
+                            "Nothing here",
+                            systemImage: "square.dashed",
+                            description: Text("No entries in this \(selection.kind == .week ? "week" : "month").")
+                        )
                     }
-                    .paperBackground()
                 } else {
-                    ContentUnavailableView(
-                        "Nothing here",
-                        systemImage: "square.dashed",
-                        description: Text("No entries in this \(selection.kind == .week ? "week" : "month").")
-                    )
+                    // Distinct from the empty-period state above: nothing has been fetched yet
+                    // (the first appearance, or a cold ModelContainer), not an empty period.
+                    ProgressView()
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
             }
             .safeAreaInset(edge: .top) {
@@ -171,16 +178,21 @@ struct ReflectView: View {
         Fingerprint(selection: selection, saver: saver.revision, graph: graph.revision, stamped: JournalSaves.revision)
     }
 
-    // One async task per fingerprint change: SwiftUI cancels the running one before starting the
-    // next, so a period flipped through quickly never shows a stale narrative arriving late.
+    // One async task per fingerprint change. SwiftUI cancels the running one before starting the
+    // next, but that cancellation is cooperative: `ReflectNarrator.narrate` catches every error,
+    // including a cancelled request's, and returns nil rather than throwing, so a stale task can
+    // still resolve and reach its final assignment after a newer task already finished. Capturing
+    // the fingerprint before the await and checking it after is what actually drops that result,
+    // the same guard the AI coordinators take against a changed `contentRevision`.
     private func refresh() async {
+        let requested = fingerprint
         let computed = ReflectSource.period(selection.interval(), in: modelContext)
         period = computed
         trend = ReflectSource.trend(for: selection, in: modelContext)
         narrative = nil
 
         guard case .success(let resolved) = AIServices.askGenerator(settings: settings, accounts: accounts) else { return }
-        narrative = await ReflectNarrator.narrate(
+        let result = await ReflectNarrator.narrate(
             period: computed,
             kind: selection.kind,
             title: selection.title(),
@@ -188,6 +200,8 @@ struct ReflectView: View {
             voice: settings.promptVoice,
             areaName: { settings.name(of: $0) }
         )
+        guard requested == fingerprint else { return }
+        narrative = result
     }
 }
 

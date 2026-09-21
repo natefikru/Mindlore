@@ -2,22 +2,23 @@
 
 Branch: `feature/reflect` from `main` at `c4449a1` ("Phase A is on main").
 
-Status: revision 1, awaiting the owner's approval. Nothing below is built.
+Status: revision 1, approved by the owner on 2026-09-21. R0 through R4 are built, on `feature/reflect`
+(PR #22). The device pass in R4 is still open, run by the owner on a physical iPhone.
 
 ## Why
 
 Reflect is the one phase every other plan in this repo has already promised and deliberately
 left empty for:
 
-- `tasks/todo.md:53` — "Reflect comes later (weekly recaps, area balance, mood over time) as its
+- `tasks/todo.md:53`: "Reflect comes later (weekly recaps, area balance, mood over time) as its
   own phase after A."
-- `tasks/todo.md:774` — "Reflect: weekly and monthly recaps, area balance charts, mood over time.
+- `tasks/todo.md:774`: "Reflect: weekly and monthly recaps, area balance charts, mood over time.
   That's the next phase."
-- `tasks/phase-b-ux.md:60-62` — "Reflect stays its own phase (recaps, area balance, mood over
+- `tasks/phase-b-ux.md:60-62`: "Reflect stays its own phase (recaps, area balance, mood over
   time, generated narrative). Phase B owns single-item resurfacing and raw counts. One thing is
   pulled forward: the week strip, which is a seven-cell query and later becomes Reflect's way
   in."
-- `Mindlore/AI/Ask/AskRollups.swift:11-13` — mood distribution, area split, and top tags are
+- `Mindlore/AI/Ask/AskRollups.swift:11-13`: mood distribution, area split, and top tags are
   named there as Reflect's data and kept out of Ask's rollup blocks on purpose.
 
 So the scope isn't a question: **weekly and monthly recaps, an area-balance view, mood over
@@ -57,8 +58,8 @@ phase is that look back.
   diagnostics carry counts/durations/bools only, checked by `DiagnosticsPrivacyTests` running
   real components against a sentinel string. `AIJobPolicy` today governs three *per-entry* jobs
   (text, title, insights) with attempts and failures stored on the `Entry`. A period narrative is
-  a new shape: not per-entry, not persisted, not retried, so it does not extend `AIJobPolicy` —
-  see "The narrative" below.
+  a new shape: not per-entry, not persisted, not retried, so it does not extend `AIJobPolicy`.
+  See "The narrative" below.
 
 ## Ground rules
 
@@ -80,16 +81,18 @@ phase is that look back.
 
 ## Owner decisions needed
 
-1. **Entry point.** Recommended: make `WeekStrip` tappable; Reflect opens as a push from Today's
-   `NavigationStack`, not a sheet and not a fourth tab. Matches the "way in" language already on
-   file and needs no `AppRouter` changes beyond a route.
+1. **Entry point.** Recommended: make `WeekStrip` tappable, no fourth tab. Built as a sheet over
+   Today, its own `NavigationStack`, rather than the push originally recommended here: a push
+   would have meant teaching `AppRouter`'s `journalPath` a second route type (`JournalRoute` is
+   built specifically around an entry id), where a self-contained sheet needed no `AppRouter`
+   change at all. Matches the "way in" language already on file either way.
 2. **Periods offered.** Recommended: week and month only, with a simple back/forward stepper
    between periods of the same kind (no custom date range, no year view) in v1. Matches every
-   doc quote — none of them say "yearly."
+   doc quote, none of them say "yearly."
 3. **The generated narrative: is it an AI call, and what does it see?** Recommended: yes, one
    `TextGenerator` call per period the user actually opens (not pre-generated, not persisted, no
    background job). The prompt is built only from the aggregated facts already on the chart screen
-   — mood distribution, area counts, tag list, loose ends opened/closed that period, entry count —
+   (mood distribution, area counts, tag list, loose ends opened/closed that period, entry count),
    never raw entry text. That keeps it cheap, keeps it fast, and means it can't leak anything the
    charts don't already show. On failure it fails silently (no narrative section shown, charts
    still render); there's nothing to retry because reopening the period asks again.
@@ -101,11 +104,11 @@ phase is that look back.
    placeholder numbers.
 6. **Does Ask see Reflect's aggregates?** Owner decided: yes, aggregates only. `AskRollups`
    (`Mindlore/AI/Ask/AskRollups.swift`) reverses its 2026-09-18 exclusion and gains a line per
-   month/year block built from `ReflectAggregator` — mood distribution and area split alongside
-   the existing entry count and date range — so an aggregate question ("how was my mood in
+   month/year block built from `ReflectAggregator` (mood distribution and area split alongside
+   the existing entry count and date range), so an aggregate question ("how was my mood in
    September?") is grounded in real numbers instead of Ask's twelve-entry sample. Same
    numbers-only discipline the rollup already has: no entry text, no titles, no names. The
-   **generated narrative paragraph stays out of Ask entirely** — it has no entry behind it to
+   **generated narrative paragraph stays out of Ask entirely**: it has no entry behind it to
    cite, and Ask's whole answer format depends on every claim tracing to a real entry, so a
    synthesized paragraph never becomes a retrievable or citable document in `AskIndex`.
 
@@ -123,12 +126,13 @@ as `AskRollupsTests`. No UI in this phase.
 distribution and area split, same numbers-only rule the block already follows. `AskPrompt`'s
 existing "these numbers summarize what matched" framing covers the new line without a prompt
 rewrite. `AskRollupsTests` and `AskRetrievalQualityTests` gain cases for an aggregate mood/area
-question. This is the one phase that touches an existing Ask file — kept separate from R0 so it
+question. This is the one phase that touches an existing Ask file, kept separate from R0 so it
 can be reviewed and reverted on its own if it turns out to change Ask's answers in an unwanted way.
 
-### R1: Period navigation and area balance (S–M)
-`ReflectView` pushed from Today via the new `WeekStrip` tap target; a period stepper (week/month
-toggle, back/forward); the area-balance chart (bar or ring, life-area colours) reading
+### R1: Period navigation and area balance (S-M)
+`ReflectView` presented as a sheet from Today via the new `WeekStrip` tap target (see owner
+decision 1); a period stepper (week/month toggle, back/forward); the area-balance chart (bar or
+ring, life-area colours) reading
 `ReflectAggregator` output, cached against the three-counter fingerprint the same way `AskIndex`
 is. Accessibility identifiers added up front, per the repo's UI-test convention.
 
@@ -150,7 +154,7 @@ narrative on and off. `CLAUDE.md` gains a Reflect paragraph; `docs/remaining-wor
 `tasks/smoke-test.md` gets the new steps.
 
 Each phase is its own commit (or small commit sequence), tested locally before the next phase
-starts — there's no CI in this repo (`tasks/todo.md`: "There's no CI. The check after every push
+starts. There's no CI in this repo (`tasks/todo.md`: "There's no CI. The check after every push
 is the local unit test run"), so "push, check CI" becomes "commit, run the phase's tests, push."
 
 ## Not in scope
@@ -166,7 +170,7 @@ is the local unit test run"), so "push, check CI" becomes "commit, run the phase
 ## Test strategy
 
 - `ReflectAggregatorTests` (new): pure-function tests over constructed `EntryInsights`/date
-  fixtures, no app context needed — mood distribution counts, area counts, tag counts, boundary
+  fixtures, no app context needed: mood distribution counts, area counts, tag counts, boundary
   entries (entry dated exactly on a period edge), an empty period, a period spanning a DST
   change (calendar-aware bucketing, same caution `AskRollups`'s formatter already documents about
   timezone).

@@ -3,8 +3,8 @@ import Foundation
 // One paragraph about a period, asked for when the user opens it and forgotten when they leave:
 // not persisted, not retried, no AIJobPolicy (that governs three per-entry jobs with counted
 // attempts; this is neither per-entry nor worth counting failures on, since reopening the period
-// asks again). The prompt carries only the aggregated facts already on the chart screen — mood
-// distribution, area counts, top tags, loose-end opens/closes, entry count — never entry text
+// asks again). The prompt carries only the aggregated facts already on the chart screen (mood
+// distribution, area counts, top tags, loose-end opens/closes, entry count), never entry text
 // (tasks/reflect-spec.md owner decision 3). No advice, same rule as Ask and loose ends.
 @MainActor
 enum ReflectNarrator {

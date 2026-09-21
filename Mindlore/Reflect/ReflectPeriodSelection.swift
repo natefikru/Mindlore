@@ -32,7 +32,7 @@ nonisolated struct ReflectPeriodSelection: Hashable, Sendable {
             ?? DateInterval(start: anchor, duration: 0)
     }
 
-    // "Week of 14 September 2026" or "September 2026" — a title, not a range; the chart screen
+    // "Week of 14 September 2026" or "September 2026": a title, not a range; the chart screen
     // itself shows the exact dates covered.
     func title(now: Date = .now, calendar: Calendar = .current) -> String {
         let interval = interval(now: now, calendar: calendar)
@@ -49,7 +49,7 @@ nonisolated struct ReflectPeriodSelection: Hashable, Sendable {
         }
     }
 
-    // "14 Sep" or "Sep" — an axis tick, not a title.
+    // "14 Sep" or "Sep": an axis tick, not a title.
     func shortLabel(now: Date = .now, calendar: Calendar = .current) -> String {
         let interval = interval(now: now, calendar: calendar)
         let formatter = DateFormatter()

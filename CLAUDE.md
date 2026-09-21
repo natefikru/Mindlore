@@ -390,8 +390,8 @@ no fourth tab, no `AppRouter` change.
   `ReflectNarrator.narrate` asks for one paragraph per period the user actually opens: never
   persisted, never retried (reopening the period asks again), so it does not extend `AIJobPolicy`,
   which governs three per-entry jobs with counted attempts. The prompt carries only the aggregated
-  facts already on the chart screen — mood distribution, area counts, top tags, loose-end
-  opens/closes, entry count — never raw entry text. It resolves through the existing `AskGenerator`
+  facts already on the chart screen (mood distribution, area counts, top tags, loose-end
+  opens/closes, entry count), never raw entry text. It resolves through the existing `AskGenerator`
   setting (`AIServices.askGenerator`) rather than a second AI toggle, and fails silently: the
   charts render on their own either way. `reflect.narrated` logs kind, entry count, duration, and a
   success bool, the same numbers-only rule as every other diagnostics event.

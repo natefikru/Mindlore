@@ -156,8 +156,8 @@ What shipped, phase by phase:
   routed through the existing `AskGenerator` setting, built only from the aggregated facts already
   on screen (never raw entry text), never persisted or retried.
 - **R4** (in progress): privacy test for `reflect.narrated`, a read-only review of the diff. The
-  device pass — a real week and month on the owner's journal, an empty period, the narrative on and
-  off — needs the phone and is what's left before the PR (#22) comes off draft.
+  device pass (a real week and month on the owner's journal, an empty period, the narrative on and
+  off) needs the phone and is what's left before the PR (#22) comes off draft.
 
 Search, which the build plan lists in the same phase, already shipped as Ask's search panel. The
 graph maintenance pass (§4.4, refreshing stale bios) is not part of Reflect and stays open below.
