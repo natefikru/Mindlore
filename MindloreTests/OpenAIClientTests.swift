@@ -9,7 +9,7 @@ struct OpenAIClientTests {
     private let schema = JSONSchema.object([.init("text", .string())])
 
     private func generator(_ http: FakeHTTPClient) -> OpenAICompatibleTextGenerator {
-        OpenAICompatibleTextGenerator(baseURL: baseURL, apiKey: "sk-test", http: http, jsonModeMemory: JSONModeMemory())
+        OpenAICompatibleTextGenerator(baseURL: baseURL, apiKey: "sk-test", http: http, quirks: ProviderQuirks())
     }
 
     @Test func structuredRequestShape() async throws {
@@ -74,13 +74,13 @@ struct OpenAIClientTests {
     }
 
     @Test func rejectedSchemaRetriesOnceInJSONModeAndIsRemembered() async throws {
-        let memory = JSONModeMemory()
+        let memory = ProviderQuirks()
         let http = FakeHTTPClient(
             FakeHTTPClient.error(400, code: "invalid_request_error", param: "response_format"),
             FakeHTTPClient.completion(#"{"text":"ok"}"#),
             FakeHTTPClient.completion(#"{"text":"again"}"#)
         )
-        let client = OpenAICompatibleTextGenerator(baseURL: baseURL, apiKey: "k", http: http, jsonModeMemory: memory)
+        let client = OpenAICompatibleTextGenerator(baseURL: baseURL, apiKey: "k", http: http, quirks: memory)
         let request = TextRequest(model: "local", system: "sys", user: "u", schema: schema)
 
         _ = try await client.generate(request)

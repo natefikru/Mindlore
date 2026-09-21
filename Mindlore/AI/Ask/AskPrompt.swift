@@ -177,10 +177,13 @@ nonisolated enum AskPrompt {
 
     // Citations are enumerated from this request's own handles, so the model can't name an entry
     // the question never reached.
+    // Named, because a streaming answer is read out of the half-written object by this field.
+    static let answerField = "answer"
+
     static func schema(handles: [String]) -> JSONSchema? {
         guard !handles.isEmpty else { return nil }
         return .object([
-            .init("answer", .string(description: "The answer, in plain sentences.")),
+            .init(answerField, .string(description: "The answer, in plain sentences.")),
             .init("citations", .array(.enumeration(handles.sorted()), description: "The handles of the entries the answer used.")),
         ])
     }

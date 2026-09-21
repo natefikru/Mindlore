@@ -30,6 +30,52 @@ struct OpenAILiveTests {
         #expect(reply.word.lowercased().contains("hello"))
     }
 
+    // The whole point of streaming, measured against the same call without it: the tokens are
+    // identical, and the first word is on screen while the rest is still being written.
+    @Test func streamedAnswerArrivesFirstWordFirst() async throws {
+        let generator = OpenAICompatibleTextGenerator(baseURL: baseURL, apiKey: key, http: http, quirks: ProviderQuirks())
+        let schema = JSONSchema.object([
+            .init(AskPrompt.answerField, .string(description: "The answer, in plain sentences.")),
+            .init("citations", .array(.enumeration(["E1", "E2"]), description: "The handles used.")),
+        ])
+        let request = TextRequest(
+            model: ProviderDefaults.textModel,
+            system: "You answer questions about the author's own journal in four or five sentences.",
+            user: "[E1] I ran by the river on Tuesday and felt better afterwards.\n[E2] Wednesday was long and I slept badly.\nQuestion: how was my week?",
+            schema: schema,
+            schemaName: "journal_ask",
+            maxOutputTokens: 2_000
+        )
+
+        let startedAt = ContinuousClock.now
+        var firstDelta: Duration?
+        var firstWord: Duration?
+        var raw = ""
+        var result: TextResult?
+        for try await event in generator.stream(request) {
+            switch event {
+            case .delta(let delta):
+                if firstDelta == nil { firstDelta = startedAt.duration(to: .now) }
+                raw += delta
+                if firstWord == nil, let text = StreamingJSONString.value(of: AskPrompt.answerField, in: raw), !text.isEmpty {
+                    firstWord = startedAt.duration(to: .now)
+                }
+            case .finished(let finished):
+                result = finished
+            }
+        }
+        let total = startedAt.duration(to: .now)
+        let finished = try #require(result)
+        let answer = try AskAnswerParser.parseJSON(finished.text, known: ["E1", "E2"])
+
+        print("LIVE stream first delta \(firstDelta.map { $0.milliseconds } ?? -1) ms, first word \(firstWord.map { $0.milliseconds } ?? -1) ms, whole answer \(total.milliseconds) ms, \(answer.text.count) characters, tokens in \(finished.inputTokens ?? -1) out \(finished.outputTokens ?? -1)")
+
+        #expect(!answer.text.isEmpty)
+        #expect(finished.outputTokens ?? 0 > 0, "stream_options carried the usage through")
+        let firstWordAt = try #require(firstWord)
+        #expect(firstWordAt < total, "the first word was readable before the answer finished")
+    }
+
     @Test func pageTranscription() async throws {
         let context = try #require(CGContext(data: nil, width: 1_200, height: 400, bitsPerComponent: 8, bytesPerRow: 0, space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue))
         context.setFillColor(CGColor(gray: 1, alpha: 1))
@@ -69,7 +115,7 @@ struct OpenAILiveTests {
         sections.customPrompts = [CustomInsightPrompt(id: UUID(), name: "Gratitude", instructions: "What am I grateful for?", enabled: true)]
         let text = "so today i met sarah at the coffee place on main street and we talked about the move to denver which im kind of anxious about but also grateful she offered to help i still need to call the landlord"
         let plan = InsightsPromptBuilder.plan(text: text, source: .voice, sections: sections, vocabulary: .init(tags: ["friends", "moving"]), model: ProviderDefaults.textModel)
-        let generator = OpenAICompatibleTextGenerator(baseURL: baseURL, apiKey: key, http: http, jsonModeMemory: JSONModeMemory())
+        let generator = OpenAICompatibleTextGenerator(baseURL: baseURL, apiKey: key, http: http, quirks: ProviderQuirks())
 
         let response = try await generator.generate(plan.request)
         let result = try InsightsPromptBuilder.parse(response.text, plan: plan)
@@ -94,7 +140,7 @@ struct OpenAILiveTests {
         ]
         let text = "Acme called this morning and offered me the job, and I accepted on the spot. Still no word from the landlord about the heating, it's freezing in here."
         let plan = InsightsPromptBuilder.plan(text: text, source: .typed, sections: InsightSections(), vocabulary: .init(looseEnds: known), model: ProviderDefaults.textModel, entryDate: .now)
-        let generator = OpenAICompatibleTextGenerator(baseURL: baseURL, apiKey: key, http: http, jsonModeMemory: JSONModeMemory())
+        let generator = OpenAICompatibleTextGenerator(baseURL: baseURL, apiKey: key, http: http, quirks: ProviderQuirks())
 
         let response = try await generator.generate(plan.request)
         let result = try InsightsPromptBuilder.parse(response.text, plan: plan).looseEnds
@@ -110,7 +156,7 @@ struct OpenAILiveTests {
     @Test func looseEndsAreCommitmentsNotPassingRemarks() async throws {
         let text = "Long day. I'm going to grab a coffee after this and then head home. The lease is up in April so I really need to call the landlord about renewing, I keep putting it off. Been thinking about the move to Denver a lot lately, I should think about it more."
         let plan = InsightsPromptBuilder.plan(text: text, source: .typed, sections: InsightSections(), vocabulary: .empty, model: ProviderDefaults.textModel, entryDate: .now)
-        let generator = OpenAICompatibleTextGenerator(baseURL: baseURL, apiKey: key, http: http, jsonModeMemory: JSONModeMemory())
+        let generator = OpenAICompatibleTextGenerator(baseURL: baseURL, apiKey: key, http: http, quirks: ProviderQuirks())
 
         let response = try await generator.generate(plan.request)
         let result = try InsightsPromptBuilder.parse(response.text, plan: plan).looseEnds
@@ -131,7 +177,7 @@ struct OpenAILiveTests {
     // A8's first-person item: the summary talks about the author the way the setting asks.
     @Test func summariesUseTheChosenVoice() async throws {
         let text = "Met Sarah at the coffee place on Main Street this morning and we talked about the move to Denver."
-        let generator = OpenAICompatibleTextGenerator(baseURL: baseURL, apiKey: key, http: http, jsonModeMemory: JSONModeMemory())
+        let generator = OpenAICompatibleTextGenerator(baseURL: baseURL, apiKey: key, http: http, quirks: ProviderQuirks())
 
         func summary(_ voice: PromptVoice) async throws -> String {
             let plan = await InsightsPromptBuilder.plan(text: text, source: .typed, sections: InsightSections(), vocabulary: .empty, model: ProviderDefaults.textModel, voice: voice)
@@ -158,7 +204,7 @@ struct OpenAILiveTests {
         let decoys: [InsightsPromptBuilder.KnownEntity] = (1...48).map { .init(name: "Decoy Person \($0)", kind: .person) }
         let named = [InsightsPromptBuilder.KnownEntity(name: "Sarah Kim", kind: .person), .init(name: "Harbor Coffee", kind: .place)] + decoys
         let vocabulary = InsightsPromptBuilder.JournalVocabulary(tags: ["work", "friends"], named: named)
-        let generator = OpenAICompatibleTextGenerator(baseURL: baseURL, apiKey: key, http: http, jsonModeMemory: JSONModeMemory())
+        let generator = OpenAICompatibleTextGenerator(baseURL: baseURL, apiKey: key, http: http, quirks: ProviderQuirks())
 
         func mentions(_ text: String, _ vocabulary: InsightsPromptBuilder.JournalVocabulary) async throws -> ([Mention], Int) {
             let plan = InsightsPromptBuilder.plan(text: text, source: .voice, sections: InsightSections(), vocabulary: vocabulary, model: ProviderDefaults.textModel)
@@ -223,4 +269,8 @@ struct OpenAILiveTests {
         #expect(second.failureRaw == nil)
         #expect(second.citedEntryIDs.contains(pepperEntry.id), "the follow-up cites the same entry under the same handle")
     }
+}
+
+private extension Duration {
+    var milliseconds: Int { Int(components.seconds * 1_000 + components.attoseconds / 1_000_000_000_000_000) }
 }

@@ -50,6 +50,45 @@ nonisolated struct UITestingHTTPClient: HTTPClient {
         return HTTPResponse(status: 200, headers: [:], data: Data(json.utf8))
     }
 
+    // The same answer the single-shot path would give, cut into deltas and wrapped in the SSE
+    // frames a real server sends, so the UI tests drive the streaming code rather than around it.
+    func stream(_ request: URLRequest, body: Data?) async throws -> HTTPStream {
+        let response = try await send(request, body: body)
+        guard (200..<300).contains(response.status) else { return .response(response) }
+        let content = Self.content(of: response.data) ?? ""
+        return .body(AsyncThrowingStream { continuation in
+            for delta in Self.deltas(of: content) {
+                continuation.yield(Self.frame(["choices": [["delta": ["content": delta]]]]))
+            }
+            continuation.yield(Self.frame(["choices": [["delta": [:], "finish_reason": "stop"]], "model": "stub"]))
+            continuation.yield(Data("data: [DONE]\n\n".utf8))
+            continuation.finish()
+        })
+    }
+
+    private static func content(of data: Data) -> String? {
+        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let choices = json["choices"] as? [[String: Any]],
+              let message = choices.first?["message"] as? [String: Any] else { return nil }
+        return message["content"] as? String
+    }
+
+    // Split mid-token on purpose: an answer that only ever arrives on JSON boundaries would let a
+    // parser that can't read a half-written string pass.
+    private static func deltas(of content: String) -> [String] {
+        let chunkSize = 7
+        return stride(from: 0, to: content.count, by: chunkSize).map { start in
+            let lower = content.index(content.startIndex, offsetBy: start)
+            let upper = content.index(lower, offsetBy: chunkSize, limitedBy: content.endIndex) ?? content.endIndex
+            return String(content[lower..<upper])
+        }
+    }
+
+    private static func frame(_ object: [String: Any]) -> Data {
+        let json = String(decoding: (try? JSONSerialization.data(withJSONObject: object)) ?? Data(), as: UTF8.self)
+        return Data("data: \(json)\n\n".utf8)
+    }
+
     // The first block handle in the user message, which is the entry Ask would cite.
     static func firstAskHandle(inRequestBody body: String) -> String? {
         guard let json = try? JSONSerialization.jsonObject(with: Data(body.utf8)) as? [String: Any],

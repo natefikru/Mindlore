@@ -1,10 +1,10 @@
 # Diagnostics privacy coverage
 
-Checked on 2026-09-21 against `feature/phase-a` (131 distinct event names in `Mindlore/`).
+Checked on 2026-09-21 against `feature/phase-a` (132 distinct event names in `Mindlore/`).
 
 **How it was measured.** The event list comes from every `record("…")` call in `Mindlore/`,
-including the two ternaries (`insights.completed`/`insights.stale`, `title.completed`/
-`title.discarded`) and the multi-line `today.shown`. Coverage was measured by instrumenting
+including the three ternaries (`insights.completed`/`insights.stale`, `title.completed`/
+`title.discarded`, `ask.answered`/`ask.stopped`) and the multi-line `today.shown`. Coverage was measured by instrumenting
 `DiagnosticsLog.record` for one run to append each event name to a scratch file, then running
 each sentinel test on its own. An event counts as covered only if a test that feeds the sentinel
 through the real component actually wrote it. Grepping a test for the event name was not enough.
@@ -13,14 +13,14 @@ The instrumentation was reverted and never committed.
 To redo it: add a one-line append to `record`, run the tests below one at a time with
 `test-without-building`, and diff the union against the event list.
 
-## Covered: 70 events, driven by a sentinel test
+## Covered: 71 events, driven by a sentinel test
 
 | Test | Events it drives |
 |---|---|
 | `DiagnosticsPrivacyTests/entryTextNeverReachesTheLog` | `save.completed`, `ingest.completed`, `transcription.started`, `transcription.completed`, `transcription.failed` |
 | `AIDiagnosticsPrivacyTests/aiPathsNeverLogTextKeysOrProviderBodies` | `ai.keySaved`, `ai.connectionTested`, `settings.changed`, `pages.transcription.started`, `pages.transcription.pageCompleted`, `pages.transcription.completed`, `insights.requested`, `insights.started`, `insights.completed`, `insights.failed`, `insights.skipped`, `looseEnds.written`, `looseEnds.faded`, `title.started`, `title.failed`, `graph.indexed`, `graph.entityEdited`, `graph.renameRewrote`, `graph.hidden`, `graph.resurfacingMuted`, `graph.suggestionDismissed`, `graph.merged`, `graph.unmerged`, `graph.repointed`, `graph.contactLinked`, `graph.contactUnlinked`, `graph.contactAccess`, `graph.placeLinked`, `graph.placeUnlinked`, `graph.rendered`, `mind.reviewAnswered`, `mind.focused`, `mind.filtersChanged`, `mind.lensChanged`, `mind.replayed`, `mind.entryOpened` |
 | `AIEdgePathDiagnosticsPrivacyTests/unhappyAIPathsNeverLogTextOrKeys` (new) | `ai.pass`, `ai.offline`, `ai.keyRemoved`, `insights.unavailable`, `insights.stale`, `insights.discarded`, `title.unavailable`, `title.held`, `title.discarded`, `title.completed`, `pages.transcription.unavailable`, `pages.transcription.failed` |
-| `AskDiagnosticsPrivacyTests/askNeverLogsTheQuestionTheEntriesOrTheAnswer` | `ask.indexed`, `ask.retrieved`, `ask.answered`, `ask.failed`, `ask.conversationDeleted` |
+| `AskDiagnosticsPrivacyTests/askNeverLogsTheQuestionTheEntriesOrTheAnswer` | `ask.indexed`, `ask.retrieved`, `ask.answered`, `ask.stopped`, `ask.failed`, `ask.conversationDeleted` |
 | `CloudTranscriptionIntegrationTests/keyAndProviderErrorBodiesNeverReachTheLog` | `ai.error`, `transcription.fallback` (plus `ai.keySaved`, `ai.connectionTested`, `transcription.*` above) |
 | `BioDiagnosticsPrivacyTests/draftingNeverLogsNamesExcerptsOrBios` | `graph.bioDrafted`, `graph.bioFailed` |
 | `KeepTests/nothingTheCardLogsCarriesAWordTheUserSaid` | `keep.shown`, `keep.dismissed` |

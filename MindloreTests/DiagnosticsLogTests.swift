@@ -448,8 +448,34 @@ struct AskDiagnosticsPrivacyTests {
         let conversation = try #require(ask.conversations(in: context).first)
         ask.delete(conversation, in: context)
 
+        // The streaming path, where the answer reaches the screen a few characters at a time, and
+        // a stopped one, which keeps what arrived and logs an event of its own.
+        let streaming = FakeStreamingTextGenerator()
+        let streamed = #"{"answer":"Streamed \#(sentinel)","citations":["E1"]}"#
+        streaming.deltas = [String(streamed.prefix(20)), String(streamed.dropFirst(20))]
+        streaming.finished = streamed
+        let streamingAsk = AskService(
+            resolve: { .success(AskProvider(generator: streaming, model: "m", label: "openai:m", kind: .openAI)) },
+            index: AskIndexStore(diagnostics: log),
+            revisions: { .init(saver: JournalSaves.revision, graph: 0, stamped: JournalSaves.revision) },
+            store: AskStore(save: { try $0.save() }),
+            diagnostics: log
+        )
+        await streamingAsk.send("Streamed \(sentinel)?", in: context)
+        #expect(streamingAsk.turns.last?.citedEntryIDs.isEmpty == false)
+
+        streamingAsk.newConversation()
+        streaming.pauseAfter = 1
+        let stopping = Task { await streamingAsk.send("Stop \(sentinel)?", in: context) }
+        await streaming.waitForDeltas(1)
+        streamingAsk.stop()
+        streaming.release()
+        await stopping.value
+        #expect(streamingAsk.turns.last?.wasStopped == true)
+        #expect(streamingAsk.turns.last?.text.contains(sentinel) == true, "the partial answer is the sentinel, and it still must not be logged")
+
         let contents = file.contents()
-        for event in ["ask.answered", "ask.failed", "ask.conversationDeleted", "ask.indexed", "ask.retrieved"] {
+        for event in ["ask.answered", "ask.stopped", "ask.failed", "ask.conversationDeleted", "ask.indexed", "ask.retrieved"] {
             #expect(contents.contains(event), "\(event) was never exercised")
         }
         #expect(contents.contains(sentinel) == false)

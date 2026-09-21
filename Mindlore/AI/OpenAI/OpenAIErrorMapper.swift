@@ -45,6 +45,15 @@ nonisolated enum OpenAIErrorMapper {
         }
     }
 
+    // The other 400 worth one more try: the server takes Chat Completions but not streaming, or
+    // not stream_options. Either way the answer is still there without the flags.
+    static func rejectsStreaming(_ response: HTTPResponse) -> Bool {
+        guard response.status == 400 else { return false }
+        let details = details(from: response.data)
+        if details.param == "stream" || details.param == "stream_options" { return true }
+        return (details.code ?? "").contains("stream")
+    }
+
     // The one 400 worth retrying in JSON mode: the server doesn't support strict schemas.
     static func rejectsResponseFormat(_ response: HTTPResponse) -> Bool {
         guard response.status == 400 else { return false }
