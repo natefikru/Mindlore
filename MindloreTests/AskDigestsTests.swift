@@ -137,12 +137,50 @@ struct AskDigestsTests {
         #expect(result.digestCharacters <= AskRetrieval.digestBudgetOpenAI)
     }
 
-    @Test func linesAreNewestFirst() {
+    @Test func linesRunNewestToOldest() {
         let result = plan("deadline", (0..<60).map { input("entry\($0)", daysAgo: $0) })
-        let dates = result.digestEntryIDs.compactMap { id in
-            (0..<60).first { self.id(for: "entry\($0)") == id }
-        }
-        #expect(dates == dates.sorted())
+        #expect(daysAgo(of: result.digestEntryIDs, count: 60) == daysAgo(of: result.digestEntryIDs, count: 60).sorted())
+    }
+
+    // The bug this replaced: three hundred entries and room for a hundred and fifty lines covered
+    // the newest half and left the older half to a number in a rollup, so a year's question was
+    // answered from six months of it.
+    @Test func theLinesCoverTheWholeStretchAndNotJustTheNewestHalf() throws {
+        let result = plan("deadline", (0..<300).map { input("entry\($0)", daysAgo: $0) })
+        let ages = daysAgo(of: result.digestEntryIDs, count: 300)
+        #expect(result.digestEntryIDs.count == AskRetrieval.maxDigestEntries)
+        #expect(Set(ages).count == ages.count, "no entry gets two lines")
+
+        // Both ends of the matched stretch are represented, not only the recent one. The twenty
+        // newest went in whole, so the newest line is not day zero.
+        let oldest = try #require(ages.last)
+        #expect(oldest > 280, "the oldest end of the journal reached the prompt")
+        // And the sample is even rather than bunched: no gap much larger than the stride.
+        let gaps = zip(ages.dropFirst(), ages).map { $0 - $1 }
+        #expect(gaps.allSatisfy { $0 <= 3 }, "evenly spread, largest gap \(gaps.max() ?? 0) days")
+    }
+
+    @Test func spreadKeepsEveryItemWhenThereIsRoom() {
+        #expect(AskDigests.spread([1, 2, 3], to: 5) == [1, 2, 3])
+        #expect(AskDigests.spread([1, 2, 3], to: 3) == [1, 2, 3])
+        #expect(AskDigests.spread([Int](), to: 5).isEmpty)
+        #expect(AskDigests.spread([1, 2, 3], to: 0).isEmpty)
+    }
+
+    @Test func spreadTakesBothEndsAndFillsEvenly() {
+        #expect(AskDigests.spread(Array(1...9), to: 5) == [1, 3, 5, 7, 9])
+        #expect(AskDigests.spread(Array(1...10), to: 2) == [1, 10])
+        #expect(AskDigests.spread(Array(1...10), to: 1) == [1])
+        // Barely longer than the room: rounding can land twice, and the shortfall is made up from
+        // the newest end rather than handing back fewer lines than there was room for.
+        let tight = AskDigests.spread(Array(1...151), to: 150)
+        #expect(tight.count == 150)
+        #expect(Set(tight).count == 150)
+    }
+
+    // Which entry each line is, expressed as how many days back it was written.
+    private func daysAgo(of ids: [UUID], count: Int) -> [Int] {
+        ids.compactMap { id in (0..<count).first { self.id(for: "entry\($0)") == id } }
     }
 
     // The entries come first and the lines take what is left. Held back in front of them, the

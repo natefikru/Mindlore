@@ -35,6 +35,38 @@ nonisolated enum AskDigests {
         max(0, (characters - fenceCharacters) / charactersPerLine)
     }
 
+    // Which of the matched entries get a line, when more matched than there is room for.
+    //
+    // Newest first, which is what this did, means a year's question sees its second half: three
+    // hundred entries in 2025 with room for a hundred and fifty lines covered July to December, and
+    // January to June contributed nothing but a number in the rollup. The model then writes the year
+    // from six months of it, which is a quieter version of the failure the rollups exist to prevent.
+    //
+    // So the lines are spread evenly across the stretch instead, ends included. The best-matching
+    // entries are already in the prompt whole; what the lines are for is coverage, and coverage is
+    // measured along the calendar.
+    static func spread<T>(_ items: [T], to limit: Int) -> [T] {
+        guard limit > 0 else { return [] }
+        guard items.count > limit else { return items }
+        guard limit > 1 else { return [items[0]] }
+
+        let step = Double(items.count - 1) / Double(limit - 1)
+        var chosen: [T] = []
+        var used: Set<Int> = []
+        for position in 0..<limit {
+            let index = min(items.count - 1, Int((Double(position) * step).rounded()))
+            guard used.insert(index).inserted else { continue }
+            chosen.append(items[index])
+        }
+        // Rounding can land twice on the same entry when the list is barely longer than the room.
+        // Whatever that costs is made up from the front, which is the most recent end.
+        for (index, item) in items.enumerated() where chosen.count < limit {
+            guard used.insert(index).inserted else { continue }
+            chosen.append(item)
+        }
+        return chosen
+    }
+
     // A line with nothing on it but its own handle and date says nothing and can still be cited.
     static func saysSomething(_ line: String) -> Bool {
         guard let colon = line.firstIndex(of: ":") else {

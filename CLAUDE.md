@@ -122,7 +122,11 @@ after the system prompt and the answer headroom come out.
   ranked loop, from a count, or twenty whole entries eat the tail the lines exist to cover. A line
   is entry text leaving the phone, so it is fetched through `AskSources` under the same eligibility
   check and sanitized the same way; it carries a handle, so an answer can cite a day it only saw a
-  line of. `wasCut` counts a digest as having seen the entry, so a question whose whole matched set
+  line of. **The lines are spread evenly across the matched stretch, ends included, not taken newest
+  first**: three hundred entries in 2025 with room for a hundred and fifty lines used to cover July
+  to December and leave the rest to a number in a rollup, which answers a year from six months of it.
+  The best matches are already in the prompt whole; what the lines are for is coverage, and coverage
+  is measured along the calendar. `wasCut` counts a digest as having seen the entry, so a question whose whole matched set
   fit in lines has nothing to hedge about. On device there are no digests: one block is most of the
   budget. **The entries take their room first and the lines take what is left.** Held back in front
   of them, the reserve has to be charged at a line's worst case (160 characters, a true upper bound

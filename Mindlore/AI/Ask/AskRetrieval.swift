@@ -237,8 +237,9 @@ nonisolated enum AskRetrieval {
         // best-matching entries to room the lines then didn't use. An entry in full is worth more
         // than two and a half lines; when the budget is tight, the lines are what gives.
         //
-        // Newest first, which is the order they render in, and only what nothing else already took.
-        // A digest of an entry sitting whole three blocks below it would be the same day twice.
+        // Spread across the stretch rather than the newest run of it (see AskDigests.spread), and
+        // only what nothing else already took: a digest of an entry sitting whole three blocks below
+        // it would be the same day twice.
         let digestCapacity = min(
             maxDigestEntries,
             AskDigests.lineCapacity(characters: min(plan.slices.digests, remaining))
@@ -248,7 +249,7 @@ nonisolated enum AskRetrieval {
                 .map { index.documents[Int($0)] }
                 .filter { $0.isSendable && !taken.contains($0.id) }
                 .sorted { $0.date > $1.date }
-            plan.digestEntryIDs = candidates.prefix(digestCapacity).map(\.id)
+            plan.digestEntryIDs = AskDigests.spread(candidates.map(\.id), to: digestCapacity)
             plan.digestCharacters = AskDigests.estimatedCharacters(lineCount: plan.digestEntryIDs.count)
         }
 
