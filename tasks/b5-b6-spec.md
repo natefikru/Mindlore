@@ -3,6 +3,10 @@
 One branch, one PR, three phases. Branch `feature/phase-b5`, worktree
 `.claude/worktrees/phase-b5`, already cut from `origin/main` at `c4449a1`.
 
+Status: built, reviewed, and fixed (PR #23). What changed from this plan while building it, and
+the code review's findings, are under "As built" at the end. Device steps 28 to 32 in
+`tasks/smoke-test.md` are the one thing left.
+
 ## Context
 
 `main` is Phase A plus Phase B through B2b. Phase B's own plan draws a cut line after B2b and says
@@ -241,3 +245,86 @@ suggestions today; record-while-recording needed a decided answer; a wrong filen
 the call site, the `TodayComposer`/`TodaySource` split, the untouched list, the 11-file count for the
 deferred mic work, and that the phases have no code dependency on each other (their order is a
 review choice, not a technical one).
+
+## As built
+
+Where the build left the plan, and why. Each is also in the commit that made it.
+
+**Ask**
+- The suggestion fetcher left `AskSources` for its own file (`AskSuggestionSource`) rather than
+  keeping the name there. `AskSources`' header promises everything in it is about what may reach a
+  provider, and suggestions never leave the phone.
+- Glass took on the first try: `.glassEffect(.regular.interactive(), in: Capsule())` compiled
+  against 26.5 as written. No fallback to material was needed.
+- Added at the owner's request mid-phase: the keyboard can be put away (drag the conversation, tap
+  empty space), since it covered the tab bar with no way out but sending.
+- Found by looking at screenshots: a fade under the field let a card show through at the capsule's
+  edge, and moved onto the field alone it caught the search panel's last row's tap. It lives on the
+  whole bottom stack now and takes no touches.
+- Found reading Today's code afterwards: the Ask animations skipped `Motion.resolve`, so Reduce
+  Motion didn't reach them. Fixed in its own commit.
+
+**B5**
+- The entity page keeps its `Form` with Paper behind and `Palette.card` rows, instead of wrapping
+  content sections in `.card()` rows. Its sections carry per-row swipe actions (done, let go,
+  reopen, undo merge), a disclosure, and links; collapsing a section into one card row would lose
+  every swipe, and an inset-grouped section already is a rounded card. The editing rows get the
+  same rows, which is what keeps the page one surface.
+- The peek card got neither glass nor mention dots. It is a partial-height sheet, which iOS 26
+  already draws as glass, so adding glass would be glass on glass. Dots need per-day mention data
+  the card doesn't have, which is a data change, not a restyle.
+- The plan review said only `InsightsUITests` scrolled the sheet by container. `GraphUITests` and
+  `GraphScreenshotTests` did too, on the sheet's chips. The sheet's scroll view is named
+  `insightsSheet` and all of them use the name; `scrollViews.firstMatch` could have been the editor
+  underneath.
+- Tappable chips come out Ember-tinted rather than neutral, because inside a button the chip's fill
+  takes the tint. Kept on purpose: a chip that opens something reads as a link.
+
+**B6**
+- Start Recording speaks nothing, rather than saying "Already recording" when one runs. A reply on
+  the way in would be the first thing the microphone heard, and the recorder coming back is the
+  answer.
+- `reminder.fired` wasn't built: the app can't see a notification fire without becoming the
+  notification delegate. `reminder.permission` and `reminder.scheduled` are the events.
+- The reminder schedules a week of single notifications, not one repeating one, because "skip
+  today if you've written" can only be decided when scheduling. A journal left alone for a week
+  stops getting them.
+- Not built: offering the reminder after the third entry (Phase B's plan). It is a switch in
+  Settings for now.
+
+## Code review (sub-agent, Sonnet, read-only, over the whole diff)
+
+Five findings, four real, all fixed in their own commits:
+
+1. **Intent jumps didn't wait behind the recorder.** The recorder was never one of the covers the
+   router waits for, and the two tests claiming it did registered a cover name production never
+   uses. Fixed by putting the recorder away before a new-entry or Ask jump (it keeps recording in
+   the accessory), with tests against a real recording session.
+2. **A reschedule cut short left no reminders.** It cleared first and added after, on the way to
+   the background. It adds first and prunes after now; a test suspends it mid-way.
+3. **Permission withdrawn in iOS Settings went unnoticed.** The reminder checks authorization, the
+   app reschedules on coming back to the foreground, and a reminder iOS won't show switches off
+   with the footer saying why.
+4. Not a defect: the entity page's mechanism, which this spec still described the old way. See
+   "As built" above.
+5. **Suggestions went stale while the empty state stayed up**, so a name hidden in Mind could
+   linger. They refresh on the graph and save revisions.
+
+It also noted that no test tapped a citation with the keyboard up, the combination the
+tap-to-dismiss gesture could break. `testACitationOpensItsEntryWhileTheKeyboardIsUp` covers it.
+
+## Verification record
+
+- Unit suite: 1,418 pass (1,355 on `main` plus 63 new).
+- `GraphUITests`, `GraphScreenshotTests`, `InsightsUITests`: identical before and after B5, ten
+  pass. The two failures (`testDemoJournalMind`, `testMindFocusesATappedNodeAndKeepsResponding`,
+  both "no `mindGraphCanvas`") fail the same way on `main` and are Mind code this branch doesn't
+  touch. The third failure seen on 2026-09-20 (`testMindSearchOpenMergeAndUnmerge`) passed in both
+  runs, so it's flaky rather than broken.
+- `AskUITests`, `AskScreenshotTests`, `SettingsTabUITests`, `AISettingsUITests`,
+  `SettingsScreenshotTests`: pass.
+- Screenshots looked at in light and dark: Ask empty, focused, search panel, answer; the insights
+  sheet; the entity page; Settings with the Reminder section.
+- Every commit builds on its own, app and tests.
+- The built app's intent metadata carries all three intents and their phrases.
+

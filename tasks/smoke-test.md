@@ -236,3 +236,60 @@ Then connect headphones or AirPods mid-recording. Expect `recorder.routeChanged`
 `recorder.audioGap reason=routeChanged`, `recorder.engineRestarted`, and the timer still counting.
 If the restart fails, `recorder.routeRestartFailed` and the screen asks for a tap, as after a call. A long recording should hold steady memory, since buffers are written and
 released rather than accumulated.
+
+## B5 and B6 steps (added for PR #23)
+
+Everything here the simulator can't show. The unit and UI suites cover the logic; these cover
+Siri, the Action button, notification delivery, and how the new surfaces feel in the hand.
+
+### 28. The Action button starts a recording from a cold launch
+
+Settings (iOS), Action Button, Shortcut, Mindlore, Record. Force-quit Mindlore, lock the phone,
+then press and hold the Action button.
+
+Expect the app to open straight into the recorder with nothing spoken first, `intent.invoked
+kind=record`, then the usual recording start. This is the cold-launch race: the intent may run
+before `RootView` exists, and the request must still be taken exactly once (one `intent.invoked`,
+one recording).
+
+### 29. Record again while recording brings the recorder back
+
+Start a recording, minimize it to the accessory, press the Action button again.
+
+Expect `intent.invoked kind=record` and `recording.expanded`, the same recording on screen, and no
+second recording anywhere.
+
+### 30. Ask and New Entry from Siri while recording
+
+Start a recording and leave the recorder full screen. Say "Ask Mindlore".
+
+Expect `intent.invoked kind=ask hasQuestion=false`, then `recording.minimized`: the recorder goes
+away, the recording keeps counting in the accessory, and Ask is on screen with the keyboard up.
+Then run the Ask Your Journal shortcut from the Shortcuts app with a question typed in: the field
+holds the question and nothing is sent until you tap send.
+
+With an entry open, say "New Mindlore entry". Expect that entry to close and a new one to open
+ready to type.
+
+### 31. The daily reminder
+
+Settings, Reminder, turn on Daily reminder. Expect the iOS permission prompt and
+`reminder.permission allowed=true`. Set the time two minutes ahead and leave the app without having
+written today. Expect `reminder.scheduled count=7 allowed=true skippedToday=false`, and a
+notification reading only "A moment for today?", with no badge on the icon.
+
+Write an entry, set the time a few minutes ahead again, and leave the app. Expect
+`skippedToday=true`, `count=6`, and no notification today.
+
+Then turn notifications off for Mindlore in the iOS Settings app and come back. Expect
+`reminder.scheduled allowed=false`, the switch off, and the footer saying notifications are off.
+
+### 32. How B5 and the Ask pass feel
+
+Open Ask. The three suggestions should be different kinds of question and change tomorrow. Tap one:
+it fills the field. Drag the conversation down, and tap empty space: both put the keyboard away. The
+field should read as glass over the conversation.
+
+Open an entry's insights: cards on Paper. Mark a loose end done: a success tap. Send a question in
+Ask: a selection tap. Open a person's page from a chip: Paper behind, cards for rows, and swiping a
+loose end still offers Done and Let go.

@@ -1,6 +1,10 @@
 # Diagnostics privacy coverage
 
-Checked on 2026-09-21 against `feature/phase-a` (132 distinct event names in `Mindlore/`).
+Checked on 2026-09-21 against `feature/phase-a` (132 distinct event names in `Mindlore/`), then
+extended by `feature/phase-b5` with three more (135): `intent.invoked`, `reminder.permission`, and
+`reminder.scheduled`, covered by the last two rows of the table below.
+Those two tests assert that the event was written as well as that the sentinel wasn't, which is
+what the instrumented run below establishes for the rest.
 
 **How it was measured.** The event list comes from every `record("…")` call in `Mindlore/`,
 including the three ternaries (`insights.completed`/`insights.stale`, `title.completed`/
@@ -13,7 +17,7 @@ The instrumentation was reverted and never committed.
 To redo it: add a one-line append to `record`, run the tests below one at a time with
 `test-without-building`, and diff the union against the event list.
 
-## Covered: 71 events, driven by a sentinel test
+## Covered: 74 events, driven by a sentinel test
 
 | Test | Events it drives |
 |---|---|
@@ -27,6 +31,8 @@ To redo it: add a one-line append to `record`, run the tests below one at a time
 | `TodayTests/nothingTodayLogsCarriesAWordTheUserWrote` | `today.shown`, `today.dismissed` |
 | `RecordingSessionTests/liveTextNeverReachesTheLog` | `live.availability`, `recording.expanded`, `recording.minimized` |
 | `RecordingSessionTests/takingAPromptMarksItAndLeavesItAloneForAFewDays` | `looseEnds.prompted` |
+| `IntentTests/theLogSaysWhichIntentAndNeverWhatWasAsked` | `intent.invoked` (the question is the sentinel) |
+| `DailyReminderTests/theLogCarriesCountsOnly` | `reminder.permission`, `reminder.scheduled` (no user text ever reaches the reminder, so there is no sentinel to feed; the test checks both are written and that not even the fixed notification line is) |
 
 Of the 32 events added since `main`, 30 are in this table. The other two are `demo.seeded` and
 `demo.seedFailed`, covered below.
