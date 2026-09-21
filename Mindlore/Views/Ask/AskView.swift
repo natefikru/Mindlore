@@ -9,6 +9,7 @@ struct AskView: View {
     @Environment(AppRouter.self) private var router
     @Environment(SettingsStore.self) private var settings
     @Environment(ProviderAccountStore.self) private var accounts
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     @State private var results = JournalSearch.Results()
     @State private var tagFilter: String?
@@ -221,8 +222,12 @@ struct AskView: View {
                         ask.draftQuestion = suggestion.text
                         fieldFocused = true
                     }
-                    .transition(.opacity.combined(with: .offset(y: 8)))
-                    .animation(Motion.settle.delay(Double(index) * Motion.stagger), value: suggestions)
+                    .transition(.bloom)
+                    .animation(
+                        Motion.resolve(Motion.settle, reduceMotion: reduceMotion)?
+                            .delay(Double(index) * Motion.stagger),
+                        value: suggestions
+                    )
                 }
             }
         }
@@ -288,8 +293,8 @@ struct AskView: View {
                 Capsule()
                     .strokeBorder(Palette.ember.opacity(fieldFocused ? 0.55 : 0), lineWidth: 1.5)
             }
-            .animation(Motion.settle, value: fieldFocused)
-            .animation(Motion.settle, value: canSend)
+            .animation(Motion.resolve(Motion.settle, reduceMotion: reduceMotion), value: fieldFocused)
+            .animation(Motion.resolve(Motion.settle, reduceMotion: reduceMotion), value: canSend)
         }
         .padding(.horizontal)
         .padding(.top, 8)
