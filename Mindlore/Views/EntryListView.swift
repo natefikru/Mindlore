@@ -10,7 +10,6 @@ struct EntryListView: View {
     @Query(sort: [SortDescriptor(\Entry.entryDate, order: .reverse), SortDescriptor(\Entry.createdAt, order: .reverse)])
     private var entries: [Entry]
     @Environment(AppRouter.self) private var router
-    @State private var showingSettings = false
     @State private var pageOrder: PageOrderTarget?
     @State private var insightsEntry: Entry?
     @State private var pickedAreas: Set<LifeArea> = []
@@ -84,10 +83,6 @@ struct EntryListView: View {
                 JournalEntryDestination(route: route)
             }
             .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    Button("Settings", systemImage: "gearshape") { showingSettings = true }
-                        .accessibilityIdentifier("settingsButton")
-                }
                 // Voice sits outermost, in the easiest-to-reach position. A running recording shows in
                 // the tab bar's accessory.
                 ToolbarItemGroup(placement: .topBarTrailing) {
@@ -100,9 +95,6 @@ struct EntryListView: View {
                         .disabled(recording.status != .idle)
                         .accessibilityIdentifier("newVoiceEntryButton")
                 }
-            }
-            .sheet(isPresented: $showingSettings) {
-                SettingsView()
             }
             .sheet(item: $insightsEntry) { entry in
                 EntryInsightsView(entry: entry)
@@ -122,7 +114,6 @@ struct EntryListView: View {
                 pickedAreas = JournalFilter.active(pickedAreas, hidden: settings.hiddenLifeAreas)
             }
             .onChange(of: router.dismissPresentationsToken) {
-                showingSettings = false
                 insightsEntry = nil
             }
         }

@@ -2,7 +2,7 @@ import Foundation
 import Observation
 
 enum AppTab: Hashable {
-    case journal, mind, ask
+    case journal, mind, ask, settings
 }
 
 // One entry on Journal's stack. It carries an id, never an Entry, so a deleted entry never leaves a
@@ -119,6 +119,15 @@ final class AppRouter {
         mindFocusRequest = MindFocusRequest(id: entityID, token: mindFocusToken)
         tab = .mind
         mindPath = []
+    }
+
+    // Switches to Settings. The insights sheet's "AI is off" recovery is the only caller: it is a
+    // sheet, and a tab switch underneath a sheet leaves the sheet covering the tab it switched to,
+    // so the token has to take the sheet down on the way. Journal's path is left alone, like Mind.
+    func showSettings() {
+        keptEntryID = nil
+        dismissPresentationsToken += 1
+        tab = .settings
     }
 
     // Mind takes the request once, whether it was built before the jump or because of it.

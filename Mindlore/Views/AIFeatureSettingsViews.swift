@@ -40,7 +40,7 @@ struct ModelField: View {
 
 struct SpeechSettingsView: View {
     @Environment(SettingsStore.self) private var settings
-    @Environment(ProviderAccountStore.self) private var accounts
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         @Bindable var settings = settings
@@ -58,17 +58,8 @@ struct SpeechSettingsView: View {
                 Text(Self.engineExplanation(settings.speechEngine))
             }
 
-            if settings.speechEngine == .cloud {
-                Section {
-                    ModelField(title: "Model", capability: .speech, model: $settings.speechModel)
-                    Toggle("Use this iPhone when OpenAI fails", isOn: $settings.fallBackToOnDevice)
-                        .accessibilityIdentifier("speechFallbackToggle")
-                } footer: {
-                    Text("With this off, a recording that OpenAI can't transcribe waits for you to tap Retry.")
-                }
-                .disabled(!AIServices.pagesUsable(settings: settings, accounts: accounts) && !settings.aiEnabled)
-            }
         }
+        .animation(Motion.resolve(Motion.settle, reduceMotion: reduceMotion), value: settings.speechEngine)
         .paperBackground()
         .navigationTitle("Speech to Text")
         .navigationBarTitleDisplayMode(.inline)
@@ -88,7 +79,10 @@ extension SpeechSettingsView {
     }
 }
 
-struct PageSettingsView: View {
+// Models, the cloud-failure rule, and custom prompts. Real controls, none of them daily, so they
+// live one row further in rather than on the way to something else. The three model fields are the
+// only way to use a model Mindlore does not ship a name for.
+struct AdvancedAISettingsView: View {
     @Environment(SettingsStore.self) private var settings
 
     var body: some View {
@@ -96,113 +90,50 @@ struct PageSettingsView: View {
 
         Form {
             Section {
-                ModelField(title: "Model", capability: .pages, model: $settings.pageModel)
+                ModelField(title: "Speech", capability: .speech, model: $settings.speechModel)
+                ModelField(title: "Journal pages", capability: .pages, model: $settings.pageModel)
+                ModelField(title: "Text", capability: .text, model: $settings.textModel)
+            } header: {
+                Text("Models")
             } footer: {
-                Text("Photographed journal pages are sent to this model, one page at a time. You review the text before anything else runs on it.")
+                Text("Text covers titles and insights, which share one model. Photographed pages are sent one page at a time.")
             }
-        }
-        .paperBackground()
-        .navigationTitle("Journal Pages")
-        .navigationBarTitleDisplayMode(.inline)
-    }
-}
 
-struct TitleSettingsView: View {
-    @Environment(SettingsStore.self) private var settings
-    @Environment(ProviderAccountStore.self) private var accounts
-    private let onDeviceAvailable = FoundationModelsAvailability.isAvailable
-
-    var body: some View {
-        @Bindable var settings = settings
-
-        Form {
             Section {
-                Picker("Write titles with", selection: $settings.titleGenerator) {
-                    Text("Nothing").tag(TitleGenerator.off)
-                    Text("This iPhone").tag(TitleGenerator.onDevice)
-                    Text("OpenAI").tag(TitleGenerator.openAI)
-                }
-                .accessibilityIdentifier("titleGeneratorPicker")
+                Toggle("Use this iPhone when OpenAI fails", isOn: $settings.fallBackToOnDevice)
+                    .accessibilityIdentifier("speechFallbackToggle")
+            } header: {
+                Text("Recordings")
             } footer: {
-                Text(footer)
+                Text("With this off, a recording that OpenAI can't transcribe waits for you to tap Retry.")
             }
 
-            if settings.titleGenerator == .openAI {
-                Section {
-                    ModelField(title: "Model", capability: .text, model: $settings.textModel)
-                } footer: {
-                    Text("Titles use the same model as insights.")
-                }
-            }
-        }
-        .paperBackground()
-        .navigationTitle("Titles")
-        .navigationBarTitleDisplayMode(.inline)
-    }
-
-    private var footer: String {
-        switch settings.titleGenerator {
-        case .off:
-            "Entries show the first words of their text until you type a title."
-        case .onDevice:
-            onDeviceAvailable
-                ? "Titles are written by Apple's on-device model. No key needed, and it works offline."
-                : "This iPhone can't run Apple's on-device model, so titles won't be written. Turn on Apple Intelligence in Settings, choose OpenAI, or type your own titles."
-        case .openAI:
-            settings.aiEnabled && accounts.openAIAccount != nil
-                ? "Titles are written by OpenAI, using your key."
-                : "Turn on AI and save a key to write titles with OpenAI."
-        }
-    }
-}
-
-struct AskSettingsView: View {
-    @Environment(SettingsStore.self) private var settings
-    @Environment(ProviderAccountStore.self) private var accounts
-    private let onDeviceAvailable = FoundationModelsAvailability.isAvailable
-
-    var body: some View {
-        @Bindable var settings = settings
-
-        Form {
             Section {
-                Picker("Answer with", selection: $settings.askGenerator) {
-                    Text("Nothing").tag(AskGenerator.off)
-                    if onDeviceAvailable || settings.askGenerator == .onDevice {
-                        Text("This iPhone").tag(AskGenerator.onDevice)
-                    }
-                    Text("OpenAI").tag(AskGenerator.openAI)
+                NavigationLink {
+                    CustomInsightsSettingsView()
+                } label: {
+                    LabeledContent("Custom insights", value: customSummary)
                 }
-                .accessibilityIdentifier("askGeneratorPicker")
+                .accessibilityIdentifier("customInsightsLink")
             } footer: {
-                Text(footer)
+                Text("Your own questions, answered for every entry that gets insights.")
             }
-
         }
         .paperBackground()
-        .navigationTitle("Ask")
+        .navigationTitle("Advanced")
         .navigationBarTitleDisplayMode(.inline)
     }
 
-    private var footer: String {
-        switch settings.askGenerator {
-        case .off:
-            "Searching your journal still works. Nothing is sent anywhere."
-        case .onDevice:
-            onDeviceAvailable
-                ? "Questions are answered by Apple's on-device model, so nothing leaves this iPhone. It reads less of your journal at once than OpenAI can, and once you save a key Mindlore moves questions to OpenAI unless you pick here yourself."
-                : "This iPhone can't run Apple's on-device model. Choose OpenAI, or turn Ask off and keep searching."
-        case .openAI:
-            settings.aiEnabled && accounts.openAIAccount != nil
-                ? "The entries a question needs are sent to OpenAI with the question, and every answer says what went out."
-                : "Turn on AI and save a key to answer questions with OpenAI."
-        }
+    private var customSummary: String {
+        let enabled = settings.customInsightPrompts.filter(\.enabled).count
+        return enabled == 0 ? "None" : "\(enabled)"
     }
 }
 
 struct InsightsSettingsView: View {
     @Environment(SettingsStore.self) private var settings
     @Environment(ProviderAccountStore.self) private var accounts
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         @Bindable var settings = settings
@@ -221,17 +152,31 @@ struct InsightsSettingsView: View {
                      : "Nothing is analyzed until you tap Run AI on an entry.")
             }
 
-            Section("What to generate") {
-                Toggle("Summary", isOn: $settings.insightSummary).accessibilityIdentifier("insightSummaryToggle")
-                Toggle("Moods", isOn: $settings.insightMoods).accessibilityIdentifier("insightMoodsToggle")
-                Toggle("Life areas", isOn: $settings.insightLifeAreas).accessibilityIdentifier("insightLifeAreasToggle")
-                if settings.insightLifeAreas {
-                    NavigationLink("Edit life areas") { LifeAreasSettingsView() }
-                        .accessibilityIdentifier("editLifeAreasLink")
+            Section {
+                Toggle("Summary", isOn: $settings.insightSummary)
+                    .accessibilityIdentifier("insightSummaryToggle")
+                    .disabled(isLastEnabled(settings.insightSummary))
+                Toggle("Moods", isOn: $settings.insightMoods)
+                    .accessibilityIdentifier("insightMoodsToggle")
+                    .disabled(isLastEnabled(settings.insightMoods))
+                Toggle("Life areas", isOn: $settings.insightLifeAreas)
+                    .accessibilityIdentifier("insightLifeAreasToggle")
+                    .disabled(isLastEnabled(settings.insightLifeAreas))
+                Toggle("Tags", isOn: $settings.insightTags)
+                    .accessibilityIdentifier("insightTagsToggle")
+                    .disabled(isLastEnabled(settings.insightTags))
+                Toggle("People and places", isOn: $settings.insightMentions)
+                    .accessibilityIdentifier("insightMentionsToggle")
+                    .disabled(isLastEnabled(settings.insightMentions))
+                Toggle("Loose ends", isOn: $settings.insightLooseEnds)
+                    .accessibilityIdentifier("insightLooseEndsToggle")
+                    .disabled(isLastEnabled(settings.insightLooseEnds))
+            } header: {
+                Text("What to generate")
+            } footer: {
+                if onlyOneLeft {
+                    Text("Insights need at least one thing to look for.")
                 }
-                Toggle("Tags", isOn: $settings.insightTags).accessibilityIdentifier("insightTagsToggle")
-                Toggle("People and places", isOn: $settings.insightMentions).accessibilityIdentifier("insightMentionsToggle")
-                Toggle("Loose ends", isOn: $settings.insightLooseEnds).accessibilityIdentifier("insightLooseEndsToggle")
             }
 
             Section {
@@ -266,29 +211,46 @@ struct InsightsSettingsView: View {
                      : "Entries keep the date they were added.")
             }
 
-            Section {
-                ModelField(title: "Model", capability: .text, model: $settings.textModel)
-            } footer: {
-                Text(accounts.openAIAccount == nil ? "Save an OpenAI key to generate insights." : "")
-            }
-
-            Section {
-                NavigationLink {
-                    CustomInsightsSettingsView()
-                } label: {
-                    LabeledContent("Custom insights", value: customSummary)
+            if accounts.openAIAccount == nil {
+                Section {
+                    Text("Save an OpenAI key to generate insights.")
+                        .foregroundStyle(.secondary)
                 }
-                .accessibilityIdentifier("customInsightsLink")
             }
         }
+        .animation(Motion.resolve(Motion.settle, reduceMotion: reduceMotion), value: settings.insightCleanedText)
+        .animation(Motion.resolve(Motion.settle, reduceMotion: reduceMotion), value: settings.suggestEntryDates)
         .paperBackground()
         .navigationTitle("Insights")
         .navigationBarTitleDisplayMode(.inline)
     }
 
-    private var customSummary: String {
-        let enabled = settings.customInsightPrompts.filter(\.enabled).count
-        return enabled == 0 ? "None" : "\(enabled)"
+    // Turning the last one off asks the provider for an empty schema, which it rejects. The rule is
+    // asked of `InsightSections` rather than restated here, so the screen and the request cannot
+    // drift; note that cleanup and an enabled custom prompt count towards not-empty too, which is
+    // why these six are free whenever either of those is on. It can only ever be an approximation:
+    // what actually reaches the schema depends on the entry, and a settings screen has no entry.
+    // `InsightsCoordinator.generate` holds the guard that does.
+    private func isLastEnabled(_ toggle: Bool) -> Bool {
+        toggle && onlyOneLeft
+    }
+
+    private var onlyOneLeft: Bool {
+        let sections = AIServices.insightSections(settings)
+        // Ask InsightSections whether anything outside these six would still be asked for: cleanup
+        // and an enabled custom prompt each keep the schema alive on their own, and then all six
+        // stay free. `suggestEntryDates` deliberately does not count, and isEmpty agrees.
+        var withoutTheSix = sections
+        withoutTheSix.summary = false
+        withoutTheSix.moods = false
+        withoutTheSix.lifeAreas = false
+        withoutTheSix.tags = false
+        withoutTheSix.mentions = false
+        withoutTheSix.looseEnds = false
+        guard withoutTheSix.isEmpty else { return false }
+
+        let enabled = [sections.summary, sections.moods, sections.lifeAreas, sections.tags, sections.mentions, sections.looseEnds]
+        return enabled.filter { $0 }.count == 1
     }
 }
 
@@ -337,7 +299,12 @@ struct CustomInsightsSettingsView: View {
         .paperBackground()
         .navigationTitle("Custom Insights")
         .navigationBarTitleDisplayMode(.inline)
-        .toolbar { EditButton() }
+        // Only with something to edit: on an empty list it was a button that did nothing.
+        .toolbar {
+            if !settings.customInsightPrompts.isEmpty {
+                EditButton()
+            }
+        }
         .sheet(item: $editing) { prompt in
             CustomPromptEditor(prompt: prompt) { updated in
                 guard let index = settings.customInsightPrompts.firstIndex(where: { $0.id == updated.id }) else { return }

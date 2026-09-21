@@ -14,9 +14,6 @@ struct LifeAreasSettingsView: View {
             } footer: {
                 Text("Each entry is filed under one or two of these. Renaming changes what you see, and hiding an area removes it from the journal's chips and filters without changing any entry.")
             }
-            #if DEBUG
-            LifeAreaDebugSection()
-            #endif
         }
         .paperBackground()
         .navigationTitle("Life areas")
@@ -35,9 +32,19 @@ private struct LifeAreaRow: View {
                 .foregroundStyle(area.color)
                 .frame(width: 28)
             VStack(alignment: .leading, spacing: 2) {
+                // What an area is called is the user's own word for it, so it is set in their face,
+                // not the app's. Everything around it stays SF.
+                //
+                // The field holds the name actually shown, not only a rename. It used to start empty
+                // with the default name as its placeholder, which drew all nine names in placeholder
+                // grey, so an area nobody had renamed looked disabled. `rename` stores nil for the
+                // default name and ignores a no-op, so seeding the field writes nothing.
                 TextField(area.defaultName, text: $name)
+                    .journalText(.body)
+                    .foregroundStyle(Palette.ink)
                     .onChange(of: name) { settings.rename(area, to: name) }
-                    .onSubmit { name = settings.lifeAreaNames[area.rawValue] ?? "" }
+                    // A cleared field falls back to the default name, so show that rather than blank.
+                    .onSubmit { name = settings.name(of: area) }
                     .accessibilityIdentifier("lifeAreaName-\(area.rawValue)")
                 Text(area.meaning)
                     .font(.caption)
@@ -51,48 +58,9 @@ private struct LifeAreaRow: View {
             .accessibilityLabel("Show \(settings.name(of: area))")
             .accessibilityIdentifier("lifeAreaShown-\(area.rawValue)")
         }
-        .onAppear { name = settings.lifeAreaNames[area.rawValue] ?? "" }
+        .onAppear { name = settings.name(of: area) }
     }
 }
-
-#if DEBUG
-private struct LifeAreaDebugSection: View {
-    @Environment(\.modelContext) private var modelContext
-    @Environment(InsightsCoordinator.self) private var insights
-    @State private var shares: [(area: LifeArea, percent: Int)] = []
-    @State private var filed = 0
-    @State private var regenerating = false
-
-    var body: some View {
-        Section {
-            ForEach(shares, id: \.area) { share in
-                LabeledContent(share.area.defaultName, value: "\(share.percent)%")
-            }
-            Button(regenerating ? "Regenerating…" : "Regenerate insights for every entry") {
-                regenerating = true
-                Task {
-                    await insights.regenerateEverything(context: modelContext)
-                    regenerating = false
-                    refresh()
-                }
-            }
-            .disabled(regenerating)
-        } header: {
-            Text("Debug: distribution")
-        } footer: {
-            Text("Share of \(filed) filed entries per area. Above 40% suggests splitting an area, below 3% merging it. Regenerating sends every entry to the AI provider, oldest first.")
-        }
-        .task { refresh() }
-    }
-
-    private func refresh() {
-        let all = (try? modelContext.fetch(FetchDescriptor<EntryInsights>())) ?? []
-        let filedInsights = all.filter { !$0.areas.isEmpty }
-        filed = filedInsights.count
-        shares = LifeAreaDistribution.shares(filedInsights.map(\.areas))
-    }
-}
-#endif
 
 nonisolated enum LifeAreaDistribution {
     // Percent of filed entries that carry each area. An entry with two areas counts for both,

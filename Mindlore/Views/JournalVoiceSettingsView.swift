@@ -15,11 +15,17 @@ struct JournalVoiceSettingsView: View {
                     } label: {
                         HStack(alignment: .firstTextBaseline) {
                             VStack(alignment: .leading, spacing: 2) {
+                                // Concrete colours, not `.primary` and `.secondary`. Inside a Form a
+                                // Button tints its label, and the hierarchical styles resolve against
+                                // that tint, which drew all three options in Ember and made a choice
+                                // read like three links. Only the checkmark carries the accent.
                                 Text(voice.settingsName)
-                                    .foregroundStyle(.primary)
+                                    .foregroundStyle(Palette.ink)
+                                // The sample is a sentence about the user, written the way the app
+                                // would write it, so it is shown in the face those sentences use.
                                 Text(sample(for: voice))
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
+                                    .journalText(.caption)
+                                    .foregroundStyle(Color.secondary)
                             }
                             Spacer()
                             if settings.journalVoice == voice {
@@ -39,6 +45,8 @@ struct JournalVoiceSettingsView: View {
 
             Section {
                 TextField("Your name", text: $name)
+                    .journalText(.body)
+                    .foregroundStyle(Palette.ink)
                     .textContentType(.givenName)
                     .onChange(of: name) { settings.setUserName(name) }
                     .accessibilityIdentifier("userNameField")
@@ -50,8 +58,9 @@ struct JournalVoiceSettingsView: View {
                      : "Used only when the voice above is set to your name. It is not sent anywhere until then.")
             }
         }
+        .sensoryFeedback(Haptics.selected, trigger: settings.journalVoice)
         .paperBackground()
-        .navigationTitle("How AI writes about you")
+        .navigationTitle("How You're Written About")
         .navigationBarTitleDisplayMode(.inline)
         .onAppear { name = settings.userName }
     }

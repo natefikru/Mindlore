@@ -220,3 +220,26 @@ xcrun simctl boot <udid>; xcrun simctl ui <udid> appearance dark
 ```
 
 Found only because the screenshots were opened. A screenshot's name is not evidence of its content.
+
+## A label query can't tell a tab from a button
+
+`app.buttons["Settings"]` matched the Journal toolbar gear, and after Settings became a tab it matched
+the tab item just as happily. Both settings UI classes passed the change unedited, and would have
+gone on passing if the tab had never been added. A test that cannot fail on the change it covers is
+not covering it.
+
+Scope a query to the container that makes the claim: `app.tabBars.buttons["Settings"]`. Then prove
+the new test fails without the change (delete the thing, watch it go red, put it back) before
+trusting it.
+
+## Inside a Form, a Button's label takes the accent
+
+Three voice options drew entirely in Ember and read as three links, though the title said
+`.foregroundStyle(.primary)` and the sample `.secondary`. A `Button` in a `Form` tints its label, and
+the hierarchical styles resolve against that tint rather than against the text colour. Use concrete
+colours (`Palette.ink`, `Color.secondary`) on a button that is a choice rather than an action, and
+leave the accent to the checkmark.
+
+The same screenshot pass found life area names in placeholder grey: the field started empty and the
+real name was only its placeholder, so every untouched area looked disabled. Neither showed in any
+test. Both showed on the first look.
