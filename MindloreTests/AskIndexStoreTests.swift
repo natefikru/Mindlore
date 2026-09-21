@@ -147,6 +147,40 @@ struct AskIndexStoreTests {
         #expect(store.index.search(AskIndex.Query(terms: [.init(text: "river")], asOf: .now)).isEmpty == false)
     }
 
+    // The other half of the same rule, found on the phone: asking a question saves the conversation
+    // through the same path, so every question bumped the counter and the next keystroke rebuilt an
+    // index identical to the one it replaced. 565ms and three hundred documents, for nothing.
+    @Test func savingAConversationDoesNotForceARebuild() async throws {
+        let container = try ModelContainerFactory.make(.inMemory)
+        let context = container.mainContext
+        addEntry("the deadline moved", to: context)
+        try context.saveStampingEntries()
+
+        let (store, builder) = makeStore()
+        func revisions() -> AskIndexStore.Revisions { .init(saver: 1, graph: 1, stamped: JournalSaves.revision) }
+        await store.refreshIfNeeded(revisions: revisions(), in: context)
+        #expect(builder.builds == 1)
+
+        // Exactly what AskService does when an answer lands.
+        let conversation = AskConversation(title: "What happened with the deadline?")
+        context.insert(conversation)
+        let message = AskMessage(conversationID: conversation.id, index: 0, role: .user, text: "What happened with the deadline?")
+        context.insert(message)
+        try context.saveStampingEntries()
+
+        await store.refreshIfNeeded(revisions: revisions(), in: context)
+        #expect(builder.builds == 1, "a conversation is not journal content")
+
+        // And an entry saved in the same breath as a conversation still counts, because the rule is
+        // a list of what doesn't count rather than what does.
+        addEntry("the kayak went in the water", to: context)
+        context.insert(AskMessage(conversationID: conversation.id, index: 1, role: .assistant, text: "It moved twice."))
+        try context.saveStampingEntries()
+
+        await store.refreshIfNeeded(revisions: revisions(), in: context)
+        #expect(builder.builds == 2)
+    }
+
     @Test func theSaverRevisionAloneForcesARebuild() async throws {
         let container = try ModelContainerFactory.make(.inMemory)
         let context = container.mainContext

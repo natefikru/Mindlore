@@ -30,7 +30,25 @@ extension ModelContext {
 
     func saveStampingEntries(at date: Date = .now, except unstamped: Set<PersistentIdentifier> = []) throws {
         stampChangedEntries(at: date, except: unstamped)
+        // Read before the save, which clears them.
+        let touchedJournal = touchesJournal
         try save()
-        JournalSaves.recordSave()
+        if touchedJournal { JournalSaves.recordSave() }
+    }
+
+    // Whether this save changes anything a derived copy of the journal would have to be rebuilt for.
+    //
+    // Asking a question saves the conversation through here, which bumped the counter, which made
+    // Ask's own index stale: on the phone every question was followed by a 565ms rebuild that
+    // produced a byte-identical index, three hundred documents and nine thousand postings, while the
+    // next question was being typed.
+    //
+    // Inverted on purpose. It is not a list of what counts; it is a list of what doesn't, so a model
+    // type added later counts as journal content until someone says otherwise. A derived copy can
+    // then only ever be rebuilt more often than it needs to be, never left stale, which is the
+    // failure this counter exists to prevent.
+    private var touchesJournal: Bool {
+        let pending = insertedModelsArray + changedModelsArray + deletedModelsArray
+        return pending.contains { !($0 is AskConversation || $0 is AskMessage) }
     }
 }
