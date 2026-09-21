@@ -11,9 +11,8 @@ here in the same commit.
 
 `main` is still at PR #3, the knowledge graph. Everything since lives on `feature/phase-a`, which
 is 161 commits ahead: all of Phase A, Phase B up to Today (B0 to B2b), the Ask conversation work
-(#18), and the settings sprint (#17, #19). Draft PR #6 carries it to `main`. No other branch holds
-work phase-a doesn't, except `feature/ask-streaming`, which is in progress in its own worktree
-(streaming Ask answers over SSE) and not yet pushed.
+(#18), the settings sprint (#17, #19), and streaming Ask answers over SSE. Draft PR #6 carries it
+to `main`. No other branch holds work phase-a doesn't.
 
 The biggest risk on the list is not a feature. It is that phase-a keeps growing while it waits for
 one device session, so every sprint added makes the final review bigger and the merge to `main`
@@ -27,9 +26,6 @@ harder. Section 1 is first for that reason.
 3. **Reflect**: weekly and monthly recaps, mood and area over time. Spec first; four decisions below.
 4. **Later**: text import, embeddings for Ask, typed relationships.
 5. **Blocked**: iCloud sync and a paid tier, both on the paid Apple Developer Program.
-
-Streaming Ask answers runs alongside all of this on `feature/ask-streaming` and lands on phase-a
-when it's done.
 
 Reflect after Phase B is the owner's call from 2026-09-19 ("so it's built on the new cards"). It
 can be pulled forward; nothing in B3 to B9 is a hard prerequisite for it.

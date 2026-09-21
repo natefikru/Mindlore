@@ -185,6 +185,46 @@ struct AskStreamingTests {
         #expect(ask.turns.last?.wasStopped == true)
     }
 
+    // Stop and the last frame can land in the same instant. The answer arrived, so it is the
+    // answer, chips and all: a thumb a millisecond early must not cost the citations.
+    @Test func stopRacingAFinishedStreamKeepsTheWholeAnswer() async throws {
+        entry("Paddled the river.")
+        let ask = service()
+        script()
+
+        let asking = Task { await ask.send("river?", in: context) }
+        await generator.waitForDeltas(3)
+        ask.stop()
+        await asking.value
+
+        let turn = try #require(ask.turns.last)
+        #expect(turn.text == "You paddled the river.")
+        #expect(turn.wasStopped == false)
+        #expect(turn.citedEntryIDs.count == 1)
+    }
+
+    // The answer belongs to a conversation nobody is looking at any more. Without the cancel the
+    // reader runs on and isRunning stays true, which reads as a send button that stopped working.
+    @Test func leavingTheConversationMidAnswerFreesTheNextOne() async throws {
+        entry("Paddled the river.")
+        let ask = service()
+        script(pauseAfter: 1)
+
+        let asking = Task { await ask.send("river?", in: context) }
+        await generator.waitForDeltas(1)
+        ask.newConversation()
+        await asking.value
+
+        #expect(!ask.isRunning, "the new conversation can be asked a question")
+        #expect(ask.turns.isEmpty)
+        #expect(AskConversation.all(in: context).isEmpty)
+
+        generator.pauseAfter = nil
+        generator.release()
+        await ask.send("and now?", in: context)
+        #expect(ask.turns.last?.text == "You paddled the river.")
+    }
+
     @Test func aStreamThatDiesMidAnswerDiscardsThePartialAndOffersRetry() async throws {
         entry("Paddled the river.")
         let ask = service()

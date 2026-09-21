@@ -141,6 +141,7 @@ final class AskService {
     // MARK: - Moving between conversations
 
     func newConversation() {
+        cancelStream()
         conversationID = UUID()
         turns = []
         handles = [:]
@@ -149,6 +150,7 @@ final class AskService {
     }
 
     func open(_ conversation: AskConversation, in context: ModelContext) {
+        cancelStream()
         conversationID = conversation.id
         handles = conversation.handleMap
         isSaved = true
@@ -177,6 +179,7 @@ final class AskService {
 
     func delete(_ conversation: AskConversation, in context: ModelContext) {
         let wasOpen = conversation.id == conversationID
+        if wasOpen { cancelStream() }
         store.delete(conversation, in: context)
         diagnostics.record("ask.conversationDeleted", [:])
         if wasOpen { newConversation() }
@@ -414,17 +417,20 @@ final class AskService {
                     result = finished
                 }
             }
-            if stopRequested {
-                let partial = turns.first { $0.id == turnID }?.text ?? ""
-                return Delivered(answer: .init(text: partial, handles: []), streamed: true, wasStopped: true, firstDeltaAt: firstDeltaAt)
+            // The whole answer decides, not the flag. Stop and the last frame can land in the
+            // same instant, and an answer that arrived in full is an answer: throwing it away
+            // because a thumb was a millisecond early would lose its citations for nothing.
+            if let result {
+                return Delivered(
+                    answer: try AskAnswerParser.parseJSON(result.text, known: known),
+                    streamed: true,
+                    wasStopped: false,
+                    firstDeltaAt: firstDeltaAt
+                )
             }
-            guard let result else { throw AIError.invalidResponse }
-            return Delivered(
-                answer: try AskAnswerParser.parseJSON(result.text, known: known),
-                streamed: true,
-                wasStopped: false,
-                firstDeltaAt: firstDeltaAt
-            )
+            guard stopRequested else { throw AIError.invalidResponse }
+            let partial = turns.first { $0.id == turnID }?.text ?? ""
+            return Delivered(answer: .init(text: partial, handles: []), streamed: true, wasStopped: true, firstDeltaAt: firstDeltaAt)
         }
         streamReader = reader
         defer { streamReader = nil }
@@ -444,6 +450,15 @@ final class AskService {
     }
 
     var canStop: Bool { turns.last?.isStreaming == true }
+
+    // Leaving the conversation the answer belongs to. Not a stop: nothing is kept, and nothing
+    // was asked for. Without it the reader runs on against a conversation nobody is looking at,
+    // and isRunning stays true over a conversation that never asked anything, which reads on
+    // screen as a send button that has stopped working.
+    private func cancelStream() {
+        streamReader?.cancel()
+        streamReader = nil
+    }
 
     // The spinner's whole job: the wait before the first word. Once text is arriving the answer
     // itself says the work is happening.
