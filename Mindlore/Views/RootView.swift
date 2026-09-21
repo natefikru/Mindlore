@@ -21,6 +21,8 @@ struct RootView: View {
     @State private var router: AppRouter
     // Siri, Shortcuts, and the Action button leave their requests here, even before this view exists.
     @State private var intents = IntentRequests.shared
+    @State private var reminder = DailyReminder()
+    @Environment(SettingsStore.self) private var settings
     @State private var confirmingDiscard = false
     private let context: ModelContext
 
@@ -173,6 +175,7 @@ struct RootView: View {
         .environment(ask)
         .environment(router)
         .environment(recording)
+        .environment(reminder)
         // The address book, injected like every other boundary: nothing asks for permission
         // until the user taps a row on a person's page.
         .environment(\.contactDirectory, contacts)
@@ -221,6 +224,10 @@ struct RootView: View {
             DiagnosticsLog.shared.record("app.scenePhase", ["phase": .string(String(describing: phase))])
             if phase != .active {
                 saver.flush()
+                // Leaving is the moment that matters: if the user wrote today, today's reminder goes.
+                if phase == .background {
+                    Task { await rescheduleReminder() }
+                }
             } else {
                 Task { await transcription.processQueue(context: context) }
                 Task {
@@ -229,6 +236,10 @@ struct RootView: View {
                 }
                 Task { await pageTranscription.processQueue(context: context) }
             }
+        }
+        // At launch and whenever the switch or the time changes.
+        .task(id: ReminderSetting(enabled: settings.reminderEnabled, minutes: settings.reminderMinutes)) {
+            await rescheduleReminder()
         }
         // Taken on appear as well as on change: an intent that launched the app left its request
         // before this view was built.
@@ -245,5 +256,18 @@ struct RootView: View {
                 await insights.networkBecameAvailable(context: context)
             }
         }
+    }
+
+    private struct ReminderSetting: Equatable {
+        let enabled: Bool
+        let minutes: Int
+    }
+
+    private func rescheduleReminder() async {
+        await reminder.reschedule(
+            enabled: settings.reminderEnabled,
+            minutesAfterMidnight: settings.reminderMinutes,
+            todayHasEntry: DailyReminder.todayHasEntry(in: context)
+        )
     }
 }
