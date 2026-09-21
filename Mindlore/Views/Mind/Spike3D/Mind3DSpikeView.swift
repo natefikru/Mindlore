@@ -115,6 +115,11 @@ final class Mind3DSpikeModel {
     private var autoRotating = true
     private var gestureActive = false
 
+    // What the camera looks at. The settled cloud does not sit on the origin: measured at 8 to 19
+    // units off it, a fifth to nearly half the cloud's own radius, worst at small node counts. A
+    // camera aimed at the origin therefore pushed the picture off to one side, and at four nodes
+    // pushed it off the screen.
+    private var centre: SIMD3<Float> = .zero
     private var names: [UUID: String] = [:]
     private var layout: Graph3DLayout?
     private let sampler = FrameTimeSampler()
@@ -137,9 +142,14 @@ final class Mind3DSpikeModel {
         // starting positions deterministic; ordering them again here would say otherwise.
         let settled = await GraphSimulation3D.settled(nodes: data.nodes, edges: data.edges)
         layout = settled
-        restDistance = Self.framingDistance(settled)
+        centre = Self.centre(settled)
+        restDistance = Self.framingDistance(settled, about: centre)
         distance = restDistance
-        scene = Graph3DScene.build(settled, names: names)
+        scene = Graph3DScene.build(
+            settled,
+            names: names,
+            labelFontSize: Graph3DScene.labelFontSize(atDistance: restDistance, fieldOfView: Self.fieldOfView)
+        )
         summary = Self.summary(settled)
     }
 
@@ -154,8 +164,16 @@ final class Mind3DSpikeModel {
     // around it. The outermost few sit near the edge, and a pinch reaches them.
     static let framingPercentile = 0.9
 
-    static func framingDistance(_ layout: Graph3DLayout) -> Float {
-        let radii = layout.positions.map { ($0 * $0).sum().squareRoot() }
+    static func centre(_ layout: Graph3DLayout) -> SIMD3<Float> {
+        guard !layout.positions.isEmpty else { return .zero }
+        var sum = SIMD3<Double>(repeating: 0)
+        for position in layout.positions { sum += position }
+        return SIMD3<Float>(sum / Double(layout.positions.count))
+    }
+
+    static func framingDistance(_ layout: Graph3DLayout, about centre: SIMD3<Float> = .zero) -> Float {
+        let middle = SIMD3<Double>(centre)
+        let radii = layout.positions.map { (($0 - middle) * ($0 - middle)).sum().squareRoot() }
         let extent = FrameTimeSampler.percentile(radii, framingPercentile) ?? 0
         let halfAngle = fieldOfView / 2 * .pi / 180
         return max(0.5, Float(extent) * Graph3DScene.metresPerUnit / sin(halfAngle))
@@ -175,7 +193,7 @@ final class Mind3DSpikeModel {
         camera.transform = Transform(
             scale: .one,
             rotation: rotation,
-            translation: rotation.act(SIMD3(0, 0, distance))
+            translation: centre * Graph3DScene.metresPerUnit + rotation.act(SIMD3(0, 0, distance))
         )
     }
 

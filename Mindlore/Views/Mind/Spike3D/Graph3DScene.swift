@@ -25,6 +25,10 @@ enum Graph3DScene {
     static let labelBudget = 40
     static let edgeRadius: Float = 0.35
     static let labelHeight: Float = 3.2
+    // A label's height as a fraction of what the camera can see at its resting distance. The size
+    // was a fixed 7 units, which is a readable caption over 300 nodes and a billboard over four,
+    // because a smaller graph is framed from closer in.
+    static let labelScreenFraction: Float = 0.022
 
     struct Build {
         let root: SceneEntity
@@ -32,7 +36,15 @@ enum Graph3DScene {
         let idByEntityName: [String: UUID]
     }
 
-    static func build(_ layout: Graph3DLayout, names: [UUID: String]) -> Build {
+    // The visible height in simulation units at `metres` from the camera, which is what a label
+    // has to be sized against for it to read the same at any node count.
+    static func labelFontSize(atDistance metres: Float, fieldOfView: Float) -> CGFloat {
+        let halfAngle = fieldOfView / 2 * .pi / 180
+        let visible = 2 * (metres / metresPerUnit) * tan(halfAngle)
+        return CGFloat(max(1, visible * labelScreenFraction))
+    }
+
+    static func build(_ layout: Graph3DLayout, names: [UUID: String], labelFontSize: CGFloat = 7) -> Build {
         let root = SceneEntity()
         root.scale = .init(repeating: metresPerUnit)
 
@@ -82,7 +94,7 @@ enum Graph3DScene {
             guard let name = names[node.id], !name.isEmpty,
                   let index = layout.index(of: node.id)
             else { continue }
-            let label = textEntity(name)
+            let label = textEntity(name, fontSize: labelFontSize)
             let above = Float(layout.radii[index]) + labelHeight
             label.position = SIMD3<Float>(layout.positions[index]) + SIMD3<Float>(0, above, 0)
             root.addChild(label)
@@ -99,11 +111,11 @@ enum Graph3DScene {
 
     // Text is built at simulation scale (the root shrinks it with everything else) and centred on
     // its own bounds, because generateText puts the origin at the baseline's left edge.
-    private static func textEntity(_ string: String) -> ModelEntity {
+    private static func textEntity(_ string: String, fontSize: CGFloat) -> ModelEntity {
         let mesh = MeshResource.generateText(
             string,
             extrusionDepth: 0.01,
-            font: .systemFont(ofSize: 7, weight: .semibold),
+            font: .systemFont(ofSize: fontSize, weight: .semibold),
             containerFrame: .zero,
             alignment: .center,
             lineBreakMode: .byTruncatingTail
