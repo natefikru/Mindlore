@@ -193,7 +193,7 @@ after the system prompt and the answer headroom come out.
   lexical reaches ("Did my rent go up?" against "Ninety more a month"), and it is the argument for
   embeddings, measured rather than argued.
 
-**Graph** (`Mindlore/Graph/`, `Mindlore/Views/Graph/`). Turns the mentions and tags `EntryInsights`
+**Graph** (`Mindlore/Graph/`, `Mindlore/Views/Graph/`, `Mindlore/Views/Mind/`). Turns the mentions and tags `EntryInsights`
 already stores into entities people, places, organizations, projects, events, and tags can share, resolve to, merge into, and see co-occurrence and a force-directed picture
 of. `Entity` is the persisted node (name, `kindRaw`, `aliases`, `bio*`, `hidden`, `mergedIntoID`,
 denormalized `linkCount`/`firstLinkedAt`/`lastLinkedAt` that `GraphIndexer.recount` owns); every
@@ -205,7 +205,7 @@ every view and service resolves an entity by fetching its id, never by walking t
 
 - **Normalizer, resolver, indexer.** `EntityNormalizer` derives the matching `key` from a name and
   kind. `EntityResolver` decides, per mention, whether it lands on an existing entity, ties between
-  several (recorded in `unsureAmong`, surfaced by Connections' "Which one?"), or creates one.
+  several (recorded in `unsureAmong`, surfaced as Mind's "Which one?" review question), or creates one.
   `GraphIndexer` is the only thing that writes `EntityLink`s: `index(_:in:)` runs after an entry's
   insights are written, `recount(in:)` denormalizes `linkCount`/`firstLinkedAt`/`lastLinkedAt` and
   prunes an unconfirmed entity down to zero links, and `sweep(in:)` is the launch/upgrade pass over
@@ -216,7 +216,7 @@ every view and service resolves an entity by fetching its id, never by walking t
   "not the same" for the review list. A merge points the loser's id at the winner
   (`mergedIntoID`) rather than deleting it, so old references still resolve; unmerge reverses
   exactly the aliases and links that merge moved. `EntityMatcher` scores likely-duplicate pairs for
-  Connections' review list. Resolving a merged or hidden entity to what a screen should actually
+  Mind's review question. Resolving a merged or hidden entity to what a screen should actually
   show is the same shape everywhere: fetch every `Entity` once, build an in-memory
   `[UUID: Entity]`, and walk `mergedIntoID` with a cycle guard (`root(of:)` in `GraphEditor`,
   repeated inline wherever a read-only query needs the same resolution without a full editor,
@@ -226,40 +226,76 @@ every view and service resolves an entity by fetching its id, never by walking t
   `context.saveStampingEntries()`, and bumps `revision`, which every graph-reading view keys a
   `.task(id:)` refresh off rather than a plain computed property. It also fronts the read-only
   queries no single model owns: `chipIndex` (an entry's links, for the editor's chips),
-  `unsureLinks`/`repoint` (5c.4's "Which one?"), `mentionedWith` (one entity's co-occurring
-  partners), and `localGraph`/`globalGraph` (below).
+  `unsureLinks`/`repoint` ("Which one?"), `mentionedWith` (one entity's co-occurring
+  partners), and `mapSnapshot`/`globalGraph`/`primaryAreas` (Mind, below).
 - **Co-occurrence and the picture.** `EntityGraph` (no SwiftData import, `nonisolated`) turns a
   caller-resolved `[LinkInput]` into weighted `Edge`s: two entities sharing an entry get an edge,
   weighted by a 90-day half-life so a recent shared entry counts for more (`EntityGraph.build`),
-  with `neighbourhood(of:in:depth:)` and `filtered(edges:nodes:kinds:minimumLinkCount:)` for the
-  local and global graph's node sets. `GraphSimulation` (also `nonisolated`, a plain class, not
-  `@Observable`, since the canvas ticks it every frame from inside its own draw closure) is the
-  force layout: phyllotaxis initial placement, many-body repulsion, link springs, centre gravity,
-  and collision, each with a deterministic zero-distance fallback; sticky `pin`/`unpin` for a
-  user's drag, a permanent `anchor` for a local graph's centred subject. `GraphCanvasView` is the
-  shared `Canvas`/`TimelineView` drawing surface both `LocalGraphView` (a sheet from the entity
-  page, its own `NavigationStack` and `entityRouteReplacer`) and `GlobalGraphView` (pushed onto
-  Connections' own stack via `ConnectionsPathItem`, inheriting its replacer) embed. `graph.rendered`
-  logs node/edge counts and actual settle time once per appearance, never per frame.
+  (`EntityGraph.build`). `GraphSimulation` (also `nonisolated`, a plain class, not `@Observable`,
+  since the canvas ticks it every frame from inside its own draw closure) is the engine:
+  phyllotaxis initial placement, many-body repulsion, link springs, centre gravity, and collision,
+  each with a deterministic zero-distance fallback; sticky `pin`/`unpin` for a user's drag. It
+  stays warm on demand: a drag raises `alphaTarget` so alpha holds instead of decaying, and
+  `update` swaps nodes and edges in place so a filter change moves the picture rather than
+  restarting it. `GraphCanvasView` is the `Canvas`/`TimelineView` drawing surface Mind embeds;
+  `FrameTimeSampler` (`GraphCanvasModel.swift`) measures frame p50/p95 and work p95, and
+  `graph.rendered` logs them with node/edge counts once per appearance, never per frame.
 - **Navigation.** `EntityRoute` carries an id, never an `Entity`, so a merge or prune while a page
   is on the stack doesn't invalidate what's pushed; `EntityView` resolves it fresh
   (`EntityPagePresentation.resolve`). A screen that owns its own `NavigationStack` over entity pages
-  (`ConnectionsView`, `EntryInsightsView`'s chips, `LocalGraphView`) must set
+  (`MindView`, over `AppRouter.mindPath`; `EntryInsightsView`'s chips; `EntityPeekCard`) must set
   `.environment(\.entityRouteReplacer, ...)` itself, or a merge made from inside it leaves a stale
   loser id on that stack's own path instead of redirecting to the winner; a view pushed into an
-  existing stack (`GlobalGraphView` into Connections', `EntityView` itself) inherits the enclosing
-  stack's replacer for free.
-- **Diagnostics and privacy.** Every graph event (`graph.indexed`, `graph.merged`, `graph.rendered`,
-  etc.) carries only ids, counts, and durations, never a name, alias, bio, or surface string;
-  `DiagnosticsPrivacyTests`/`AIDiagnosticsPrivacyTests` run real graph components, including a
-  local/global graph render, against a sentinel string used as every one of those fields and assert
-  it never reaches the log.
+  existing stack (`EntityView` itself) inherits the enclosing stack's replacer for free.
+- **Mind** (`Views/Mind/`) is the second tab: one full-screen map of every browsable entity.
+  `GraphServices.mapSnapshot` reads the store once per `revision` into a `MindMapSnapshot`, and
+  `MindView.frame` (static, pure) turns snapshot plus `MindFilters` into nodes, edges, entry dots
+  and regions. `MindFilters` is kinds, a minimum mention count (1 below `largeJournal`, 60
+  entities, then 2), entry dots, and grouping by area. `MindRegions` puts each visible life area on
+  a fixed circle whose radius comes only from the snapshot's entity count, so it doesn't jitter
+  during replay. A `MindLens` (kind, mood, recency) changes paint only, never which nodes are on
+  the map. `MindReplayPlayer` plays first mention to now over 10 seconds in 100 ms steps and
+  publishes every fifth step, because publishing each one pushed frame p95 to 32 ms.
+  `SearchPanel` is Mind's own pull-up panel (not a system sheet, which would cover the tab bar and
+  the record accessory): search, one review question from `ReviewQueue` ("Which one?" before
+  "same person?", because it is about a sentence the user wrote; skips are session-only), the
+  area tiles, and every entity via `MindDirectory`, which counts open loose ends through merges
+  and keys its own refresh because closing a loose end doesn't bump `graph.revision`.
+  `EntityPeekCard` is the shared card for any name. Tests: `MindMapTests`, `MindRegionsTests`,
+  `MindFiltersTests`, `MindReplayTests`, `MindDirectoryTests`.
+- **Diagnostics and privacy.** Every graph and `mind.*` event carries only ids, counts, kinds, and
+  durations, never a name, alias, bio, or surface string; `AIDiagnosticsPrivacyTests` runs real
+  graph components, including a Mind render with every lens and a replay, against a sentinel
+  string used as every one of those fields and asserts it never reaches the log.
+  `docs/privacy-coverage.md` maps every event in the app to the test that drives it, or says why
+  none can.
+
+**Loose ends** (`Models/LooseEnd.swift`, `AI/Insights/LooseEndWriter.swift`). Open threads an entry
+leaves ("need to call the landlord") become `LooseEnd` records with a status (open, resolved,
+faded, dismissed), subject `entityIDs`, an optional due date, and the entry that raised them; same
+CloudKit rules as `Entry`. Insights writes them: `LooseEndWriter.candidates` sends the known ones
+as handles (the entry's own first, so a rerun reuses them, then others dated before the entry,
+never after, since an old page can't settle what hadn't happened yet), and `apply` records
+mentions, resolutions, and new ones. The model's `sameAs` points a mention back at a known handle
+instead of creating a duplicate. AI never resolves one the user touched (`userTouched`) or one
+sourced from or dated after the entry itself. Nothing is deleted: `LooseEnd.fade` marks one faded
+after 42 days of silence or a week past its due date, run in the launch sweep after the graph.
+The recorder offers one at a time through `LooseEndPrompter` (overdue first, then the most recently
+mentioned, never the same one within 3 days). Tests: `LooseEndWriterTests`, `LooseEndLifecycleTests`,
+`LooseEndPromptTests`, `LooseEndCoordinatorTests`, `LooseEndBarTests`.
+
+**Life areas** (`Models/LifeArea.swift`). Nine fixed areas (work, money, health, mind, family,
+love, friends, play, home), at most two per entry, replaced per-entry themes because those never
+connected anything. `EntryInsights.areasRaw` stores raw values, which is also what the prompt
+sends; the user's renames and hidden set live in `SettingsStore` (`lifeAreaNames`,
+`hiddenLifeAreas`, `visibleLifeAreas`) and only change display. An entity's area on the map is
+computed, not stored: `MindMap.primaryAreas`, over the areas of the entries it appears in.
 
 **Entry dates.** `createdAt` is when the entry reached the app and drives every automation rule. `entryDate` is where it belongs in the journal, editable; a picked day is noon with `entryDateIsDayOnly`, and `EntryDateRepair` fixes any entry whose untouched date drifted.
 
 **Settings** (`Mindlore/Settings/`, `Mindlore/Views/SettingsView.swift`). `SettingsStore` reads through a `KeyValueStore` protocol using `object(forKey:)`, so a missing value means "use the default" rather than `false`. `PrivacyInfo.xcprivacy` declares the UserDefaults reason. Settings is the fourth tab, organised by what a setting touches rather than by subsystem: Your journal (life areas, how you're written about, keep recordings), Today, AI (use AI, the key, What AI does, with an Advanced screen for model fields, cloud fallback and custom prompts), and About (`JournalTotals`, counts only). Life areas and your name sit at the top level because both work with AI off. Seven keys are internal state, not settings, and never get a control: `aiEnabledAt`, `automationStartedAt`, `askGeneratorChosenByUser`, `todayDismissed`, `lifeAreaNames`, `hiddenLifeAreas`, `providerAccounts`; find every reader before touching one. UI tests reach settings through `app.tabBars.buttons["Settings"]`, never bare `app.buttons["Settings"]`, which matches a tab item and a toolbar button alike. `tasks/archive/settings-sprint.md` has the audit.
 
-**Views** (`Mindlore/Views/`). `RootView` owns the saver, ingestor, the four coordinators, `EditorPresence`, and `NetworkMonitor`, and passes them through the environment; it runs transcription in one lane and titles plus insights in another, and resumes both when the network returns. `EntryListView` lists entries and opens `EntryEditorView` or `RecordingView`. The editor is one scroll view: header (banners, player, page strip, title) above a `GrowingTextEditor` (a UITextView that grows with its text and never ends shorter than the screen, so a tap below short text puts the cursor at the end). `EntryInsightsView` is a sheet over the editor, never a push, because the editor's `onDisappear` runs its close rules.
+**Views** (`Mindlore/Views/`). `RootView` is a four-tab `TabView` (Journal, Mind, Ask, Settings; `AppTab` in `Views/Shell/AppRouter.swift`, which also owns each tab's path and cross-tab routes). Recording lives in the bottom accessory (`RecordAccessory`) and keeps going while tabs change. `RootView` owns the saver, ingestor, `RecordingSession`, the four coordinators, `AIPassTrigger`, `EditorPresence`, `NetworkMonitor`, `GraphServices`, `AskService`, and the router, and passes them through the environment. `EditorLifecycle` (`Views/Shell/`) is what runs when an editor opens and closes: presence, deleting a blank entry, discarding audio unless kept, and the `.editorClosed` AI pass. Past entries open in read mode (`EntryReadMode`) with tappable names. After a recording, `KeepCard` (`Views/Capture/`) shows what the journal noticed, from stored data only, no AI call. Colors, type, motion, and haptics come from `Mindlore/Design/`, and colors only from the asset catalog's light and dark variants. RootView runs transcription in one lane and titles plus insights in another, and resumes both when the network returns. `EntryListView` lists entries and opens `EntryEditorView` or `RecordingView`. The editor is one scroll view: header (banners, player, page strip, title) above a `GrowingTextEditor` (a UITextView that grows with its text and never ends shorter than the screen, so a tap below short text puts the cursor at the end). `EntryInsightsView` is a sheet over the editor, never a push, because the editor's `onDisappear` runs its close rules.
 
 **Today** (`Mindlore/Views/Today/`). The header above the journal list: a greeting, a seven-dot
 week strip, and at most three cards. `TodayComposer` is `nonisolated` and reads no SwiftData, the
