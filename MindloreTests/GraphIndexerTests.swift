@@ -108,10 +108,10 @@ struct EntityResolverTests {
             == .existing(id: acme.id, inferred: false, upgradeKind: nil))
     }
 
-    @Test func aTagAndAThemeAreSeparateEntities() {
+    @Test func aTagAndANameAreSeparateEntities() {
         let tag = candidate("career anxiety", .tag)
-        #expect(EntityResolver.resolve(value("career anxiety", .theme), among: [tag])
-            == .create(key: "career anxiety", kind: .theme))
+        #expect(EntityResolver.resolve(value("career anxiety", .person), among: [tag])
+            == .create(key: "career anxiety", kind: .person))
     }
 
     @Test func nothingToKeyOnIsSkipped() {
@@ -180,7 +180,6 @@ final class GraphHarness {
         _ text: String = "an entry",
         entryDate: Date = Date(timeIntervalSince1970: 5_000),
         tags: [String] = [],
-        themes: [String] = [],
         mentions: [(String, MentionKind)] = [],
         generatedAt: Date = Date(timeIntervalSince1970: 1_000)
     ) throws -> Entry {
@@ -191,7 +190,6 @@ final class GraphHarness {
         context.insert(insights)
         insights.entry = entry
         insights.tags = tags
-        insights.themes = themes
         insights.mentions = mentions.map { Mention(name: $0.0, kindRaw: $0.1.rawValue) }
         try context.save()
         return entry
@@ -224,20 +222,18 @@ struct GraphIndexerTests {
     @Test func indexingBuildsAnEntityPerValue() throws {
         let entry = try harness.entry(
             tags: ["nature", "family"],
-            themes: ["walking"],
             mentions: [("Sarah", .person), ("the river", .place)]
         )
 
         harness.indexer.index(entry, in: harness.context)
         try harness.context.save()
 
-        #expect(harness.links(of: entry).count == 5)
+        #expect(harness.links(of: entry).count == 4)
         let entities = try harness.entities()
-        #expect(entities.map(\.name).sorted() == ["Sarah", "family", "nature", "the river", "walking"])
+        #expect(entities.map(\.name).sorted() == ["Sarah", "family", "nature", "the river"])
         #expect(try harness.entity("Sarah").kind == .person)
         #expect(try harness.entity("the river").kind == .place)
         #expect(try harness.entity("nature").kind == .tag)
-        #expect(try harness.entity("walking").kind == .theme)
         // The key is normalized; the name keeps what the model wrote.
         #expect(try harness.entity("the river").key == "the river")
         #expect(entry.graphIndexedAt == entry.insights?.generatedAt)
@@ -418,6 +414,43 @@ struct GraphIndexerTests {
         #expect(try harness.entity("Sarah").lastLinkedAt == nil)
     }
 
+    // Muting a person on a Today card has to outlive their links. Pruning the entity would lose
+    // the mute, and the next time they were mentioned they would come back under a new id and
+    // resurface, which is the one thing the mute promises will not happen.
+    @Test func aMutedEntitySurvivesLosingItsLastLink() throws {
+        let entry = try harness.entry(mentions: [("Sarah", .person)])
+        harness.indexer.index(entry, in: harness.context)
+        harness.indexer.recount(in: harness.context)
+        try harness.context.save()
+        let sarah = try harness.entity("Sarah")
+        sarah.resurfacingMuted = true
+        try harness.context.save()
+
+        Entry.delete(entry, in: harness.context)
+        try harness.context.save()
+        harness.indexer.recount(in: harness.context)
+        try harness.context.save()
+
+        #expect(try harness.entities().map(\.name) == ["Sarah"])
+        #expect(try harness.entity("Sarah").resurfacingMuted)
+        #expect(try harness.entity("Sarah").linkCount == 0)
+    }
+
+    // The counterpart: nothing else changed, so an unmuted entity is still pruned.
+    @Test func anUnmutedEntityStillGoesWhenItsLastLinkDoes() throws {
+        let entry = try harness.entry(mentions: [("Sarah", .person)])
+        harness.indexer.index(entry, in: harness.context)
+        harness.indexer.recount(in: harness.context)
+        try harness.context.save()
+
+        Entry.delete(entry, in: harness.context)
+        try harness.context.save()
+        harness.indexer.recount(in: harness.context)
+        try harness.context.save()
+
+        #expect(try harness.entities().isEmpty)
+    }
+
     @Test func aMergeLoserSurvivesTheRecountThatFollowsIt() throws {
         try harness.entry(mentions: [("Sarah", .person)])
         try harness.entry(mentions: [("Sarah Kim", .person)])
@@ -553,8 +586,8 @@ struct EntityLabelSeparationTests {
 
     // A tag and a mention can be written identically. They are still different things, and
     // only the Review list may put them together.
-    @Test func aMentionNeverJoinsATagOrATheme() throws {
-        try harness.entry(tags: ["work"], themes: ["moving house"])
+    @Test func aMentionNeverJoinsATag() throws {
+        try harness.entry(tags: ["work", "moving house"])
         harness.indexer.sweep(in: harness.context)
 
         try harness.entry(mentions: [("work", .other), ("moving house", .other)])

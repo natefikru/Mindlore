@@ -26,18 +26,78 @@ nonisolated struct UITestingHTTPClient: HTTPClient {
             let completion: [String: Any] = ["model": "stub", "choices": [["message": ["content": page], "finish_reason": "stop"]]]
             json = String(decoding: (try? JSONSerialization.data(withJSONObject: completion)) ?? Data(), as: UTF8.self)
         } else if let body, let text = String(data: body, encoding: .utf8), text.contains("journal_insights") {
-            let insights = #"{"summary":"A walk by the river with Sarah.","primaryMood":"calm","secondaryMoods":["grateful"],"themes":["a walk"],"tags":["river"],"mentions":[{"name":"Sarah","kind":"person"},{"name":"Tom","kind":"person"}],"openThreads":["Call the landlord"],"cleanedText":null,"writtenDate":null}"#
+            let insights = #"{"summary":"A walk by the river with Sarah.","primaryMood":"calm","secondaryMoods":["grateful"],"lifeAreas":["friends"],"tags":["river"],"mentions":[{"name":"Sarah","kind":"person"},{"name":"Tom","kind":"person"}],"looseEnds":[{"text":"Call the landlord","about":["Sarah"],"due":null,"sameAs":null}],"cleanedText":null,"writtenDate":null}"#
             let completion: [String: Any] = ["model": "stub", "choices": [["message": ["content": insights], "finish_reason": "stop"]]]
+            json = String(decoding: (try? JSONSerialization.data(withJSONObject: completion)) ?? Data(), as: UTF8.self)
+        } else if let body, let text = String(data: body, encoding: .utf8), text.contains(AskPrompt.schemaName) {
+            // Ask: answer with the first handle the request actually handed out, so the citation
+            // chip in the UI test points at a real entry.
+            let handle = Self.firstAskHandle(inRequestBody: text) ?? "E1"
+            let answer = String(decoding: (try? JSONSerialization.data(withJSONObject: [
+                "answer": "You walked by the river with Sarah.",
+                "citations": [handle],
+            ])) ?? Data(), as: UTF8.self)
+            let completion: [String: Any] = ["model": "stub", "choices": [["message": ["content": answer], "finish_reason": "stop"]]]
             json = String(decoding: (try? JSONSerialization.data(withJSONObject: completion)) ?? Data(), as: UTF8.self)
         } else if let body, let text = String(data: body, encoding: .utf8), text.contains(EntityBioDrafter.schemaName) {
             let name = Self.bioName(inRequestBody: text) ?? "Someone"
-            let bio = String(decoding: (try? JSONSerialization.data(withJSONObject: ["bio": "\(name) is a friend the writer walks by the river with."])) ?? Data(), as: UTF8.self)
+            let bio = String(decoding: (try? JSONSerialization.data(withJSONObject: ["bio": "\(name) is a friend I walk by the river with."])) ?? Data(), as: UTF8.self)
             let completion: [String: Any] = ["model": "stub", "choices": [["message": ["content": bio], "finish_reason": "stop"]]]
             json = String(decoding: (try? JSONSerialization.data(withJSONObject: completion)) ?? Data(), as: UTF8.self)
         } else {
             json = #"{"model":"stub","choices":[{"message":{"content":"Stub Title"},"finish_reason":"stop"}]}"#
         }
         return HTTPResponse(status: 200, headers: [:], data: Data(json.utf8))
+    }
+
+    // The same answer the single-shot path would give, cut into deltas and wrapped in the SSE
+    // frames a real server sends, so the UI tests drive the streaming code rather than around it.
+    func stream(_ request: URLRequest, body: Data?) async throws -> HTTPStream {
+        let response = try await send(request, body: body)
+        guard (200..<300).contains(response.status) else { return .response(response) }
+        let content = Self.content(of: response.data) ?? ""
+        return .body(AsyncThrowingStream { continuation in
+            for delta in Self.deltas(of: content) {
+                continuation.yield(Self.frame(["choices": [["delta": ["content": delta]]]]))
+            }
+            continuation.yield(Self.frame(["choices": [["delta": [:], "finish_reason": "stop"]], "model": "stub"]))
+            continuation.yield(Data("data: [DONE]\n\n".utf8))
+            continuation.finish()
+        })
+    }
+
+    private static func content(of data: Data) -> String? {
+        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let choices = json["choices"] as? [[String: Any]],
+              let message = choices.first?["message"] as? [String: Any] else { return nil }
+        return message["content"] as? String
+    }
+
+    // Split mid-token on purpose: an answer that only ever arrives on JSON boundaries would let a
+    // parser that can't read a half-written string pass.
+    private static func deltas(of content: String) -> [String] {
+        let chunkSize = 7
+        return stride(from: 0, to: content.count, by: chunkSize).map { start in
+            let lower = content.index(content.startIndex, offsetBy: start)
+            let upper = content.index(lower, offsetBy: chunkSize, limitedBy: content.endIndex) ?? content.endIndex
+            return String(content[lower..<upper])
+        }
+    }
+
+    private static func frame(_ object: [String: Any]) -> Data {
+        let json = String(decoding: (try? JSONSerialization.data(withJSONObject: object)) ?? Data(), as: UTF8.self)
+        return Data("data: \(json)\n\n".utf8)
+    }
+
+    // The first block handle in the user message, which is the entry Ask would cite.
+    static func firstAskHandle(inRequestBody body: String) -> String? {
+        guard let json = try? JSONSerialization.jsonObject(with: Data(body.utf8)) as? [String: Any],
+              let messages = json["messages"] as? [[String: Any]],
+              let user = messages.last?["content"] as? String,
+              let regex = try? NSRegularExpression(pattern: "\\[(E\\d+)\\]"),
+              let match = regex.firstMatch(in: user, range: NSRange(user.startIndex..., in: user)),
+              let range = Range(match.range(at: 1), in: user) else { return nil }
+        return String(user[range])
     }
 
     // The bio request's user message starts with "Name: ...".

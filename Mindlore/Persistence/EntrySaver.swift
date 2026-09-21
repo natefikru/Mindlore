@@ -8,6 +8,10 @@ import SwiftData
 @Observable
 final class EntrySaver {
     private(set) var lastError: (any Error)?
+    // Bumped after every successful save, so anything holding a derived copy of the journal can
+    // tell it is stale. Monotonic on purpose: a date can be walked backwards by a clock change, and
+    // Entry.graphIndexedAt already exists because of that.
+    private(set) var revision = 0
 
     @ObservationIgnored private let context: ModelContext
     @ObservationIgnored private let interval: Duration
@@ -59,6 +63,7 @@ final class EntrySaver {
         do {
             try save(context)
             lastError = nil
+            revision += 1
             diagnostics.record("save.completed", counts)
         } catch {
             lastError = error

@@ -25,19 +25,13 @@ struct EntityPagePresentationTests {
         #expect(P.resolve(EntityRoute(id: a, follow: false), exists: false, mergedIntoID: b) == .gone)
     }
 
-    @Test func hasVoiceSourcedLinkIsTrueWithAnyVoiceEntry() {
-        #expect(P.hasVoiceSourcedLink(sources: [.typed, .voice]))
-        #expect(!P.hasVoiceSourcedLink(sources: [.typed, .photo]))
-        #expect(!P.hasVoiceSourcedLink(sources: []))
-    }
-
     @Test func showsSpellingPromptOnlyForAFreshUnconfirmedMentionKind() {
         #expect(P.showsSpellingPrompt(confirmedByUser: false, linkCount: 1, kind: .person))
         #expect(P.showsSpellingPrompt(confirmedByUser: false, linkCount: 0, kind: .place))
         #expect(!P.showsSpellingPrompt(confirmedByUser: true, linkCount: 1, kind: .person), "confirmed already answered it")
         #expect(!P.showsSpellingPrompt(confirmedByUser: false, linkCount: 2, kind: .person), "a second mention is no longer a fresh guess")
         #expect(!P.showsSpellingPrompt(confirmedByUser: false, linkCount: 1, kind: .tag), "tags rarely appear word for word")
-        #expect(!P.showsSpellingPrompt(confirmedByUser: false, linkCount: 1, kind: .theme))
+        #expect(!P.showsSpellingPrompt(confirmedByUser: false, linkCount: 1, kind: .tag))
     }
 
     @Test func aMergeFromAPageReplacesOnlyTheTopRouteForTheLoser() {
@@ -179,5 +173,23 @@ struct GraphServicesBioEditTests {
     @Test func settingABioOnAGoneEntityDoesNothing() {
         harness.services.setBio("Anything", on: UUID(), in: harness.context)
         #expect(harness.services.revision == 0)
+    }
+}
+
+struct EntityPageLooseEndTests {
+    private typealias Item = EntityPagePresentation.LooseEndItem
+
+    @Test func openFirstByMentionThenEarlierThroughAMerge() {
+        let sarah = UUID(), sara = UUID(), tom = UUID()
+        func at(_ t: TimeInterval) -> Date { Date(timeIntervalSince1970: t) }
+        let old = Item(id: UUID(), entityIDs: [sarah], isOpen: true, lastMentionedAt: at(10), statusChangedAt: nil)
+        let recent = Item(id: UUID(), entityIDs: [sara], isOpen: true, lastMentionedAt: at(50), statusChangedAt: nil)
+        let settled = Item(id: UUID(), entityIDs: [sarah], isOpen: false, lastMentionedAt: at(5), statusChangedAt: at(60))
+        let faded = Item(id: UUID(), entityIDs: [sara, tom], isOpen: false, lastMentionedAt: at(70), statusChangedAt: nil)
+        let other = Item(id: UUID(), entityIDs: [tom], isOpen: true, lastMentionedAt: at(90), statusChangedAt: nil)
+
+        let split = EntityPagePresentation.looseEnds([old, recent, settled, faded, other], about: sarah) { $0 == sara ? sarah : $0 }
+        #expect(split.open == [recent.id, old.id])
+        #expect(split.earlier == [faded.id, settled.id])
     }
 }

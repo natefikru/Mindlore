@@ -48,7 +48,19 @@ final class InsightsUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["Summary"].waitForExistence(timeout: 10))
         XCTAssertTrue(app.staticTexts["Moods"].exists)
         XCTAssertTrue(waitForRunButton("Generate again"))
-        app.buttons["Done"].tap()
+
+        // Calling the landlord is a loose end; marking it done sticks.
+        let open = app.descendants(matching: .any)["looseEnd-open"].firstMatch
+        var swipes = 0
+        while !open.exists && swipes < 6 {
+            app.collectionViews.firstMatch.swipeUp()
+            swipes += 1
+        }
+        XCTAssertTrue(open.exists, "the entry left a loose end")
+        app.buttons["looseEndMenu"].firstMatch.tap()
+        app.buttons["Mark done"].firstMatch.tap()
+        XCTAssertTrue(app.descendants(matching: .any)["looseEnd-resolved"].firstMatch.waitForExistence(timeout: 5))
+        app.buttons["Done"].firstMatch.tap()
 
         // Editing the entry makes the insights out of date.
         XCTAssertTrue(editor.waitForExistence(timeout: 5))

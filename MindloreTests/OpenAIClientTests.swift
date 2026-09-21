@@ -9,7 +9,7 @@ struct OpenAIClientTests {
     private let schema = JSONSchema.object([.init("text", .string())])
 
     private func generator(_ http: FakeHTTPClient) -> OpenAICompatibleTextGenerator {
-        OpenAICompatibleTextGenerator(baseURL: baseURL, apiKey: "sk-test", http: http, jsonModeMemory: JSONModeMemory())
+        OpenAICompatibleTextGenerator(baseURL: baseURL, apiKey: "sk-test", http: http, quirks: ProviderQuirks())
     }
 
     @Test func structuredRequestShape() async throws {
@@ -37,6 +37,28 @@ struct OpenAIClientTests {
         #expect(result == TextResult(text: #"{"text":"ok"}"#, model: "gpt-test", inputTokens: 11, outputTokens: 7))
     }
 
+    @Test func historyIsSentBetweenTheSystemAndUserMessages() async throws {
+        let http = FakeHTTPClient(FakeHTTPClient.completion("ok"))
+        let history = [
+            TextMessage(role: .user, content: "first question"),
+            TextMessage(role: .assistant, content: "first answer"),
+            TextMessage(role: .user, content: "second question"),
+            TextMessage(role: .assistant, content: "second answer"),
+        ]
+        _ = try await generator(http).generate(TextRequest(model: "m", system: "sys", user: "now", messages: history))
+
+        let messages = try #require(http.sent.first?.jsonBody["messages"] as? [[String: Any]])
+        #expect(messages.map { $0["role"] as? String } == ["system", "user", "assistant", "user", "assistant", "user"])
+        #expect(messages.map { $0["content"] as? String } == ["sys", "first question", "first answer", "second question", "second answer", "now"])
+    }
+
+    // A single-shot job must encode exactly as it did before messages existed.
+    @Test func aRequestWithoutHistoryEncodesUnchanged() throws {
+        let body = try OpenAICompatibleTextGenerator.body(for: TextRequest(model: "m", system: "sys", user: "hello"), jsonMode: false)
+        let json = String(decoding: try JSONSerialization.data(withJSONObject: body, options: [.sortedKeys]), as: UTF8.self)
+        #expect(json == #"{"messages":[{"content":"sys","role":"system"},{"content":"hello","role":"user"}],"model":"m"}"#)
+    }
+
     @Test func imagesAreSentAsDataURLContentParts() async throws {
         let http = FakeHTTPClient(FakeHTTPClient.completion("done"))
         _ = try await generator(http).generate(TextRequest(model: "m", system: "s", user: "page", images: [TextImage(jpegData: Data([1, 2, 3]), detail: .high)]))
@@ -52,13 +74,13 @@ struct OpenAIClientTests {
     }
 
     @Test func rejectedSchemaRetriesOnceInJSONModeAndIsRemembered() async throws {
-        let memory = JSONModeMemory()
+        let memory = ProviderQuirks()
         let http = FakeHTTPClient(
             FakeHTTPClient.error(400, code: "invalid_request_error", param: "response_format"),
             FakeHTTPClient.completion(#"{"text":"ok"}"#),
             FakeHTTPClient.completion(#"{"text":"again"}"#)
         )
-        let client = OpenAICompatibleTextGenerator(baseURL: baseURL, apiKey: "k", http: http, jsonModeMemory: memory)
+        let client = OpenAICompatibleTextGenerator(baseURL: baseURL, apiKey: "k", http: http, quirks: memory)
         let request = TextRequest(model: "local", system: "sys", user: "u", schema: schema)
 
         _ = try await client.generate(request)

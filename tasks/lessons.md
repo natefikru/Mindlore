@@ -125,3 +125,121 @@ xcodebuild ... -destination 'platform=iOS Simulator,id=<udid>' test ...
 ```
 
 Before blaming a branch for a UI failure, ask whether anything else is using the simulator.
+
+## Size the UI run to the change
+
+A follow-up that touched only the recorder and the peek card started the whole 12-class,
+10-minute phase-scoped set. The two classes that exercise those views said everything the rest
+could. Run the broad set when a sub-phase first lands or after another lane's app changes are
+merged in; for a follow-up, run the classes that open the views the commit changed.
+
+## Swapping a screen's content under an open keyboard drops the next keystroke
+
+Ask's tab showed the conversation, and replaced it with search results as soon as the field held
+text. Typing "river" left `r` in the field and the conversation still on screen: SwiftUI resigned
+focus when the content of the `NavigationStack` changed, and everything after the first character
+went nowhere. It looks exactly like a broken text field, and no unit test can see it.
+
+Keep the focused field and the view around it stable. Put the thing that appears beside the
+content, not in place of it: Ask's results are a panel in `safeAreaInset(edge: .bottom)`, so the
+field is never rebuilt.
+
+The same change fixed a second complaint that sounded unrelated ("writing a follow-up started a
+new chat"). It hadn't: the results were covering the conversation.
+
+## Prove the launch argument reached the app
+
+`scripts/device/launch.sh` took a run id and dropped everything after it, so
+`launch.sh demo -- -seedDemoJournal` launched the real journal without a word of complaint. Three
+device runs were reported and reasoned about as the 300-entry seed while they were the owner's own
+entries, and an "Ask found nothing" investigation went looking in the wrong place.
+
+A tool that silently ignores an argument is worse than one that fails. When a run depends on a
+launch argument, check the app's own evidence that it arrived (the store it opened, a count in the
+log), not that the process started.
+
+## Screenshot the screen before calling it done
+
+Every Ask test passed while the tab had: a keyboard Send key that inserted a newline, an empty
+list drawing separator lines across the screen, and a cost line that read like a search result
+count. Tests assert behavior nobody looks at; nothing asserted what the screen looked like.
+
+`AskScreenshotTests` (like `GraphScreenshotTests`) drives the states and attaches screenshots.
+Pull them out of the result bundle with `xcrun xcresulttool export attachments` and look. Three
+rounds of that fixed more than the sub-agent review did.
+
+It happened again in A9b, in a way worth naming: moving a cost line into a computed `String`
+property put the literal text `^[1 entry](inflect: true)` on screen. Inflection is a
+`LocalizedStringKey` feature, and a `String` interpolated into `Text` is not one, so the markup
+renders as markup. Nothing failed. Return `Text` from the property instead of `String`, and when a
+view string gains a condition, look at it rather than trusting that the suite is still green.
+
+## A review sub-agent with write tools reviews its own edits
+
+A sub-agent asked to review the A9b spec, and told in the prompt not to modify anything, spent nine
+minutes implementing part of it instead: a new source file, two test files, and edits to two tracked
+files. Its first and most serious finding was then that the spec had failed to account for work
+"already sitting uncommitted beside it", and it quoted its own new code back as the reason the spec's
+flagship test was false.
+
+The finding was internally consistent and completely wrong, and it is the kind of wrong that is
+expensive: the fix it recommended was to rewrite the spec around code the owner had never seen.
+
+Two things caught it. The baseline test count was taken before the review started (1024), and the
+files' timestamps all fell inside the reviewer's run window. Neither is an accident worth relying on.
+
+- Give a reviewer read-only tools. `Explore` has no write access; `general-purpose` does, and "do not
+  modify any file" in a prompt is not a permission boundary.
+- Record a baseline (test count, `git status`) before spawning anything, and check `git status` after
+  it returns.
+- When a review's finding is about the state of the tree rather than about the work, verify the tree
+  yourself before folding anything in.
+
+The other nineteen findings were sound, and three of them changed the design. A bad first finding is
+not a reason to discard the rest, only a reason to check every factual claim against the code.
+
+## A fresh simulator has no lemmas on its first run
+
+The first unit run on a newly created simulator failed eight `AskIndexLemmaTests` and one
+`AskRetrievalQualityTests` question: `AskIndex.lemmas(in:)` returned `[]` for everything. The
+second run on the same simulator passed all of them with no code change. `NLTagger`'s lemma scheme
+loads its language assets on first use, and until they are there it tags nothing and reports nothing.
+
+Two things follow. A red lemma suite on a new simulator is not a regression, so run it again before
+reading the diff. And the same cold start can happen on a phone: until the assets load, Ask quietly
+loses "run finds ran" with no error. The A10 device pass should ask a morphology question on a
+fresh install and check `ask.indexed`.
+
+## XCUIDevice.shared.appearance does not reach the simulator
+
+Setting it before `app.launch()` produced ten light screenshots, five of them named "dark". Set the
+appearance from outside, on a booted device (`simctl ui` fails with 405 on a shut-down one):
+
+```bash
+xcrun simctl boot <udid>; xcrun simctl ui <udid> appearance dark
+```
+
+Found only because the screenshots were opened. A screenshot's name is not evidence of its content.
+
+## A label query can't tell a tab from a button
+
+`app.buttons["Settings"]` matched the Journal toolbar gear, and after Settings became a tab it matched
+the tab item just as happily. Both settings UI classes passed the change unedited, and would have
+gone on passing if the tab had never been added. A test that cannot fail on the change it covers is
+not covering it.
+
+Scope a query to the container that makes the claim: `app.tabBars.buttons["Settings"]`. Then prove
+the new test fails without the change (delete the thing, watch it go red, put it back) before
+trusting it.
+
+## Inside a Form, a Button's label takes the accent
+
+Three voice options drew entirely in Ember and read as three links, though the title said
+`.foregroundStyle(.primary)` and the sample `.secondary`. A `Button` in a `Form` tints its label, and
+the hierarchical styles resolve against that tint rather than against the text colour. Use concrete
+colours (`Palette.ink`, `Color.secondary`) on a button that is a choice rather than an action, and
+leave the accent to the checkmark.
+
+The same screenshot pass found life area names in placeholder grey: the field started empty and the
+real name was only its placeholder, so every untouched area looked disabled. Neither showed in any
+test. Both showed on the first look.

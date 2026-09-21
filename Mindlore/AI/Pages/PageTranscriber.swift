@@ -33,7 +33,7 @@ nonisolated struct OpenAICompatiblePageTranscriber: PageTranscriber {
     You transcribe photographed pages of a personal journal. Most pages are handwritten, but some writing \
     may be printed, typed, or in block letters; transcribe all of it the same way.
 
-    Copy the writing exactly as written: keep the writer's words, spelling, grammar, and punctuation. \
+    Copy the writing exactly as written: keep the author's words, spelling, grammar, and punctuation. \
     Do not correct, summarize, reword, or add anything. Keep paragraph breaks; join lines that were only \
     wrapped by the edge of the page. Write [illegible] for any word you cannot read. Ignore the notebook's \
     own printing, such as ruled lines, preprinted page numbers, and preprinted headers. Return an empty \

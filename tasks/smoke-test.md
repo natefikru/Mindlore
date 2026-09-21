@@ -16,7 +16,7 @@ Events never contain entry text. `id` values are entry UUIDs, so one recording c
 
 ### 1. First voice entry, online
 
-Wi-Fi on. Tap the mic, allow the microphone, speak for about 15 seconds, tap Done. Note whether a Speech Recognition permission prompt appears.
+Wi-Fi on. Tap Record in the tab bar's accessory, allow the microphone, speak for about 15 seconds, tap Done. Note whether a Speech Recognition permission prompt appears.
 
 Expect, in order:
 - `recorder.started` with a `route` (for example `MicrophoneBuiltIn`)
@@ -81,7 +81,7 @@ Expect:
 
 ### 9. Key setup
 
-Settings, AI, turn AI on, paste the key, Test connection.
+Settings tab, turn Use AI on, then OpenAI key: paste the key, Test connection.
 
 Expect: `ai.keySaved`, then `ai.connectionTested` with `ok=true` and a `models` count. The key itself never appears in the log.
 
@@ -99,7 +99,7 @@ Expect: `ai.error` or `transcription.fallback` with an offline reason, then `tra
 
 ### 12. Bad key
 
-Settings, AI, replace the key with `sk-not-a-real-key`. Record 10 seconds.
+Settings tab, OpenAI key, replace the key with `sk-not-a-real-key`. Record 10 seconds.
 
 Expect: `ai.error` with `error=ai.invalidKey`, `transcription.fallback`, text from Apple. Force-quit and relaunch: no new `ai.request` for that entry, because a permanent failure isn't retried. Put the good key back afterwards.
 

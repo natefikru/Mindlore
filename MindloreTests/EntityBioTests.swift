@@ -135,12 +135,12 @@ struct EntityBioDrafterTests {
 
     @Test func aDraftLandsWithWhatWasSent() async throws {
         let sarah = try sarah()
-        harness.generator.results = [.success(#"{"bio":"  Sarah is a friend the writer walks with. "}"#)]
+        harness.generator.results = [.success(#"{"bio":"  Sarah is a friend I walk with. "}"#)]
         let revision = harness.services.revision
 
         await harness.open(sarah)
 
-        #expect(sarah.bio == "Sarah is a friend the writer walks with.")
+        #expect(sarah.bio == "Sarah is a friend I walk with.")
         #expect(sarah.bioWasGenerated)
         #expect(!sarah.bioEditedByUser)
         #expect(sarah.bioDraftedAt != nil)
@@ -415,16 +415,16 @@ struct EntityBioDrafterTests {
         #expect(sarah.bio == "A friend.")
     }
 
-    @Test func tagsAndThemesAreDraftedOnlyWhenAsked() async throws {
+    @Test func tagsAreDraftedOnlyWhenAsked() async throws {
         try harness.entry("By the river again.", tags: ["river"])
         let river = try harness.entity("river")
 
         await harness.open(river)
         #expect(harness.generator.requests.isEmpty)
 
-        harness.generator.results = [.success(#"{"bio":"Where the writer walks."}"#)]
+        harness.generator.results = [.success(#"{"bio":"Where I walk."}"#)]
         await harness.draft(river)
-        #expect(river.bio == "Where the writer walks.")
+        #expect(river.bio == "Where I walk.")
     }
 
     @Test func automaticInsightsOffMeansNoAutomaticDraft() async throws {

@@ -15,7 +15,7 @@ final class TitleCoordinator {
 
     static let systemPrompt = """
     You write titles for entries in a personal journal. Reply with only the title: three to eight words \
-    naming what the entry is about, in the writer's language, with no quotation marks and no ending punctuation.
+    naming what the entry is about, in the author's language, with no quotation marks and no ending punctuation.
     """
 
     private(set) var running: Set<UUID> = []

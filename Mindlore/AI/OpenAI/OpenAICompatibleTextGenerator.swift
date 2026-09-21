@@ -9,22 +9,28 @@ nonisolated struct OpenAICompatibleTextGenerator: TextGenerator {
     let baseURL: URL
     let apiKey: String
     let http: any HTTPClient
-    let jsonModeMemory: JSONModeMemory
+    let quirks: ProviderQuirks
 
-    init(baseURL: URL, apiKey: String, http: any HTTPClient, jsonModeMemory: JSONModeMemory = .shared) {
+    init(baseURL: URL, apiKey: String, http: any HTTPClient, quirks: ProviderQuirks = .shared) {
         self.baseURL = baseURL
         self.apiKey = apiKey
         self.http = http
-        self.jsonModeMemory = jsonModeMemory
+        self.quirks = quirks
+    }
+
+    // One server, one model: a quirk is remembered per pair, since a provider can serve a model
+    // that takes a strict schema beside one that does not.
+    func quirkKey(_ request: TextRequest) -> String {
+        "\(baseURL.absoluteString)|\(request.model)"
     }
 
     @concurrent
     func generate(_ request: TextRequest) async throws -> TextResult {
-        let key = "\(baseURL.absoluteString)|\(request.model)"
-        let useJSONMode = request.schema != nil && jsonModeMemory.contains(key)
+        let key = quirkKey(request)
+        let useJSONMode = request.schema != nil && quirks.refuses(.jsonSchema, key)
         let response = try await send(request, jsonMode: useJSONMode)
         if request.schema != nil, !useJSONMode, OpenAIErrorMapper.rejectsResponseFormat(response) {
-            jsonModeMemory.insert(key)
+            quirks.refuse(.jsonSchema, key)
             return try decode(try await send(request, jsonMode: true))
         }
         return try decode(response)
@@ -32,13 +38,17 @@ nonisolated struct OpenAICompatibleTextGenerator: TextGenerator {
 
     @concurrent
     private func send(_ request: TextRequest, jsonMode: Bool) async throws -> HTTPResponse {
+        let body = try JSONSerialization.data(withJSONObject: Self.body(for: request, jsonMode: jsonMode), options: [.sortedKeys])
+        return try await http.send(completionsRequest(), body: body)
+    }
+
+    func completionsRequest() -> URLRequest {
         var urlRequest = URLRequest(url: baseURL.appendingPathComponent("chat/completions"))
         urlRequest.httpMethod = "POST"
         urlRequest.timeoutInterval = Self.requestTimeout
         urlRequest.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
         urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        let body = try JSONSerialization.data(withJSONObject: Self.body(for: request, jsonMode: jsonMode), options: [.sortedKeys])
-        return try await http.send(urlRequest, body: body)
+        return urlRequest
     }
 
     static func body(for request: TextRequest, jsonMode: Bool) throws -> [String: Any] {
@@ -62,12 +72,15 @@ nonisolated struct OpenAICompatibleTextGenerator: TextGenerator {
             userContent = parts
         }
 
+        var messages: [[String: Any]] = [["role": "system", "content": system]]
+        for message in request.messages {
+            messages.append(["role": message.role.rawValue, "content": message.content])
+        }
+        messages.append(["role": "user", "content": userContent])
+
         var body: [String: Any] = [
             "model": request.model,
-            "messages": [
-                ["role": "system", "content": system],
-                ["role": "user", "content": userContent],
-            ],
+            "messages": messages,
         ]
         if let maxOutputTokens = request.maxOutputTokens {
             body["max_completion_tokens"] = maxOutputTokens
@@ -108,16 +121,23 @@ nonisolated struct OpenAICompatibleTextGenerator: TextGenerator {
     }
 }
 
-// Servers that rejected a strict schema, remembered for the rest of the session.
-nonisolated final class JSONModeMemory: Sendable {
-    static let shared = JSONModeMemory()
-    private let keys = Mutex<Set<String>>([])
-
-    func contains(_ key: String) -> Bool {
-        keys.withLock { $0.contains(key) }
+// What a server has already refused, remembered for the rest of the session. An OpenAI-compatible
+// server is not necessarily OpenAI: it can reject a strict schema, or streaming, or both, and
+// finding that out a second time costs a whole round trip.
+nonisolated final class ProviderQuirks: Sendable {
+    enum Quirk: String, Sendable {
+        case jsonSchema
+        case streaming
     }
 
-    func insert(_ key: String) {
-        _ = keys.withLock { $0.insert(key) }
+    static let shared = ProviderQuirks()
+    private let refused = Mutex<Set<String>>([])
+
+    func refuses(_ quirk: Quirk, _ key: String) -> Bool {
+        refused.withLock { $0.contains("\(quirk.rawValue)|\(key)") }
+    }
+
+    func refuse(_ quirk: Quirk, _ key: String) {
+        _ = refused.withLock { $0.insert("\(quirk.rawValue)|\(key)") }
     }
 }

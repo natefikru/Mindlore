@@ -10,6 +10,8 @@ final class AIPassTrigger {
         case finished
         case editorClosed
         case textReady
+        // A recording that already has its live text, as the Keep card appears.
+        case kept
         case approved
         case launchSweep
     }

@@ -16,6 +16,32 @@ extension MoodCategory {
     }
 }
 
+// An entry's life areas as small labelled capsules, with the user's names and without hidden areas.
+struct LifeAreaChips: View {
+    @Environment(SettingsStore.self) private var settings
+    let areas: [LifeArea]
+
+    var body: some View {
+        FlowLayout(spacing: 6) {
+            ForEach(areas.filter { !settings.isHidden($0) }, id: \.self) { area in
+                HStack(spacing: 5) {
+                    Image(systemName: area.symbol)
+                        .foregroundStyle(area.color)
+                    Text(settings.name(of: area))
+                }
+                .font(.subheadline)
+                .lineLimit(1)
+                .fixedSize()
+                .padding(.horizontal, 10)
+                .padding(.vertical, 5)
+                .background(.quaternary, in: Capsule())
+                .accessibilityElement(children: .combine)
+                .accessibilityIdentifier("lifeArea-\(area.rawValue)")
+            }
+        }
+    }
+}
+
 extension MentionKind {
     var symbol: String { EntityKind(self).symbol }
     var heading: String { EntityKind(self).heading }
@@ -31,7 +57,6 @@ extension EntityKind {
         case .event: "calendar"
         case .other: "tag"
         case .tag: "number"
-        case .theme: "quote.bubble"
         }
     }
 
@@ -45,22 +70,6 @@ extension EntityKind {
         case .event: "Events"
         case .other: "Other"
         case .tag: "Tags"
-        case .theme: "Themes"
-        }
-    }
-
-    // The graph canvas's node fill, and any kind legend beside it. Eight fixed, visually distinct
-    // colours; never derived from anything else, so a kind's colour stays stable across a session.
-    var color: Color {
-        switch self {
-        case .person: .blue
-        case .place: .green
-        case .organization: .purple
-        case .project: .orange
-        case .event: .red
-        case .tag: .teal
-        case .theme: .indigo
-        case .other: .gray
         }
     }
 
@@ -74,7 +83,6 @@ extension EntityKind {
         case .event: "Event"
         case .other: "Other"
         case .tag: "Tag"
-        case .theme: "Theme"
         }
     }
 }

@@ -17,13 +17,17 @@ nonisolated enum EntityGraph {
         }
     }
 
-    struct Edge: Equatable, Sendable {
+    struct Edge: Hashable, Sendable {
         let a: UUID
         let b: UUID
+        // How much the pair shares: the sum of every shared entry's decayed weight.
         let weight: Double
+        // How lately they shared one: the decayed weight of the most recent shared entry alone,
+        // 0...1, so a drawing can tell "often, long ago" from "once, yesterday".
+        let recency: Double
 
         // Canonical order so the same pair is never emitted twice under swapped ids.
-        init(_ first: UUID, _ second: UUID, weight: Double) {
+        init(_ first: UUID, _ second: UUID, weight: Double, recency: Double = 1) {
             if first.uuidString < second.uuidString {
                 a = first
                 b = second
@@ -32,6 +36,7 @@ nonisolated enum EntityGraph {
                 b = first
             }
             self.weight = weight
+            self.recency = recency
         }
 
         struct Key: Hashable {
@@ -49,6 +54,7 @@ nonisolated enum EntityGraph {
         let byEntry = Dictionary(grouping: links.filter { $0.entryDate <= asOf }, by: \.entryID)
 
         var totals: [Edge.Key: Double] = [:]
+        var latest: [Edge.Key: Double] = [:]
         for (_, entryLinks) in byEntry {
             guard let entryDate = entryLinks.first?.entryDate else { continue }
             let distinctIDs = Array(Set(entryLinks.map(\.entityID)))
@@ -61,11 +67,12 @@ nonisolated enum EntityGraph {
                 for j in (i + 1)..<distinctIDs.count {
                     let edge = Edge(distinctIDs[i], distinctIDs[j], weight: 0)
                     totals[edge.key, default: 0] += weight
+                    latest[edge.key] = max(latest[edge.key] ?? 0, weight)
                 }
             }
         }
 
-        return totals.map { key, weight in Edge(key.a, key.b, weight: weight) }
+        return totals.map { key, weight in Edge(key.a, key.b, weight: weight, recency: latest[key] ?? 0) }
     }
 
     static func neighbourhood(of id: UUID, in edges: [Edge], depth: Int) -> Set<UUID> {

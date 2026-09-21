@@ -7,12 +7,14 @@ struct EntryEditorView: View {
     @Environment(GraphServices.self) private var graph
     @Environment(SettingsStore.self) private var settings
     @Environment(TranscriptionCoordinator.self) private var transcription
-    @Environment(EditorPresence.self) private var presence
     @Environment(AIPassTrigger.self) private var aiPass
     @Environment(PageTranscriptionCoordinator.self) private var pageTranscription
     @Environment(ProviderAccountStore.self) private var accounts
     @Environment(InsightsCoordinator.self) private var insightsCoordinator
-    @State private var entry: Entry?
+    @Environment(AppRouter.self) private var router
+    @State private var currentEntry: Entry?
+    // The id a new entry is created with, so the close rules find it when its route leaves the path.
+    private let newEntryID: UUID?
     @State private var editingDate = false
     @State private var editingPages = false
     @State private var viewingPage: Int?
@@ -29,11 +31,29 @@ struct EntryEditorView: View {
     @State private var editorFocused = false
     // Bumped to put the caret at the end, for taps in the blank space under the text.
     @State private var focusAtEndToken = 0
+    // Past entries open read-only; Edit switches to typing. Decided once when the editor opens.
+    @State private var isReading: Bool
+    @State private var openedForReading: Bool
+    // Edit asks the text view, once it exists, to take focus with the caret at the end.
+    @State private var focusWhenEditorAppears = false
+    // The read text with names linked, and the text it was built from, so stale links never show.
+    @State private var linked: (text: String, value: AttributedString)?
+    @State private var peekTarget: PeekTarget?
 
     static let fallbackNoticeSeconds = 8.0
 
-    init(entry: Entry?) {
-        _entry = State(initialValue: entry)
+    init(entry: Entry?, newEntryID: UUID? = nil, opensForReading: Bool = false) {
+        _currentEntry = State(initialValue: entry)
+        self.newEntryID = newEntryID
+        _isReading = State(initialValue: opensForReading)
+        _openedForReading = State(initialValue: opensForReading)
+    }
+
+    // The close rules run when the route leaves the path, while this view is still animating out,
+    // and may delete a blank entry under it. A deleted entry reads as no entry.
+    private var entry: Entry? {
+        guard let currentEntry, !currentEntry.isDeleted, currentEntry.modelContext != nil else { return nil }
+        return currentEntry
     }
 
     var body: some View {
@@ -41,36 +61,56 @@ struct EntryEditorView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
                     header
-                    // The text view grows with its text and never ends shorter than the screen, so the
-                    // whole entry scrolls as one and a tap below short text still lands in the text.
-                    GrowingTextEditor(
-                        text: textBinding,
-                        isFocused: editorFocused,
-                        focusAtEndToken: focusAtEndToken,
-                        onFocusChange: { editorFocused = $0 }
-                    )
-                    .padding(.horizontal)
-                    .accessibilityIdentifier("entryEditor")
-                    // Tapping under the text continues the entry, rather than doing nothing or
-                    // dropping the caret at the start.
-                    Color.clear
-                        .frame(minHeight: max(120, proxy.size.height / 2))
-                        .contentShape(Rectangle())
-                        .onTapGesture { focusAtEndToken += 1 }
-                        .accessibilityHidden(true)
+                    if isReading, let entry {
+                        readBody(for: entry)
+                    } else {
+                        // The text view grows with its text and never ends shorter than the screen, so the
+                        // whole entry scrolls as one and a tap below short text still lands in the text.
+                        GrowingTextEditor(
+                            text: textBinding,
+                            isFocused: editorFocused,
+                            focusAtEndToken: focusAtEndToken,
+                            onFocusChange: { editorFocused = $0 }
+                        )
+                        .padding(.horizontal)
+                        .accessibilityIdentifier("entryEditor")
+                        .onAppear {
+                            guard focusWhenEditorAppears else { return }
+                            focusWhenEditorAppears = false
+                            focusAtEndToken += 1
+                        }
+                        // Tapping under the text continues the entry, rather than doing nothing or
+                        // dropping the caret at the start.
+                        Color.clear
+                            .frame(minHeight: max(120, proxy.size.height / 2))
+                            .contentShape(Rectangle())
+                            .onTapGesture { focusAtEndToken += 1 }
+                            .accessibilityHidden(true)
+                    }
                 }
             }
             .scrollDismissesKeyboard(.interactively)
         }
+        .background(Palette.paper.ignoresSafeArea())
         .navigationTitle(title)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             if let entry {
                 ToolbarItemGroup(placement: .topBarTrailing) {
-                    if AIPassTrigger.offersDone(entry, automationStartedAt: settings.automationStartedAt) {
+                    if isReading {
+                        Button("Edit") {
+                            focusWhenEditorAppears = true
+                            isReading = false
+                        }
+                        .accessibilityIdentifier("editEntryButton")
+                    } else if AIPassTrigger.offersDone(entry, automationStartedAt: settings.automationStartedAt) {
                         Button("Done") { finish(entry) }
                             .fontWeight(.semibold)
                             .accessibilityIdentifier("finishEntryButton")
+                    } else if openedForReading {
+                        Button("Done") { stopEditing(entry) }
+                            .fontWeight(.semibold)
+                            .accessibilityIdentifier("doneEditingButton")
                     }
                     Button {
                         showingInsights = true
@@ -145,23 +185,36 @@ struct EntryEditorView: View {
             if let entry {
                 EntryDateSheet(entry: entry) {
                     saver.noteChange()
-                    graph.entryDateChanged(in: modelContext)
+                    graph.entryDateChanged(for: entry, in: modelContext)
                 }
                     .presentationDetents([.medium, .large])
             }
         }
+        // Opening and closing (presence, delete-if-blank, the AI pass) belong to the route, in
+        // EditorLifecycle, so a tab switch or a cover over the editor never closes the entry.
         .onAppear {
-            if let entry {
-                presence.open(entry.id)
-            } else {
-                focusAtEndToken += 1
-            }
+            if entry == nil { focusAtEndToken += 1 }
         }
-        // A full-screen cover removes the presenting view, which would otherwise run the editor's
-        // close rules (delete-if-blank, discard audio, fire the AI pass) while the entry is still open.
-        .onDisappear {
-            guard !isPresentingOverEditor else { return }
-            close()
+        // One way only: an entry that needs the editor again (new pages, text to review) stops
+        // being read, and never flips back by itself.
+        .onChange(of: entry.map(EntryReadMode.mustType) ?? true) { _, mustType in
+            if mustType && isReading { isReading = false }
+        }
+        // Full-screen covers stay: they hide the tab bar, so no jump can start under them, and
+        // closing the page screen from outside would skip its own close rules.
+        .onChange(of: editingPages || viewingPage != nil) { _, open in
+            router.setCover("editor-\(newEntryID?.uuidString ?? currentEntry?.id.uuidString ?? "")", open: open)
+        }
+        // A tapped name. Presenting it touches nothing about the entry's close rules, which only run
+        // when the route leaves Journal's path.
+        .sheet(item: $peekTarget) { target in
+            EntityPeekSheet(entityID: target.id)
+        }
+        .onChange(of: router.dismissPresentationsToken) {
+            peekTarget = nil
+            editingDate = false
+            showingInsights = false
+            reviewingCleanup = false
         }
     }
 
@@ -221,13 +274,22 @@ struct EntryEditorView: View {
                     .padding(.horizontal)
                     .padding(.top, 8)
             }
-            TextField(entry.map(\.displayTitle) ?? "Title", text: titleBinding)
-                .font(.title3.weight(.semibold))
-                .padding(.horizontal, 21)
-                .padding(.top, 8)
-                .submitLabel(.next)
-                .onSubmit { focusAtEndToken += 1 }
-                .accessibilityIdentifier("entryTitleField")
+            if isReading, let entry {
+                Text(entry.displayTitle)
+                    .font(.system(.title3, design: .serif, weight: .semibold))
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 21)
+                    .padding(.top, 8)
+                    .accessibilityIdentifier("entryTitleText")
+            } else {
+                TextField(entry.map(\.displayTitle) ?? "Title", text: titleBinding)
+                    .font(.system(.title3, design: .serif, weight: .semibold))
+                    .padding(.horizontal, 21)
+                    .padding(.top, 8)
+                    .submitLabel(.next)
+                    .onSubmit { focusAtEndToken += 1 }
+                    .accessibilityIdentifier("entryTitleField")
+            }
             if let entry, entry.awaitingText, entry.text.isEmpty {
                 Text(entry.source == .photo ? "Text from your pages will appear here. You can also start typing." : "Text from your recording will appear here. You can also start typing.")
                     .font(.subheadline)
@@ -297,10 +359,6 @@ struct EntryEditorView: View {
         }
     }
 
-    private var isPresentingOverEditor: Bool {
-        editingPages || viewingPage != nil || showingInsights || reviewingCleanup || editingDate
-    }
-
     private func insightsState(for entry: Entry) -> InsightsPresentation.State {
         InsightsPresentation.state(.init(
             isDraft: entry.isDraft,
@@ -308,7 +366,7 @@ struct EntryEditorView: View {
             textReviewPending: entry.textReviewPending,
             hasText: !entry.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
             hasInsights: entry.insights != nil,
-            insightsAreEmpty: entry.insights.map(EntryInsightsView.isEmpty) ?? false,
+            insightsAreEmpty: entry.insights.map { EntryInsightsView.isEmpty($0, in: modelContext) } ?? false,
             insightsAreCurrent: entry.insights?.isCurrent(for: entry) ?? false,
             running: insightsCoordinator.isRunning(entry),
             failure: AIJobPolicy.failure(.insights, entry),
@@ -331,10 +389,11 @@ struct EntryEditorView: View {
             Spacer()
             Button("Review") { reviewingCleanup = true }
                 .accessibilityIdentifier("reviewCleanupButton")
-            Button("Not now", role: .cancel) {
+            Button("Decline", role: .cancel) {
                 cleanupDismissed = true
                 DiagnosticsLog.shared.record("cleanup.dismissed", ["id": .id(entry.id)])
             }
+            .accessibilityIdentifier("declineCleanupButton")
         }
         .buttonStyle(.borderless)
     }
@@ -376,12 +435,50 @@ struct EntryEditorView: View {
         DiagnosticsLog.shared.record("cleanup.reverted", ["id": .id(entry.id)])
     }
 
+    private func readBody(for entry: Entry) -> some View {
+        Text(readText(for: entry))
+            .journalText()
+            .lineSpacing(6)
+            .foregroundStyle(Palette.ink)
+            .textSelection(.enabled)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 21)
+            .padding(.top, 8)
+            .padding(.bottom, 48)
+            .accessibilityIdentifier("entryReadText")
+            // Only the read text opens names, so links in the editor's sheets keep their own handling.
+            .environment(\.openURL, OpenURLAction { url in
+                guard let id = EntryNameLinks.entityID(from: url) else { return .systemAction }
+                peekTarget = PeekTarget(id: id)
+                return .handled
+            })
+            .task(id: LinksKey(text: entry.text, revision: graph.revision)) {
+                let candidates = EntryNameLinks.candidates(forEntry: entry.id, graph: graph, in: modelContext)
+                linked = (entry.text, EntryNameLinks.attributed(entry.text, candidates: candidates))
+            }
+    }
+
+    // Until links for the current text arrive, the plain text shows rather than stale links.
+    private func readText(for entry: Entry) -> AttributedString {
+        if let linked, linked.text == entry.text { return linked.value }
+        return AttributedString(entry.text)
+    }
+
+    // Done after Edit on an entry that opened for reading: back to reading, unless it now needs the editor.
+    private func stopEditing(_ entry: Entry) {
+        editorFocused = false
+        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+        saver.flush()
+        if !EntryReadMode.mustType(entry) { isReading = true }
+    }
+
     // Done: the entry is finished, so its automatic pass runs now. Leaving without Done keeps a draft.
     private func finish(_ entry: Entry) {
         // A draft becomes finished; anything else Done is offered on already is, and only needs its pass.
         let wasDraft = entry.finishDraft()
         editorFocused = false
         UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+        if openedForReading && !EntryReadMode.mustType(entry) { isReading = true }
         guard aiPass.fire(for: entry, at: .finished) || wasDraft else { return }
         saver.noteChange()
         saver.flush()
@@ -409,12 +506,12 @@ struct EntryEditorView: View {
                     entry.text = newValue
                     entry.userDidEditText()
                 } else {
-                    guard !newValue.isEmpty else { return }
+                    guard !newValue.isEmpty, let newEntryID else { return }
                     let created = Entry(text: newValue)
+                    created.id = newEntryID
                     created.isDraft = true
                     modelContext.insert(created)
-                    entry = created
-                    presence.open(created.id)
+                    currentEntry = created
                     DiagnosticsLog.shared.record("entry.created", ["id": .id(created.id), "source": .string(created.source.rawValue)])
                 }
                 saver.noteChange()
@@ -431,13 +528,13 @@ struct EntryEditorView: View {
                     guard entry.title != newValue else { return }
                     entry.userDidEditTitle(newValue)
                 } else {
-                    guard !newValue.isEmpty else { return }
+                    guard !newValue.isEmpty, let newEntryID else { return }
                     let created = Entry()
+                    created.id = newEntryID
                     created.isDraft = true
                     created.userDidEditTitle(newValue)
                     modelContext.insert(created)
-                    entry = created
-                    presence.open(created.id)
+                    currentEntry = created
                     DiagnosticsLog.shared.record("entry.created", ["id": .id(created.id), "source": .string(created.source.rawValue)])
                 }
                 saver.noteChange()
@@ -523,30 +620,15 @@ struct EntryEditorView: View {
         }
         .buttonStyle(.borderless)
     }
+}
 
-    private func close() {
-        // If the view is still on screen (a cancelled back swipe), dropping the reference means
-        // the next keystroke creates a fresh entry instead of writing to a deleted one.
-        if let entry {
-            presence.close(entry.id)
-            let id = entry.id
-            let hadAudio = entry.audioData != nil
-            let deleted = Entry.editorDidClose(entry, keepAudio: settings.keepAudioAfterTranscription, in: modelContext)
-            DiagnosticsLog.shared.record("editor.closed", [
-                "id": .id(id),
-                "deleted": .bool(deleted),
-                "audioDiscarded": .bool(hadAudio && (deleted || entry.audioData == nil)),
-                "characters": .int(deleted ? 0 : entry.text.count),
-            ])
-            if deleted {
-                self.entry = nil
-            } else {
-                aiPass.fire(for: entry, at: .editorClosed)
-            }
-        }
-        saver.flush()
-        aiPass.onFlagged?()
-    }
+private struct LinksKey: Equatable {
+    let text: String
+    let revision: Int
+}
+
+struct PeekTarget: Identifiable {
+    let id: UUID
 }
 
 private struct PageSelection: Identifiable {

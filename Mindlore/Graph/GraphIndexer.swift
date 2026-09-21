@@ -1,7 +1,7 @@
 import Foundation
 import SwiftData
 
-// Turns the tags, themes, and mentions an entry's insights already hold into entities and
+// Turns the tags and mentions an entry's insights already hold into entities and
 // links. The only thing that writes the graph.
 //
 // It never saves on the one-entry path: the caller owns that save, because inserting a link
@@ -252,18 +252,13 @@ struct GraphIndexer {
         guard ((try? context.fetchCount(FetchDescriptor<Entity>())) ?? 0) > 0 else { return nil }
 
         let tag = EntityKind.tag.rawValue
-        let theme = EntityKind.theme.rawValue
         var vocabulary = InsightsPromptBuilder.JournalVocabulary()
         if sections.tags {
             vocabulary.tags = mix(#Predicate { !$0.hidden && $0.mergedIntoID == nil && $0.kindRaw == tag },
                                   cap: InsightsPromptBuilder.maxExistingTags, in: context).map(\.name)
         }
-        if sections.themes {
-            vocabulary.themes = mix(#Predicate { !$0.hidden && $0.mergedIntoID == nil && $0.kindRaw == theme },
-                                    cap: InsightsPromptBuilder.maxExistingThemes, in: context).map(\.name)
-        }
         if sections.mentions {
-            vocabulary.named = mix(#Predicate { !$0.hidden && $0.mergedIntoID == nil && $0.kindRaw != tag && $0.kindRaw != theme },
+            vocabulary.named = mix(#Predicate { !$0.hidden && $0.mergedIntoID == nil && $0.kindRaw != tag },
                                    cap: InsightsPromptBuilder.maxKnownEntities, in: context).map { entity in
                 // An `other` nobody has settled goes without a kind, so the model can say what it is.
                 let settled = entity.kind != .other || entity.kindEditedByUser
@@ -326,10 +321,11 @@ struct GraphIndexer {
             entity.firstLinkedAt = tally?.first
             entity.lastLinkedAt = tally?.last
             // Kept even with nothing pointing at it: anything the user touched, anything they
-            // hid (or it would come back the next time it is mentioned), a merge loser (the undo
-            // record), and a tie's other candidate.
+            // hid (or it would come back the next time it is mentioned), anything they muted on a
+            // Today card (same reason: pruning it loses the mute and it resurfaces under a new
+            // id), a merge loser (the undo record), and a tie's other candidate.
             if entity.linkCount == 0 && !entity.confirmedByUser && !entity.hidden && !entity.isMerged
-                && !tiedCandidates.contains(entity.id) {
+                && !entity.resurfacingMuted && !tiedCandidates.contains(entity.id) {
                 context.delete(entity)
             }
         }
@@ -383,8 +379,8 @@ struct GraphIndexer {
 
     // A user link claims a regenerated value with the same key even if the model now types it
     // differently ("Sarah" as a person last time, as `other` this time), or the entry would
-    // gain an AI link right beside the one the user corrected. Tags and themes only claim
-    // their own kind, as everywhere else.
+    // gain an AI link right beside the one the user corrected. Tags only claim their own
+    // kind, as everywhere else.
     private func isClaimed(_ value: Claim, by claimed: Set<Claim>) -> Bool {
         claimed.contains { claim in
             guard claim.key == value.key else { return false }
@@ -404,7 +400,6 @@ struct GraphIndexer {
         }
         for mention in insights.mentions { add(mention.name, EntityKind(mention.kind)) }
         for tag in insights.tags { add(tag, .tag) }
-        for theme in insights.themes { add(theme, .theme) }
         return values
     }
 

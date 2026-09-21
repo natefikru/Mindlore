@@ -18,8 +18,7 @@ struct EntityPageEditTests {
     @Test func kindsStayInTheirFamily() {
         #expect(GraphEditor.kinds(changeableFrom: .person) == [.person, .place, .organization, .project, .event, .other])
         #expect(GraphEditor.kinds(changeableFrom: .other) == [.person, .place, .organization, .project, .event, .other])
-        #expect(GraphEditor.kinds(changeableFrom: .tag) == [.tag, .theme])
-        #expect(GraphEditor.kinds(changeableFrom: .theme) == [.tag, .theme])
+        #expect(GraphEditor.kinds(changeableFrom: .tag) == [.tag])
     }
 
     @Test func aPersonCannotBecomeATag() throws {
@@ -74,7 +73,7 @@ struct EntityPageEditTests {
         try harness.entry("Lewis called.", mentions: [("Lewis", .person)])
         let lewis = try harness.entity("Lewis")
 
-        #expect(services.rename(lewis.id, to: "Luis", keepingOldNameAsAlias: true, in: context) == .applied)
+        #expect(services.rename(lewis.id, to: "Luis", in: context) == .applied)
 
         #expect(lewis.name == "Luis")
         #expect(lewis.aliases == ["Lewis"])
@@ -312,6 +311,6 @@ struct EntityPageEditTests {
         #expect(RepointChoices.accepts(.place, for: .other))
         #expect(!RepointChoices.accepts(.tag, for: .other))
         #expect(RepointChoices.accepts(.tag, for: .tag))
-        #expect(!RepointChoices.accepts(.theme, for: .tag))
+        #expect(!RepointChoices.accepts(.other, for: .tag))
     }
 }

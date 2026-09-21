@@ -1,10 +1,10 @@
 import Foundation
 import SwiftData
 
-// What an entity is. A superset of MentionKind so tags and themes are nodes too, which is what
-// lets a person and a theme share an edge. Raw values are stored, so never rename one.
+// What an entity is. A superset of MentionKind so tags are nodes too, which is what lets a
+// person and a tag share an edge. Raw values are stored, so never rename one.
 nonisolated enum EntityKind: String, CaseIterable, Sendable {
-    case person, place, organization, project, event, other, tag, theme
+    case person, place, organization, project, event, other, tag
 
     init(_ mention: MentionKind) {
         self = EntityKind(rawValue: mention.rawValue) ?? .other
@@ -15,8 +15,8 @@ nonisolated enum EntityLinkSource: String, CaseIterable, Sendable {
     case ai, user
 }
 
-// One person, place, organization, project, event, tag, or theme, gathered from the mentions,
-// tags, and themes EntryInsights already stores. Follows the same CloudKit schema rules as Entry.
+// One person, place, organization, project, event, or tag, gathered from the mentions and tags
+// EntryInsights already stores. Follows the same CloudKit schema rules as Entry.
 @Model
 final class Entity {
     var id: UUID = UUID()
@@ -45,6 +45,9 @@ final class Entity {
     var confirmedByUser: Bool = false
     // The user's own hide. A hidden entity still resolves, so it never comes back under a new id.
     var hidden: Bool = false
+    // "Don't show me this person again" on a Today resurfacing card. Narrower than hidden: they
+    // still appear everywhere else, they just never come back on their own.
+    var resurfacingMuted: Bool = false
     var mergedIntoID: UUID?
     var mergedAt: Date?
     // Exactly the aliases this loser added to its winner, so unmerge removes no more than that.
@@ -52,7 +55,19 @@ final class Entity {
     // Suggestion partners the user said were not the same thing.
     var notSameAs: [UUID] = []
 
-    // Denormalized so Connections can sort with a SortDescriptor. GraphIndexer.recount owns them.
+    // The CNContact this person is, when the user has linked one. Only the identifier: the name,
+    // the photo, and everything else stay in Contacts and are read live, so the app never holds a
+    // copy of the address book.
+    var contactIdentifier: String?
+
+    // Where a place actually is. The identifier opens the real place in Apple Maps; the
+    // coordinate draws the preview and is the fallback when the identifier stops resolving.
+    // No name, no address: the entity already has the name the user calls it.
+    var placeIdentifier: String?
+    var placeLatitude: Double?
+    var placeLongitude: Double?
+
+    // Denormalized so the map and Mind's panel read them without walking links. GraphIndexer.recount owns them.
     var linkCount: Int = 0
     var firstLinkedAt: Date?
     var lastLinkedAt: Date?
@@ -68,6 +83,12 @@ final class Entity {
     }
 
     var isMerged: Bool { mergedIntoID != nil }
+
+    var placeCoordinate: PlaceCoordinate? {
+        guard let placeLatitude, let placeLongitude else { return nil }
+        let coordinate = PlaceCoordinate(latitude: placeLatitude, longitude: placeLongitude)
+        return coordinate.isValid ? coordinate : nil
+    }
 
     // A merge loser is kept as the undo record, so it stays out of every list without the
     // user ever having hidden it. Merging must not write `hidden`, or unmerge can't tell

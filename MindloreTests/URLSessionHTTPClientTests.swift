@@ -114,13 +114,20 @@ struct URLSessionHTTPClientTests {
         let server = try await LocalHTTPServer(.closeAfterReading)
         defer { server.stop() }
 
+        let trackers = Mutex<[TaskTracker]>([])
+        let client = URLSessionHTTPClient(onTracked: { tracker in trackers.withLock { $0.append(tracker) } })
+
         do {
-            _ = try await URLSessionHTTPClient().send(request(server.url), body: Data(repeating: 2, count: 2_000_000))
+            _ = try await client.send(request(server.url), body: Data(repeating: 2, count: 2_000_000))
             Issue.record("Expected the upload to fail")
         } catch let error as AIError {
             #expect(!error.isOffline, "got \(error)")
             #expect(error.isRetryable)
         }
+        // The server read part of the request before closing, so the tracker must not say 0: that
+        // is the reading that would let a never-connected code pass for offline.
+        let tracker = try #require(trackers.withLock { $0.first })
+        #expect(tracker.bytesSent > 0)
     }
 
     @Test func serverThatNeverAnswersTimesOut() async throws {

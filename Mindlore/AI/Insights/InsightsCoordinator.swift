@@ -13,6 +13,7 @@ final class InsightsCoordinator {
 
     @ObservationIgnored private let resolve: () -> Result<Generator, AIJobFailure>
     @ObservationIgnored private let sections: () -> InsightSections
+    @ObservationIgnored private let promptVoice: () -> PromptVoice
     @ObservationIgnored private let autoApplyCleanedText: () -> Bool
     @ObservationIgnored private let autoApplyEntryDate: () -> Bool
     @ObservationIgnored private let presence: EditorPresence
@@ -33,6 +34,7 @@ final class InsightsCoordinator {
     init(
         resolve: @escaping () -> Result<Generator, AIJobFailure>,
         sections: @escaping () -> InsightSections,
+        promptVoice: @escaping () -> PromptVoice = { .default },
         autoApplyCleanedText: @escaping () -> Bool,
         autoApplyEntryDate: @escaping () -> Bool = { false },
         presence: EditorPresence,
@@ -44,6 +46,7 @@ final class InsightsCoordinator {
     ) {
         self.resolve = resolve
         self.sections = sections
+        self.promptVoice = promptVoice
         self.autoApplyCleanedText = autoApplyCleanedText
         self.autoApplyEntryDate = autoApplyEntryDate
         self.presence = presence
@@ -75,7 +78,8 @@ final class InsightsCoordinator {
 
         repeat {
             needsAnotherPass = false
-            let descriptor = FetchDescriptor<Entry>(predicate: #Predicate { $0.insightsPending }, sortBy: [SortDescriptor(\.createdAt)])
+            // Journal order, so an entry is analyzed after the ones it follows.
+            let descriptor = FetchDescriptor<Entry>(predicate: #Predicate { $0.insightsPending }, sortBy: [SortDescriptor(\.entryDate)])
             for entry in (try? context.fetch(descriptor)) ?? [] {
                 let manual = manualRuns.contains(entry.id)
                 // Insights may run while the entry is open: they never change its text, and a finished
@@ -90,6 +94,15 @@ final class InsightsCoordinator {
     // Creates, retries, or replaces insights for one entry, whatever its history.
     func runAI(for entry: Entry, context: ModelContext) async {
         guard !isRunning(entry), Self.canRunAI(on: entry) else { return }
+        // So tapping Run AI with nothing to ask doesn't spend the entry's automatic pass on a request
+        // `generate` will refuse to send. It asks the builder itself rather than
+        // `InsightSections.isEmpty`, which is wrong for this in both directions: isEmpty ignores the
+        // written date, so it blocked a typed entry with only "suggest entry dates" on (a valid
+        // one-field request), and it counts cleanup, which a typed entry is never offered. An empty
+        // vocabulary gives the same answer as the real one: vocabulary only ever adds a field inside
+        // a section that is already on.
+        let probe = InsightsPromptBuilder.plan(text: entry.text, source: entry.source, sections: sections(), vocabulary: .empty, model: "")
+        guard !probe.asksForNothing else { return }
         // The automatic pass exists so each entry is analyzed once without asking. Asking counts, or
         // closing the entry afterwards would pay for the same analysis again.
         entry.automaticAIPassUsed = true
@@ -100,6 +113,29 @@ final class InsightsCoordinator {
         diagnostics.record("insights.requested", ["id": .id(entry.id), "trigger": "runAI"])
         await processQueue(context: context)
     }
+
+    #if DEBUG
+    // For checking how life areas spread over a real journal. Costs one request per entry.
+    @discardableResult
+    func regenerateEverything(context: ModelContext) async -> Int {
+        let entries = ((try? context.fetch(FetchDescriptor<Entry>())) ?? []).filter(Self.canRunAI)
+        for entry in entries {
+            entry.automaticAIPassUsed = true
+            AIJobPolicy.manualReset(.insights, entry)
+            failedThisSession.remove(entry.id)
+            manualRuns.insert(entry.id)
+        }
+        try? save(context, Set(entries.map(\.persistentModelID)))
+        diagnostics.record("insights.requested", ["count": .int(entries.count), "trigger": "regenerateEverything"])
+        await processQueue(context: context)
+        // A pass already running picks these up instead; wait for it rather than report early.
+        let ids = Set(entries.map(\.id))
+        while !manualRuns.isDisjoint(with: ids) {
+            try? await Task.sleep(for: .milliseconds(300))
+        }
+        return entries.count
+    }
+    #endif
 
     // Work that stopped because the phone was offline picks up as soon as the network is back,
     // without waiting for the next launch. Stored failures still gate what may run.
@@ -140,9 +176,23 @@ final class InsightsCoordinator {
         let revision = entry.contentRevision
         // Before the graph exists there are no entities to read, so tags are counted off the
         // insights themselves. Once it exists, an empty list means the user hid them all.
-        let vocabulary = self.vocabulary(context, sections)
+        var vocabulary = self.vocabulary(context, sections)
             ?? .init(tags: sections.tags ? Self.topTags(in: context) : [])
-        let plan = InsightsPromptBuilder.plan(text: analyzedText, source: source, sections: sections, vocabulary: vocabulary, model: generator.model)
+        if sections.looseEnds {
+            vocabulary.looseEnds = LooseEndWriter.candidates(for: entry, in: context)
+        }
+        let plan = InsightsPromptBuilder.plan(text: analyzedText, source: source, sections: sections, vocabulary: vocabulary, model: generator.model, entryDate: entry.entryDate, voice: promptVoice(), calendar: calendar)
+
+        // Every section turned off asks for an empty schema, which the provider rejects. This is the
+        // one place that can tell: which sections reach the schema depends on the entry, so a
+        // typed entry with only "clean up transcriptions" on asks for nothing while a voice entry
+        // with the same settings asks for something. `insightsPending` stays set rather than being
+        // cleared like the canRunAI miss above, so turning a section back on runs the entry instead
+        // of silently skipping it forever. No attempt is counted: nothing was sent.
+        guard !plan.asksForNothing else {
+            diagnostics.record("insights.skipped", ["id": .id(entryID), "reason": "emptySchema", "source": .string(source.rawValue)])
+            return
+        }
 
         AIJobPolicy.recordAttempt(.insights, entry)
         try? save(context, [id])
@@ -156,8 +206,8 @@ final class InsightsCoordinator {
             "attempt": .int(entry.insightsAttempts),
             "customPrompts": .int(plan.customKeys.count),
             "knownTags": .int(plan.vocabularySent.tags.count),
-            "knownThemes": .int(plan.vocabularySent.themes.count),
             "knownNames": .int(plan.vocabularySent.named.count),
+            "knownLooseEnds": .int(plan.vocabularySent.looseEnds.count),
         ])
 
         let result: InsightsResult
@@ -196,16 +246,15 @@ final class InsightsCoordinator {
         insights.sourceTextHash = analyzedHash
         insights.summary = result.summary
         insights.setMoods(primary: result.primaryMood, secondary: result.secondaryMoods, editedByUser: false)
-        insights.themes = result.themes
+        insights.areas = result.areas
         insights.tags = result.tags
         insights.mentions = result.mentions
-        insights.openThreads = result.openThreads
         insights.cleanedText = result.cleanedText
         insights.cleanedTextSkippedReasonRaw = plan.cleanedTextSkippedReason
         insights.customResults = result.custom
         insights.sentTagCount = plan.vocabularySent.tags.count
-        insights.sentThemeCount = plan.vocabularySent.themes.count
         insights.sentNameCount = plan.vocabularySent.named.count
+        insights.sentLooseEndCount = plan.vocabularySent.looseEnds.filter { !$0.own }.count
         AIJobPolicy.recordSuccess(.insights, current)
 
         // Suggestions and cleanup only act on the exact text that was analyzed.
@@ -230,6 +279,16 @@ final class InsightsCoordinator {
             }
         }
         onInsightsWritten(current, context)
+        if sections.looseEnds {
+            let outcome = LooseEndWriter.apply(result.looseEnds, to: current, in: context)
+            diagnostics.record("looseEnds.written", [
+                "id": .id(entryID),
+                "created": .int(outcome.created),
+                "createdFaded": .int(outcome.createdFaded),
+                "mentioned": .int(outcome.mentioned),
+                "resolved": .int(outcome.resolved),
+            ])
+        }
         // Writing insights or a suggestion isn't an edit to the entry; applying cleanup is.
         try? save(context, changedEntry ? [] : [id])
         diagnostics.record(isCurrent ? "insights.completed" : "insights.stale", [

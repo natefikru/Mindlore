@@ -4,16 +4,16 @@ import Foundation
 nonisolated struct InsightSections: Equatable, Sendable {
     var summary = true
     var moods = true
-    var themes = true
+    var lifeAreas = true
     var tags = true
     var mentions = true
-    var openThreads = true
+    var looseEnds = true
     var cleanedText = true
     var suggestEntryDates = true
     var customPrompts: [CustomInsightPrompt] = []
 
     var isEmpty: Bool {
-        !summary && !moods && !themes && !tags && !mentions && !openThreads && !cleanedText && customPrompts.allSatisfy { !$0.enabled }
+        !summary && !moods && !lifeAreas && !tags && !mentions && !looseEnds && !cleanedText && customPrompts.allSatisfy { !$0.enabled }
     }
 }
 
@@ -28,25 +28,56 @@ nonisolated struct InsightsRequestPlan: Sendable {
     let cleanedTextSkippedReason: String?
     let asksForCleanedText: Bool
     let asksForWrittenDate: Bool
+    var asksForLifeAreas = false
     // Exactly what went into the prompt after section toggles, cleaning, and caps, so the
     // disclosure screen can say what was sent rather than what the journal holds today.
     var vocabularySent: InsightsPromptBuilder.JournalVocabulary = .empty
+    // Short handles stand in for loose-end ids in the request, so no id is ever sent.
+    var looseEndHandles: [String: UUID] = [:]
+    // This entry's own earlier loose ends: the model may say a new one is the same, never that
+    // the entry settled its own.
+    var ownLooseEndIDs: Set<UUID> = []
+
+    // Nothing was asked for, so there is nothing to send: a provider rejects an empty schema.
+    // Read off the built request rather than off `InsightSections`, because which sections reach
+    // the schema depends on the entry. `cleanedText` is only offered for voice and photo, and only
+    // under the length cap; `writtenDate` only for typed. So the same toggles give a real schema
+    // for one entry and an empty one for the next, and no settings-level predicate can see that.
+    var asksForNothing: Bool {
+        guard case .object(let properties, _, _) = request.schema else { return true }
+        return properties.isEmpty
+    }
+}
+
+// What one insights run says about loose ends, with handles already turned back into ids.
+nonisolated struct LooseEndResult: Equatable, Sendable {
+    struct New: Equatable, Sendable {
+        var text: String
+        var about: [String] = []
+        var due: Date?
+    }
+
+    var new: [New] = []
+    var mentioned: [UUID] = []
+    var resolved: [UUID] = []
+
+    var isEmpty: Bool { new.isEmpty && mentioned.isEmpty && resolved.isEmpty }
 }
 
 nonisolated struct InsightsResult: Equatable, Sendable {
     var summary: String?
     var primaryMood: Mood?
     var secondaryMoods: [Mood] = []
-    var themes: [String] = []
+    var areas: [LifeArea] = []
     var tags: [String] = []
     var mentions: [Mention] = []
-    var openThreads: [String] = []
+    var looseEnds = LooseEndResult()
     var cleanedText: String?
     var writtenDate: Date?
     var custom: [CustomInsightResult] = []
 
     var sectionsReturned: Int {
-        [summary != nil, primaryMood != nil, !themes.isEmpty, !tags.isEmpty, !mentions.isEmpty, !openThreads.isEmpty, cleanedText != nil].filter { $0 }.count + custom.count
+        [summary != nil, primaryMood != nil, !areas.isEmpty, !tags.isEmpty, !mentions.isEmpty, !looseEnds.isEmpty, cleanedText != nil].filter { $0 }.count + custom.count
     }
 }
 
@@ -57,21 +88,22 @@ nonisolated enum InsightsPromptBuilder {
     static let maxInputCharacters = 40_000
     static let maxCleanedTextCharacters = 12_000
     static let maxExistingTags = 50
-    static let maxExistingThemes = 50
     static let maxKnownEntities = 50
-    static let maxThemes = 4
     static let maxTags = 8
     static let maxSecondaryMoods = 2
+    static let maxNewLooseEnds = 2
+    static let maxKnownLooseEnds = 15
+    static let maxLooseEndCharacters = 200
 
     // Longer than any real name; anything past it is not a name worth steering towards.
     static let maxVocabularyItemCharacters = 60
 
     // What this journal already calls things. Sent so the model reuses the user's own words
-    // instead of inventing a near-duplicate of a tag, theme, or person they already have.
+    // instead of inventing a near-duplicate of a tag or person they already have.
     struct JournalVocabulary: Equatable, Sendable {
         var tags: [String] = []
-        var themes: [String] = []
         var named: [KnownEntity] = []
+        var looseEnds: [KnownLooseEnd] = []
 
         static let empty = JournalVocabulary()
     }
@@ -81,6 +113,13 @@ nonisolated enum InsightsPromptBuilder {
     struct KnownEntity: Equatable, Sendable {
         let name: String
         let kind: MentionKind?
+    }
+
+    // An open loose end from another entry, or one of this entry's own from an earlier run.
+    struct KnownLooseEnd: Equatable, Sendable {
+        let id: UUID
+        let text: String
+        let own: Bool
     }
 
     // One line, trimmed, capped. Names can be typed by the user, so a newline or a stray
@@ -96,11 +135,13 @@ nonisolated enum InsightsPromptBuilder {
         return items.compactMap(promptSafe).filter { seen.insert($0.lowercased()).inserted }.prefix(cap).map { $0 }
     }
 
-    static func plan(text fullText: String, source: EntrySource, sections: InsightSections, vocabulary: JournalVocabulary, model: String) -> InsightsRequestPlan {
+    static func plan(text fullText: String, source: EntrySource, sections: InsightSections, vocabulary: JournalVocabulary, model: String, entryDate: Date? = nil, voice: PromptVoice = .default, calendar: Calendar = .current) -> InsightsRequestPlan {
         let text = String(fullText.prefix(maxInputCharacters))
         var properties: [JSONSchema.Property] = []
         var guidance: [String] = []
         var sent = JournalVocabulary.empty
+        var handles: [String: UUID] = [:]
+        var ownIDs: Set<UUID> = []
 
         if sections.summary {
             properties.append(.init("summary", .string(description: "One or two sentences on what the entry is about, however short the entry is. Null only when the entry has no content at all.", nullable: true)))
@@ -108,22 +149,24 @@ nonisolated enum InsightsPromptBuilder {
         if sections.moods {
             let moods = Mood.allCases.map(\.rawValue)
             // Always answered: every entry gets a mood, and neutral covers the ones that carry none.
-            properties.append(.init("primaryMood", .enumeration(moods, description: "The strongest mood the writer expresses, including a quiet one. Use neutral when the entry carries no clear feeling, such as a list or a note to self.")))
+            properties.append(.init("primaryMood", .enumeration(moods, description: "The strongest mood the author expresses, including a quiet one. Use neutral when the entry carries no clear feeling, such as a list or a note to self.")))
             properties.append(.init("secondaryMoods", .array(.enumeration(moods), description: "Up to \(maxSecondaryMoods) other moods also present. Empty if the entry carries only one mood or none.")))
             let vocabulary = MoodCategory.allCases.map { category in
                 "\(category.name): " + Mood.allCases.filter { $0.category == category }.map { "\($0.rawValue) (\($0.meaning))" }.joined(separator: ", ")
             }.joined(separator: "\n")
             guidance.append("Moods come only from this list. Leave moods empty rather than guess.\n\(vocabulary)")
         }
-        if sections.themes {
-            properties.append(.init("themes", .array(.string(), description: "One to four short phrases naming what the entry is about. A short entry still has at least one.")))
-            sent.themes = listed(vocabulary.themes, cap: maxExistingThemes)
-            if !sent.themes.isEmpty {
-                guidance.append("Themes already used in this journal, one per line. Reuse one when it fits instead of inventing a near-duplicate.\n" + sent.themes.map { "- \($0)" }.joined(separator: "\n"))
-            }
+        if sections.lifeAreas {
+            properties.append(.init("lifeAreas", .array(.enumeration(LifeArea.allCases.map(\.rawValue)), description: "The one or two areas of life this entry is about. Never empty for an entry with content.")))
+            let areas = LifeArea.allCases.map { "- \($0.rawValue): \($0.meaning)" }.joined(separator: "\n")
+            guidance.append("""
+            Life areas come only from this list. Pick the one area the entry is mostly about; add a \
+            second only when the entry is clearly about both. Pick mind only when the entry is about \
+            the author's inner life itself, not just because it is written reflectively.
+            """ + "\n" + areas)
         }
         if sections.tags {
-            properties.append(.init("tags", .array(.string(), description: "One to \(maxTags) short lowercase labels for grouping entries with others, like work or family.")))
+            properties.append(.init("tags", .array(.string(), description: "One to \(maxTags) short lowercase labels for grouping entries with others, like running or renovation. More specific than life areas; never repeat a life area as a tag.")))
             sent.tags = listed(vocabulary.tags, cap: maxExistingTags)
             if !sent.tags.isEmpty {
                 guidance.append("Tags already used in this journal, one per line. Reuse one when it fits instead of inventing a near-duplicate.\n" + sent.tags.map { "- \($0)" }.joined(separator: "\n"))
@@ -153,8 +196,57 @@ nonisolated enum InsightsPromptBuilder {
                 """ + "\n" + lines.joined(separator: "\n"))
             }
         }
-        if sections.openThreads {
-            properties.append(.init("openThreads", .array(.string(), description: "Unresolved things the writer may want to come back to. Empty if none.")))
+        if sections.looseEnds {
+            var seen: Set<UUID> = []
+            sent.looseEnds = vocabulary.looseEnds.compactMap { known in
+                guard seen.insert(known.id).inserted, let text = promptSafe(known.text) else { return nil }
+                return KnownLooseEnd(id: known.id, text: String(text.prefix(maxLooseEndCharacters)), own: known.own)
+            }.prefix(maxKnownLooseEnds).map { $0 }
+            var lines: [String] = []
+            for (index, known) in sent.looseEnds.enumerated() {
+                let handle = "L\(index + 1)"
+                handles[handle] = known.id
+                if known.own { ownIDs.insert(known.id) }
+                lines.append("- \(handle): \(known.text)" + (known.own ? " (written from this entry before; use only as sameAs)" : ""))
+            }
+            let handleList = Array(handles.keys).sorted { $0.count == $1.count ? $0 < $1 : $0.count < $1.count }
+            properties.append(.init("looseEnds", .array(.object([
+                .init("text", .string(description: "What is left open, in a few words, in the author's language.")),
+                .init("about", .array(.string(), description: "Names from mentions this concerns. Empty if none.")),
+                .init("due", .string(description: "Its date as yyyy-MM-dd, only if the entry gives one. Null otherwise.", nullable: true)),
+                .init("sameAs", handleList.isEmpty
+                      ? .string(description: "Always null.", nullable: true)
+                      : .enumeration(handleList, description: "The handle of a known loose end this is, instead of writing it again. Null for a new one.", nullable: true)),
+            ]), description: "Loose ends: concrete things a later entry could settle. Usually empty.")))
+            if !handleList.isEmpty {
+                properties.append(.init("resolved", .array(.enumeration(handleList), description: "Handles of known loose ends this entry clearly settles. Usually empty.")))
+            }
+            var guide = """
+            A loose end is a commitment: a plan to make, a task to do, a decision not yet made, or \
+            something being waited on. It has to still be open when the entry ends, be worth keeping \
+            for days or weeks, and be something a later entry could settle.
+
+            Yes: call the landlord about the lease. Decide whether to take the Denver job. Waiting to \
+            hear back from the clinic. Book flights before the wedding.
+
+            No: a feeling or a mood. An intention to think about something more. Anything already done \
+            by the end of the entry, such as grabbing coffee after this or finishing a page. Anything \
+            that settles itself within the day.
+
+            Most entries have none, and an empty list is the normal answer. Write at most \
+            \(maxNewLooseEnds) new ones.
+            """
+            if let entryDate {
+                guide += " This entry was written on \(Self.day(entryDate, calendar: calendar)); read relative dates from that day."
+            }
+            if !lines.isEmpty {
+                guide += """
+                \n\nKnown loose ends, one per line with its handle. When the entry mentions one again, \
+                give its handle as sameAs instead of writing a new one. Put a handle in resolved only \
+                when this entry clearly settles it.
+                """ + "\n" + lines.joined(separator: "\n")
+            }
+            guidance.append(guide)
         }
 
         // Speech-to-text and handwriting both produce punctuation worth fixing; typed text is the
@@ -166,7 +258,7 @@ nonisolated enum InsightsPromptBuilder {
             skippedReason = "tooLong"
         }
         if asksForCleanedText {
-            properties.append(.init("cleanedText", .string(description: "The entry with punctuation, capitalization, paragraph breaks, and obvious transcription mistakes fixed. Keep the writer's words, order, and meaning; do not summarize, shorten, or add anything. Null if it needs no changes.", nullable: true)))
+            properties.append(.init("cleanedText", .string(description: "The entry with punctuation, capitalization, paragraph breaks, and obvious transcription mistakes fixed. Keep the author's words, order, and meaning; do not summarize, shorten, or add anything. Null if it needs no changes.", nullable: true)))
         }
 
         let asksForWrittenDate = sections.suggestEntryDates && source == .typed
@@ -186,10 +278,12 @@ nonisolated enum InsightsPromptBuilder {
         var system = """
         You organize a personal journal entry for the person who wrote it. Be direct and concise. \
         Observe and organize only: do not give advice, reassurance, encouragement, or therapy-style reflection, \
-        and do not use diagnostic language. Do not restate the entry back. Use the writer's language.
+        and do not use diagnostic language. Do not restate the entry back. Use the author's language.
+
+        \(voice.instruction)
 
         Fill in every field the entry supports, however short it is: a one-line entry still has a summary, \
-        usually a mood, and often a theme or a tag. Leave a field empty only when the entry genuinely \
+        usually a mood, a life area, and often a tag. Leave a field empty only when the entry genuinely \
         contains nothing for it, such as no named people for mentions.
         """
         if !guidance.isEmpty {
@@ -204,7 +298,12 @@ nonisolated enum InsightsPromptBuilder {
             schemaName: "journal_insights",
             maxOutputTokens: min(16_000, 3_000 + (asksForCleanedText ? text.count / 2 : 0))
         )
-        return InsightsRequestPlan(request: request, customKeys: customKeys, customKeyOrder: customKeyOrder, cleanedTextSkippedReason: skippedReason, asksForCleanedText: asksForCleanedText, asksForWrittenDate: asksForWrittenDate, vocabularySent: sent)
+        return InsightsRequestPlan(request: request, customKeys: customKeys, customKeyOrder: customKeyOrder, cleanedTextSkippedReason: skippedReason, asksForCleanedText: asksForCleanedText, asksForWrittenDate: asksForWrittenDate, asksForLifeAreas: sections.lifeAreas, vocabularySent: sent, looseEndHandles: handles, ownLooseEndIDs: ownIDs)
+    }
+
+    static func day(_ date: Date, calendar: Calendar) -> String {
+        let parts = calendar.dateComponents([.year, .month, .day], from: date)
+        return String(format: "%04d-%02d-%02d", parts.year ?? 0, parts.month ?? 0, parts.day ?? 0)
     }
 
     // Derived from the prompt's id, so the key stays the same when prompts move or others are deleted.
@@ -262,9 +361,15 @@ nonisolated enum InsightsPromptBuilder {
             secondary.append(mood)
         }
         result.secondaryMoods = Array(secondary.prefix(maxSecondaryMoods))
-        result.themes = Array(unique(strings("themes")).prefix(maxThemes))
-        result.tags = Array(unique(strings("tags").map { $0.lowercased() }).prefix(maxTags))
-        result.openThreads = unique(strings("openThreads"))
+        var areas: [LifeArea] = []
+        for area in strings("lifeAreas").compactMap({ LifeArea(rawValue: $0.lowercased()) }) where !areas.contains(area) {
+            areas.append(area)
+        }
+        result.areas = Array(areas.prefix(LifeArea.maxPerEntry))
+        // A tag that is a life area's name duplicates the area; models write them anyway.
+        let areaNames = plan.asksForLifeAreas ? Set(LifeArea.allCases.map(\.rawValue)) : []
+        result.tags = Array(unique(strings("tags").map { $0.lowercased() }).filter { !areaNames.contains($0) }.prefix(maxTags))
+        result.looseEnds = looseEnds(in: json, plan: plan, calendar: calendar)
 
         var mentions: [Mention] = []
         for item in (json["mentions"] as? [[String: Any]]) ?? [] {
@@ -289,6 +394,34 @@ nonisolated enum InsightsPromptBuilder {
         result.custom = plan.customKeyOrder.compactMap { key in
             guard let prompt = plan.customKeys[key], let content = string(key) else { return nil }
             return CustomInsightResult(promptID: prompt.id, name: prompt.name, content: content)
+        }
+        return result
+    }
+
+    // Unknown handles are dropped, whole items with them: a made-up handle means the model
+    // meant something it can't name, and a guess would duplicate or close the wrong thing.
+    // A handle in resolved wins over the same handle in sameAs, and an entry never settles
+    // its own loose ends.
+    private static func looseEnds(in json: [String: Any], plan: InsightsRequestPlan, calendar: Calendar) -> LooseEndResult {
+        var result = LooseEndResult()
+        for handle in (json["resolved"] as? [Any] ?? []).compactMap({ $0 as? String }) {
+            guard let id = plan.looseEndHandles[handle], !plan.ownLooseEndIDs.contains(id), !result.resolved.contains(id) else { continue }
+            result.resolved.append(id)
+        }
+        var seenText: Set<String> = []
+        for item in (json["looseEnds"] as? [[String: Any]]) ?? [] {
+            if let handle = (item["sameAs"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines), !handle.isEmpty {
+                guard let id = plan.looseEndHandles[handle] else { continue }
+                if !result.resolved.contains(id), !result.mentioned.contains(id) { result.mentioned.append(id) }
+                continue
+            }
+            guard let raw = (item["text"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines), !raw.isEmpty,
+                  result.new.count < maxNewLooseEnds else { continue }
+            let text = String(raw.prefix(maxLooseEndCharacters))
+            guard seenText.insert(text.lowercased()).inserted else { continue }
+            let about = unique(((item["about"] as? [Any]) ?? []).compactMap { ($0 as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty })
+            let due = (item["due"] as? String).flatMap { EntryDates.parseDay($0, calendar: calendar) }
+            result.new.append(.init(text: text, about: about, due: due))
         }
         return result
     }

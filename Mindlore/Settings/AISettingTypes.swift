@@ -28,6 +28,14 @@ nonisolated enum TitleGenerator: String, Codable, Sendable, CaseIterable {
     case openAI
 }
 
+// Who answers a question in Ask. Built like TitleGenerator: the user's choice, not a rule with
+// an exception, and picked once the first time Ask opens.
+nonisolated enum AskGenerator: String, Codable, Sendable, CaseIterable {
+    case off
+    case onDevice
+    case openAI
+}
+
 nonisolated enum InsightsTrigger: String, Codable, Sendable, CaseIterable {
     case automatic
     case manual
