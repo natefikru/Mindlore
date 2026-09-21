@@ -66,6 +66,38 @@ final class AskUITests: XCTestCase {
     // The cost line is gone (owner, 2026-09-19): the chat no longer tells you what it is about to
     // read. What replaces it is this, a screen that says nothing at all while you type, with the
     // receipt still one tap away under an answer.
+    // The keyboard covers the tab bar, so it has to go away without sending anything: a tap on
+    // empty space, or a drag down. A suggestion's own tap must still reach the field.
+    @MainActor
+    func testTheKeyboardGoesAwaySoTheTabsCanBeReached() throws {
+        app.launch()
+        openAsk()
+        let journalTab = app.tabBars.buttons["Journal"]
+
+        field.tap()
+        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5))
+        app.staticTexts["askEmptyState"].tap()
+        XCTAssertTrue(app.keyboards.firstMatch.waitForNonExistence(timeout: 5), "a tap on empty space dismisses")
+        XCTAssertTrue(journalTab.isHittable)
+
+        field.tap()
+        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5))
+        // From something inside the conversation, since the tab view has scroll views of its own.
+        app.staticTexts["askEmptyState"].swipeDown()
+        XCTAssertTrue(app.keyboards.firstMatch.waitForNonExistence(timeout: 5), "a drag down dismisses")
+
+        let suggestion = app.buttons["askExample"].firstMatch
+        XCTAssertTrue(suggestion.waitForExistence(timeout: 5))
+        suggestion.tap()
+        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5), "a suggestion still focuses the field")
+        XCTAssertFalse((field.value as? String ?? "").isEmpty, "and fills it")
+
+        app.staticTexts["askEmptyState"].tap()
+        XCTAssertTrue(app.keyboards.firstMatch.waitForNonExistence(timeout: 5))
+        journalTab.tap()
+        XCTAssertTrue(app.buttons["newEntryButton"].waitForExistence(timeout: 5), "the tab bar works again")
+    }
+
     @MainActor
     func testTypingAQuestionSaysNothingAboutWhatItWouldSend() throws {
         writeTheRiverEntry()

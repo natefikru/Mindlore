@@ -35,6 +35,9 @@ final class AskScreenshotTests: XCTestCase {
         attach("ask-empty")
 
         field.tap()
+        sleep(1)
+        attach("ask-field-focused")
+
         field.typeText("river")
         sleep(2)
         attach("ask-search-results")
