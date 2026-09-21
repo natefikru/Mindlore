@@ -5,17 +5,29 @@ import UserNotifications
 @testable import Mindlore
 
 final class FakeNotificationCenter: NotificationScheduling {
+    struct Suspended: Error {}
+
     var allows = true
+    // What iOS would say now, which the user can change in the Settings app at any time.
+    var authorized = true
+    // Every add after this many throws, standing in for the app being suspended mid-way.
+    var addsBeforeSuspension: Int?
     private(set) var authorizationRequests = 0
     private(set) var pending: [UNNotificationRequest] = []
     private(set) var removals = 0
+    private var adds = 0
 
     func requestAuthorization() async -> Bool {
         authorizationRequests += 1
         return allows
     }
 
+    func isAuthorized() async -> Bool { authorized }
+
+    // Like the real centre, a request replaces the pending one with its identifier.
     func add(_ request: UNNotificationRequest) async throws {
+        if let limit = addsBeforeSuspension, adds >= limit { throw Suspended() }
+        adds += 1
         pending.removeAll { $0.identifier == request.identifier }
         pending.append(request)
     }
@@ -124,6 +136,60 @@ struct DailyReminderTests {
 
         #expect(center.pending.count == 6)
         #expect(!center.fireDates.contains { $0.day == 21 })
+    }
+
+    // Going to the background is when this usually runs, and the app can be suspended mid-way.
+    // Clearing first would leave nothing; adding first leaves the old week standing.
+    @Test func aRescheduleCutShortNeverLeavesNothing() async {
+        let center = FakeNotificationCenter()
+        let reminder = DailyReminder(center: center, diagnostics: .disabled)
+        await reminder.reschedule(enabled: true, minutesAfterMidnight: nine, todayHasEntry: false, now: date(2026, 9, 21), calendar: utc)
+        #expect(center.pending.count == 7)
+
+        center.addsBeforeSuspension = center.pending.count + 2
+        await reminder.reschedule(enabled: true, minutesAfterMidnight: 8 * 60, todayHasEntry: false, now: date(2026, 9, 21, hour: 6), calendar: utc)
+
+        #expect(center.pending.count == 7, "two replaced, five from the old week, none lost")
+        #expect(center.fireDates.contains { $0.hour == 8 })
+        #expect(center.fireDates.contains { $0.hour == 21 })
+    }
+
+    // Permission can be taken away in the Settings app. A reminder iOS won't show is reported, not
+    // scheduled into nothing.
+    @Test func permissionTakenAwayLaterIsNoticed() async {
+        let center = FakeNotificationCenter()
+        let reminder = DailyReminder(center: center, diagnostics: .disabled)
+        await reminder.reschedule(enabled: true, minutesAfterMidnight: nine, todayHasEntry: false, now: date(2026, 9, 21), calendar: utc)
+        #expect(!reminder.permissionLost)
+
+        center.authorized = false
+        let outcome = await reminder.reschedule(enabled: true, minutesAfterMidnight: nine, todayHasEntry: false, now: date(2026, 9, 21), calendar: utc)
+
+        #expect(outcome == .notAllowed)
+        #expect(center.pending.isEmpty)
+        #expect(reminder.permissionLost, "so Settings can say why")
+    }
+
+    @Test func permissionGivenBackClearsTheNotice() async {
+        let center = FakeNotificationCenter()
+        center.authorized = false
+        let reminder = DailyReminder(center: center, diagnostics: .disabled)
+        await reminder.reschedule(enabled: true, minutesAfterMidnight: nine, todayHasEntry: false, now: date(2026, 9, 21), calendar: utc)
+        #expect(reminder.permissionLost)
+
+        #expect(await reminder.requestPermission())
+        #expect(!reminder.permissionLost)
+    }
+
+    @Test func offNeverAsksWhetherItsAllowed() async {
+        let center = FakeNotificationCenter()
+        center.authorized = false
+        let reminder = DailyReminder(center: center, diagnostics: .disabled)
+
+        let outcome = await reminder.reschedule(enabled: false, minutesAfterMidnight: nine, todayHasEntry: false, now: date(2026, 9, 21), calendar: utc)
+
+        #expect(outcome == .off)
+        #expect(!reminder.permissionLost, "a switch that's off has nothing to lose")
     }
 
     @Test func reschedulingTwiceLeavesOneWeekNotTwo() async {

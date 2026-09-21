@@ -103,7 +103,7 @@ struct SettingsView: View {
                 } header: {
                     Text("Reminder")
                 } footer: {
-                    Text(reminderDenied
+                    Text(reminderDenied || reminder.permissionLost
                          ? "Notifications are off for Mindlore. Turn them on in the Settings app, then try again."
                          : "One a day, skipped when you've already written. It only ever says \u{201C}\(DailyReminder.body)\u{201D}, never anything from your journal.")
                 }

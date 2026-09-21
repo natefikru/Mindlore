@@ -235,6 +235,9 @@ struct RootView: View {
                     await insights.processQueue(context: context)
                 }
                 Task { await pageTranscription.processQueue(context: context) }
+                // Coming back is when a permission change made in the Settings app shows up, and it
+                // rolls the week forward.
+                Task { await rescheduleReminder() }
             }
         }
         // At launch and whenever the switch or the time changes.
@@ -263,11 +266,15 @@ struct RootView: View {
         let minutes: Int
     }
 
+    // A reminder iOS won't show is switched off rather than left looking on. Settings says why.
     private func rescheduleReminder() async {
-        await reminder.reschedule(
+        let outcome = await reminder.reschedule(
             enabled: settings.reminderEnabled,
             minutesAfterMidnight: settings.reminderMinutes,
             todayHasEntry: DailyReminder.todayHasEntry(in: context)
         )
+        if outcome == .notAllowed {
+            settings.reminderEnabled = false
+        }
     }
 }

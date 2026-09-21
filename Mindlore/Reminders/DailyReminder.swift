@@ -6,6 +6,10 @@ import UserNotifications
 // The part of the notification centre the reminder uses, so tests can stand in for it.
 protocol NotificationScheduling: AnyObject {
     func requestAuthorization() async -> Bool
+    // Whether iOS will show a notification now. Separate from asking, because the user can take
+    // permission away later in the Settings app without the app hearing about it.
+    func isAuthorized() async -> Bool
+    // Replaces a pending request with the same identifier.
     func add(_ request: UNNotificationRequest) async throws
     func removePendingRequests(withIdentifiers identifiers: [String])
 }
@@ -16,6 +20,11 @@ final class SystemNotificationCenter: NotificationScheduling {
     // No badge: a count on the icon is a debt, and nothing here keeps score.
     func requestAuthorization() async -> Bool {
         (try? await center.requestAuthorization(options: [.alert, .sound])) ?? false
+    }
+
+    func isAuthorized() async -> Bool {
+        let status = await center.notificationSettings().authorizationStatus
+        return status == .authorized || status == .provisional || status == .ephemeral
     }
 
     func add(_ request: UNNotificationRequest) async throws {
@@ -60,6 +69,16 @@ final class DailyReminder {
     static let identifiers = (0..<ReminderPlan.daysAhead).map { "dailyReminder-\($0)" }
     static let body = "A moment for today?"
 
+    enum Outcome: Equatable {
+        case off
+        case scheduled(Int)
+        // Switched on in the app, but iOS won't show it: permission was taken away in Settings.
+        case notAllowed
+    }
+
+    // Set when a reschedule finds permission gone, so Settings can say why the switch went off.
+    private(set) var permissionLost = false
+
     @ObservationIgnored private let center: any NotificationScheduling
     @ObservationIgnored private let diagnostics: DiagnosticsLog
 
@@ -70,15 +89,30 @@ final class DailyReminder {
 
     func requestPermission() async -> Bool {
         let allowed = await center.requestAuthorization()
+        if allowed { permissionLost = false }
         diagnostics.record("reminder.permission", ["allowed": .bool(allowed)])
         return allowed
     }
 
     // Replaces whatever was scheduled, so calling it again is always safe.
-    func reschedule(enabled: Bool, minutesAfterMidnight: Int, todayHasEntry: Bool, now: Date = .now, calendar: Calendar = .current) async {
-        center.removePendingRequests(withIdentifiers: Self.identifiers)
-        guard enabled else { return }
+    @discardableResult
+    func reschedule(enabled: Bool, minutesAfterMidnight: Int, todayHasEntry: Bool, now: Date = .now, calendar: Calendar = .current) async -> Outcome {
+        guard enabled else {
+            center.removePendingRequests(withIdentifiers: Self.identifiers)
+            return .off
+        }
+        guard await center.isAuthorized() else {
+            center.removePendingRequests(withIdentifiers: Self.identifiers)
+            permissionLost = true
+            diagnostics.record("reminder.scheduled", ["count": .int(0), "allowed": .bool(false)])
+            return .notAllowed
+        }
+        permissionLost = false
 
+        // New ones first, each replacing the request it shares an identifier with, and only then
+        // the ones this week doesn't use. Clearing first would mean an app suspended mid-way, which
+        // is likely when this runs on the way to the background, is left with nothing scheduled.
+        // Cut short this way, it keeps the old week.
         let dates = ReminderPlan.dates(now: now, minutesAfterMidnight: minutesAfterMidnight, todayHasEntry: todayHasEntry, calendar: calendar)
         var added = 0
         for (index, date) in dates.enumerated() {
@@ -92,7 +126,9 @@ final class DailyReminder {
             let request = UNNotificationRequest(identifier: Self.identifiers[index], content: content, trigger: trigger)
             if (try? await center.add(request)) != nil { added += 1 }
         }
-        diagnostics.record("reminder.scheduled", ["count": .int(added), "skippedToday": .bool(todayHasEntry)])
+        center.removePendingRequests(withIdentifiers: Array(Self.identifiers.dropFirst(dates.count)))
+        diagnostics.record("reminder.scheduled", ["count": .int(added), "allowed": .bool(true), "skippedToday": .bool(todayHasEntry)])
+        return .scheduled(added)
     }
 
     // Anything that reached the app today counts, a draft included: the user showed up.
