@@ -724,40 +724,27 @@ Retrieval, not the Ask surface. Research in `tasks/a9-ask-retrieval-research.md`
 - [x] Sub-agent review of the diff, fixes in one commit.
 
 ### A9: 3D spike
+
 - [x] `Mind3DSpikeView` (Debug only) with the 3D engine variant.
-- [ ] Device comparison against A5's 2D (label readability, tap accuracy, frame time, feel)
-      written in the review log. The owner decides. Delete the spike unless 3D wins.
+- [x] Device comparison against A5's 2D. **The owner picked 2D, on an iPhone 17 Pro over the
+      300-entry demo journal, 2026-09-21: "hate it, 2d is way better."** The spike is deleted:
+      `Mindlore/Views/Mind/Spike3D/`, the Debug row in `SettingsView`, `GraphSimulation3DTests`,
+      `Spike3DFramingTests`, `Spike3DScreenshotTests`, and the `graph.rendered3D` line in the
+      privacy sweep. `FrameTimeSampler` stays: the 2D canvas owns it.
 
-**The comparison, when there is a phone.** Not run yet: the pass was set up on 2026-09-19 and the
-phone was remote, `tunnelState: disconnected`.
+**What the comparison cost, worth keeping in mind before the next spike.** The first device look
+showed an apparently empty page, and the reason was not 3D: the camera looked at the origin and
+measured its framing radius from the origin, while the settled cloud's centre sits 8 to 19 units
+off it (a fifth to nearly half its own radius, worst at small node counts). On the owner's real
+journal, four nodes at `minimumMentions` 2, that pushed the picture off the screen. Labels made it
+worse, being a fixed 7 units, which is a caption over 300 nodes and a billboard over four. Both
+were fixed first, so the verdict was passed on a fair picture rather than on a bug. A spike still
+has to be good enough to judge.
 
-```bash
-cd .claude/worktrees/a9-3d-spike        # or wherever the branch is checked out
-scripts/device/deploy.sh
-scripts/device/launch.sh 3d-spike -- -seedDemoJournal 300
-scripts/device/pull-logs.sh 3d-spike    # after backing out of the spike
-```
-
-`deploy.sh` keeps app data and `seedIfEmpty` only fills an empty store, so on a phone that already
-holds entries the seed does not run and the spike draws that journal instead. Read the node count
-off the spike's own readout and out of `graph.rendered3D` before believing the argument took; see
-"Prove the launch argument reached the app" in `tasks/lessons.md`. A 300-node comparison needs the
-app deleted from the phone first.
-
-1. Settings, first row, 3D spike. Do the 40 labels read at rest, and in the dense cluster? Against
-   Mind's 2D labels at the same zoom.
-2. Tap ten nodes you mean to hit, hubs and leaves. Count the misses. Tap the sphere: labels carry
-   no collision shape, by design.
-3. Orbit with one finger, pinch to zoom. Does a quick tap after orbiting still select, or does the
-   drag eat it? That is the one gesture risk the review flagged.
-4. Orbit for five seconds, back out, `pull-logs.sh`. Compare `graph.rendered3D`'s p50/p95 against
-   `graph.rendered`'s from a Mind visit in the same run, remembering the two sample the same rule
-   over different windows.
-5. Does the depth tell you anything 2D does not, or is it a good-looking ball you cannot read?
-
-Deleting the spike, if 3D loses: `rm -rf Mindlore/Views/Mind/Spike3D
-MindloreTests/GraphSimulation3DTests.swift`, the `#if DEBUG` row in `SettingsView`, and the
-`graph.rendered3D` block and list entry in `DiagnosticsLogTests`.
+Two things that made the difference between guessing and knowing, both cheap: driving the
+simulator into the Debug-only screen with a throwaway UI test and looking at the screenshot, and a
+printed probe of the layout's centroid across four node counts. Neither survives in the tree, and
+neither needed to.
 
 ### A10: Privacy, review, device, docs
 - [ ] Privacy test covers every new event.
