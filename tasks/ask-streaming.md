@@ -87,12 +87,14 @@ and not in a test. Re-scanning a few kilobytes per frame is free.
 
 ## Phase 5: prove it
 
-- [ ] Unit run per CLAUDE.md on this worktree's simulator.
+- [x] Unit run per CLAUDE.md on this worktree's simulator: 1,349 tests green, plus the three Ask UI tests against the new streaming stub.
 - [x] `OpenAILiveTests` gains one streaming case that prints time to first delta and total.
 - [ ] Device: the same three questions against the 300-entry demo journal, reading
       `firstChunkMilliseconds` against today's 4.0s to 8.4s totals. That number is the whole point of
-      the phase, and it can only be measured there.
-- [ ] Read-only sub-agent review before the PR, with the baseline taken first.
+      the phase, and it can only be measured there. **Not run**: the owner has not asked for a
+      deploy. The live OpenAI case is the nearest evidence there is, at 2,389 ms to the first word
+      against 2,579 ms for the whole answer on a two-entry prompt.
+- [x] Read-only sub-agent review before the PR. Two real findings, both fixed with a regression test each: Stop racing a finished stream threw the answer away, and leaving a conversation mid-answer stranded isRunning.
 
 ## Risks worth naming
 
