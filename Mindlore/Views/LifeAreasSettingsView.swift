@@ -32,9 +32,19 @@ private struct LifeAreaRow: View {
                 .foregroundStyle(area.color)
                 .frame(width: 28)
             VStack(alignment: .leading, spacing: 2) {
+                // What an area is called is the user's own word for it, so it is set in their face,
+                // not the app's. Everything around it stays SF.
+                //
+                // The field holds the name actually shown, not only a rename. It used to start empty
+                // with the default name as its placeholder, which drew all nine names in placeholder
+                // grey, so an area nobody had renamed looked disabled. `rename` stores nil for the
+                // default name and ignores a no-op, so seeding the field writes nothing.
                 TextField(area.defaultName, text: $name)
+                    .journalText(.body)
+                    .foregroundStyle(Palette.ink)
                     .onChange(of: name) { settings.rename(area, to: name) }
-                    .onSubmit { name = settings.lifeAreaNames[area.rawValue] ?? "" }
+                    // A cleared field falls back to the default name, so show that rather than blank.
+                    .onSubmit { name = settings.name(of: area) }
                     .accessibilityIdentifier("lifeAreaName-\(area.rawValue)")
                 Text(area.meaning)
                     .font(.caption)
@@ -48,7 +58,7 @@ private struct LifeAreaRow: View {
             .accessibilityLabel("Show \(settings.name(of: area))")
             .accessibilityIdentifier("lifeAreaShown-\(area.rawValue)")
         }
-        .onAppear { name = settings.lifeAreaNames[area.rawValue] ?? "" }
+        .onAppear { name = settings.name(of: area) }
     }
 }
 

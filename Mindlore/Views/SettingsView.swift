@@ -22,7 +22,7 @@ struct SettingsView: View {
                     NavigationLink {
                         JournalVoiceSettingsView()
                     } label: {
-                        LabeledContent("How you're written about", value: settings.journalVoice.settingsName)
+                        LabeledContent("How you're written about", value: voiceSummary)
                     }
                     .accessibilityIdentifier("journalVoiceSettingsLink")
 
@@ -51,6 +51,18 @@ struct SettingsView: View {
             }
             .paperBackground()
             .navigationTitle("Settings")
+        }
+    }
+
+    // Not `settingsName`. Those are option titles ("I", "You", "My name") that read well above their
+    // sample sentence on the voice screen, and as a lone value on the right a bare "I" looked like a
+    // stray cursor in the screenshot.
+    private var voiceSummary: String {
+        switch settings.journalVoice {
+        case .first: "First person"
+        case .second: "Second person"
+        case .name:
+            settings.userName.isEmpty ? "By name" : settings.userName
         }
     }
 

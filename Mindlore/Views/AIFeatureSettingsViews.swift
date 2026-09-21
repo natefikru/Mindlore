@@ -299,7 +299,12 @@ struct CustomInsightsSettingsView: View {
         .paperBackground()
         .navigationTitle("Custom Insights")
         .navigationBarTitleDisplayMode(.inline)
-        .toolbar { EditButton() }
+        // Only with something to edit: on an empty list it was a button that did nothing.
+        .toolbar {
+            if !settings.customInsightPrompts.isEmpty {
+                EditButton()
+            }
+        }
         .sheet(item: $editing) { prompt in
             CustomPromptEditor(prompt: prompt) { updated in
                 guard let index = settings.customInsightPrompts.firstIndex(where: { $0.id == updated.id }) else { return }
