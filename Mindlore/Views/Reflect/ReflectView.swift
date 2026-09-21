@@ -13,6 +13,7 @@ struct ReflectView: View {
     @Environment(GraphServices.self) private var graph
     @State private var selection: ReflectPeriodSelection
     @State private var period: ReflectAggregator.Period?
+    @State private var trend: [(selection: ReflectPeriodSelection, period: ReflectAggregator.Period)] = []
 
     init(kind: ReflectPeriodKind = .week) {
         _selection = State(initialValue: ReflectPeriodSelection(kind: kind))
@@ -27,6 +28,11 @@ struct ReflectView: View {
                             areaBalance(period)
                         } header: {
                             Text("Areas")
+                        }
+                        Section {
+                            moodOverTime()
+                        } header: {
+                            Text("Mood")
                         }
                     }
                     .paperBackground()
@@ -116,6 +122,31 @@ struct ReflectView: View {
         }
     }
 
+    @ViewBuilder
+    private func moodOverTime() -> some View {
+        if trend.allSatisfy({ $0.period.moodCounts.isEmpty }) {
+            Text("No mood recorded across this stretch.")
+                .foregroundStyle(.secondary)
+        } else {
+            Chart {
+                ForEach(trend, id: \.selection) { point in
+                    ForEach(
+                        point.period.moodCounts.sorted { $0.key.rawValue < $1.key.rawValue },
+                        id: \.key
+                    ) { mood, count in
+                        BarMark(
+                            x: .value("Period", point.selection.shortLabel()),
+                            y: .value("Entries", count)
+                        )
+                        .foregroundStyle(by: .value("Mood", mood.name))
+                    }
+                }
+            }
+            .frame(height: 180)
+            .accessibilityIdentifier("reflectMoodChart")
+        }
+    }
+
     private struct Fingerprint: Equatable {
         let selection: ReflectPeriodSelection
         let saver: Int
@@ -132,6 +163,7 @@ struct ReflectView: View {
 
     private func refresh() {
         period = ReflectSource.period(selection.interval(), in: modelContext)
+        trend = ReflectSource.trend(for: selection, in: modelContext)
     }
 }
 

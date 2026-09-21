@@ -22,7 +22,7 @@ nonisolated enum ReflectPeriodKind: String, CaseIterable, Identifiable, Sendable
     }
 }
 
-nonisolated struct ReflectPeriodSelection: Equatable, Sendable {
+nonisolated struct ReflectPeriodSelection: Hashable, Sendable {
     var kind: ReflectPeriodKind
     var offset: Int = 0
 
@@ -47,6 +47,16 @@ nonisolated struct ReflectPeriodSelection: Equatable, Sendable {
             formatter.dateFormat = "MMMM yyyy"
             return formatter.string(from: interval.start)
         }
+    }
+
+    // "14 Sep" or "Sep" — an axis tick, not a title.
+    func shortLabel(now: Date = .now, calendar: Calendar = .current) -> String {
+        let interval = interval(now: now, calendar: calendar)
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = calendar.timeZone
+        formatter.dateFormat = kind == .week ? "d MMM" : "MMM"
+        return formatter.string(from: interval.start)
     }
 
     // Never past the period containing now: Reflect looks back, not forward.

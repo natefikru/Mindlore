@@ -13,6 +13,22 @@ enum ReflectSource {
         )
     }
 
+    // The trailing periods ending at `selection`, oldest first, for the mood-over-time chart.
+    static func trend(
+        for selection: ReflectPeriodSelection,
+        trailingCount: Int = 6,
+        now: Date = .now,
+        calendar: Calendar = .current,
+        in context: ModelContext
+    ) -> [(selection: ReflectPeriodSelection, period: ReflectAggregator.Period)] {
+        stride(from: trailingCount - 1, through: 0, by: -1).map { stepsBack in
+            var point = selection
+            point.offset = selection.offset - stepsBack
+            let interval = point.interval(now: now, calendar: calendar)
+            return (point, self.period(interval, in: context))
+        }
+    }
+
     private static func entryFacts(in interval: DateInterval, context: ModelContext) -> [ReflectAggregator.EntryFact] {
         let start = interval.start
         let end = interval.end
