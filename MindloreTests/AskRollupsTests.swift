@@ -65,7 +65,55 @@ struct AskRollupsTests {
     @Test func oneEntryInAMonthNamesTheDayOnce() throws {
         let months = months([month(daysAgo: 1)], in: index([document(daysAgo: 1)]))
         let line = AskRollups.line(for: try #require(months.first), calendar: calendar)
-        #expect(line == "September 2026: 1 entry, 13 September")
+        // The fixture's document() always writes mood "tired" (category drained) and area "Work".
+        #expect(line == "September 2026: 1 entry, 13 September (mood: drained 1; areas: work 1)")
+    }
+
+    // MARK: - Mood and area distribution
+
+    @Test func aMonthLineNamesTheHighestCountMoodsAndAreasFirst() throws {
+        let documents = [
+            AskIndex.DocumentInput(id: UUID(), date: now.addingTimeInterval(-1 * 86_400), tags: [], areas: ["Work"], mood: "calm"),
+            AskIndex.DocumentInput(id: UUID(), date: now.addingTimeInterval(-2 * 86_400), tags: [], areas: ["Work"], mood: "calm"),
+            AskIndex.DocumentInput(id: UUID(), date: now.addingTimeInterval(-3 * 86_400), tags: [], areas: ["Health"], mood: "anxious"),
+        ]
+        let months = months([month(daysAgo: 1)], in: index(documents))
+        let line = AskRollups.line(for: try #require(months.first), calendar: calendar)
+        #expect(line.contains("mood: calm 2, anxious 1"))
+        #expect(line.contains("areas: work 2, health 1"))
+    }
+
+    @Test func aDistributionLineCapsAtTheMaximumAndDropsTheRest() throws {
+        let moods = ["joyful", "calm", "connected", "reflective", "anxious", "angry", "sad", "tired"]
+        let documents = moods.enumerated().map { index, mood in
+            AskIndex.DocumentInput(id: UUID(), date: now.addingTimeInterval(-1 * 86_400), tags: [], areas: [], mood: mood)
+        }
+        let months = months([month(daysAgo: 1)], in: index(documents))
+        let period = try #require(months.first).period
+        #expect(period.moodCounts.count > AskRollups.maxDistributionEntriesInLine, "the fixture covers more categories than the cap")
+        let line = AskRollups.line(for: months.first!, calendar: calendar)
+        let moodSegment = try #require(line.range(of: "mood: [^;)]+", options: .regularExpression))
+        #expect(line[moodSegment].components(separatedBy: ", ").count == AskRollups.maxDistributionEntriesInLine)
+    }
+
+    @Test func anEntryAskMayNotSendDoesNotContributeToTheDistribution() throws {
+        let documents = [
+            AskIndex.DocumentInput(id: UUID(), date: now.addingTimeInterval(-1 * 86_400), tags: [], areas: ["Work"], mood: "calm"),
+            AskIndex.DocumentInput(id: UUID(), date: now.addingTimeInterval(-1 * 86_400), tags: [], areas: ["Health"], mood: "angry", isSendable: false),
+        ]
+        let months = months([month(daysAgo: 1)], in: index(documents))
+        let period = try #require(months.first).period
+        #expect(period.moodCounts[.angry] == nil)
+        #expect(period.areaCounts[.health] == nil)
+    }
+
+    @Test func rollingUpToYearsMergesTheDistributionAcrossMonths() {
+        let documents = (0..<36).map { i in
+            AskIndex.DocumentInput(id: UUID(), date: now.addingTimeInterval(-Double(i * 31) * 86_400), tags: [], areas: ["Work"], mood: "calm")
+        }
+        let intervals = (0..<36).map { month(daysAgo: $0 * 31) }
+        let blocks = AskRollups.lines(for: months(intervals, in: index(documents)), calendar: calendar)
+        #expect(blocks.allSatisfy { $0.contains("mood: calm") && $0.contains("areas: work") })
     }
 
     // MARK: - The gate

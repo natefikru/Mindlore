@@ -8,17 +8,24 @@ import Foundation
 // last two weeks, in a confident voice, citing real entries. That is the only failure mode in Ask
 // that produces a wrong answer rather than a thin one.
 //
-// Counts and coverage only (owner, 2026-09-18). Mood distribution, area split, and top tags are
-// Reflect's data and `tasks/todo.md` reserves them for that phase, so a block here carries nothing
-// but numbers, a month name, and two dates: no title, no tag, no name, no sentence of entry text.
+// Counts and coverage, plus mood and area distribution (owner, 2026-09-18, revised for Reflect
+// 2026-09-21): a block here carries numbers, a month name, two dates, and a mood/area shape built
+// from `ReflectAggregator` — the same aggregator Reflect's charts read, so there is one source for
+// these counts, not two. Top tags stay out: a tag is closer to the entry's own words than a mood
+// category or a life area name, so it stays off every block a model sees, same as a title or a
+// name.
 nonisolated enum AskRollups {
     static let maxMonthsBeforeRollingUpByYear = 24
+    // How many distinct moods/areas a line names, highest count first, so a month with all nine
+    // areas touched doesn't turn one line into a wall of text.
+    static let maxDistributionEntriesInLine = 3
 
     nonisolated struct Month: Sendable, Equatable {
         let interval: DateInterval
         let count: Int
         let first: Date?
         let last: Date?
+        let period: ReflectAggregator.Period
     }
 
     // One line per month, newest first, counting **the entries that matched** and nothing else.
@@ -33,14 +40,33 @@ nonisolated enum AskRollups {
         in index: AskIndex,
         calendar: Calendar = .current
     ) -> [Month] {
-        let dates = index.documents
-            .filter { matched.contains($0.id) && $0.isSendable }
-            .map(\.date)
+        let documents = index.documents.filter { matched.contains($0.id) && $0.isSendable }
         return intervals.compactMap { interval in
-            let inside = dates.filter { $0 >= interval.start && $0 < interval.end }.sorted()
+            let inside = documents.filter { $0.date >= interval.start && $0.date < interval.end }
             guard !inside.isEmpty else { return nil }
-            return Month(interval: interval, count: inside.count, first: inside.first, last: inside.last)
+            let dates = inside.map(\.date).sorted()
+            let facts = inside.map { document in
+                ReflectAggregator.EntryFact(
+                    date: document.date,
+                    mood: moodCategory(from: document.mood),
+                    areas: lifeAreas(from: document.areas)
+                )
+            }
+            let period = ReflectAggregator.aggregate(facts: facts, in: interval)
+            return Month(interval: interval, count: inside.count, first: dates.first, last: dates.last, period: period)
         }
+    }
+
+    // `AskIndex` stores the specific mood written (`Mood.rawValue`, e.g. "tired") and each area's
+    // fixed default name (`LifeArea.defaultName`, e.g. "Work") — see `AskSources.documents(in:)`.
+    // Rolling the mood up to its category, same as Reflect's own charts do, keeps the line a shape
+    // rather than the specific word the entry used.
+    private static func moodCategory(from raw: String?) -> MoodCategory? {
+        raw.flatMap(Mood.init(rawValue:))?.category
+    }
+
+    private static func lifeAreas(from raw: [String]) -> [LifeArea] {
+        raw.compactMap { LifeArea(rawValue: $0.lowercased()) }
     }
 
     // What reserving room for these costs, before any of them is rendered. It has to know about the
@@ -53,8 +79,9 @@ nonisolated enum AskRollups {
         return fenceCharacters + lines * charactersPerLine
     }
 
-    // A month line at its longest: "September 2026: 31 entries, 1 September to 30 September".
-    static let charactersPerLine = 60
+    // A month line at its longest: "September 2026: 31 entries, 1 September to 30 September
+    // (mood: calm 4, reflective 3, anxious 2; areas: work 3, health 2, home 1)".
+    static let charactersPerLine = 150
     static let fenceCharacters = 20
 
     // One block, not one per month: the prompt's rule calls it "a list of months and counts", and
@@ -69,14 +96,28 @@ nonisolated enum AskRollups {
         guard months.count > maxMonthsBeforeRollingUpByYear else {
             return months.map { line(for: $0, calendar: calendar) }
         }
-        var byYear: [Int: (count: Int, months: Int)] = [:]
+        struct YearTotals {
+            var count = 0
+            var months = 0
+            var moodCounts: [MoodCategory: Int] = [:]
+            var areaCounts: [LifeArea: Int] = [:]
+        }
+        var byYear: [Int: YearTotals] = [:]
         for month in months {
             let year = calendar.component(.year, from: month.interval.start)
-            let found = byYear[year] ?? (0, 0)
-            byYear[year] = (found.count + month.count, found.months + 1)
+            var totals = byYear[year] ?? YearTotals()
+            totals.count += month.count
+            totals.months += 1
+            for (mood, count) in month.period.moodCounts { totals.moodCounts[mood, default: 0] += count }
+            for (area, count) in month.period.areaCounts { totals.areaCounts[area, default: 0] += count }
+            byYear[year] = totals
         }
         return byYear.sorted { $0.key > $1.key }.map { year, totals in
-            "\(year): \(entries(totals.count)) across \(totals.months) months"
+            var line = "\(year): \(entries(totals.count)) across \(totals.months) months"
+            if let suffix = distributionSuffix(moodCounts: totals.moodCounts, areaCounts: totals.areaCounts) {
+                line += " (\(suffix))"
+            }
+            return line
         }
     }
 
@@ -88,11 +129,33 @@ nonisolated enum AskRollups {
             let to = day.string(from: last)
             line += from == to ? ", \(from)" : ", \(from) to \(to)"
         }
+        if let suffix = distributionSuffix(moodCounts: month.period.moodCounts, areaCounts: month.period.areaCounts) {
+            line += " (\(suffix))"
+        }
         return line
     }
 
     private static func entries(_ count: Int) -> String {
         count == 1 ? "1 entry" : "\(count) entries"
+    }
+
+    // "mood: calm 4, reflective 3; areas: work 3, health 2" — numbers and category names only,
+    // highest count first, capped so a busy period reads as a shape rather than a full table.
+    private static func distributionSuffix(
+        moodCounts: [MoodCategory: Int],
+        areaCounts: [LifeArea: Int]
+    ) -> String? {
+        func rendered<Key: RawRepresentable>(_ counts: [Key: Int]) -> String where Key.RawValue == String {
+            counts
+                .sorted { $0.value != $1.value ? $0.value > $1.value : $0.key.rawValue < $1.key.rawValue }
+                .prefix(maxDistributionEntriesInLine)
+                .map { "\($0.key.rawValue) \($0.value)" }
+                .joined(separator: ", ")
+        }
+        var parts: [String] = []
+        if !moodCounts.isEmpty { parts.append("mood: \(rendered(moodCounts))") }
+        if !areaCounts.isEmpty { parts.append("areas: \(rendered(areaCounts))") }
+        return parts.isEmpty ? nil : parts.joined(separator: "; ")
     }
 
     // The formatter has to read dates in the same zone the intervals were built in. Left on the
