@@ -49,6 +49,7 @@ struct AskTurnView: View {
     // Looked up once per turn rather than on every draw, since a conversation redraws whenever
     // an answer streams in or the keyboard moves.
     @State private var refs: [UUID: AskEntryRefs.Ref] = [:]
+    @State private var showsAllCitations = false
 
     var body: some View {
         content
@@ -90,12 +91,22 @@ struct AskTurnView: View {
         }
     }
 
+    // How many chips a quiet answer can carry. A broad question can now cite thirty-three days,
+    // because the digest tier made every matched entry citable where fifteen were before, and
+    // thirty-three chips under one paragraph is the bookkeeping this phase took out of the prose
+    // arriving again in another form.
+    static let visibleCitations = 6
+
+    private var shownCitations: [UUID] {
+        showsAllCitations ? turn.citedEntryIDs : Array(turn.citedEntryIDs.prefix(Self.visibleCitations))
+    }
+
     @ViewBuilder
     private var citations: some View {
         if !turn.citedEntryIDs.isEmpty {
             ScrollView(.horizontal) {
                 HStack(spacing: 8) {
-                    ForEach(Array(turn.citedEntryIDs.enumerated()), id: \.offset) { _, id in
+                    ForEach(Array(shownCitations.enumerated()), id: \.offset) { _, id in
                         let handle = handles.first { $0.value == id }?.key ?? "E?"
                         if let ref = refs[id] {
                             Button { openEntry(id) } label: {
@@ -109,26 +120,38 @@ struct AskTurnView: View {
                                 .accessibilityIdentifier("askCitation-\(handle)")
                         }
                     }
+                    if !showsAllCitations, turn.citedEntryIDs.count > Self.visibleCitations {
+                        Button("\(turn.citedEntryIDs.count - Self.visibleCitations) more") {
+                            withAnimation(.snappy(duration: 0.2)) { showsAllCitations = true }
+                        }
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .accessibilityIdentifier("askMoreCitations")
+                    }
                 }
             }
             .scrollIndicators(.hidden)
         }
     }
 
+    // Quiet on purpose. The answer says nothing about where it came from any more, so the chips
+    // are the whole of it: there to be tapped when someone wants the day itself, not a receipt
+    // reading itself out under every answer.
     private func chip(title: String, subtitle: String) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
+        HStack(spacing: 6) {
             Text(verbatim: title)
-                .font(.caption.weight(.medium))
+                .font(.caption2)
                 .lineLimit(1)
             if !subtitle.isEmpty {
                 Text(subtitle)
                     .font(.caption2)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(.tertiary)
             }
         }
+        .foregroundStyle(.secondary)
         .padding(.horizontal, 10)
-        .padding(.vertical, 6)
-        .background(.quaternary.opacity(0.4), in: Capsule())
+        .padding(.vertical, 5)
+        .background(.quaternary.opacity(0.25), in: Capsule())
     }
 
     @ViewBuilder
@@ -140,8 +163,12 @@ struct AskTurnView: View {
                     .foregroundStyle(.secondary)
             }
             if !turn.sentEntryIDs.isEmpty {
-                Button("What was sent", action: showWhatWasSent)
-                    .font(.caption2)
+                // An icon, not a sentence. The receipt still exists, one tap away, without a line
+                // of bookkeeping under every answer.
+                Button("What was sent", systemImage: "info.circle", action: showWhatWasSent)
+                    .labelStyle(.iconOnly)
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
                     .accessibilityIdentifier("askWhatWasSent")
             }
             if turn.canRetry, isLast {
@@ -172,6 +199,14 @@ struct AskWhatWasSentView: View {
             List {
                 Section {
                     LabeledContent("Entries", value: turn.sentEntryIDs.count.formatted())
+                    // Most of a broad question's entries go as a single line. "Entries: 170" on its
+                    // own would say the whole journal was read out, which is not what happened.
+                    if turn.digestEntryCount > 0 {
+                        LabeledContent("Read in full", value: turn.fullEntryCount.formatted())
+                            .accessibilityIdentifier("askWhatWasSentFull")
+                        LabeledContent("Read as one line", value: turn.digestEntryCount.formatted())
+                            .accessibilityIdentifier("askWhatWasSentDigests")
+                    }
                     // What the answer was written from, against what it could have been written
                     // from. Without this the count reads as the whole answer to the question.
                     if turn.wasCut {

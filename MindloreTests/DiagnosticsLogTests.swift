@@ -391,13 +391,12 @@ struct AskDiagnosticsPrivacyTests {
 
         let generator = FakeTextGenerator()
         // The real index store, so the build and the retrieval events are exercised rather than
-        // stepped around, and the owner's name under the name voice, the way the insights privacy
-        // test does it.
+        // stepped around. Ask takes no PromptVoice: it addresses the author rather than writing as
+        // them, so the owner's name never reaches it in the first place.
         let ask = AskService(
             resolve: { .success(AskProvider(generator: generator, model: "m", label: "openai:m", kind: .openAI)) },
             index: AskIndexStore(diagnostics: log),
             revisions: { .init(saver: JournalSaves.revision, graph: 0, stamped: JournalSaves.revision) },
-            promptVoice: { PromptVoice(voice: .name, name: sentinel) },
             store: AskStore(save: { try $0.save() }),
             diagnostics: log
         )

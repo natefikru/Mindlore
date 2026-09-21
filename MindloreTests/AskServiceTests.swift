@@ -15,13 +15,12 @@ struct AskServiceTests {
         context = container.mainContext
     }
 
-    private func service(kind: AskProviderKind = .openAI, failure: AIJobFailure? = nil, voice: PromptVoice = .default) -> AskService {
+    private func service(kind: AskProviderKind = .openAI, failure: AIJobFailure? = nil) -> AskService {
         AskService(
             resolve: { [generator] in
                 if let failure { return .failure(failure) }
                 return .success(AskProvider(generator: generator, model: "m", label: "openai:m", kind: kind))
             },
-            promptVoice: { voice },
             store: AskStore(save: { try $0.save() }),
             diagnostics: .disabled,
             now: { self.now }
@@ -301,9 +300,10 @@ struct AskServiceTests {
     // MARK: - Owning up to what the answer is written from
 
     @Test func aCutSetIsSaidOutLoudInThePrompt() async throws {
-        // Thirty entries about the deadline, fifteen of which fit. Without this line the model
-        // describes the whole year from whatever twelve entries it can see, confidently.
-        for index in 0..<30 {
+        // Two hundred entries about the deadline. Twenty go whole and a hundred and fifty go as
+        // lines, and the thirty left over are what the model has to be told about: without the
+        // note it describes the whole stretch from what it can see, confidently.
+        for index in 0..<200 {
             entry("The deadline moved again, week \(index).", daysAgo: Double(index + 1))
         }
         let ask = service()
@@ -314,7 +314,8 @@ struct AskServiceTests {
 
         #expect(request.user.contains("bear on this"))
         #expect(ask.turns.last?.wasCut == true)
-        #expect(ask.turns.last?.matchedCount == 30)
+        #expect(ask.turns.last?.matchedCount == 200)
+        #expect(ask.turns.last?.digestEntryCount == AskRetrieval.maxDigestEntries)
     }
 
     @Test func aSetThatWentWholeSaysNothingAboutBeingCut() async throws {
@@ -392,36 +393,39 @@ struct AskServiceTests {
 
     // MARK: - Voice
 
-    @Test func askAdoptsTheJournalsVoice() async throws {
+    // Ask speaks to the author, whatever the journal voice setting says. The setting decides how a
+    // written summary refers to them; a conversation is the one place that question doesn't arise.
+    // Wired to the setting, one answer opened "my life settled into a rhythm" and the next "you ran
+    // by the river", in the same journal, because the prompt both addressed them and wrote as them.
+    @Test func askAlwaysSpeaksToTheAuthor() async throws {
         entry("Paddled the river.")
-        let ask = service(voice: PromptVoice(voice: .second, name: ""))
+        let ask = service()
         generator.results = [answer("You paddled.", citing: ["E1"])]
 
         await ask.send("What did I do?", in: context)
         let request = try #require(generator.requests.last)
-        #expect(request.system.contains("second person"))
+        #expect(request.system.contains("Write to the author as you"))
+        #expect(request.system.contains("in the first person, as I and my") == false)
         // A7's prompt said "one person's private journal" and "the journal is theirs", which made
         // every answer read like a report about a stranger.
         #expect(request.system.contains("the author"))
     }
 
-    @Test func theOwnersNameReachesAProviderOnlyUnderTheNameVoice() async throws {
+    // And so the owner's name never leaves the phone through Ask at all, under any setting.
+    @Test func theOwnersNameNeverReachesAskAtAll() async throws {
         entry("Paddled the river.")
-        let named = service(voice: PromptVoice(voice: .name, name: "Nate"))
-        generator.results = [answer("Nate paddled.", citing: ["E1"])]
-        await named.send("What did I do?", in: context)
-        #expect(try #require(generator.requests.last).system.contains("Nate"))
-
-        let first = service(voice: PromptVoice(voice: .first, name: "Nate"))
-        generator.results = [answer("I paddled.", citing: ["E1"])]
-        await first.send("What did I do?", in: context)
-        #expect(try #require(generator.requests.last).system.contains("Nate") == false)
+        let ask = service()
+        generator.results = [answer("You paddled.", citing: ["E1"])]
+        await ask.send("What did I do?", in: context)
+        let request = try #require(generator.requests.last)
+        #expect(request.system.contains("Nate") == false)
+        #expect(request.system.contains("by name") == false || request.system.contains("never call them by name"))
     }
 
     // MARK: - What a reopened turn still knows
 
     @Test func theCountsSurviveAReopen() async throws {
-        for index in 0..<30 {
+        for index in 0..<200 {
             entry("The deadline moved again, week \(index).", daysAgo: Double(index + 1))
         }
         let ask = service()
@@ -436,5 +440,6 @@ struct AskServiceTests {
         reopened.open(conversation, in: context)
         #expect(reopened.turns.last?.matchedCount == matched)
         #expect(reopened.turns.last?.wasCut == true)
+        #expect(reopened.turns.last?.digestEntryCount == AskRetrieval.maxDigestEntries)
     }
 }

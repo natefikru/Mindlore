@@ -15,15 +15,11 @@ struct AskView: View {
     @State private var peekTarget: PeekTarget?
     @State private var showsHistory = false
     @State private var sentTurn: AskTurn?
-    @State private var estimate = AskService.Estimate()
     @FocusState private var fieldFocused: Bool
 
     static let searchDelay = Duration.milliseconds(250)
     // Tall enough for a few rows, short enough that the conversation stays on screen behind it.
     static let searchPanelHeight: CGFloat = 320
-    // The cost line waits longer than the search does: working it out reads the whole journal,
-    // and nobody needs it until they have stopped typing.
-    static let costDelay = Duration.milliseconds(600)
 
     private var query: String {
         ask.draftQuestion.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -111,7 +107,6 @@ struct AskView: View {
             guard query.count >= JournalSearch.minimumQueryCharacters else {
                 results = JournalSearch.Results()
                 tagFilter = nil
-                estimate = AskService.Estimate()
                 return
             }
             try? await Task.sleep(for: Self.searchDelay)
@@ -121,10 +116,6 @@ struct AskView: View {
             guard !Task.isCancelled else { return }
             results = JournalSearch.results(for: query, index: ask.index, in: modelContext)
             tagFilter = nil
-            estimate = AskService.Estimate()
-            try? await Task.sleep(for: Self.costDelay)
-            guard !Task.isCancelled else { return }
-            estimate = ask.estimate(for: query)
         }
     }
 
@@ -165,7 +156,7 @@ struct AskView: View {
 
     private var empty: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("Ask about anything you've written. Answers come from your own entries, and say which ones they used.")
+            Text("Ask about anything you've written. Answers come from your own journal, and nothing else.")
                 .foregroundStyle(.secondary)
                 .accessibilityIdentifier("askEmptyState")
             ForEach(AskSources.examples(in: modelContext), id: \.self) { example in
@@ -222,16 +213,6 @@ struct AskView: View {
             .padding(.trailing, 6)
             .padding(.vertical, 6)
             .background(Color(.secondarySystemBackground), in: Capsule())
-            // What asking would cost, not what the search found: the two sit next to each other,
-            // so the line says which it is. On the on-device model nothing is sent anywhere, so
-            // it says "reads" rather than claiming a send that never happens.
-            if canSend, estimate.entries > 0 {
-                costLine
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .padding(.leading, 14)
-                    .accessibilityIdentifier("askCost")
-            }
         }
         .padding(.horizontal)
         .padding(.bottom, 6)
@@ -240,25 +221,6 @@ struct AskView: View {
 
     private var canSend: Bool {
         !query.isEmpty && !ask.isRunning && ask.isAvailable
-    }
-
-    private var roundedCharacters: String {
-        estimate.characters.formatted(.number.rounded(rule: .down).precision(.significantDigits(2)))
-    }
-
-    // "12 of 84" when the set was cut, which is the same honesty the prompt gets. The count is an
-    // estimate now, since working it out exactly would mean reading the entries, so the line says
-    // "about" for it as well as for the characters.
-    //
-    // Text, not String. Built as a String this rendered "^[1 entry](inflect: true)" on screen,
-    // because inflection is a localized-string-key feature and a plain String is not one. Every test
-    // passed; the screenshot is what caught it.
-    private var costLine: Text {
-        let verb = ask.answersLeaveThePhone ? "sends" : "reads"
-        if estimate.wasCut {
-            return Text("Asking \(verb) about \(estimate.entries) of \(estimate.matched) entries, about \(roundedCharacters) characters")
-        }
-        return Text("Asking \(verb) ^[\(estimate.entries) entry](inflect: true), about \(roundedCharacters) characters")
     }
 
     // Off is rarely a decision: nearly always it means this iPhone can't run Apple's model and

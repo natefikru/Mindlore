@@ -5,10 +5,15 @@ import Foundation
 nonisolated enum AskPrompt {
     static let schemaName = "journal_ask"
 
+    // No PromptVoice here, unlike every other prompt the app sends. The setting decides how written
+    // summaries refer to the author ("I met Sarah", "you met Sarah", "Nate met Sarah"); a
+    // conversation is the one place that question doesn't arise, because someone is being spoken
+    // to. Handed the first-person instruction, the model half-obeyed and half-addressed: one answer
+    // opened "my life settled into a rhythm" and the next "you ran by the river", in the same
+    // journal. It also means Ask never sends the owner's name.
     static func system(
         today: Date,
         calendar: Calendar = .current,
-        voice: PromptVoice = .default,
         hasSummaries: Bool = false,
         provider: AskProviderKind = .openAI
     ) -> String {
@@ -29,7 +34,7 @@ nonisolated enum AskPrompt {
         \(rules)
 
         \(citationRule(provider))
-        \(hasSummaries ? "\n" + summaryRule + "\n" : "")\(voice.instruction)
+        \(hasSummaries ? "\n" + summaryRule + "\n" : "")\(addressRule)
 
         Today is \(dayFormatter.string(from: today)).
         """
@@ -40,6 +45,9 @@ nonisolated enum AskPrompt {
     static let opening = "You answer questions about the author's own private journal, and you have "
         + "read all of it. Talk to them the way someone who keeps good notes and is easy to talk to "
         + "would: plain sentences, warm, specific. Not a report."
+
+    static let addressRule = "Write to the author as you: \"you were fried\", \"your knee held\". "
+        + "Never write about them in the first person, and never call them by name."
 
     static let aboutRule = "A block beginning \"About\" describes one person, place, or project, and "
         + "may list the other spellings the journal has used for them. Those are the same one. Use "
@@ -84,7 +92,8 @@ nonisolated enum AskPrompt {
                 + "or a date used as a label for one, in the answer itself."
         case .onDevice:
             "Mark each entry you use with its handle in square brackets, like [E3], exactly as the "
-                + "block gives it. The brackets are taken out before the author reads the answer."
+                + "block gives it. The brackets are taken out before the author reads the answer. "
+                + "Never write a date as a label for an entry."
         }
     }
 
@@ -120,7 +129,7 @@ nonisolated enum AskPrompt {
             // The ranked entries, not the continuity ones: those are what the last turn cited, and
             // calling them "the best match" for this question is not what they are.
             notes.append("""
-            You can see \(plan.rankedEntryIDs.count) of the \(context.matchedCount) entries that \
+            You can see \(context.entryIDs.count) of the \(context.matchedCount) entries that \
             bear on this. Answer from what you have without writing as though it were the whole \
             picture. Never mention the difference: it is for you, not for the answer.
             """)
@@ -134,7 +143,7 @@ nonisolated enum AskPrompt {
             // differently, which is also what makes an unintended inheritance visible in the answer.
             notes.append(plan.rangeWasInherited
                 ? "The question before this one was about \(from) to \(to). These entries are not limited to it, and that is for you, not for the answer."
-                : "These entries are from \(from) to \(to).")
+                : "These entries are from \(from) to \(to), which is for you and not something to announce.")
         }
         return notes
     }

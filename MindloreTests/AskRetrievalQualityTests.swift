@@ -92,6 +92,11 @@ struct AskRetrievalQualityTests {
             // irregular verb, so a stemmer would not have moved it and a lexicon did. Promoted
             // rather than quietly enjoyed, which is what the miss assertion asks for.
             Scenario(question: "How was the run?", expected: ["running"], note: "lemma, was a known miss"),
+            // Also promoted, and not by anything lexical: "in the spring" now parses into a date
+            // range, so the three months filter and the entry about Maya moving in the spring is no
+            // longer competing for the question. The synonym gap it was filed under ("running on
+            // empty" against "burnt out") is still there; the date was doing the damage.
+            Scenario(question: "Was I burnt out in the spring?", expected: ["burnout"], note: "season range, was a known miss"),
         ]
     }
 
@@ -99,9 +104,9 @@ struct AskRetrievalQualityTests {
     // for embeddings, and they are worth more to the owner as two measured classes than as a claim.
     private var knownMisses: [Scenario] {
         [
-            // The vocabulary gap. The journal says "running on empty"; nobody asks it that way.
-            // Worse, "spring" pulls in the entry about Maya moving in the spring instead.
-            Scenario(question: "Was I burnt out in the spring?", expected: ["burnout"], note: "synonym"),
+            // The vocabulary gap, asked without a date to lean on. The journal says "running on
+            // empty"; nobody asks it that way, and nothing lexical crosses that.
+            Scenario(question: "Was I burnt out?", expected: ["burnout"], note: "synonym"),
         ]
     }
 

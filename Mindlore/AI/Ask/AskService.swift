@@ -26,11 +26,14 @@ nonisolated struct AskTurn: Identifiable, Equatable, Sendable {
     var sentCharacters: Int = 0
     var matchedCount = 0
     var rollupMonthCount = 0
+    // Of sentEntryIDs, how many went as one line. The rest went whole.
+    var digestEntryCount = 0
     var failureRaw: String?
 
     // Whether the answer was written from a sample of a larger set, which is what "What was sent"
-    // has to say out loud.
+    // has to say out loud. A digest counts: the model saw the day, in a line.
     var wasCut: Bool { matchedCount > sentEntryIDs.count }
+    var fullEntryCount: Int { sentEntryIDs.count - digestEntryCount }
 
     var failure: AIJobFailure? { failureRaw.map(AIJobFailure.init(raw:)) }
     // "Nothing to go on" is a note about the journal, not something to offer a Retry for.
@@ -91,7 +94,6 @@ final class AskService {
     // How the app writes about the journal's owner, the same closure shape InsightsCoordinator and
     // GraphServices take. The name reaches a provider only under the name voice, which
     // PromptVoice.init enforces by construction.
-    @ObservationIgnored private let promptVoice: () -> PromptVoice
     @ObservationIgnored private let store: AskStore
     @ObservationIgnored private let diagnostics: DiagnosticsLog
     @ObservationIgnored private let now: () -> Date
@@ -105,7 +107,6 @@ final class AskService {
         resolve: @escaping () -> Result<AskProvider, AIJobFailure>,
         index: AskIndexStore = AskIndexStore(),
         revisions: @escaping () -> AskIndexStore.Revisions = { .init() },
-        promptVoice: @escaping () -> PromptVoice = { .default },
         store: AskStore = AskStore(),
         diagnostics: DiagnosticsLog = .shared,
         now: @escaping () -> Date = { .now },
@@ -114,7 +115,6 @@ final class AskService {
         self.resolve = resolve
         self.indexStore = index
         self.revisions = revisions
-        self.promptVoice = promptVoice
         self.store = store
         self.diagnostics = diagnostics
         self.now = now
@@ -122,12 +122,6 @@ final class AskService {
     }
 
     var isAvailable: Bool { resolve().isSuccess }
-
-    // Whether answering this question would leave the phone, for the line under the field.
-    var answersLeaveThePhone: Bool {
-        if case .success(let provider) = resolve() { return provider.kind == .openAI }
-        return false
-    }
 
     var unavailableFailure: AIJobFailure? {
         if case .failure(let failure) = resolve() { return failure }
@@ -160,6 +154,7 @@ final class AskService {
                 sentCharacters: $0.sentCharacters,
                 matchedCount: $0.matchedCount,
                 rollupMonthCount: $0.rollupMonthCount,
+                digestEntryCount: $0.digestEntryCount,
                 failureRaw: $0.failureRaw
             )
         }
@@ -208,29 +203,6 @@ final class AskService {
         await indexStore.refreshIfNeeded(revisions: revisions(), in: context)
     }
 
-    nonisolated struct Estimate: Equatable, Sendable {
-        var entries = 0
-        var characters = 0
-        // How many matched before the cut, which is what lets the line say "12 of 84".
-        var matched = 0
-
-        var wasCut: Bool { matched > entries }
-    }
-
-    // What sending this question would cost. Reads the index snapshot and fetches nothing, which is
-    // the point: this runs on a debounce while the user types, and it used to read the whole journal
-    // every time it fired.
-    func estimate(for question: String) -> Estimate {
-        let trimmed = question.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty, case .success(let provider) = resolve() else { return Estimate() }
-        let plan = retrieval(for: trimmed, asked: false, provider: provider).plan
-        return Estimate(
-            entries: plan.entryIDs.count,
-            characters: plan.estimatedCharacters,
-            matched: plan.matchedCount
-        )
-    }
-
     // Entered with isRunning already true, set by the caller before its first await, so two
     // taps can never both get past the guard.
     private func answer(_ question: String, in context: ModelContext) async {
@@ -270,6 +242,7 @@ final class AskService {
         diagnostics.record("ask.retrieved", [
             "matched": .int(retrievalPlan.matchedCount),
             "ranked": .int(retrievalPlan.rankedEntryIDs.count),
+            "digests": .int(retrievalPlan.digestEntryIDs.count),
             "excerpts": .int(retrievalPlan.excerptEntryIDs.count),
             "continuity": .int(retrievalPlan.continuityEntryIDs.count),
             "rollupMonths": .int(retrievalPlan.rollupMonths.count),
@@ -295,7 +268,6 @@ final class AskService {
             system: AskPrompt.system(
                 today: now(),
                 calendar: calendar,
-                voice: promptVoice(),
                 hasSummaries: built.rollupMonthCount > 0,
                 provider: provider.kind
             ),
@@ -334,6 +306,7 @@ final class AskService {
             turn.sentCharacters = built.characters
             turn.matchedCount = built.matchedCount
             turn.rollupMonthCount = built.rollupMonthCount
+            turn.digestEntryCount = built.digestEntryIDs.count
             finish(question: question, turn: turn, context: built, in: context)
             return
         }
@@ -349,10 +322,12 @@ final class AskService {
             sentEntryIDs: built.entryIDs,
             sentCharacters: built.characters,
             matchedCount: built.matchedCount,
-            rollupMonthCount: built.rollupMonthCount
+            rollupMonthCount: built.rollupMonthCount,
+            digestEntryCount: built.digestEntryIDs.count
         )
         diagnostics.record("ask.answered", [
             "entries": .int(built.entryIDs.count),
+            "digests": .int(built.digestEntryIDs.count),
             "citations": .int(answer.handles.count),
             "characters": .int(built.characters),
             "durationMilliseconds": .int(Int(now().timeIntervalSince(startedAt) * 1000)),
@@ -401,7 +376,7 @@ final class AskService {
         case .openAI:
             return AskContextBuilder.openAIBudget
         case .onDevice:
-            let fixed = AskPrompt.system(today: now(), calendar: calendar, voice: promptVoice(), hasSummaries: false, provider: .onDevice).count
+            let fixed = AskPrompt.system(today: now(), calendar: calendar, hasSummaries: false, provider: .onDevice).count
                 + AskPrompt.folded(previous: previousTurn(), into: "").count
                 + question.count
                 + AskPrompt.onDeviceNotesHeadroom
@@ -487,6 +462,7 @@ final class AskService {
                     sentCharacters: turn.sentCharacters,
                     matchedCount: turn.matchedCount,
                     rollupMonthCount: turn.rollupMonthCount,
+                    digestEntryCount: turn.digestEntryCount,
                     failureRaw: turn.failureRaw
                 )
                 context.insert(message)

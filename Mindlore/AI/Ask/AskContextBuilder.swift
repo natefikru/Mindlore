@@ -8,7 +8,11 @@ import Foundation
 // entries needed. Pure: the caller fetched, filtered for what may be sent, and hands the arrays
 // over.
 nonisolated enum AskContextBuilder {
-    static let openAIBudget = 24_000
+    // Raised from 24,000 with the digest tier (owner, 2026-09-19). Twenty whole entries and a
+    // hundred and fifty lines land near 60,000 characters, about 16,000 tokens, which is a question
+    // worth its price on a journal of three hundred entries. The old number was set when Apple's
+    // on-device model was the peer and a year's question came back answered from two weeks.
+    static let openAIBudget = 64_000
     static let onDeviceBudget = 6_000
     // Held back from the on-device budget for the answer itself, whose tokens share the session.
     static let onDeviceAnswerHeadroom = 1_500
@@ -49,13 +53,19 @@ nonisolated enum AskContextBuilder {
         var handles: [String: UUID] = [:]
         var characters: Int = 0
         // The entries that actually went in, in the order they appear. What "What was sent" lists.
+        // Digests are in here too: a one-line entry went out the same as a whole one did.
         var entryIDs: [UUID] = []
+        // Which of those went as a single line, so the privacy sheet can say "in full" against "in
+        // one line" and the diagnostics can count the two apart.
+        var digestEntryIDs: [UUID] = []
         // How many entries matched before the cut, so the prompt and the cost line can own up to it.
         var matchedCount = 0
         var rollupMonthCount = 0
 
         var isEmpty: Bool { entryIDs.isEmpty }
         var wasCut: Bool { matchedCount > entryIDs.count }
+        // The entries the model can read in full, which is what a quote may come from.
+        var fullEntryCount: Int { entryIDs.count - digestEntryIDs.count }
 
         var text: String { blocks.map(\.text).joined(separator: "\n\n") }
 
@@ -98,6 +108,11 @@ nonisolated enum AskContextBuilder {
         for rollup in rollups where builder.addFenced(rollup) {
             summarizedMonths = plan.rollupMonths.count
         }
+
+        // The slice the plan actually spent, not the ceiling it chose from, so an over-reserved
+        // digest block cannot hold room the entries needed.
+        builder.beginSlice(cap: plan.digestCharacters, budget: budget)
+        builder.addDigests(plan.digestEntryIDs.compactMap { entriesByID[$0] })
 
         builder.beginSlice(cap: plan.slices.continuity, budget: budget)
         for id in plan.continuityEntryIDs {
@@ -161,15 +176,28 @@ nonisolated enum AskContextBuilder {
 
     // Nothing an entry contains may close its own block or hand itself a citation. Both
     // delimiter tokens and anything shaped like a handle are taken out before the text goes in.
+    // To a fixpoint, not once. A single pass is defeated by nesting: "entrentry>>>y>>>" has its
+    // inner "entry>>>" removed and the outer halves close up into a live delimiter, and "[E[E3]3]"
+    // does the same for a handle. One line closing the fence puts every line after it, in a digest
+    // block of up to a hundred and fifty entries, outside the data fence at instruction level.
     static func sanitized(_ text: String) -> String {
+        let handles = try? NSRegularExpression(pattern: "\\[\\s*[Ee]\\d+\\s*\\]")
         var cleaned = text
-            .replacingOccurrences(of: openDelimiter, with: "")
-            .replacingOccurrences(of: closeDelimiter, with: "")
-        if let regex = try? NSRegularExpression(pattern: "\\[\\s*[Ee]\\d+\\s*\\]") {
-            cleaned = regex.stringByReplacingMatches(in: cleaned, range: NSRange(cleaned.startIndex..., in: cleaned), withTemplate: "")
+        // Each pass strictly shortens the string, so this terminates; the bound is belt and braces.
+        for _ in 0..<maxSanitizePasses {
+            let before = cleaned
+            cleaned = cleaned
+                .replacingOccurrences(of: openDelimiter, with: "")
+                .replacingOccurrences(of: closeDelimiter, with: "")
+            if let handles {
+                cleaned = handles.stringByReplacingMatches(in: cleaned, range: NSRange(cleaned.startIndex..., in: cleaned), withTemplate: "")
+            }
+            if cleaned == before { return cleaned }
         }
         return cleaned
     }
+
+    static let maxSanitizePasses = 8
 
     // Cut at the end of the last whole sentence that fits, so a block never ends mid-thought.
     static func trimmed(_ text: String, to limit: Int = maxEntryCharacters) -> String {
@@ -193,7 +221,9 @@ nonisolated enum AskContextBuilder {
     // the field free. Deliberately an upper bound: sanitizing only ever removes characters, so the
     // estimate never promises more room than there is.
     static func blockCharacterEstimate(title: String, text: String) -> Int {
-        let header = "[E00] 2026-09-18 ".count + title.count
+        // "[E123] ", not "[E00] ": one aggregate question mints up to a hundred and fifty handles,
+        // so the next turn of that conversation is handing out four-digit ones.
+        let header = "[E1234] 2026-09-18 ".count + title.count
         let fence = openDelimiter.count + closeDelimiter.count + 3
         return header + fence + min(text.count, maxEntryCharacters)
     }
@@ -208,7 +238,9 @@ nonisolated enum AskContextBuilder {
 
     // The entry's own day, as the phone shows it, so "yesterday" in a question and the date on a
     // block mean the same thing.
-    private static let dateFormatter: DateFormatter = {
+    // Shared with AskDigests, so a whole block and a one-line digest of the same day can never
+    // print two different dates.
+    static let dateFormatter: DateFormatter = {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.dateFormat = "yyyy-MM-dd"
@@ -272,6 +304,43 @@ nonisolated enum AskContextBuilder {
             guard lines.count > 1 else { return }
             let fenced = "\(openDelimiter)\n\(lines.joined(separator: "\n"))\n\(closeDelimiter)"
             append(Block(text: fenced, entryID: nil))
+        }
+
+        // Every digest in one fenced block, because the fence costs seventeen characters and says
+        // the same thing a hundred and fifty times over. Lines are measured as they are added and
+        // the block is appended once, so a line that doesn't fit is the only thing lost.
+        mutating func addDigests(_ entries: [EntryInput]) {
+            let separator = context.blocks.isEmpty ? 0 : 2
+            var length = separator + openDelimiter.count + closeDelimiter.count + 2
+            var lines: [String] = []
+            var taken: [(handle: String, id: UUID)] = []
+            var handle = nextHandle
+
+            for entry in entries where !usedEntries.contains(entry.id) {
+                let existing = context.handles.first { $0.value == entry.id }?.key
+                let name = existing ?? "E\(handle)"
+                let line = AskDigests.line(handle: name, date: entry.date, title: entry.title, text: entry.text)
+                // A day with no title and no text renders as a bare handle and a date. It would
+                // still take a handle, count towards "read as one line", and be citable.
+                guard AskDigests.saysSomething(line) else { continue }
+                let cost = line.count + (lines.isEmpty ? 0 : 1)
+                guard context.characters + length + cost <= sliceEnd else { break }
+                length += cost
+                lines.append(line)
+                taken.append((name, entry.id))
+                if existing == nil { handle += 1 }
+            }
+
+            guard !lines.isEmpty else { return }
+            let block = Block(text: "\(openDelimiter)\n\(lines.joined(separator: "\n"))\n\(closeDelimiter)", entryID: nil)
+            guard append(block) else { return }
+            nextHandle = handle
+            for line in taken {
+                usedEntries.insert(line.id)
+                context.handles[line.handle] = line.id
+                context.entryIDs.append(line.id)
+                context.digestEntryIDs.append(line.id)
+            }
         }
 
         // One entry goes in once, in whichever slice reached it first.

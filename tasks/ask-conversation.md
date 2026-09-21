@@ -4,7 +4,8 @@ Branch: `feature/ask-conversation` from `feature/phase-a` at `dc81233`, in a new
 `.claude/worktrees/ask-conversation`. The phase-b worktree belongs to the B2 session; nothing here
 touches it.
 
-Status: revision 1, awaiting approval. Nothing below is built.
+Status: built and approved, 2026-09-21. Four commits on this branch (5270caa, 2993d90, 0ff88f0,
+76ade91). Phase 4's device run is the only step left.
 
 ## What's wrong
 
@@ -124,3 +125,27 @@ what makes a year answerable at a price worth paying.
 Embeddings. `AskRetrievalParaphraseTests` measures indirect description at 0.00 over seven
 questions, and digests widen what the model can see without making retrieval smarter. That argument
 is still open in `tasks/archive/knowledge-graph.md`'s successor.
+
+## What actually shipped, and what changed on the way
+
+- **Ask takes no `PromptVoice`.** The live run wobbled between "my life settled into a rhythm" and
+  "you ran by the river", because the prompt addressed the author and told the model to write as
+  them. Owner's call, 2026-09-21: Ask always says "you", and the setting keeps governing written
+  summaries. The owner's name now never leaves the phone through Ask.
+- **The digest reserve moved behind the entries.** Held in front of them it had to be charged at a
+  line's worst case (160 characters against a real 60), which cost a two-hundred-match question two
+  of its twenty best entries. Found by the review, not by a test.
+- **`sanitized` strips to a fixpoint.** A single pass is defeated by nesting: `entrentry>>>y>>>`
+  closes up into a live delimiter. Pre-existing, and the digest block is what made it worth fixing,
+  since one line closing the fence takes 149 others outside it.
+- **`aggregateMatchCount` is absolute at 45.** It was three times the ranked cap, so raising the cap
+  from 15 to 20 silently moved the rollup threshold to 60.
+- **`AskService.estimate` and `Estimate` are deleted**, not kept. With the cost line gone they had no
+  reader. `plan.estimatedCharacters` is now only read by tests.
+
+## Known, not fixed
+
+`AskConversation.handleMap` is a JSON blob rewritten on every turn, and a digest turn adds up to 150
+entries to it. A ten-turn aggregate conversation carries roughly 75 KB and re-encodes it each turn.
+Nothing is wrong with it; it is just larger than it was. Trimming it to the entries a turn actually
+cited would only cost the accessibility identifiers on old chips, if it ever matters.
