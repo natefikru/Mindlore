@@ -199,6 +199,19 @@ after the system prompt and the answer headroom come out.
   what it should always have been, the wait before the first word, and the growing answer is
   followed on a 200 ms tick rather than per delta, which is the difference between following the
   text and fighting the thumb.
+- **The empty screen suggests three questions, from five kinds.** `AskSuggestions` decides and reads
+  no SwiftData; `AskSuggestionSource` fetches, the `TodayComposer`/`TodaySource` split. A recent
+  name (phrased for its kind), an open thread quoted in the user's words (loose-end text is an
+  imperative, so it is quoted rather than grafted into a sentence), the area the last 30 days leaned
+  on under the user's name for it, a question about time, and a second name. Which three turns with
+  the day and holds still within it. The source applies Today's visibility rules, not `AskSources`':
+  suggestions never leave the phone, so the promise is only that a hidden or muted name never
+  renders, and a thread with any hidden or muted subject is dropped whole. They refresh on the
+  graph and save revisions, never from the view body.
+- **The field** is Liquid Glass over solid Paper with a short fade above, on the whole bottom stack
+  so the fade never lands on the search panel's last row and catches its tap. Dragging the
+  conversation or tapping empty space dismisses the keyboard (it covers the tab bar); not on the
+  search results, which only show while the field is focused and would vanish mid-scroll.
 - **Diagnostics** (`ask.indexed`, `ask.retrieved`, `ask.answered`, `ask.stopped`, `ask.failed`) carry counts,
   durations, bools, and rounded scores, `ask.answered` including `streamed` and
   `firstChunkMilliseconds`, which is the number streaming exists to move. Never a term, a tag, a
@@ -319,9 +332,9 @@ computed, not stored: `MindMap.primaryAreas`, over the areas of the entries it a
 
 **Entry dates.** `createdAt` is when the entry reached the app and drives every automation rule. `entryDate` is where it belongs in the journal, editable; a picked day is noon with `entryDateIsDayOnly`, and `EntryDateRepair` fixes any entry whose untouched date drifted.
 
-**Settings** (`Mindlore/Settings/`, `Mindlore/Views/SettingsView.swift`). `SettingsStore` reads through a `KeyValueStore` protocol using `object(forKey:)`, so a missing value means "use the default" rather than `false`. `PrivacyInfo.xcprivacy` declares the UserDefaults reason. Settings is the fourth tab, organised by what a setting touches rather than by subsystem: Your journal (life areas, how you're written about, keep recordings), Today, AI (use AI, the key, What AI does, with an Advanced screen for model fields, cloud fallback and custom prompts), and About (`JournalTotals`, counts only). Life areas and your name sit at the top level because both work with AI off. Seven keys are internal state, not settings, and never get a control: `aiEnabledAt`, `automationStartedAt`, `askGeneratorChosenByUser`, `todayDismissed`, `lifeAreaNames`, `hiddenLifeAreas`, `providerAccounts`; find every reader before touching one. UI tests reach settings through `app.tabBars.buttons["Settings"]`, never bare `app.buttons["Settings"]`, which matches a tab item and a toolbar button alike. `tasks/archive/settings-sprint.md` has the audit.
+**Settings** (`Mindlore/Settings/`, `Mindlore/Views/SettingsView.swift`). `SettingsStore` reads through a `KeyValueStore` protocol using `object(forKey:)`, so a missing value means "use the default" rather than `false`. `PrivacyInfo.xcprivacy` declares the UserDefaults reason. Settings is the fourth tab, organised by what a setting touches rather than by subsystem: Your journal (life areas, how you're written about, keep recordings), Today, Reminder, AI (use AI, the key, What AI does, with an Advanced screen for model fields, cloud fallback and custom prompts), and About (`JournalTotals`, counts only). Life areas and your name sit at the top level because both work with AI off. Seven keys are internal state, not settings, and never get a control: `aiEnabledAt`, `automationStartedAt`, `askGeneratorChosenByUser`, `todayDismissed`, `lifeAreaNames`, `hiddenLifeAreas`, `providerAccounts`; find every reader before touching one. UI tests reach settings through `app.tabBars.buttons["Settings"]`, never bare `app.buttons["Settings"]`, which matches a tab item and a toolbar button alike. `tasks/archive/settings-sprint.md` has the audit.
 
-**Views** (`Mindlore/Views/`). `RootView` is a four-tab `TabView` (Journal, Mind, Ask, Settings; `AppTab` in `Views/Shell/AppRouter.swift`, which also owns each tab's path and cross-tab routes). Recording lives in the bottom accessory (`RecordAccessory`) and keeps going while tabs change. `RootView` owns the saver, ingestor, `RecordingSession`, the four coordinators, `AIPassTrigger`, `EditorPresence`, `NetworkMonitor`, `GraphServices`, `AskService`, and the router, and passes them through the environment. `EditorLifecycle` (`Views/Shell/`) is what runs when an editor opens and closes: presence, deleting a blank entry, discarding audio unless kept, and the `.editorClosed` AI pass. Past entries open in read mode (`EntryReadMode`) with tappable names. After a recording, `KeepCard` (`Views/Capture/`) shows what the journal noticed, from stored data only, no AI call. Colors, type, motion, and haptics come from `Mindlore/Design/`, and colors only from the asset catalog's light and dark variants. RootView runs transcription in one lane and titles plus insights in another, and resumes both when the network returns. `EntryListView` lists entries and opens `EntryEditorView` or `RecordingView`. The editor is one scroll view: header (banners, player, page strip, title) above a `GrowingTextEditor` (a UITextView that grows with its text and never ends shorter than the screen, so a tap below short text puts the cursor at the end). `EntryInsightsView` is a sheet over the editor, never a push, because the editor's `onDisappear` runs its close rules.
+**Views** (`Mindlore/Views/`). `RootView` is a four-tab `TabView` (Journal, Mind, Ask, Settings; `AppTab` in `Views/Shell/AppRouter.swift`, which also owns each tab's path and cross-tab routes). Recording lives in the bottom accessory (`RecordAccessory`) and keeps going while tabs change. `RootView` owns the saver, ingestor, `RecordingSession`, the four coordinators, `AIPassTrigger`, `EditorPresence`, `NetworkMonitor`, `GraphServices`, `AskService`, `DailyReminder`, and the router, and passes them through the environment. `EditorLifecycle` (`Views/Shell/`) is what runs when an editor opens and closes: presence, deleting a blank entry, discarding audio unless kept, and the `.editorClosed` AI pass. Past entries open in read mode (`EntryReadMode`) with tappable names. After a recording, `KeepCard` (`Views/Capture/`) shows what the journal noticed, from stored data only, no AI call. Colors, type, motion, and haptics come from `Mindlore/Design/`, and colors only from the asset catalog's light and dark variants. RootView runs transcription in one lane and titles plus insights in another, and resumes both when the network returns. `EntryListView` lists entries and opens `EntryEditorView` or `RecordingView`. The editor is one scroll view: header (banners, player, page strip, title) above a `GrowingTextEditor` (a UITextView that grows with its text and never ends shorter than the screen, so a tap below short text puts the cursor at the end). `EntryInsightsView` is a sheet over the editor, never a push, because the editor's `onDisappear` runs its close rules. It is a scroll of `InsightCard`s on Paper (not a `Form`), its scroll view named `insightsSheet` so UI tests scroll it rather than the editor underneath. The entity page stays a `Form` on purpose: its rows carry swipe actions, a disclosure, and links a hand-built card would lose, and an inset-grouped section already is a rounded card, so Paper behind and `Palette.card` rows are what make it match.
 
 **Today** (`Mindlore/Views/Today/`). The header above the journal list: a greeting, a seven-dot
 week strip, and at most three cards. `TodayComposer` is `nonisolated` and reads no SwiftData, the
@@ -335,6 +348,22 @@ is the per-name mute; it is in `GraphIndexer.recount`'s keep-list beside `hidden
 that loses its last link is pruned and returns under a new id. A loose end with any hidden or muted
 subject never becomes a card. The header refreshes on `.task(id:)` over the three monotonic
 revision counters, the day, and the two settings the composer reads, never on a count.
+
+**Intents and the reminder** (`Mindlore/Intents/`, `Mindlore/Reminders/`). Start Recording, New
+Written Entry, and Ask Your Journal are App Intents in the app target (no extension, no entitlement,
+nothing the Personal Team can't sign), with Siri phrases in `MindloreShortcuts`. An intent can run on
+a cold launch before `RootView` exists, so it only leaves a request in `IntentRequests.shared`, a
+free-standing singleton; `RootView` takes it with `.onChange(of:initial: true)`, which covers a cold
+launch and a warm one alike, exactly once. `IntentHandler` carries it out through the calls the
+app's own buttons use. Record while recording brings the recorder back instead of a silent no-op.
+A new entry or Ask puts the recorder away first (it can be closed from outside and keeps recording
+in the accessory, unlike the editor and page-ordering covers the router waits behind), then jumps;
+Ask only fills the field, never sends. `DailyReminder` is one local notification a day, off by
+default, fixed neutral words, no badge. It schedules a week of single notifications rather than a
+repeating one, because "skip today if you've written" can only be decided when scheduling; it
+adds before it prunes, so a reschedule cut short by suspension keeps the old week; and a reminder
+iOS won't show (permission withdrawn in Settings) switches off with the footer saying why. The
+notification centre sits behind `NotificationScheduling`, faked in `DailyReminderTests`.
 
 **Adding a provider.** Conform to the capability protocols, add a `ProviderKind` and preset, and resolve it in `AIServices`. The coordinators, settings shape, and views don't change.
 

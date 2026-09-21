@@ -19,6 +19,10 @@ struct RootView: View {
     private let places: any PlaceDirectory = MKPlaceDirectory()
     @State private var ask: AskService
     @State private var router: AppRouter
+    // Siri, Shortcuts, and the Action button leave their requests here, even before this view exists.
+    @State private var intents = IntentRequests.shared
+    @State private var reminder = DailyReminder()
+    @Environment(SettingsStore.self) private var settings
     @State private var confirmingDiscard = false
     private let context: ModelContext
 
@@ -171,6 +175,7 @@ struct RootView: View {
         .environment(ask)
         .environment(router)
         .environment(recording)
+        .environment(reminder)
         // The address book, injected like every other boundary: nothing asks for permission
         // until the user taps a row on a person's page.
         .environment(\.contactDirectory, contacts)
@@ -219,6 +224,10 @@ struct RootView: View {
             DiagnosticsLog.shared.record("app.scenePhase", ["phase": .string(String(describing: phase))])
             if phase != .active {
                 saver.flush()
+                // Leaving is the moment that matters: if the user wrote today, today's reminder goes.
+                if phase == .background {
+                    Task { await rescheduleReminder() }
+                }
             } else {
                 Task { await transcription.processQueue(context: context) }
                 Task {
@@ -226,7 +235,20 @@ struct RootView: View {
                     await insights.processQueue(context: context)
                 }
                 Task { await pageTranscription.processQueue(context: context) }
+                // Coming back is when a permission change made in the Settings app shows up, and it
+                // rolls the week forward.
+                Task { await rescheduleReminder() }
             }
+        }
+        // At launch and whenever the switch or the time changes.
+        .task(id: ReminderSetting(enabled: settings.reminderEnabled, minutes: settings.reminderMinutes)) {
+            await rescheduleReminder()
+        }
+        // Taken on appear as well as on change: an intent that launched the app left its request
+        // before this view was built.
+        .onChange(of: intents.token, initial: true) {
+            guard let action = intents.take() else { return }
+            IntentHandler.handle(action, recording: recording, router: router)
         }
         .onChange(of: network.isConnected) { _, connected in
             guard connected else { return }
@@ -236,6 +258,23 @@ struct RootView: View {
                 await titles.networkBecameAvailable(context: context)
                 await insights.networkBecameAvailable(context: context)
             }
+        }
+    }
+
+    private struct ReminderSetting: Equatable {
+        let enabled: Bool
+        let minutes: Int
+    }
+
+    // A reminder iOS won't show is switched off rather than left looking on. Settings says why.
+    private func rescheduleReminder() async {
+        let outcome = await reminder.reschedule(
+            enabled: settings.reminderEnabled,
+            minutesAfterMidnight: settings.reminderMinutes,
+            todayHasEntry: DailyReminder.todayHasEntry(in: context)
+        )
+        if outcome == .notAllowed {
+            settings.reminderEnabled = false
         }
     }
 }

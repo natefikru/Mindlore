@@ -110,11 +110,18 @@ last, after deciding the real journal can go, or run against `-seedDemoJournal 3
 |---|---|---|---|
 | [ ] B3 | First run and permissions: three skippable screens, `hasOnboarded` | S | The permission prompts, the ten-second recording |
 | [ ] B4 | Recording screen and motion: Carry, waveform ribbon, serif live transcript, read-mode strip | M | Nearly all of it |
-| [ ] B5 | Insights sheet and entity surfaces restyled as cards | M | Nothing; screenshot-tested. Densest identifiers in the app |
-| [ ] B6 | App Intents (Shortcuts, Siri, Action button) and the daily reminder | S to M | The Action button, Siri, delivery |
+| [x] B5 | Insights sheet and entity surfaces restyled as cards | M | Nothing; screenshot-tested. Densest identifiers in the app |
+| [x] B6 | App Intents (Shortcuts, Siri, Action button) and the daily reminder | S to M | The Action button, Siri, delivery |
 | [ ] B7 | Mind and Ask polish: halos, Bloom, glass, suggested questions, citation cards | S to M | Little |
 | [ ] B8 | Recording control, Live Activity, maybe a widget | L, gated | A one-hour signing spike under the Personal Team decides whether it happens at all (decision 10) |
 | [ ] B9 | Privacy, review, a device pass over all of it, docs | S | The final pass |
+
+B5 and B6 shipped together on `feature/phase-b5` (PR #23), picked by the owner on 2026-09-21 as
+the parts of what was left worth doing, with the one piece of B7 in the same class: Ask's empty
+state (five kinds of suggested question instead of one template) and its field. The plan and what
+changed while building it are in `tasks/b5-b6-spec.md`. Their device steps are in
+`tasks/smoke-test.md` under "B5 and B6". The rest of B7 (Mind's halos, Bloom, glass on the panel),
+B3, B4 and B8 are still open, and whether they happen at all is the owner's call.
 
 Two things parked inside work that's already finished:
 
@@ -122,8 +129,8 @@ Two things parked inside work that's already finished:
   proven", and B2a deferred collapsing the new-entry buttons into a `Menu` to the same moment). The
   accessory shipped in B1, so this is ready whenever you call it. 11 UI test files tap
   `newEntryButton` and need updating with it.
-- **Reminders and Sounds rows in Settings** arrive with B6 and B4. The settings sprint left them out
-  on purpose, since a switch that controls nothing shouldn't ship.
+- **The Sounds row in Settings** arrives with B4. The settings sprint left it out on purpose, since a
+  switch that controls nothing shouldn't ship. The Reminder row arrived with B6.
 
 ## 3. Reflect
 

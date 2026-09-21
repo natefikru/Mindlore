@@ -9,6 +9,9 @@ struct AskView: View {
     @Environment(AppRouter.self) private var router
     @Environment(SettingsStore.self) private var settings
     @Environment(ProviderAccountStore.self) private var accounts
+    @Environment(GraphServices.self) private var graph
+    @Environment(EntrySaver.self) private var saver
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     @State private var results = JournalSearch.Results()
     @State private var tagFilter: String?
@@ -16,6 +19,9 @@ struct AskView: View {
     @State private var showsHistory = false
     @State private var sentTurn: AskTurn?
     @State private var scrollPosition = ScrollPosition()
+    @State private var suggestions: [AskSuggestion] = []
+    // Counts sends, so the button's bounce and the tap both fire once per question.
+    @State private var sends = 0
     @FocusState private var fieldFocused: Bool
 
     static let searchDelay = Duration.milliseconds(250)
@@ -24,6 +30,8 @@ struct AskView: View {
     static let scrollFollowInterval = Duration.milliseconds(200)
     // Tall enough for a few rows, short enough that the conversation stays on screen behind it.
     static let searchPanelHeight: CGFloat = 320
+    // The band above the field where the conversation fades out.
+    static let fadeHeight: CGFloat = 28
 
     private var query: String {
         ask.draftQuestion.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -74,10 +82,23 @@ struct AskView: View {
                             selectTag: selectTag,
                             maxHeight: Self.searchPanelHeight
                         )
-                        .background(Color(.systemBackground))
+                        .background(Palette.paper)
                         .transition(.move(edge: .bottom).combined(with: .opacity))
                     }
                     composer
+                }
+                // Solid behind the bottom stack, with a short fade above it, so the conversation
+                // dissolves before it reaches the field. On the whole stack rather than the field,
+                // or the fade lands on the search panel's last row. It never takes a touch.
+                .background {
+                    Palette.paper
+                        .overlay(alignment: .top) {
+                            LinearGradient(colors: [Palette.paper.opacity(0), Palette.paper], startPoint: .top, endPoint: .bottom)
+                                .frame(height: Self.fadeHeight)
+                                .offset(y: -Self.fadeHeight)
+                        }
+                        .ignoresSafeArea()
+                        .allowsHitTesting(false)
                 }
                 .animation(.snappy(duration: 0.2), value: showsSearchPanel)
             }
@@ -91,6 +112,19 @@ struct AskView: View {
         .sheet(item: $peekTarget) { EntityPeekSheet(entityID: $0.id) }
         .sheet(item: $sentTurn) { turn in
             AskWhatWasSentView(turn: turn, openEntry: open(entryID:))
+        }
+        // Siri, Shortcuts, or the Action button asked for Ask. Taken on appear too, since the jump
+        // may be what built this view. A question from outside isn't a follow-up to whatever was on
+        // screen, so it starts a new conversation, unless an answer is still being written.
+        .onChange(of: router.askFieldRequest, initial: true) { _, request in
+            guard request != nil, let taken = router.consumeAskField() else { return }
+            if !ask.turns.isEmpty, !ask.isRunning {
+                ask.newConversation()
+            }
+            if let question = taken.question?.trimmingCharacters(in: .whitespacesAndNewlines), !question.isEmpty {
+                ask.draftQuestion = question
+            }
+            fieldFocused = true
         }
         .onChange(of: router.dismissPresentationsToken) {
             peekTarget = nil
@@ -107,6 +141,13 @@ struct AskView: View {
                 onDeviceAvailable: FoundationModelsAvailability.isAvailable
             )
         }
+        // Read when the empty state is about to show and again whenever the journal or the graph
+        // moves under it, so a name hidden or muted in Mind leaves at once. Never from the view
+        // body, which would fetch every entity each time the screen redrew.
+        .task(id: SuggestionsKey(empty: ask.turns.isEmpty, graph: graph.revision, saver: saver.revision, stamped: JournalSaves.revision)) {
+            guard ask.turns.isEmpty else { return }
+            suggestions = AskSuggestionSource.suggestions(in: modelContext, settings: settings)
+        }
         .task(id: ask.draftQuestion) {
             guard query.count >= JournalSearch.minimumQueryCharacters else {
                 results = JournalSearch.Results()
@@ -121,6 +162,13 @@ struct AskView: View {
             results = JournalSearch.results(for: query, index: ask.index, in: modelContext)
             tagFilter = nil
         }
+    }
+
+    private struct SuggestionsKey: Equatable {
+        let empty: Bool
+        let graph: Int
+        let saver: Int
+        let stamped: Int
     }
 
     // MARK: - The conversation
@@ -154,6 +202,13 @@ struct AskView: View {
                 .padding(.vertical)
             }
             .scrollPosition($scrollPosition)
+            // The keyboard covers the tab bar, so there has to be a way out besides sending: drag
+            // the conversation down, or tap anywhere that isn't a control. Not on the search
+            // results, which only show while the field is focused and would vanish mid-scroll.
+            .scrollDismissesKeyboard(.immediately)
+            .contentShape(Rectangle())
+            .onTapGesture { fieldFocused = false }
+            .background(Palette.paper.ignoresSafeArea())
             .onChange(of: ask.turns.count) {
                 guard let last = ask.turns.last else { return }
                 withAnimation { proxy.scrollTo(last.id, anchor: .bottom) }
@@ -173,28 +228,34 @@ struct AskView: View {
     }
 
     private var empty: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("Ask about anything you've written. Answers come from your own journal, and nothing else.")
-                .foregroundStyle(.secondary)
-                .accessibilityIdentifier("askEmptyState")
-            ForEach(AskSources.examples(in: modelContext), id: \.self) { example in
-                Button {
-                    ask.draftQuestion = example
-                    fieldFocused = true
-                } label: {
-                    Text(verbatim: example)
-                        .multilineTextAlignment(.leading)
-                        .padding(.vertical, 10)
-                        .padding(.horizontal, 14)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        VStack(alignment: .leading, spacing: 20) {
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Ask your journal")
+                    .journalText(.title2)
+                    .fontWeight(.semibold)
+                    .accessibilityIdentifier("askEmptyState")
+                Text("Answers come from what you've written, and nothing else.")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            }
+
+            VStack(spacing: 10) {
+                ForEach(Array(suggestions.enumerated()), id: \.element) { index, suggestion in
+                    AskSuggestionCard(suggestion: suggestion) {
+                        ask.draftQuestion = suggestion.text
+                        fieldFocused = true
+                    }
+                    .transition(.bloom)
+                    .animation(
+                        Motion.resolve(Motion.settle, reduceMotion: reduceMotion)?
+                            .delay(Double(index) * Motion.stagger),
+                        value: suggestions
+                    )
                 }
-                .buttonStyle(.plain)
-                .accessibilityIdentifier("askExample")
             }
         }
         .padding(.horizontal)
-        .padding(.top, 4)
+        .padding(.top, 12)
     }
 
     // MARK: - The field
@@ -202,14 +263,23 @@ struct AskView: View {
     private var composer: some View {
         @Bindable var ask = ask
 
-        return VStack(alignment: .leading, spacing: 6) {
+        return VStack(alignment: .leading, spacing: 8) {
             if let failure = ask.unavailableFailure {
                 Text(unavailableMessage(failure))
                     .font(.footnote)
                     .foregroundStyle(.secondary)
+                    .padding(.horizontal, 6)
                     .accessibilityIdentifier("askUnavailable")
             }
-            HStack(spacing: 8) {
+            HStack(spacing: 10) {
+                // A sparkle when sending would ask, a magnifying glass when the field can only
+                // search: empty, or Ask switched off.
+                Image(systemName: canSend ? "sparkle" : "magnifyingglass")
+                    .font(.body.weight(.medium))
+                    .foregroundStyle(fieldFocused || canSend ? Palette.ember : Color.secondary)
+                    .contentTransition(.symbolEffect(.replace))
+                    .frame(width: 20)
+                    .accessibilityHidden(true)
                 // One line, so the keyboard's Send key sends. On a vertical field it inserts a
                 // newline instead, which is not what a question wants.
                 TextField("Ask or search", text: $ask.draftQuestion)
@@ -221,30 +291,38 @@ struct AskView: View {
                 if ask.canStop {
                     Button("Stop", systemImage: "stop.fill") { ask.stop() }
                         .labelStyle(.iconOnly)
-                        .font(.caption2.weight(.bold))
-                        .frame(width: 28, height: 28)
-                        .background(Color.accentColor, in: Circle())
-                        .foregroundStyle(Color(.systemBackground))
+                        .font(.caption.weight(.bold))
+                        .frame(width: 34, height: 34)
+                        .background(Palette.ember, in: Circle())
+                        .foregroundStyle(.white)
                         .accessibilityIdentifier("askStop")
                 } else {
                     Button("Ask", systemImage: "arrow.up") { send() }
                         .labelStyle(.iconOnly)
-                        .font(.footnote.weight(.bold))
-                        .frame(width: 28, height: 28)
-                        .background(canSend ? Color.accentColor : Color(.tertiaryLabel), in: Circle())
-                        .foregroundStyle(Color(.systemBackground))
+                        .font(.subheadline.weight(.bold))
+                        .frame(width: 34, height: 34)
+                        .background(canSend ? Palette.ember : Color(.tertiaryLabel), in: Circle())
+                        .foregroundStyle(.white)
+                        .symbolEffect(.bounce, value: sends)
                         .disabled(!canSend)
                         .accessibilityIdentifier("askSend")
                 }
             }
-            .padding(.leading, 14)
+            .padding(.leading, 16)
             .padding(.trailing, 6)
             .padding(.vertical, 6)
-            .background(Color(.secondarySystemBackground), in: Capsule())
+            .glassEffect(.regular.interactive(), in: Capsule())
+            .overlay {
+                Capsule()
+                    .strokeBorder(Palette.ember.opacity(fieldFocused ? 0.55 : 0), lineWidth: 1.5)
+            }
+            .animation(Motion.resolve(Motion.settle, reduceMotion: reduceMotion), value: fieldFocused)
+            .animation(Motion.resolve(Motion.settle, reduceMotion: reduceMotion), value: canSend)
         }
         .padding(.horizontal)
+        .padding(.top, 8)
         .padding(.bottom, 6)
-        .background(.bar)
+        .sensoryFeedback(Haptics.selected, trigger: sends)
     }
 
     private var canSend: Bool {
@@ -267,6 +345,9 @@ struct AskView: View {
     }
 
     private func send() {
+        // The keyboard's Send key reaches here even when Ask is off, and that path still posts the
+        // question so the answer can say why. Only a send that will be answered bounces.
+        if canSend { sends += 1 }
         let question = ask.draftQuestion
         fieldFocused = false
         results = JournalSearch.Results()

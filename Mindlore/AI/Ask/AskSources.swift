@@ -169,13 +169,4 @@ enum AskSources {
             entities: entities
         )
     }
-
-    // The three example questions the empty state offers, from the journal the user actually has.
-    static func examples(in context: ModelContext, limit: Int = 2) -> [String] {
-        let recent = ((try? context.fetch(FetchDescriptor<Entity>())) ?? [])
-            .filter { !$0.isDeleted && $0.isBrowsable && $0.kind != .tag && $0.lastLinkedAt != nil }
-            .sorted { ($0.lastLinkedAt ?? .distantPast) > ($1.lastLinkedAt ?? .distantPast) }
-            .prefix(limit)
-        return recent.map { "What's been going on with \($0.name)?" } + ["What did I do last week?"]
-    }
 }

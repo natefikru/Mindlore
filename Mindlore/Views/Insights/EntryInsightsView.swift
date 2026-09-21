@@ -57,14 +57,22 @@ struct EntryInsightsView: View {
 
     var body: some View {
         NavigationStack(path: $path) {
-            Form {
-                statusSection
-                if let insights, state == .current || state == .stale {
-                    cards(for: insights)
+            ScrollView {
+                VStack(alignment: .leading, spacing: 12) {
+                    statusCard
+                    if let insights, state == .current || state == .stale {
+                        Group {
+                            cards(for: insights)
+                        }
                         .opacity(state == .stale ? 0.6 : 1)
+                    }
                 }
+                .padding(.horizontal)
+                .padding(.vertical, 12)
             }
-            .paperBackground()
+            // Named, so a UI test scrolls this sheet rather than the editor underneath it.
+            .accessibilityIdentifier("insightsSheet")
+            .background(Palette.paper.ignoresSafeArea())
             .navigationTitle("Insights")
             .navigationBarTitleDisplayMode(.inline)
             .navigationDestination(for: EntityRoute.self) { route in
@@ -132,9 +140,15 @@ struct EntryInsightsView: View {
         })
     }
 
-    @ViewBuilder
-    private var statusSection: some View {
-        Section {
+    // What state the insights are in and what can be done about it. Every state has something to
+    // say here, so the card is never empty.
+    private var statusCard: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            if let insights, state == .current || state == .stale || state == .empty {
+                Text("\(insights.generatedAt.formatted(date: .abbreviated, time: .shortened)) · \(Self.modelName(insights.modelUsed))")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+            }
             if let explanation = InsightsPresentation.explanation(for: state) {
                 Label {
                     Text(explanation)
@@ -153,34 +167,54 @@ struct EntryInsightsView: View {
                     .foregroundStyle(.orange)
                     .accessibilityIdentifier("insightsFailure")
             }
-            switch state {
-            case .aiOff, .missingKey:
-                Button("Open AI settings") { router.showSettings() }
-                    .accessibilityIdentifier("openAISettingsButton")
-            case .awaitingApproval:
-                Button("Approve text") { approve() }
-                    .accessibilityIdentifier("approveFromInsightsButton")
-            default:
-                if let title = InsightsPresentation.runButtonTitle(for: state) {
-                    Button(title) {
-                        if InsightsPresentation.confirmsBeforeRunning(state) {
-                            confirmingRun = true
-                        } else {
-                            run()
-                        }
-                    }
-                    .fontWeight(.semibold)
-                    .accessibilityIdentifier("runInsightsButton")
-                }
-            }
-        } header: {
-            if let insights, state == .current || state == .stale || state == .empty {
-                Text("\(insights.generatedAt.formatted(date: .abbreviated, time: .shortened)) · \(Self.modelName(insights.modelUsed))")
-            }
-        } footer: {
+            statusAction
             if InsightsPresentation.runButtonTitle(for: state) != nil, state != .draft {
                 Text("Sends this entry to OpenAI · \(settings.textModel)")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .card()
+    }
+
+    @ViewBuilder
+    private var statusAction: some View {
+        switch state {
+        case .aiOff, .missingKey:
+            Button("Open AI settings") { router.showSettings() }
+                .buttonStyle(.borderedProminent)
+                .accessibilityIdentifier("openAISettingsButton")
+        case .awaitingApproval:
+            Button("Approve text") { approve() }
+                .buttonStyle(.borderedProminent)
+                .accessibilityIdentifier("approveFromInsightsButton")
+        default:
+            if let title = InsightsPresentation.runButtonTitle(for: state) {
+                let button = Button(title) {
+                    if InsightsPresentation.confirmsBeforeRunning(state) {
+                        confirmingRun = true
+                    } else {
+                        run()
+                    }
+                }
+                .fontWeight(.semibold)
+                .accessibilityIdentifier("runInsightsButton")
+                // Filled only where running is the obvious next step. On insights that are already
+                // current it would be the loudest thing on the sheet, and it costs money.
+                if Self.runIsTheNextStep(state) {
+                    button.buttonStyle(.borderedProminent)
+                } else {
+                    button.buttonStyle(.borderless)
+                }
+            }
+        }
+    }
+
+    static func runIsTheNextStep(_ state: InsightsPresentation.State) -> Bool {
+        switch state {
+        case .none, .stale, .failed, .draft: true
+        default: false
         }
     }
 
@@ -223,11 +257,10 @@ struct EntryInsightsView: View {
             }
         }
         if insights.cleanedTextSkippedReasonRaw == "tooLong" {
-            Section {
-                Text("This entry was too long to clean up.")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-            }
+            Text("This entry was too long to clean up.")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 4)
         }
     }
 

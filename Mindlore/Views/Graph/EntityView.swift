@@ -89,27 +89,34 @@ private struct EntityPage: View {
 
     var body: some View {
         if let entity {
+            // Still a Form: its sections are already rounded cards, and the rows carry swipe actions,
+            // a disclosure, and links that a hand-built card would lose. Paper behind and card-coloured
+            // rows are what make it read as the rest of the app.
             Form {
-                header(entity)
-                if let winnerID = entity.mergedIntoID {
-                    mergedAwaySection(entity, into: winnerID)
+                Group {
+                    header(entity)
+                    if let winnerID = entity.mergedIntoID {
+                        mergedAwaySection(entity, into: winnerID)
+                    }
+                    about(entity)
+                    looseEndsSection
+                    if entity.kind == .person, !entity.isMerged {
+                        contactSection(entity)
+                    }
+                    if entity.kind == .place, !entity.isMerged {
+                        placeSection(entity)
+                    }
+                    aliasesSection(entity)
+                    entriesSection
+                    mentionedWithSection
+                    mergedInSection
+                    if !entity.isMerged {
+                        actionsSection(entity)
+                    }
                 }
-                about(entity)
-                looseEndsSection
-                if entity.kind == .person, !entity.isMerged {
-                    contactSection(entity)
-                }
-                if entity.kind == .place, !entity.isMerged {
-                    placeSection(entity)
-                }
-                aliasesSection(entity)
-                entriesSection
-                mentionedWithSection
-                mergedInSection
-                if !entity.isMerged {
-                    actionsSection(entity)
-                }
+                .listRowBackground(Palette.card)
             }
+            .paperBackground()
             .navigationTitle(entity.name)
             .navigationBarTitleDisplayMode(.inline)
             .accessibilityIdentifier("entityPage")
@@ -534,7 +541,7 @@ private struct EntityPage: View {
             } label: {
                 VStack(alignment: .leading, spacing: 4) {
                     HStack(alignment: .firstTextBaseline) {
-                        Text(row.heading).font(.headline)
+                        Text(row.heading).font(.system(.headline, design: .serif))
                         Spacer()
                         if row.guessed != nil {
                             Text("Guessed")
@@ -545,9 +552,10 @@ private struct EntityPage: View {
                     Text(row.date.formatted(date: .abbreviated, time: .omitted))
                         .font(.caption)
                         .foregroundStyle(.secondary)
+                    // The user's own sentence, in the user's own face.
                     if let sentence = row.sentence {
                         Text(sentence)
-                            .font(.subheadline)
+                            .journalText(.subheadline)
                             .foregroundStyle(.secondary)
                             .lineLimit(3)
                     }

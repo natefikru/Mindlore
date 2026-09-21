@@ -37,6 +37,8 @@ final class SettingsStore {
         static let journalVoice = "journalVoice"
         static let userName = "userName"
         static let resurfacingEnabled = "resurfacingEnabled"
+        static let reminderEnabled = "reminderEnabled"
+        static let reminderMinutes = "reminderMinutes"
         static let todayDismissed = "todayDismissed"
     }
 
@@ -209,6 +211,16 @@ final class SettingsStore {
         didSet { write(resurfacingEnabled, Key.resurfacingEnabled, logged: .bool(resurfacingEnabled)) }
     }
 
+    // One notification a day. Off until the user turns it on, which is also when iOS asks.
+    var reminderEnabled: Bool {
+        didSet { write(reminderEnabled, Key.reminderEnabled, logged: .bool(reminderEnabled)) }
+    }
+
+    // When it comes, as minutes after midnight in the user's own time zone.
+    var reminderMinutes: Int {
+        didSet { write(reminderMinutes, Key.reminderMinutes, logged: .int(reminderMinutes)) }
+    }
+
     // Which Today cards were dismissed, and on what day. Written as JSON so the card keys, which
     // can name an entity or a loose end, never reach the diagnostics log.
     private(set) var todayDismissal: TodayDismissal {
@@ -308,6 +320,8 @@ final class SettingsStore {
         journalVoice = string(Key.journalVoice).flatMap(JournalVoice.init(rawValue:)) ?? .first
         userName = json(Key.userName, "")
         resurfacingEnabled = bool(Key.resurfacingEnabled, true)
+        reminderEnabled = bool(Key.reminderEnabled, false)
+        reminderMinutes = store.object(forKey: Key.reminderMinutes) as? Int ?? ReminderPlan.defaultMinutes
         todayDismissal = json(Key.todayDismissed, TodayDismissal())
     }
 

@@ -1,21 +1,5 @@
 import SwiftUI
 
-extension MoodCategory {
-    // A dot only: the mood word and its meaning carry the information, never the color alone.
-    var color: Color {
-        switch self {
-        case .joyful: .orange
-        case .calm: .teal
-        case .connected: .pink
-        case .reflective: .indigo
-        case .anxious: .yellow
-        case .angry: .red
-        case .low: .blue
-        case .drained: .gray
-        }
-    }
-}
-
 // An entry's life areas as small labelled capsules, with the user's names and without hidden areas.
 struct LifeAreaChips: View {
     @Environment(SettingsStore.self) private var settings
@@ -24,19 +8,13 @@ struct LifeAreaChips: View {
     var body: some View {
         FlowLayout(spacing: 6) {
             ForEach(areas.filter { !settings.isHidden($0) }, id: \.self) { area in
-                HStack(spacing: 5) {
-                    Image(systemName: area.symbol)
-                        .foregroundStyle(area.color)
-                    Text(settings.name(of: area))
-                }
-                .font(.subheadline)
-                .lineLimit(1)
-                .fixedSize()
-                .padding(.horizontal, 10)
-                .padding(.vertical, 5)
-                .background(.quaternary, in: Capsule())
-                .accessibilityElement(children: .combine)
-                .accessibilityIdentifier("lifeArea-\(area.rawValue)")
+                Label(settings.name(of: area), systemImage: area.symbol)
+                    .labelStyle(.titleAndIcon)
+                    .lineLimit(1)
+                    .fixedSize()
+                    .chip(tint: area.color)
+                    .accessibilityElement(children: .combine)
+                    .accessibilityIdentifier("lifeArea-\(area.rawValue)")
             }
         }
     }
@@ -87,7 +65,8 @@ extension EntityKind {
     }
 }
 
-// One card in the insights list. Its contents can be copied.
+// One card in the insights sheet: a quiet title, what the AI found, and a line saying what it
+// means. The whole card can be copied when it has something worth copying.
 struct InsightCard<Content: View>: View {
     let title: String
     var caption: String?
@@ -95,15 +74,20 @@ struct InsightCard<Content: View>: View {
     @ViewBuilder let content: Content
 
     var body: some View {
-        Section {
-            content
-        } header: {
+        VStack(alignment: .leading, spacing: 10) {
             Text(title)
-        } footer: {
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+                .accessibilityAddTraits(.isHeader)
+            content
             if let caption {
                 Text(caption)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .card()
         .contextMenu {
             if let copyText {
                 Button("Copy", systemImage: "doc.on.doc") { UIPasteboard.general.string = copyText }
@@ -165,10 +149,7 @@ struct WrappingChips: View {
         FlowLayout(spacing: 6) {
             ForEach(items, id: \.self) { item in
                 Text(item)
-                    .font(.subheadline)
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 5)
-                    .background(.quaternary, in: Capsule())
+                    .chip()
             }
         }
     }
@@ -246,8 +227,9 @@ struct MentionGroups: View {
     }
 }
 
-// Values that open their entity's page. Several share one Form row, so each is its own
-// borderless button; a row-level tap would otherwise fire all of them.
+// Values that open their entity's page, each its own borderless button so a tap reaches only the
+// chip it landed on. Inside a button the chip's quiet fill takes the Ember tint, so a chip that
+// opens something reads as a link and one that doesn't stays neutral. That's wanted.
 struct EntityChips: View {
     let values: [String]
     let kind: EntityKind
@@ -290,10 +272,7 @@ struct EntityChips: View {
 
     private func chipLabel(_ value: String, guessed: Bool, unsure: Bool) -> some View {
         Text(value)
-            .font(.subheadline)
-            .padding(.horizontal, 10)
-            .padding(.vertical, 5)
-            .background(.quaternary, in: Capsule())
+            .chip()
             .overlay {
                 if guessed {
                     Capsule().strokeBorder(style: StrokeStyle(lineWidth: 1, dash: [3, 2]))
