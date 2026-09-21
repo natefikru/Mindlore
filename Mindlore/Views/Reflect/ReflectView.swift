@@ -11,9 +11,11 @@ struct ReflectView: View {
     @Environment(SettingsStore.self) private var settings
     @Environment(EntrySaver.self) private var saver
     @Environment(GraphServices.self) private var graph
+    @Environment(ProviderAccountStore.self) private var accounts
     @State private var selection: ReflectPeriodSelection
     @State private var period: ReflectAggregator.Period?
     @State private var trend: [(selection: ReflectPeriodSelection, period: ReflectAggregator.Period)] = []
+    @State private var narrative: String?
 
     init(kind: ReflectPeriodKind = .week) {
         _selection = State(initialValue: ReflectPeriodSelection(kind: kind))
@@ -24,6 +26,14 @@ struct ReflectView: View {
             Group {
                 if let period, period.entryCount > 0 {
                     List {
+                        if let narrative {
+                            Section {
+                                Text(narrative)
+                                    .journalText(.body)
+                                    .foregroundStyle(Palette.ink)
+                                    .accessibilityIdentifier("reflectNarrative")
+                            }
+                        }
                         Section {
                             areaBalance(period)
                         } header: {
@@ -57,7 +67,7 @@ struct ReflectView: View {
                     Button("Done") { dismiss() }
                 }
             }
-            .task(id: fingerprint) { refresh() }
+            .task(id: fingerprint) { await refresh() }
             .accessibilityIdentifier("reflectView")
         }
     }
@@ -161,17 +171,33 @@ struct ReflectView: View {
         Fingerprint(selection: selection, saver: saver.revision, graph: graph.revision, stamped: JournalSaves.revision)
     }
 
-    private func refresh() {
-        period = ReflectSource.period(selection.interval(), in: modelContext)
+    // One async task per fingerprint change: SwiftUI cancels the running one before starting the
+    // next, so a period flipped through quickly never shows a stale narrative arriving late.
+    private func refresh() async {
+        let computed = ReflectSource.period(selection.interval(), in: modelContext)
+        period = computed
         trend = ReflectSource.trend(for: selection, in: modelContext)
+        narrative = nil
+
+        guard case .success(let resolved) = AIServices.askGenerator(settings: settings, accounts: accounts) else { return }
+        narrative = await ReflectNarrator.narrate(
+            period: computed,
+            kind: selection.kind,
+            title: selection.title(),
+            provider: resolved,
+            voice: settings.promptVoice,
+            areaName: { settings.name(of: $0) }
+        )
     }
 }
 
 #Preview {
     let container = try! ModelContainerFactory.make(.inMemory)
+    let settings = SettingsStore(store: UserDefaults(suiteName: "preview")!)
     return ReflectView()
         .modelContainer(container)
-        .environment(SettingsStore(store: UserDefaults(suiteName: "preview")!))
+        .environment(settings)
         .environment(EntrySaver(context: container.mainContext))
         .environment(GraphServices())
+        .environment(ProviderAccountStore(settings: settings))
 }
