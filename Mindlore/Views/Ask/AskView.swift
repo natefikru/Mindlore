@@ -9,6 +9,8 @@ struct AskView: View {
     @Environment(AppRouter.self) private var router
     @Environment(SettingsStore.self) private var settings
     @Environment(ProviderAccountStore.self) private var accounts
+    @Environment(GraphServices.self) private var graph
+    @Environment(EntrySaver.self) private var saver
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     @State private var results = JournalSearch.Results()
@@ -139,9 +141,10 @@ struct AskView: View {
                 onDeviceAvailable: FoundationModelsAvailability.isAvailable
             )
         }
-        // Read when the empty state is about to show (first open, a new conversation), never from
-        // the view body, which would fetch every entity each time the screen redrew.
-        .task(id: ask.turns.isEmpty) {
+        // Read when the empty state is about to show and again whenever the journal or the graph
+        // moves under it, so a name hidden or muted in Mind leaves at once. Never from the view
+        // body, which would fetch every entity each time the screen redrew.
+        .task(id: SuggestionsKey(empty: ask.turns.isEmpty, graph: graph.revision, saver: saver.revision, stamped: JournalSaves.revision)) {
             guard ask.turns.isEmpty else { return }
             suggestions = AskSuggestionSource.suggestions(in: modelContext, settings: settings)
         }
@@ -159,6 +162,13 @@ struct AskView: View {
             results = JournalSearch.results(for: query, index: ask.index, in: modelContext)
             tagFilter = nil
         }
+    }
+
+    private struct SuggestionsKey: Equatable {
+        let empty: Bool
+        let graph: Int
+        let saver: Int
+        let stamped: Int
     }
 
     // MARK: - The conversation

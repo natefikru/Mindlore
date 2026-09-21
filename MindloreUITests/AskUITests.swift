@@ -66,6 +66,23 @@ final class AskUITests: XCTestCase {
     // The cost line is gone (owner, 2026-09-19): the chat no longer tells you what it is about to
     // read. What replaces it is this, a screen that says nothing at all while you type, with the
     // receipt still one tap away under an answer.
+    // The tap that dismisses the keyboard sits on the whole conversation. A citation under an
+    // answer is a control inside it, and has to keep working with the keyboard up.
+    @MainActor
+    func testACitationOpensItsEntryWhileTheKeyboardIsUp() throws {
+        writeTheRiverEntry()
+        openAsk()
+        ask("What did I do by the river?")
+        let citation = app.buttons["askCitation-E1"]
+        XCTAssertTrue(citation.waitForExistence(timeout: 30))
+
+        field.tap()
+        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5))
+        citation.tap()
+
+        XCTAssertTrue(app.staticTexts["entryReadText"].waitForExistence(timeout: 10), "the chip opened its entry")
+    }
+
     // The keyboard covers the tab bar, so it has to go away without sending anything: a tap on
     // empty space, or a drag down. A suggestion's own tap must still reach the field.
     @MainActor
