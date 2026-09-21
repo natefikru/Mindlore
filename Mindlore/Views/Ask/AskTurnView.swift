@@ -49,6 +49,7 @@ struct AskTurnView: View {
     // Looked up once per turn rather than on every draw, since a conversation redraws whenever
     // an answer streams in or the keyboard moves.
     @State private var refs: [UUID: AskEntryRefs.Ref] = [:]
+    @State private var showsAllCitations = false
 
     var body: some View {
         content
@@ -90,12 +91,22 @@ struct AskTurnView: View {
         }
     }
 
+    // How many chips a quiet answer can carry. A broad question can now cite thirty-three days,
+    // because the digest tier made every matched entry citable where fifteen were before, and
+    // thirty-three chips under one paragraph is the bookkeeping this phase took out of the prose
+    // arriving again in another form.
+    static let visibleCitations = 6
+
+    private var shownCitations: [UUID] {
+        showsAllCitations ? turn.citedEntryIDs : Array(turn.citedEntryIDs.prefix(Self.visibleCitations))
+    }
+
     @ViewBuilder
     private var citations: some View {
         if !turn.citedEntryIDs.isEmpty {
             ScrollView(.horizontal) {
                 HStack(spacing: 8) {
-                    ForEach(Array(turn.citedEntryIDs.enumerated()), id: \.offset) { _, id in
+                    ForEach(Array(shownCitations.enumerated()), id: \.offset) { _, id in
                         let handle = handles.first { $0.value == id }?.key ?? "E?"
                         if let ref = refs[id] {
                             Button { openEntry(id) } label: {
@@ -108,6 +119,14 @@ struct AskTurnView: View {
                                 .foregroundStyle(.secondary)
                                 .accessibilityIdentifier("askCitation-\(handle)")
                         }
+                    }
+                    if !showsAllCitations, turn.citedEntryIDs.count > Self.visibleCitations {
+                        Button("\(turn.citedEntryIDs.count - Self.visibleCitations) more") {
+                            withAnimation(.snappy(duration: 0.2)) { showsAllCitations = true }
+                        }
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .accessibilityIdentifier("askMoreCitations")
                     }
                 }
             }
