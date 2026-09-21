@@ -25,7 +25,9 @@ nonisolated enum AskRetrieval {
     // characters, where a 20% slice is 660 and a single entry block can be 2,050.
     static let aboutBudgetOpenAI = 3_600
     static let rollupBudgetOpenAI = 6_000
-    static let digestBudgetOpenAI = 24_000
+    // Exactly what the cap's worth of lines costs at their worst, so the slice and the cap can
+    // never disagree about how many lines fit.
+    static let digestBudgetOpenAI = AskDigests.estimatedCharacters(lineCount: maxDigestEntries)
     static let continuityBudgetOpenAI = 4_800
     static let aboutBudgetOnDevice = 800
 
@@ -195,14 +197,7 @@ nonisolated enum AskRetrieval {
         // question shape there is, and on device it could reserve the entire budget and send no
         // entry at all.
         let aboutReserve = self.aboutReserve(for: plan.aboutEntityIDs, in: index, slices: plan.slices, budget: budget)
-
-        // Digest room is held back before the ranked loop runs, or twenty whole entries would eat
-        // it: the ranked loop spends whatever is left, and it is the tail of that same list the
-        // digests exist to cover. Reserved from a count, because nothing here has read an entry.
-        let digestCandidateCount = min(maxDigestEntries, max(0, plan.matchedCount - limit))
-        let digestReserve = min(plan.slices.digests, AskDigests.estimatedCharacters(lineCount: digestCandidateCount))
-
-        var remaining = max(0, budget - aboutReserve - rollupCharacters - digestReserve)
+        var remaining = max(0, budget - aboutReserve - rollupCharacters)
 
         let subjects = Set(plan.aboutEntityIDs)
         var taken: Set<UUID> = []
@@ -236,9 +231,18 @@ nonisolated enum AskRetrieval {
             }
         }
 
+        // Digests take what the entries left, rather than being held back in front of them. Held
+        // back, the reserve has to be charged at a line's worst case (160 characters) while a real
+        // line costs about sixty, so a question matching two hundred entries lost two of its twenty
+        // best-matching entries to room the lines then didn't use. An entry in full is worth more
+        // than two and a half lines; when the budget is tight, the lines are what gives.
+        //
         // Newest first, which is the order they render in, and only what nothing else already took.
         // A digest of an entry sitting whole three blocks below it would be the same day twice.
-        let digestCapacity = AskDigests.lineCapacity(characters: digestReserve)
+        let digestCapacity = min(
+            maxDigestEntries,
+            AskDigests.lineCapacity(characters: min(plan.slices.digests, remaining))
+        )
         if digestCapacity > 0 {
             let candidates = matchedIndices
                 .map { index.documents[Int($0)] }

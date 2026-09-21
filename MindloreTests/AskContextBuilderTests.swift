@@ -99,7 +99,7 @@ struct AskContextBuilderTests {
 
     @Test func anUnusedSliceRollsForwardIntoTheEntries() {
         // No entities, no rollups, and no digests, so the room all three would have taken is there
-        // for the entries. Thirty blocks of 2,000 is 60,000 against a ranked slice of 25,600.
+        // for the entries. Thirty blocks of 2,000 is 60,000 against a ranked slice of 25,580.
         let entries = (0..<30).map { entry(String(repeating: "kayak ", count: 330), daysAgo: Double($0)) }
         let context = render(ranked: entries)
         #expect(context.characters > AskRetrieval.slices(budget: AskContextBuilder.openAIBudget, provider: .openAI).ranked)

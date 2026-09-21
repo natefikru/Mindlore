@@ -176,15 +176,28 @@ nonisolated enum AskContextBuilder {
 
     // Nothing an entry contains may close its own block or hand itself a citation. Both
     // delimiter tokens and anything shaped like a handle are taken out before the text goes in.
+    // To a fixpoint, not once. A single pass is defeated by nesting: "entrentry>>>y>>>" has its
+    // inner "entry>>>" removed and the outer halves close up into a live delimiter, and "[E[E3]3]"
+    // does the same for a handle. One line closing the fence puts every line after it, in a digest
+    // block of up to a hundred and fifty entries, outside the data fence at instruction level.
     static func sanitized(_ text: String) -> String {
+        let handles = try? NSRegularExpression(pattern: "\\[\\s*[Ee]\\d+\\s*\\]")
         var cleaned = text
-            .replacingOccurrences(of: openDelimiter, with: "")
-            .replacingOccurrences(of: closeDelimiter, with: "")
-        if let regex = try? NSRegularExpression(pattern: "\\[\\s*[Ee]\\d+\\s*\\]") {
-            cleaned = regex.stringByReplacingMatches(in: cleaned, range: NSRange(cleaned.startIndex..., in: cleaned), withTemplate: "")
+        // Each pass strictly shortens the string, so this terminates; the bound is belt and braces.
+        for _ in 0..<maxSanitizePasses {
+            let before = cleaned
+            cleaned = cleaned
+                .replacingOccurrences(of: openDelimiter, with: "")
+                .replacingOccurrences(of: closeDelimiter, with: "")
+            if let handles {
+                cleaned = handles.stringByReplacingMatches(in: cleaned, range: NSRange(cleaned.startIndex..., in: cleaned), withTemplate: "")
+            }
+            if cleaned == before { return cleaned }
         }
         return cleaned
     }
+
+    static let maxSanitizePasses = 8
 
     // Cut at the end of the last whole sentence that fits, so a block never ends mid-thought.
     static func trimmed(_ text: String, to limit: Int = maxEntryCharacters) -> String {
@@ -208,7 +221,9 @@ nonisolated enum AskContextBuilder {
     // the field free. Deliberately an upper bound: sanitizing only ever removes characters, so the
     // estimate never promises more room than there is.
     static func blockCharacterEstimate(title: String, text: String) -> Int {
-        let header = "[E00] 2026-09-18 ".count + title.count
+        // "[E123] ", not "[E00] ": one aggregate question mints up to a hundred and fifty handles,
+        // so the next turn of that conversation is handing out four-digit ones.
+        let header = "[E1234] 2026-09-18 ".count + title.count
         let fence = openDelimiter.count + closeDelimiter.count + 3
         return header + fence + min(text.count, maxEntryCharacters)
     }
@@ -305,6 +320,9 @@ nonisolated enum AskContextBuilder {
                 let existing = context.handles.first { $0.value == entry.id }?.key
                 let name = existing ?? "E\(handle)"
                 let line = AskDigests.line(handle: name, date: entry.date, title: entry.title, text: entry.text)
+                // A day with no title and no text renders as a bare handle and a date. It would
+                // still take a handle, count towards "read as one line", and be citable.
+                guard AskDigests.saysSomething(line) else { continue }
                 let cost = line.count + (lines.isEmpty ? 0 : 1)
                 guard context.characters + length + cost <= sliceEnd else { break }
                 length += cost

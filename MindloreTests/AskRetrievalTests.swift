@@ -80,9 +80,9 @@ struct AskRetrievalTests {
         let slices = AskRetrieval.slices(budget: AskContextBuilder.openAIBudget, provider: .openAI)
         #expect(slices.about == 3_600)
         #expect(slices.rollups == 6_000)
-        #expect(slices.digests == 24_000)
+        #expect(slices.digests == 24_020, "exactly 150 lines at their worst")
         #expect(slices.continuity == 4_800)
-        #expect(slices.ranked == 25_600)
+        #expect(slices.ranked == 25_580)
         #expect(slices.total == AskContextBuilder.openAIBudget)
     }
 

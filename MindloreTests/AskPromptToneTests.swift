@@ -43,7 +43,7 @@ struct AskPromptToneTests {
         let device = AskPrompt.system(today: now, provider: .onDevice)
         let cloud = AskPrompt.system(today: now, provider: .openAI)
         #expect(device.count < cloud.count)
-        #expect(device.count < 1_400)
+        #expect(device.count < 1_500)
         #expect(device.contains("Never mention entries, searching"))
         #expect(device.contains("No advice, no diagnosis"))
         #expect(device.contains(AskContextBuilder.openDelimiter))
@@ -54,6 +54,19 @@ struct AskPromptToneTests {
         #expect(system.contains("name a pattern you actually see"))
         #expect(system.contains("ask one short question back"))
         #expect(system.contains("No advice, no diagnosis, no plan, no verdict on a life"))
+    }
+
+    // Every other prompt the app sends follows the journal voice setting. This one is spoken to
+    // someone, so it addresses them, and the name never goes with it.
+    @Test func theAnswerIsAddressedToTheAuthor() {
+        for provider in [AskProviderKind.openAI, .onDevice] {
+            let system = AskPrompt.system(today: now, provider: provider)
+            #expect(system.contains("Write to the author as you"), "\(provider) lost the address rule")
+            // The phrase appears once, as the prohibition. What must never appear is PromptVoice's
+            // instruction, which is what made an answer narrate as the author.
+            #expect(system.contains("in the first person, as I and my") == false)
+            #expect(system.contains("never call them by name"))
+        }
     }
 
     @Test func theSummaryRuleTellsItToUseTheCountsAndNeverMentionThem() {
@@ -81,6 +94,40 @@ struct AskPromptToneTests {
         #expect(notes.allSatisfy { $0.contains("for you, not for the answer") })
         #expect(notes.contains { $0.contains("You can see 2 of the 40") })
         #expect(notes.joined().contains("say what you are looking at") == false)
+    }
+
+    // The named range was the one note left as a bare fact, which is the shape of the sentence this
+    // whole file exists to stop: handed "These entries are from 1 to 31 March", the model opens with
+    // it. Its inherited twin was already gagged, so only this branch was untested.
+    @Test func aNamedRangeIsForTheModelAndNotForTheAnswer() throws {
+        var plan = AskRetrieval.Plan()
+        plan.rankedEntryIDs = [UUID()]
+        plan.appliedRange = DateInterval(start: now, duration: 86_400 * 30)
+        plan.rangeWasInherited = false
+        var context = AskContextBuilder.Context()
+        context.entryIDs = plan.rankedEntryIDs
+        context.matchedCount = 1
+
+        let note = try #require(AskPrompt.notes(for: context, plan: plan).first)
+        #expect(note.contains("These entries are from"))
+        #expect(note.contains("not something to announce"))
+    }
+
+    // What the note counts has to be what the model can see. Twenty whole entries beside a hundred
+    // and fifty one-line ones is a hundred and seventy visible days: told "you can see 20 of 213"
+    // while it can count 170, the likeliest repair is the sentence we were trying to delete.
+    @Test func theCutNoteCountsTheLinesAsSeen() throws {
+        var plan = AskRetrieval.Plan()
+        plan.rankedEntryIDs = (0..<20).map { _ in UUID() }
+        plan.digestEntryIDs = (0..<150).map { _ in UUID() }
+        plan.matchedCount = 213
+        var context = AskContextBuilder.Context()
+        context.entryIDs = plan.rankedEntryIDs + plan.digestEntryIDs
+        context.digestEntryIDs = plan.digestEntryIDs
+        context.matchedCount = 213
+
+        let note = try #require(AskPrompt.notes(for: context, plan: plan).first)
+        #expect(note.contains("You can see 170 of the 213"))
     }
 
     @Test func aQuestionThatMatchedNothingIsToldToSaySoWithoutDescribingTheLookup() {

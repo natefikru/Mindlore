@@ -97,7 +97,6 @@ struct RootView: View {
         _ask = State(initialValue: AskService(
             resolve: { AIServices.askGenerator(settings: settings, accounts: accounts) },
             revisions: { .init(saver: saver.revision, graph: graph.revision, stamped: JournalSaves.revision) },
-            promptVoice: { settings.promptVoice },
             store: AskStore(flush: { saver.flush() })
         ))
         let ingestor = RecordingIngestor()

@@ -11,13 +11,17 @@ import Foundation
 // resolves like any other. The prompt says a single line is a shortened entry, so a quote from one
 // is never offered as everything that was written that day.
 nonisolated enum AskDigests {
-    // Both ends of a line are capped so the estimate below is a true upper bound: the plan reserves
-    // room for digests before any entry text has been read, the way every other slice does.
+    // Both ends of a line are capped so the estimate below is a true upper bound, which is what
+    // lets the plan size a digest block with no entry text in hand.
     static let maxTitleCharacters = 40
     static let maxTextCharacters = 90
 
-    // "[E123] 2026-03-14 " plus the two caps, plus the newline, rounded up.
-    static let charactersPerLine = 150
+    // A true upper bound, and it has to be: the plan reserves from it and the renderer then refuses
+    // any line that doesn't fit. "[E1234] " (8) + "2026-03-14 " (11) + title (40) + ": " (2) +
+    // body (90) + the newline joining it to the next line (1) is 152, and a five-digit handle in a
+    // long conversation is 153. Sixty is what a real line costs; the gap is why the reserve is
+    // taken from what the entries left over rather than held back in front of them.
+    static let charactersPerLine = 160
     static let fenceCharacters = 20
 
     static func estimatedCharacters(lineCount: Int) -> Int {
@@ -29,6 +33,15 @@ nonisolated enum AskDigests {
     // renderer can never disagree about what fits.
     static func lineCapacity(characters: Int) -> Int {
         max(0, (characters - fenceCharacters) / charactersPerLine)
+    }
+
+    // A line with nothing on it but its own handle and date says nothing and can still be cited.
+    static func saysSomething(_ line: String) -> Bool {
+        guard let colon = line.firstIndex(of: ":") else {
+            // No body at all: what is left after the handle is a date, and maybe a title.
+            return line.split(separator: " ").count > 2
+        }
+        return line[line.index(after: colon)...].trimmingCharacters(in: .whitespaces).isEmpty == false
     }
 
     // Sanitized like any other block body: an entry can contain a delimiter or something shaped

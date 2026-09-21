@@ -94,7 +94,6 @@ final class AskService {
     // How the app writes about the journal's owner, the same closure shape InsightsCoordinator and
     // GraphServices take. The name reaches a provider only under the name voice, which
     // PromptVoice.init enforces by construction.
-    @ObservationIgnored private let promptVoice: () -> PromptVoice
     @ObservationIgnored private let store: AskStore
     @ObservationIgnored private let diagnostics: DiagnosticsLog
     @ObservationIgnored private let now: () -> Date
@@ -108,7 +107,6 @@ final class AskService {
         resolve: @escaping () -> Result<AskProvider, AIJobFailure>,
         index: AskIndexStore = AskIndexStore(),
         revisions: @escaping () -> AskIndexStore.Revisions = { .init() },
-        promptVoice: @escaping () -> PromptVoice = { .default },
         store: AskStore = AskStore(),
         diagnostics: DiagnosticsLog = .shared,
         now: @escaping () -> Date = { .now },
@@ -117,7 +115,6 @@ final class AskService {
         self.resolve = resolve
         self.indexStore = index
         self.revisions = revisions
-        self.promptVoice = promptVoice
         self.store = store
         self.diagnostics = diagnostics
         self.now = now
@@ -271,7 +268,6 @@ final class AskService {
             system: AskPrompt.system(
                 today: now(),
                 calendar: calendar,
-                voice: promptVoice(),
                 hasSummaries: built.rollupMonthCount > 0,
                 provider: provider.kind
             ),
@@ -380,7 +376,7 @@ final class AskService {
         case .openAI:
             return AskContextBuilder.openAIBudget
         case .onDevice:
-            let fixed = AskPrompt.system(today: now(), calendar: calendar, voice: promptVoice(), hasSummaries: false, provider: .onDevice).count
+            let fixed = AskPrompt.system(today: now(), calendar: calendar, hasSummaries: false, provider: .onDevice).count
                 + AskPrompt.folded(previous: previousTurn(), into: "").count
                 + question.count
                 + AskPrompt.onDeviceNotesHeadroom

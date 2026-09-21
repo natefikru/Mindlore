@@ -114,7 +114,10 @@ after the system prompt and the answer headroom come out.
   check and sanitized the same way; it carries a handle, so an answer can cite a day it only saw a
   line of. `wasCut` counts a digest as having seen the entry, so a question whose whole matched set
   fit in lines has nothing to hedge about. On device there are no digests: one block is most of the
-  budget.
+  budget. **The entries take their room first and the lines take what is left.** Held back in front
+  of them, the reserve has to be charged at a line's worst case (160 characters, a true upper bound
+  the slice is derived from) while a real line costs about sixty, and a question matching two
+  hundred entries lost two of its twenty best-matching entries to room the lines then didn't use.
 - **The index rebuilds on a fingerprint**, not a timer: entry, link, and entity counts plus three
   monotonic counters (`EntrySaver.revision`, `GraphServices.revision`, `JournalSaves.revision`).
   Ordinals, never dates, so a clock stepping back cannot hide a change. `JournalSaves` sits inside
@@ -129,7 +132,11 @@ after the system prompt and the answer headroom come out.
   are out of the prose; OpenAI returns citations in a field, and only the on-device model, which has
   no structured output, still writes `[E3]` inline for `AskAnswerParser` to strip. That split is why
   the prompt has a short form, since the whole on-device session is 6,000 characters.
-  `AskPrompt.notes` still says "you can see 20 of the 213 entries that bear on this", says which
+  Ask takes no `PromptVoice`, unlike every other prompt: the setting decides how a written summary
+  refers to the author, and a conversation is the one place that question doesn't arise, so Ask
+  addresses them as "you" and never sends their name. Wired to the setting, the model half-obeyed and
+  half-addressed, opening one answer "my life settled into a rhythm" and the next "you ran by the
+  river". `AskPrompt.notes` still says "you can see 170 of the 213 entries that bear on this", says which
   days the entries came from, and says when nothing matched and these are simply the newest
   entries, but every note now carries its own gag order, because a note stated as a fact came back
   out inside the answer. `AskPromptToneTests` holds all of it, the old sentence asserted as absent.
@@ -138,10 +145,13 @@ after the system prompt and the answer headroom come out.
   September") for an aggregate question, counting **the matched set**, not the month: counting the
   month instead is the confident wrong answer the rollup exists to prevent. Counts and coverage
   only; mood, area, and tag distributions are Reflect's. Ask uses `PromptVoice` like every other
-  prompt, so an answer reads in the journal's own voice.
-- **Prompt safety is unchanged from A7.** Journal text is data inside `<<<entry` fences, delimiters
-  and handle-shaped text are stripped, citations are enumerated from the handles this request
-  actually carried, and answers render with `Text(verbatim:)`.
+  prompt.
+- **Prompt safety is unchanged from A7, with one hole closed.** Journal text is data inside
+  `<<<entry` fences, delimiters and handle-shaped text are stripped, citations are enumerated from
+  the handles this request actually carried, and answers render with `Text(verbatim:)`.
+  `AskContextBuilder.sanitized` now strips to a fixpoint rather than once: a single pass is defeated
+  by nesting, since `entrentry>>>y>>>` has its inner match removed and the outer halves close up into
+  a live delimiter. In a digest block that would put every line after it outside the fence.
 - **The search panel reads the same index.** `JournalSearch` ranks through `AskIndex` with the last
   word expanded by prefix, then fetches by id for titles and snippets, and falls back to the old
   substring predicate when the ranked path finds nothing (which also covers a query that is all stop
