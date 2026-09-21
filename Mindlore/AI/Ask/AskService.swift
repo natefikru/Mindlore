@@ -445,6 +445,14 @@ final class AskService {
 
     var canStop: Bool { turns.last?.isStreaming == true }
 
+    // The spinner's whole job: the wait before the first word. Once text is arriving the answer
+    // itself says the work is happening.
+    var isWaitingForFirstWord: Bool {
+        guard isRunning else { return false }
+        guard let last = turns.last else { return true }
+        return last.role == .user || last.text.isEmpty
+    }
+
     private func show(_ text: String?, in turnID: UUID) {
         guard let text, let index = turns.firstIndex(where: { $0.id == turnID }), turns[index].text != text else { return }
         turns[index].text = text

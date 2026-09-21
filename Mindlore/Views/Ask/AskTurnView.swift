@@ -50,6 +50,7 @@ struct AskTurnView: View {
     // an answer streams in or the keyboard moves.
     @State private var refs: [UUID: AskEntryRefs.Ref] = [:]
     @State private var showsAllCitations = false
+    @State private var pulse = false
 
     var body: some View {
         content
@@ -73,15 +74,20 @@ struct AskTurnView: View {
             .padding(.horizontal)
         case .assistant:
             VStack(alignment: .leading, spacing: 8) {
-                HStack {
-                    Text(verbatim: turn.text)
-                        .foregroundStyle(turn.failureRaw == nil ? .primary : .secondary)
-                        .accessibilityIdentifier(turn.failureRaw == nil ? "askAnswer" : "askAnswerNote")
-                    Spacer(minLength: 0)
+                // Nothing has arrived yet: the spinner under the conversation is saying so, and
+                // an empty bubble would only say it twice.
+                if !(turn.isStreaming && turn.text.isEmpty) {
+                    HStack(alignment: .firstTextBaseline, spacing: 2) {
+                        Text(verbatim: turn.text)
+                            .foregroundStyle(turn.failureRaw == nil ? .primary : .secondary)
+                            .accessibilityIdentifier(turn.failureRaw == nil ? "askAnswer" : "askAnswerNote")
+                        if turn.isStreaming { caret }
+                        Spacer(minLength: 0)
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 10)
+                    .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
                 }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 10)
-                .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
                 citations
                 footer
             }
@@ -89,6 +95,17 @@ struct AskTurnView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal)
         }
+    }
+
+    // Something alive at the end of the sentence, so a pause between deltas reads as thinking
+    // rather than as finished.
+    private var caret: some View {
+        Text(verbatim: "\u{258B}")
+            .foregroundStyle(.tertiary)
+            .opacity(pulse ? 0.2 : 1)
+            .animation(.easeInOut(duration: 0.6).repeatForever(autoreverses: true), value: pulse)
+            .onAppear { pulse = true }
+            .accessibilityHidden(true)
     }
 
     // How many chips a quiet answer can carry. A broad question can now cite thirty-three days,
@@ -170,6 +187,12 @@ struct AskTurnView: View {
                     .font(.caption)
                     .foregroundStyle(.tertiary)
                     .accessibilityIdentifier("askWhatWasSent")
+            }
+            if turn.wasStopped {
+                Text("Stopped")
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+                    .accessibilityIdentifier("askStopped")
             }
             if turn.canRetry, isLast {
                 Button("Retry", action: retry)

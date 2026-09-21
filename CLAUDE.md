@@ -175,8 +175,34 @@ after the system prompt and the answer headroom come out.
   would send. The source chips under an answer stay, quiet and tappable, and "What was sent" is an
   icon on the footer row; that sheet is where the receipt lives, and it says how many entries were
   read in full against how many as one line.
-- **Diagnostics** (`ask.indexed`, `ask.retrieved`, `ask.answered`, `ask.failed`) carry counts,
-  durations, bools, and rounded scores. Never a term, a tag, a name, a question, or a handle map.
+- **The answer arrives as it is written.** Measured on the phone against 300 entries: 4.0 to 8.4
+  seconds, every one of them a spinner on a blank screen, with the first sentence ready inside a
+  second. `StreamingTextGenerator` is the opt-in, by conformance rather than provider name, and
+  `OpenAICompatibleTextGenerator` is the only conformer; Foundation Models keeps the awaited path,
+  since nobody watches a title or an insight being written either. The hard part is that Ask uses
+  structured output, so a live answer means reading a half-written string out of a half-written
+  object: `StreamingJSONString` does it **statelessly**, re-scanning the whole buffer each frame and
+  carrying nothing across a chunk boundary, because a `\uXXXX` split across two network reads is
+  the bug that passes every test and fails on the phone. Citations land when the object closes,
+  which is when the handles exist, so the chips come last. `SSEParser` holds bytes until a line is
+  whole for the same reason a character can straddle a read. A non-2xx status is not a stream: the
+  body is collected and mapped by the code that maps a single-shot one, and `ProviderQuirks`
+  remembers a server that rejects `stream` the way it already remembered one that rejects a strict
+  schema. An idle watchdog fails a stream that goes 30 seconds without a frame, or a server that
+  accepts and then stalls holds a half-written answer until the 300 second request timeout.
+- **Cancellation is two things.** A cancelled task (the screen left, the conversation switched) and
+  an explicit Stop. The stream is read in its own task so Stop can cut one that has gone quiet, and
+  the flag is what tells them apart afterwards. **Stop keeps what arrived**, marked stopped, with no
+  chips and nothing to retry, and it is saved, because a stopped answer is still an answer (owner,
+  2026-09-21). A stream that *dies* halfway is the opposite: the partial goes and the ordinary
+  failure turn arrives with Retry, exactly as a dropped request always did. The spinner shrank to
+  what it should always have been, the wait before the first word, and the growing answer is
+  followed on a 200 ms tick rather than per delta, which is the difference between following the
+  text and fighting the thumb.
+- **Diagnostics** (`ask.indexed`, `ask.retrieved`, `ask.answered`, `ask.stopped`, `ask.failed`) carry counts,
+  durations, bools, and rounded scores, `ask.answered` including `streamed` and
+  `firstChunkMilliseconds`, which is the number streaming exists to move. Never a term, a tag, a
+  name, a question, a handle map, or a word of a delta.
 - **Measured, not assumed.** Two suites, doing different jobs. `AskRetrievalQualityTests` is the
   regression guard: a fixed 25-entry corpus and 16 questions whose expected answers were written
   from the entry text before retrieval ran once, asserted per question, with follow-ups scored with

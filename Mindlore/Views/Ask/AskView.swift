@@ -15,9 +15,13 @@ struct AskView: View {
     @State private var peekTarget: PeekTarget?
     @State private var showsHistory = false
     @State private var sentTurn: AskTurn?
+    @State private var scrollPosition = ScrollPosition()
     @FocusState private var fieldFocused: Bool
 
     static let searchDelay = Duration.milliseconds(250)
+    // Five follows a second: fast enough that the last line stays in view, slow enough that the
+    // scroll reads as one movement.
+    static let scrollFollowInterval = Duration.milliseconds(200)
     // Tall enough for a few rows, short enough that the conversation stays on screen behind it.
     static let searchPanelHeight: CGFloat = 320
 
@@ -139,7 +143,9 @@ struct AskView: View {
                         )
                         .id(turn.id)
                     }
-                    if ask.isRunning {
+                    // Only the wait before the first word. Once text is arriving, the answer is
+                    // its own progress.
+                    if ask.isWaitingForFirstWord {
                         ProgressView()
                             .padding(.horizontal)
                             .accessibilityIdentifier("askThinking")
@@ -147,9 +153,21 @@ struct AskView: View {
                 }
                 .padding(.vertical)
             }
+            .scrollPosition($scrollPosition)
             .onChange(of: ask.turns.count) {
                 guard let last = ask.turns.last else { return }
                 withAnimation { proxy.scrollTo(last.id, anchor: .bottom) }
+            }
+            // A growing answer is followed on a tick rather than per delta: deltas arrive tens of
+            // times a second, and a scroll per delta is a fight with the thumb rather than a
+            // follow. Once the reader has scrolled themselves, the screen is theirs.
+            .task(id: ask.canStop) {
+                guard ask.canStop else { return }
+                while !Task.isCancelled, ask.canStop {
+                    try? await Task.sleep(for: Self.scrollFollowInterval)
+                    guard !Task.isCancelled, !scrollPosition.isPositionedByUser, let last = ask.turns.last else { continue }
+                    withAnimation(.linear(duration: 0.2)) { proxy.scrollTo(last.id, anchor: .bottom) }
+                }
             }
         }
     }
@@ -200,14 +218,24 @@ struct AskView: View {
                     .submitLabel(.send)
                     .onSubmit(send)
                     .accessibilityIdentifier("askField")
-                Button("Ask", systemImage: "arrow.up") { send() }
-                    .labelStyle(.iconOnly)
-                    .font(.footnote.weight(.bold))
-                    .frame(width: 28, height: 28)
-                    .background(canSend ? Color.accentColor : Color(.tertiaryLabel), in: Circle())
-                    .foregroundStyle(Color(.systemBackground))
-                    .disabled(!canSend)
-                    .accessibilityIdentifier("askSend")
+                if ask.canStop {
+                    Button("Stop", systemImage: "stop.fill") { ask.stop() }
+                        .labelStyle(.iconOnly)
+                        .font(.caption2.weight(.bold))
+                        .frame(width: 28, height: 28)
+                        .background(Color.accentColor, in: Circle())
+                        .foregroundStyle(Color(.systemBackground))
+                        .accessibilityIdentifier("askStop")
+                } else {
+                    Button("Ask", systemImage: "arrow.up") { send() }
+                        .labelStyle(.iconOnly)
+                        .font(.footnote.weight(.bold))
+                        .frame(width: 28, height: 28)
+                        .background(canSend ? Color.accentColor : Color(.tertiaryLabel), in: Circle())
+                        .foregroundStyle(Color(.systemBackground))
+                        .disabled(!canSend)
+                        .accessibilityIdentifier("askSend")
+                }
             }
             .padding(.leading, 14)
             .padding(.trailing, 6)

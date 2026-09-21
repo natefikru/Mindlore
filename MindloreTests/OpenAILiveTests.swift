@@ -30,6 +30,52 @@ struct OpenAILiveTests {
         #expect(reply.word.lowercased().contains("hello"))
     }
 
+    // The whole point of streaming, measured against the same call without it: the tokens are
+    // identical, and the first word is on screen while the rest is still being written.
+    @Test func streamedAnswerArrivesFirstWordFirst() async throws {
+        let generator = OpenAICompatibleTextGenerator(baseURL: baseURL, apiKey: key, http: http, quirks: ProviderQuirks())
+        let schema = JSONSchema.object([
+            .init(AskPrompt.answerField, .string(description: "The answer, in plain sentences.")),
+            .init("citations", .array(.enumeration(["E1", "E2"]), description: "The handles used.")),
+        ])
+        let request = TextRequest(
+            model: ProviderDefaults.textModel,
+            system: "You answer questions about the author's own journal in four or five sentences.",
+            user: "[E1] I ran by the river on Tuesday and felt better afterwards.\n[E2] Wednesday was long and I slept badly.\nQuestion: how was my week?",
+            schema: schema,
+            schemaName: "journal_ask",
+            maxOutputTokens: 2_000
+        )
+
+        let startedAt = ContinuousClock.now
+        var firstDelta: Duration?
+        var firstWord: Duration?
+        var raw = ""
+        var result: TextResult?
+        for try await event in generator.stream(request) {
+            switch event {
+            case .delta(let delta):
+                if firstDelta == nil { firstDelta = startedAt.duration(to: .now) }
+                raw += delta
+                if firstWord == nil, let text = StreamingJSONString.value(of: AskPrompt.answerField, in: raw), !text.isEmpty {
+                    firstWord = startedAt.duration(to: .now)
+                }
+            case .finished(let finished):
+                result = finished
+            }
+        }
+        let total = startedAt.duration(to: .now)
+        let finished = try #require(result)
+        let answer = try AskAnswerParser.parseJSON(finished.text, known: ["E1", "E2"])
+
+        print("LIVE stream first delta \(firstDelta.map { $0.milliseconds } ?? -1) ms, first word \(firstWord.map { $0.milliseconds } ?? -1) ms, whole answer \(total.milliseconds) ms, \(answer.text.count) characters, tokens in \(finished.inputTokens ?? -1) out \(finished.outputTokens ?? -1)")
+
+        #expect(!answer.text.isEmpty)
+        #expect(finished.outputTokens ?? 0 > 0, "stream_options carried the usage through")
+        let firstWordAt = try #require(firstWord)
+        #expect(firstWordAt < total, "the first word was readable before the answer finished")
+    }
+
     @Test func pageTranscription() async throws {
         let context = try #require(CGContext(data: nil, width: 1_200, height: 400, bitsPerComponent: 8, bytesPerRow: 0, space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue))
         context.setFillColor(CGColor(gray: 1, alpha: 1))
@@ -223,4 +269,8 @@ struct OpenAILiveTests {
         #expect(second.failureRaw == nil)
         #expect(second.citedEntryIDs.contains(pepperEntry.id), "the follow-up cites the same entry under the same handle")
     }
+}
+
+private extension Duration {
+    var milliseconds: Int { Int(components.seconds * 1_000 + components.attoseconds / 1_000_000_000_000_000) }
 }

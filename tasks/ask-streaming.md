@@ -78,17 +78,17 @@ and not in a test. Re-scanning a few kilobytes per frame is free.
 
 ## Phase 4: the screen
 
-- [ ] `AskTurnView` renders the growing text; still `Text(verbatim:)`, so nothing an entry contains
+- [x] `AskTurnView` renders the growing text; still `Text(verbatim:)`, so nothing an entry contains
       becomes markdown while it streams. A caret or a quiet pulse while it is running.
-- [ ] `askThinking` shrinks to what it should always have been: the wait before the first delta.
-- [ ] The scroll follows the growing answer, coalesced rather than per delta, or a long answer
+- [x] `askThinking` shrinks to what it should always have been: the wait before the first delta.
+- [x] The scroll follows the growing answer, coalesced rather than per delta, or a long answer
       fights the user's thumb the whole way down.
-- [ ] `UITestingHTTPClient` gains a streaming stub, or the Ask UI tests stop covering the real path.
+- [x] `UITestingHTTPClient` gains a streaming stub, or the Ask UI tests stop covering the real path.
 
 ## Phase 5: prove it
 
 - [ ] Unit run per CLAUDE.md on this worktree's simulator.
-- [ ] `OpenAILiveTests` gains one streaming case that prints time to first delta and total.
+- [x] `OpenAILiveTests` gains one streaming case that prints time to first delta and total.
 - [ ] Device: the same three questions against the 300-entry demo journal, reading
       `firstChunkMilliseconds` against today's 4.0s to 8.4s totals. That number is the whole point of
       the phase, and it can only be measured there.
