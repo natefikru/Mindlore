@@ -63,16 +63,16 @@ and not in a test. Re-scanning a few kilobytes per frame is free.
 
 ## Phase 3: the service
 
-- [ ] `AskService.answer` appends the assistant turn empty with `isStreaming = true`, then updates
+- [x] `AskService.answer` appends the assistant turn empty with `isStreaming = true`, then updates
       its text per delta. `stillOpen(askedIn:)` is re-checked on every delta, because a conversation
       can be deleted or replaced while the answer is arriving.
-- [ ] Citations, diagnostics and persistence all happen once, at the end, from the complete JSON
+- [x] Citations, diagnostics and persistence all happen once, at the end, from the complete JSON
       through the existing `AskAnswerParser.parseJSON`. Nothing partial is ever written to the store.
-- [ ] A mid-stream failure removes the streaming turn and appends the ordinary failure turn, so it
+- [x] A mid-stream failure removes the streaming turn and appends the ordinary failure turn, so it
       behaves exactly like a dropped request does today, Retry included (owner, 2026-09-21).
-- [ ] `ask.answered` gains `firstChunkMilliseconds` and `streamed`. Counts and durations only, as
+- [x] `ask.answered` gains `firstChunkMilliseconds` and `streamed`. Counts and durations only, as
       ever. Nothing about a delta's text is ever logged.
-- [ ] Stop. The button only exists while a stream is running, and **keeps** what arrived, marked as
+- [x] Stop. The button only exists while a stream is running, and **keeps** what arrived, marked as
       stopped, with no chips: the user chose to stop, so it is not a failure and there is nothing to
       retry. Ruled on by the owner, 2026-09-21: keep the partial text.
 

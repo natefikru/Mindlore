@@ -74,6 +74,9 @@ final class AskMessage {
     var digestEntryCount: Int = 0
     // AIJobFailure.raw when the answer failed, or "ask.noEntries" when there was nothing to send.
     var failureRaw: String?
+    // The author stopped this answer partway. What arrived is kept, and it has no citations,
+    // because the handles only come once the object closes.
+    var wasStopped: Bool = false
 
     init(
         id: UUID = UUID(),
@@ -88,7 +91,8 @@ final class AskMessage {
         matchedCount: Int = 0,
         rollupMonthCount: Int = 0,
         digestEntryCount: Int = 0,
-        failureRaw: String? = nil
+        failureRaw: String? = nil,
+        wasStopped: Bool = false
     ) {
         self.id = id
         self.conversationID = conversationID
@@ -103,6 +107,7 @@ final class AskMessage {
         self.digestEntryCount = digestEntryCount
         self.sentCharacters = sentCharacters
         self.failureRaw = failureRaw
+        self.wasStopped = wasStopped
     }
 
     var role: AskRole {

@@ -29,6 +29,11 @@ nonisolated struct AskTurn: Identifiable, Equatable, Sendable {
     // Of sentEntryIDs, how many went as one line. The rest went whole.
     var digestEntryCount = 0
     var failureRaw: String?
+    // The answer is still arriving. The text grows, and there are no citations yet: the handles
+    // only come when the object closes.
+    var isStreaming = false
+    // The author stopped it partway. Not a failure, so nothing to retry, and no chips.
+    var wasStopped = false
 
     // Whether the answer was written from a sample of a larger set, which is what "What was sent"
     // has to say out loud. A digest counts: the model saw the day, in a line.
@@ -36,7 +41,8 @@ nonisolated struct AskTurn: Identifiable, Equatable, Sendable {
     var fullEntryCount: Int { sentEntryIDs.count - digestEntryCount }
 
     var failure: AIJobFailure? { failureRaw.map(AIJobFailure.init(raw:)) }
-    // "Nothing to go on" is a note about the journal, not something to offer a Retry for.
+    // "Nothing to go on" is a note about the journal, not something to offer a Retry for, and
+    // neither is an answer the author chose to stop.
     var canRetry: Bool { failureRaw != nil && failureRaw != AskFailureText.noEntries }
 }
 
@@ -100,6 +106,10 @@ final class AskService {
     @ObservationIgnored private let calendar: Calendar
     // Set once the conversation has been written, so a reopen and a delete both find it.
     @ObservationIgnored private var isSaved = false
+    // The two halves of stopping: the flag says it was the author rather than the system, and
+    // the task is what the flag cuts.
+    @ObservationIgnored private var stopRequested = false
+    @ObservationIgnored private var streamReader: Task<Delivered?, any Error>?
 
     static let maxHistoryTurns = 6
 
@@ -155,7 +165,8 @@ final class AskService {
                 matchedCount: $0.matchedCount,
                 rollupMonthCount: $0.rollupMonthCount,
                 digestEntryCount: $0.digestEntryCount,
-                failureRaw: $0.failureRaw
+                failureRaw: $0.failureRaw,
+                wasStopped: $0.wasStopped
             )
         }
     }
@@ -288,16 +299,19 @@ final class AskService {
 
         let askedIn = conversationID
         let startedAt = now()
+        // Known before the answer exists, because the turn is on screen while it is written.
+        let turnID = UUID()
 
-        let answer: AskAnswerParser.Answer
+        let delivered: Delivered?
         do {
-            let result = try await provider.generator.generate(request)
-            answer = switch provider.kind {
-            case .openAI: try AskAnswerParser.parseJSON(result.text, known: known)
-            case .onDevice: AskAnswerParser.parseMarkers(result.text, known: known)
-            }
+            delivered = try await deliver(request, provider: provider, known: known, askedIn: askedIn, turnID: turnID, in: context)
         } catch {
-            let failure = AIJobFailure(any: error)
+            // A cancelled task is not an unreadable answer: without this it stores as the
+            // catch-all failure and reads as one.
+            let failure = AIJobFailure(any: error is CancellationError ? AIError.cancelled : error)
+            // What arrived goes with it. A stream that died halfway is a dropped request, and a
+            // dropped request has never left half an answer behind.
+            turns.removeAll { $0.id == turnID }
             guard stillOpen(askedIn, in: context) else { return }
             diagnostics.record("ask.failed", ["error": .string(failure.raw), "turn": .int(turnIndex)])
             var turn = failureTurn(failure)
@@ -312,9 +326,11 @@ final class AskService {
         }
 
         // The conversation may have been deleted, or "New conversation" tapped, while this ran.
-        guard stillOpen(askedIn, in: context) else { return }
-        let turn = AskTurn(
-            id: UUID(),
+        turns.removeAll { $0.id == turnID }
+        guard let delivered, stillOpen(askedIn, in: context) else { return }
+        let answer = delivered.answer
+        var turn = AskTurn(
+            id: turnID,
             role: .assistant,
             text: answer.text,
             citedEntryIDs: answer.handles.compactMap { built.handles[$0] },
@@ -325,7 +341,8 @@ final class AskService {
             rollupMonthCount: built.rollupMonthCount,
             digestEntryCount: built.digestEntryIDs.count
         )
-        diagnostics.record("ask.answered", [
+        turn.wasStopped = delivered.wasStopped
+        var event: [String: DiagnosticValue] = [
             "entries": .int(built.entryIDs.count),
             "digests": .int(built.digestEntryIDs.count),
             "citations": .int(answer.handles.count),
@@ -335,8 +352,102 @@ final class AskService {
             "turn": .int(turnIndex),
             "eligible": .int(eligible),
             "matched": .int(built.matchedCount),
-        ])
+            "streamed": .bool(delivered.streamed),
+        ]
+        // The number this phase exists for: how long the screen was empty, against how long the
+        // whole answer took.
+        if let firstDeltaAt = delivered.firstDeltaAt {
+            event["firstChunkMilliseconds"] = .int(Int(firstDeltaAt.timeIntervalSince(startedAt) * 1000))
+        }
+        diagnostics.record(delivered.wasStopped ? "ask.stopped" : "ask.answered", event)
         finish(question: question, turn: turn, context: built, in: context)
+    }
+
+    // MARK: - Getting the answer across
+
+    private struct Delivered {
+        let answer: AskAnswerParser.Answer
+        let streamed: Bool
+        let wasStopped: Bool
+        // When the first delta landed, which is when the screen stopped being empty.
+        let firstDeltaAt: Date?
+    }
+
+    // Streaming is conformance, not a provider name: a generator that can hand the answer over as
+    // it is written does, and one that cannot is awaited exactly the way it always was. Nil means
+    // the conversation was deleted or replaced while the answer was arriving.
+    private func deliver(
+        _ request: TextRequest,
+        provider: AskProvider,
+        known: Set<String>,
+        askedIn: UUID,
+        turnID: UUID,
+        in context: ModelContext
+    ) async throws -> Delivered? {
+        guard provider.kind == .openAI, let generator = provider.generator as? any StreamingTextGenerator else {
+            let result = try await provider.generator.generate(request)
+            let answer = switch provider.kind {
+            case .openAI: try AskAnswerParser.parseJSON(result.text, known: known)
+            case .onDevice: AskAnswerParser.parseMarkers(result.text, known: known)
+            }
+            return Delivered(answer: answer, streamed: false, wasStopped: false, firstDeltaAt: nil)
+        }
+
+        stopRequested = false
+        turns.append(AskTurn(id: turnID, role: .assistant, text: "", providerLabel: provider.label, isStreaming: true))
+        // Its own task, so Stop can cut a stream that has gone quiet rather than waiting for a
+        // delta that may never come. Cancelling it is how Stop reaches the socket.
+        let reader = Task<Delivered?, any Error> { [self] in
+            var raw = ""
+            var firstDeltaAt: Date?
+            var result: TextResult?
+            for try await event in generator.stream(request) {
+                guard stillOpen(askedIn, in: context) else { return nil }
+                switch event {
+                case .delta(let delta):
+                    if firstDeltaAt == nil { firstDeltaAt = now() }
+                    raw += delta
+                    // The answer is a string inside an object that has not closed yet. The
+                    // citations cannot be read until it does, which is why the chips land last.
+                    show(StreamingJSONString.value(of: AskPrompt.answerField, in: raw), in: turnID)
+                case .finished(let finished):
+                    result = finished
+                }
+            }
+            if stopRequested {
+                let partial = turns.first { $0.id == turnID }?.text ?? ""
+                return Delivered(answer: .init(text: partial, handles: []), streamed: true, wasStopped: true, firstDeltaAt: firstDeltaAt)
+            }
+            guard let result else { throw AIError.invalidResponse }
+            return Delivered(
+                answer: try AskAnswerParser.parseJSON(result.text, known: known),
+                streamed: true,
+                wasStopped: false,
+                firstDeltaAt: firstDeltaAt
+            )
+        }
+        streamReader = reader
+        defer { streamReader = nil }
+        return try await withTaskCancellationHandler {
+            try await reader.value
+        } onCancel: {
+            reader.cancel()
+        }
+    }
+
+    // Stop is not a failure. The author asked for what had arrived, so the stream is cut and the
+    // partial answer stays, marked, without chips and with nothing to retry.
+    func stop() {
+        guard isRunning, canStop else { return }
+        stopRequested = true
+        streamReader?.cancel()
+    }
+
+    var canStop: Bool { turns.last?.isStreaming == true }
+
+    private func show(_ text: String?, in turnID: UUID) {
+        guard let text, let index = turns.firstIndex(where: { $0.id == turnID }), turns[index].text != text else { return }
+        turns[index].text = text
     }
 
     // MARK: - Pieces
@@ -463,7 +574,8 @@ final class AskService {
                     matchedCount: turn.matchedCount,
                     rollupMonthCount: turn.rollupMonthCount,
                     digestEntryCount: turn.digestEntryCount,
-                    failureRaw: turn.failureRaw
+                    failureRaw: turn.failureRaw,
+                    wasStopped: turn.wasStopped
                 )
                 context.insert(message)
                 index += 1
