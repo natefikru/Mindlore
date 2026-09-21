@@ -142,6 +142,9 @@ struct RootView: View {
             Tab("Ask", systemImage: "bubble.left.and.text.bubble.right", value: AppTab.ask) {
                 AskView()
             }
+            Tab("Settings", systemImage: "gearshape", value: AppTab.settings) {
+                SettingsView()
+            }
         }
         // The accessory and the recorder are handed the session directly rather than relying on
         // the environment below reaching their separate hosting.

@@ -2,7 +2,7 @@ import Foundation
 import Observation
 
 enum AppTab: Hashable {
-    case journal, mind, ask
+    case journal, mind, ask, settings
 }
 
 // One entry on Journal's stack. It carries an id, never an Entry, so a deleted entry never leaves a
