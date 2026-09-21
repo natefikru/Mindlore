@@ -108,7 +108,7 @@ final class GraphUITests: XCTestCase {
         finishEntryAndOpenInsights()
 
         let sarahChip = app.buttons["entityChip-person-Sarah"]
-        scrollToElement(sarahChip, in: app.collectionViews.firstMatch)
+        scrollToElement(sarahChip, in: app.scrollViews["insightsSheet"])
         XCTAssertTrue(sarahChip.exists)
         sarahChip.tap()
 
@@ -142,7 +142,7 @@ final class GraphUITests: XCTestCase {
 
         goBack() // entity page -> insights sheet
         let tagChip = app.buttons["entityChip-tag-river"]
-        scrollToElement(tagChip, in: app.collectionViews.firstMatch)
+        scrollToElement(tagChip, in: app.scrollViews["insightsSheet"])
         XCTAssertTrue(tagChip.exists)
         tagChip.tap()
         XCTAssertTrue(app.descendants(matching: .any)["entityPage"].waitForExistence(timeout: 5))
@@ -157,7 +157,7 @@ final class GraphUITests: XCTestCase {
         app.staticTexts.matching(NSPredicate(format: "label CONTAINS 'Met Sarah'")).firstMatch.tap()
         app.buttons["insightsButton"].tap()
         let sarahChipAgain = app.buttons["entityChip-person-Sarah"]
-        scrollToElement(sarahChipAgain, in: app.collectionViews.firstMatch)
+        scrollToElement(sarahChipAgain, in: app.scrollViews["insightsSheet"])
         sarahChipAgain.tap()
         XCTAssertTrue(app.staticTexts["entityBio"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.staticTexts["entityBio"].label.contains("(edited)"))

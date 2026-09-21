@@ -53,7 +53,7 @@ final class InsightsUITests: XCTestCase {
         let open = app.descendants(matching: .any)["looseEnd-open"].firstMatch
         var swipes = 0
         while !open.exists && swipes < 6 {
-            app.collectionViews.firstMatch.swipeUp()
+            app.scrollViews["insightsSheet"].swipeUp()
             swipes += 1
         }
         XCTAssertTrue(open.exists, "the entry left a loose end")

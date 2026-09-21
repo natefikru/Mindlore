@@ -27,7 +27,7 @@ final class GraphScreenshotTests: XCTestCase {
         let chip = app.buttons[identifier]
         var swipes = 0
         while !chip.exists && swipes < 6 {
-            app.collectionViews.firstMatch.swipeUp()
+            app.scrollViews["insightsSheet"].swipeUp()
             swipes += 1
         }
         XCTAssertTrue(chip.exists, "chip: \(identifier)")
@@ -143,9 +143,17 @@ final class GraphScreenshotTests: XCTestCase {
         XCTAssertTrue(app.buttons["insightsReadyButton"].waitForExistence(timeout: 90))
         app.buttons["insightsReadyButton"].tap()
         XCTAssertTrue(app.staticTexts["Summary"].waitForExistence(timeout: 10))
+        sleep(1)
+        attach("insights-sheet")
+        app.scrollViews["insightsSheet"].swipeUp()
+        sleep(1)
+        attach("insights-sheet-lower")
         scrollToChip("entityChip-person-Sarah")
         app.buttons["entityChip-person-Sarah"].tap()
         XCTAssertTrue(app.staticTexts["entityBioDrafted"].waitForExistence(timeout: 10))
         attach("drafted-bio")
+        app.collectionViews.firstMatch.swipeUp()
+        sleep(1)
+        attach("entity-page-lower")
     }
 }

@@ -45,3 +45,20 @@ extension EntityKind {
         }
     }
 }
+
+extension MoodCategory {
+    // A dot beside the mood's word, never the only signal: the word and its meaning carry the
+    // information. The hues tell categories apart and grade nothing; there is no good or bad colour.
+    var color: Color {
+        switch self {
+        case .joyful: .orange
+        case .calm: .teal
+        case .connected: .pink
+        case .reflective: .indigo
+        case .anxious: .yellow
+        case .angry: .red
+        case .low: .blue
+        case .drained: .gray
+        }
+    }
+}

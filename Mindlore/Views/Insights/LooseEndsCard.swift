@@ -7,6 +7,8 @@ struct LooseEndsCard: View {
     @Environment(EntrySaver.self) private var saver
     @Query private var created: [LooseEnd]
     @Query private var settled: [LooseEnd]
+    // Counts loose ends marked done here, so the tap back fires once per close.
+    @State private var closed = 0
 
     init(entryID: UUID) {
         let id: UUID? = entryID
@@ -30,6 +32,7 @@ struct LooseEndsCard: View {
                     .accessibilityIdentifier("looseEndSettledHere")
                 }
             }
+            .sensoryFeedback(Haptics.looseEndClosed, trigger: closed)
         }
     }
 
@@ -71,6 +74,7 @@ struct LooseEndsCard: View {
         saver.flush()
         looseEnd.setByUser(status)
         try? modelContext.save()
+        if status == .resolved { closed += 1 }
     }
 
     private func symbol(_ status: LooseEndStatus) -> String {
