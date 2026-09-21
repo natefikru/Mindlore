@@ -1,0 +1,75 @@
+# Diagnostics privacy coverage
+
+Checked on 2026-09-21 against `feature/phase-a` (131 distinct event names in `Mindlore/`).
+
+**How it was measured.** The event list comes from every `record("…")` call in `Mindlore/`,
+including the two ternaries (`insights.completed`/`insights.stale`, `title.completed`/
+`title.discarded`) and the multi-line `today.shown`. Coverage was measured by instrumenting
+`DiagnosticsLog.record` for one run to append each event name to a scratch file, then running
+each sentinel test on its own. An event counts as covered only if a test that feeds the sentinel
+through the real component actually wrote it. Grepping a test for the event name was not enough.
+The instrumentation was reverted and never committed.
+
+To redo it: add a one-line append to `record`, run the tests below one at a time with
+`test-without-building`, and diff the union against the event list.
+
+## Covered: 70 events, driven by a sentinel test
+
+| Test | Events it drives |
+|---|---|
+| `DiagnosticsPrivacyTests/entryTextNeverReachesTheLog` | `save.completed`, `ingest.completed`, `transcription.started`, `transcription.completed`, `transcription.failed` |
+| `AIDiagnosticsPrivacyTests/aiPathsNeverLogTextKeysOrProviderBodies` | `ai.keySaved`, `ai.connectionTested`, `settings.changed`, `pages.transcription.started`, `pages.transcription.pageCompleted`, `pages.transcription.completed`, `insights.requested`, `insights.started`, `insights.completed`, `insights.failed`, `insights.skipped`, `looseEnds.written`, `looseEnds.faded`, `title.started`, `title.failed`, `graph.indexed`, `graph.entityEdited`, `graph.renameRewrote`, `graph.hidden`, `graph.resurfacingMuted`, `graph.suggestionDismissed`, `graph.merged`, `graph.unmerged`, `graph.repointed`, `graph.contactLinked`, `graph.contactUnlinked`, `graph.contactAccess`, `graph.placeLinked`, `graph.placeUnlinked`, `graph.rendered`, `mind.reviewAnswered`, `mind.focused`, `mind.filtersChanged`, `mind.lensChanged`, `mind.replayed`, `mind.entryOpened` |
+| `AIEdgePathDiagnosticsPrivacyTests/unhappyAIPathsNeverLogTextOrKeys` (new) | `ai.pass`, `ai.offline`, `ai.keyRemoved`, `insights.unavailable`, `insights.stale`, `insights.discarded`, `title.unavailable`, `title.held`, `title.discarded`, `title.completed`, `pages.transcription.unavailable`, `pages.transcription.failed` |
+| `AskDiagnosticsPrivacyTests/askNeverLogsTheQuestionTheEntriesOrTheAnswer` | `ask.indexed`, `ask.retrieved`, `ask.answered`, `ask.failed`, `ask.conversationDeleted` |
+| `CloudTranscriptionIntegrationTests/keyAndProviderErrorBodiesNeverReachTheLog` | `ai.error`, `transcription.fallback` (plus `ai.keySaved`, `ai.connectionTested`, `transcription.*` above) |
+| `BioDiagnosticsPrivacyTests/draftingNeverLogsNamesExcerptsOrBios` | `graph.bioDrafted`, `graph.bioFailed` |
+| `KeepTests/nothingTheCardLogsCarriesAWordTheUserSaid` | `keep.shown`, `keep.dismissed` |
+| `TodayTests/nothingTodayLogsCarriesAWordTheUserWrote` | `today.shown`, `today.dismissed` |
+| `RecordingSessionTests/liveTextNeverReachesTheLog` | `live.availability`, `recording.expanded`, `recording.minimized` |
+| `RecordingSessionTests/takingAPromptMarksItAndLeavesItAloneForAFewDays` | `looseEnds.prompted` |
+
+Of the 32 events added since `main`, 30 are in this table. The other two are `demo.seeded` and
+`demo.seedFailed`, covered below.
+
+## Not driven: 61 events, each with a reason
+
+For each of these, every field at every call site was read. A field is either a typed number or
+bool, an `.id(UUID)`, `.errorCode` (domain and code), a string literal, an enum's `rawValue` or
+`String(describing:)` of an enum, a file name that is a UUID, or a locale identifier. None of
+them can hold text the user wrote or said, whichever path reaches it. The sentinel tests exist
+for fields derived from user data at runtime. These events have none.
+
+**Needs the microphone or on-device speech** (the simulator has neither, see `CLAUDE.md`):
+`recorder.started`, `recorder.stopped`, `recorder.discarded` (file name is the UUID),
+`recorder.paused`, `recorder.resumed`, `recorder.resumeFailed`, `recorder.interrupted`,
+`recorder.interruptionEnded`, `recorder.routeChanged` (audio port type), `recorder.routeRestartFailed`,
+`recorder.engineRestarted`, `recorder.audioGap` (reason is a literal), `recorder.permissionDenied`,
+`recorder.startFailed`, `live.started` and `transcription.module` (locale identifier),
+`live.dropped` (a literal, or the Swift type name of the framework error), `live.finished`,
+`live.assets`, `transcription.assets`, `transcription.authorization`.
+
+**Runs in a SwiftUI view or at app launch**, with no unit-test seam: `app.launch` (`run` is the
+developer's `-diagnosticsRun` argument), `app.scenePhase`, `recovery.moved` (UUID file names),
+`store.openFailed`, `store.entryDatesRepaired`, `store.entryDateRepairFailed`, `editor.closed`,
+`entry.created`, `entry.finished`, `entry.deleted` (source is an enum), `entryDate.changed`,
+`entryDate.dismissed`, `cleanup.applied`, `cleanup.dismissed`, `cleanup.reverted`,
+`text.approved`, `insights.deleted`, `insights.moodsEdited`, `pages.added`, `pages.confirmed`,
+`pages.reordered`, `pages.removed`, `pages.restarted`, `pages.editCancelled`,
+`pages.textReplaced`. Where one of these also fires from a coordinator (`entryDate.changed`,
+`entryDate.suggested`, `cleanup.applied` in `InsightsCoordinator` and
+`PageTranscriptionCoordinator`), that call site logs an id and literals only.
+
+**Debug seeder:** `demo.seeded` and `demo.seedFailed` log counts, a duration and an error code
+through `DiagnosticsLog.shared`, which is disabled under XCTest. They also run over generated
+demo text, never the user's own.
+
+**Coordinator failure and race paths** that need a failing store, a split recording, or a
+provider route the test harness doesn't build: `ai.request` (the provider label, `preset:model`,
+which is configuration, not journal content), `transcription.chunks` (count and chunk
+durations), `transcription.discarded`, `transcription.saveFailed`, `ingest.skipped` and
+`ingest.saveFailed` (UUID file name), `save.failed` (`.errorCode`, which exists for exactly this
+reason), `graph.saveFailed`, `graph.sweep` (counts), `graph.ambiguous` (the kind's raw value),
+`graph.collisionForced`, `pages.transcription.dropped` (a literal reason).
+
+A new event whose fields come from anything the user typed, said, photographed, or named must
+go in a sentinel test, not in this list.
