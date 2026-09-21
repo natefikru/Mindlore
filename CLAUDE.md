@@ -92,6 +92,16 @@ after the system prompt and the answer headroom come out.
   word is harmless (no query asks for one) but "going" lemmatizes to the stop word "go".
   `AskRetrievalQuery.expanded` is the query half, and both the prompt and the panel go through it,
   or the panel would expand fewer words than the question did.
+- **A date in the question is both a filter and a term.** `AskDates` parses today/yesterday, this
+  and last week/month/year, "a week ago" and "the past six months", an explicit day, a month ("in
+  April", "April 2025"), a bare year ("how was 2025"), a season (meteorological, winter straddling
+  the new year, "last summer" meaning the one before this one while it is still running), and
+  "since <month|year|season>", which runs to today rather than meaning that month alone. A parsed
+  range filters, and every entry inside it counts as matched, which is what makes a year's question
+  measured against the year. Separately every entry indexes its own "April 2025" as a context term,
+  so a date still ranks when nothing parsed. Month and season names are fixed English, like the stop
+  list: read from the calendar the caller passes, they came from the device's locale, and a phone
+  set to French silently stopped understanding "in April".
 - **`AskRetrievalQuery` gives retrieval the conversation.** The last three questions contribute terms
   decayed 1, 0.5, 0.25, highest weight winning rather than the sum, so "Why do you think that
   started?" stays about whoever the turn before was about. A range the question names filters; a range
@@ -169,7 +179,9 @@ after the system prompt and the answer headroom come out.
   the continuity slice disabled so they cannot pass on what the last turn was already holding. Its
   known misses are asserted *as* misses, so one starting to work goes red and has to be promoted
   rather than quietly enjoyed; that is how "How was the run?" moved into the fair set when lemmas
-  landed. One miss remains, the synonym ("burnt out" against "running on empty").
+  landed, and how "Was I burnt out in the spring?" moved when seasons started parsing, since the
+  date was doing the damage rather than the synonym. One miss remains, the synonym with no date to
+  lean on ("Was I burnt out?" against "running on empty"), measured at 0.00.
   `AskRetrievalParaphraseTests` is the rate: 57 entries, 25 questions the journal answers in
   different words, sorted by why they are hard, against 8 control questions that share the entries'
   words. Control 1.00 at recall@5; paraphrases 0.20 before lemmas and 0.31 after, with morphology
