@@ -23,7 +23,7 @@ final class TodayUITests: XCTestCase {
 
         let header = app.otherElements["todayHeader"]
         XCTAssertTrue(header.waitForExistence(timeout: 20), "the journal opens onto Today")
-        XCTAssertTrue(app.otherElements["weekStrip"].exists)
+        XCTAssertTrue(app.descendants(matching: .any)["weekStrip"].exists)
 
         let cards = app.otherElements.matching(NSPredicate(format: "identifier BEGINSWITH 'todayCard-'"))
         let before = cards.count
@@ -42,5 +42,17 @@ final class TodayUITests: XCTestCase {
 
         XCTAssertTrue(app.otherElements["todayHeader"].waitForExistence(timeout: 20))
         XCTAssertFalse(app.otherElements[identifier].exists, "still dismissed after a relaunch")
+    }
+
+    func testTappingTheWeekStripOpensReflect() throws {
+        let app = launch(reset: true)
+
+        let weekStrip = app.descendants(matching: .any)["weekStrip"]
+        XCTAssertTrue(weekStrip.waitForExistence(timeout: 20))
+        weekStrip.tap()
+
+        XCTAssertTrue(app.descendants(matching: .any)["reflectView"].waitForExistence(timeout: 5))
+        app.buttons["Done"].tap()
+        XCTAssertFalse(app.descendants(matching: .any)["reflectView"].waitForExistence(timeout: 2), "Done closes Reflect")
     }
 }

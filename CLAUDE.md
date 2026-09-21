@@ -365,6 +365,39 @@ adds before it prunes, so a reschedule cut short by suspension keeps the old wee
 iOS won't show (permission withdrawn in Settings) switches off with the footer saying why. The
 notification centre sits behind `NotificationScheduling`, faked in `DailyReminderTests`.
 
+**Reflect** (`Mindlore/Reflect/`, `Mindlore/Views/Reflect/`). A week or month looked back on: where
+the entries went, how they felt, and one generated paragraph about the stretch. Reached by tapping
+Today's `WeekStrip`, now a button, opening `ReflectView` as a sheet with its own `NavigationStack`;
+no fourth tab, no `AppRouter` change.
+
+- **`ReflectAggregator` is the single source of these counts.** `nonisolated`, no SwiftData import,
+  the same split `EntityGraph` keeps from `GraphServices`: given caller-resolved `EntryFact`s and
+  `LooseEndFact`s and a `DateInterval`, it returns mood distribution, area split, top tags (capped,
+  sorted by count then name), and loose-end opened/closed counts, always as one `Period` for the
+  interval asked about, even an empty one, since a period the user is looking at needs an empty
+  state, not a missing entry in a list. `AskRollups` reads it too, for mood and area lines on an
+  aggregate question's month or year block; top tags stay out of that block, because a tag is
+  closer to the entry's own words than a mood category or an area name.
+- **`ReflectSource`** is the `@MainActor` fetching half, mirroring `TodaySource` against
+  `TodayComposer`: it fetches `Entry`/`EntryInsights` for the period (bucketed by `entryDate`, not
+  `createdAt`) and every `LooseEnd` (unfiltered, since one opened long before a period can still
+  close inside it), and hands `ReflectAggregator` the facts.
+- **`ReflectPeriodSelection`** is week or month plus an offset from now, clamped so Reflect never
+  looks forward. `ReflectView` keys its refresh off the same three monotonic counters
+  (`EntrySaver.revision`, `GraphServices.revision`, `JournalSaves.revision`) Today and Ask key off,
+  never a count, in a `.task(id:)` over the selection and those counters together.
+- **The narrative is new AI territory, not a Phase B "no new AI calls" surface.**
+  `ReflectNarrator.narrate` asks for one paragraph per period the user actually opens: never
+  persisted, never retried (reopening the period asks again), so it does not extend `AIJobPolicy`,
+  which governs three per-entry jobs with counted attempts. The prompt carries only the aggregated
+  facts already on the chart screen (mood distribution, area counts, top tags, loose-end
+  opens/closes, entry count), never raw entry text. It resolves through the existing `AskGenerator`
+  setting (`AIServices.askGenerator`) rather than a second AI toggle, and fails silently: the
+  charts render on their own either way. `reflect.narrated` logs kind, entry count, duration, and a
+  success bool, the same numbers-only rule as every other diagnostics event.
+- **No advice, same rule as Ask and loose ends.** The narrative states what the numbers show and
+  nothing else.
+
 **Adding a provider.** Conform to the capability protocols, add a `ProviderKind` and preset, and resolve it in `AIServices`. The coordinators, settings shape, and views don't change.
 
 **Tests.** Fakes to reuse: `FakeHTTPClient`, `FakeSecretStore`, `FakeKeyValueStore`, `FakeTranscriber`, `FakeTextGenerator`, `FakePageTranscriber`, and the harnesses in `TranscriptionCoordinatorTests`, `PageTranscriptionTests`, and `InsightsTests`. `OpenAILiveTests` and the AI UI tests run against real OpenAI when `TEST_RUNNER_MINDLORE_OPENAI_KEY` is set, and against the app's stub (`-uiTestingFakeAI`, `UITestingHTTPClient`) otherwise; UI tests isolate settings and Keychain per `UITEST_STORE_NAME`, and `-uiTestingFakePages` replaces the camera. `MindloreTests/` uses Swift Testing (`import Testing`, `@Test`, `#expect`). For async code, inject dependencies and await the real task (for example `EntrySaver.scheduledSave`) rather than polling with `Task.yield()`, which can starve the main actor. `MindloreUITests/` uses XCTest and relaunches the app against a named file store to prove data survives.

@@ -1,0 +1,70 @@
+import Foundation
+import SwiftData
+
+// The half of Reflect that touches the store. Fetches, builds `ReflectAggregator` facts, and hands
+// off to the pure computation, the same split `TodaySource` keeps from `TodayComposer`.
+@MainActor
+enum ReflectSource {
+    static func period(_ interval: DateInterval, in context: ModelContext) -> ReflectAggregator.Period {
+        aggregate(interval, looseEnds: looseEndFacts(in: context), context: context)
+    }
+
+    // The trailing periods ending at `selection`, oldest first, for the mood-over-time chart.
+    // Loose ends are fetched once and reused across every period, rather than once per period: the
+    // set is the same unfiltered table read each time, so fetching it `trailingCount` times over
+    // would cost that many full-table reads for identical rows.
+    static func trend(
+        for selection: ReflectPeriodSelection,
+        trailingCount: Int = 6,
+        now: Date = .now,
+        calendar: Calendar = .current,
+        in context: ModelContext
+    ) -> [(selection: ReflectPeriodSelection, period: ReflectAggregator.Period)] {
+        let looseEnds = looseEndFacts(in: context)
+        return stride(from: trailingCount - 1, through: 0, by: -1).map { stepsBack in
+            var point = selection
+            point.offset = selection.offset - stepsBack
+            let interval = point.interval(now: now, calendar: calendar)
+            return (point, aggregate(interval, looseEnds: looseEnds, context: context))
+        }
+    }
+
+    private static func aggregate(
+        _ interval: DateInterval,
+        looseEnds: [ReflectAggregator.LooseEndFact],
+        context: ModelContext
+    ) -> ReflectAggregator.Period {
+        ReflectAggregator.aggregate(facts: entryFacts(in: interval, context: context), looseEnds: looseEnds, in: interval)
+    }
+
+    private static func entryFacts(in interval: DateInterval, context: ModelContext) -> [ReflectAggregator.EntryFact] {
+        let start = interval.start
+        let end = interval.end
+        let descriptor = FetchDescriptor<Entry>(
+            predicate: #Predicate { !$0.isDraft && $0.entryDate >= start && $0.entryDate < end }
+        )
+        let entries = (try? context.fetch(descriptor)) ?? []
+        return entries.map { entry in
+            ReflectAggregator.EntryFact(
+                date: entry.entryDate,
+                mood: entry.insights?.primaryMood?.category,
+                areas: entry.insights?.areas ?? [],
+                tags: entry.insights?.tags ?? []
+            )
+        }
+    }
+
+    // No date predicate: loose ends are few and concrete by design (tasks/todo.md), and one opened
+    // long before this period can still close inside it, so the interval has to see every loose end
+    // to place it, not just ones that started here. `LooseEnd.all(in:)`, not a raw fetch, so a
+    // loose end mid-deletion (autosave is off, so a delete can sit uncommitted) is excluded the
+    // same way every other LooseEnd read in the app excludes it.
+    private static func looseEndFacts(in context: ModelContext) -> [ReflectAggregator.LooseEndFact] {
+        LooseEnd.all(in: context).map { looseEnd in
+            ReflectAggregator.LooseEndFact(
+                openedAt: looseEnd.sourceEntryDate,
+                resolvedAt: looseEnd.status == .resolved ? looseEnd.statusChangedAt : nil
+            )
+        }
+    }
+}

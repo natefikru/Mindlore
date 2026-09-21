@@ -22,7 +22,8 @@ harder. Section 1 is first for that reason.
 1. **Get phase-a to `main`.** The no-phone half now, the device session the next time the iPhone is
    at hand, then merge #6.
 2. **Finish Phase B**: B3 to B9, with B8 gated on a one-hour signing spike.
-3. **Reflect**: weekly and monthly recaps, mood and area over time. Spec first; four decisions below.
+3. **Reflect**: weekly and monthly recaps, mood and area over time. Specced and built (R0-R3) on
+   `feature/reflect`; the device pass and doc updates (R4) are what's left before it merges.
 4. **Later**: text import, embeddings for Ask, typed relationships.
 5. **Blocked**: iCloud sync and a paid tier, both on the paid Apple Developer Program.
 
@@ -134,32 +135,48 @@ Two things parked inside work that's already finished:
 
 ## 3. Reflect
 
-The weekly and monthly layer: build plan Phase 3 and §4.3. Nothing is specced yet. What it covers:
+The weekly and monthly layer: build plan Phase 3 and §4.3, scoped down to what `tasks/reflect-spec.md`
+(revision 1, owner-approved 2026-09-21) actually specced and `feature/reflect` built. The build plan's
+compression ladder (a `Summary` model, daily summarising entries, weekly summarising dailies, a
+scheduled `BGTaskScheduler` run) did not ship: everything here computes on demand from
+`EntryInsights` already on disk, the same way `EntityGraph` and `AskIndex` compute rather than
+store, so there is no new persisted model, no background task, and no cost until the user opens
+Reflect. That simplification is the answer to two of the four decisions below.
 
-- A `Summary` model and the compression ladder: daily summarises entries, weekly summarises dailies,
-  monthly summarises weeklies, so cost stays flat as the journal grows to years.
-- A scheduled synthesis run (`BGTaskScheduler`).
-- Weekly and monthly recap screens: Arc, Recurring, Shifts, Unresolved, per §4.3's prompt, which
-  ends "Write plainly. No motivational framing."
-- Mood over time and area balance charts (Swift Charts; nothing imports Charts yet).
-- The graph maintenance pass (§4.4): refreshing stale bios. It could land here or stay later.
+What shipped, phase by phase:
 
-Search, which the build plan lists in the same phase, already shipped as Ask's search panel.
+- **R0**: `ReflectAggregator`, the pure aggregation layer (mood distribution, area split, top tags,
+  loose-end opens and closes) over a `DateInterval`.
+- **R0.5**: `AskRollups` reads the same aggregator for mood/area questions, so Ask and Reflect share
+  one source of these counts rather than two.
+- **R1**: period navigation (week/month stepper) and the area-balance chart, reached by tapping
+  Today's `WeekStrip`, which is now a button. No fifth tab, no `AppRouter` change.
+- **R2**: mood over time, a stacked bar chart across the trailing six periods.
+- **R3**: the generated narrative, one `TextGenerator` call per period the user actually opens,
+  routed through the existing `AskGenerator` setting, built only from the aggregated facts already
+  on screen (never raw entry text), never persisted or retried.
+- **R4**: privacy test for `reflect.narrated`, and a read-only review of the diff whose seven
+  findings were all fixed (a `LooseEnd` soft-delete filter gap, a stale-AI-task race, a loading
+  state that read as an empty period, a sixfold loose-end refetch, a spec that described the
+  pre-build decision, and the branch's em dashes).
 
-It builds on: `EntryInsights.summary` on every analysed entry (the daily tier's input),
-`AskRollups` (counts and coverage for a period, built for Ask), and Today's `WeekStrip`, which was
-built as Reflect's way in.
+**Reflect merged without its device pass**, the owner's call on 2026-09-21, the same way B5 and B6
+did in PR #23. Steps 33-36 in `tasks/smoke-test.md` (a real week, a real month, an empty period,
+the generator off) are owed against whatever device session happens next. What that leaves unproven
+is only what a simulator can't show: the charts and the narrative against a real journal's shape.
 
-**Four decisions to make before the spec:**
+Search, which the build plan lists in the same phase, already shipped as Ask's search panel. The
+graph maintenance pass (§4.4, refreshing stale bios) is not part of Reflect and stays open below.
 
-1. **Observe or suggest.** Every rule so far says the app observes and never advises (Phase B's
-   thesis; the insights prompt's "do not give advice"). Recaps can stay on that side, with Shifts
-   and Unresolved doing the pointing. Suggestions would reverse a principle, not add a feature.
-2. **Scheduled or on demand.** A nightly run means token cost you didn't ask for that day, and
-   background tasks are untested under the Personal Team. On demand costs nothing until opened.
-3. **Who writes the summaries.** OpenAI, or Apple's on-device model for the daily tier with OpenAI
-   for weekly and monthly.
-4. **Where it lives.** A fifth tab, a screen behind Today's week strip, or part of Mind.
+**The four decisions, resolved:**
+
+1. **Observe or suggest.** Observe. The narrative states facts only ("four entries this week,
+   mostly reflective, two closed loose ends"), same no-advice rule as Ask and loose ends.
+2. **Scheduled or on demand.** On demand: a period's narrative is asked for when opened and
+   forgotten when the user leaves. No `BGTaskScheduler`, no nightly cost.
+3. **Who writes the summaries.** Neither a fixed provider nor a new setting: whatever `AskGenerator`
+   is already set to (off, on-device, or OpenAI).
+4. **Where it lives.** Today's `WeekStrip`, tapped open as a sheet. No fifth tab.
 
 ## 4. Later
 
