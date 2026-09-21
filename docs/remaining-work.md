@@ -38,17 +38,20 @@ can be pulled forward; nothing in B3 to B9 is a hard prerequisite for it.
 
 ### Without the phone
 
-- [ ] **Privacy coverage.** About three dozen diagnostics events were added since `main` (`ask.*`, `mind.*`,
-      `keep.*`, `today.dismissed`, `insights.skipped`, `looseEnds.*`, the contact and place links,
-      and more). Confirm each one runs through `DiagnosticsPrivacyTests` or
-      `AIDiagnosticsPrivacyTests` against the sentinel, and add the cases that are missing.
-- [ ] **Whole-branch review.** A read-only (`Explore`) sub-agent over `git diff origin/main`, with the
-      tree baselined first (`tasks/lessons.md`). Fixes in separate commits.
-- [ ] **Docs.** `CLAUDE.md` checked against what shipped (the A10 list asks for the Graph section to
+- [x] **Privacy coverage.** Measured by instrumenting the log, not by grepping the tests: 70 of the
+      131 events are driven by a sentinel test (11 of them by the new
+      `AIEdgePathDiagnosticsPrivacyTests`), and each of the other 61 has a written reason. The
+      table is `docs/privacy-coverage.md`.
+- [x] ~~**Whole-branch review.**~~ Dropped by the owner on 2026-09-21: every sub-phase had its own
+      review when it landed, and one over 160 commits is too big to be worth its cost.
+- [x] **Docs.** `CLAUDE.md` checked against what shipped (the A10 list asks for the Graph section to
       cover Mind, the search panel, the engine, loose ends, areas and Ask). PR #6's description
       written for the whole branch.
 
 ### With the phone: one session
+
+Run by the owner on the iPhone before 2026-09-21 ("I've already tested all of this stuff on my
+iPhone, it works"). The list stays as the record of what the session covered.
 
 Every device step from every plan, merged into one run and grouped so the phone is set up once per
 group. Expected events for each are in `tasks/smoke-test.md` and `tasks/todo.md` (A10).

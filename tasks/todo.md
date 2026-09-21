@@ -747,8 +747,8 @@ printed probe of the layout's centroid across four node counts. Neither survives
 neither needed to.
 
 ### A10: Privacy, review, device, docs
-- [ ] Privacy test covers every new event.
-- [ ] Sub-agent code review over the whole diff. Fixes go in separate commits.
+- [x] Privacy test covers every new event (`docs/privacy-coverage.md`).
+- [x] ~~Sub-agent code review over the whole diff.~~ Dropped by the owner: each sub-phase was reviewed as it landed.
 - [ ] Device steps, run on a fresh install:
   - Carried from the graph plan:
     - a new voice entry links to an existing person
@@ -763,7 +763,7 @@ neither needed to.
     - fading after a clock change
     - the area distribution on the owner's journal
     - Ask with real questions
-- [ ] `CLAUDE.md` (Graph section rewritten for Mind, the search panel, the engine, loose ends, areas, Ask),
+- [x] `CLAUDE.md` (Graph section rewritten for Mind, the search panel, the engine, loose ends, areas, Ask),
       `docs/remaining-work.md` (Reflect listed next), and `tasks/smoke-test.md` steps.
 - [ ] PR description, marked ready only after the device steps run.
 
