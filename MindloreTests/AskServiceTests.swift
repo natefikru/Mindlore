@@ -301,9 +301,10 @@ struct AskServiceTests {
     // MARK: - Owning up to what the answer is written from
 
     @Test func aCutSetIsSaidOutLoudInThePrompt() async throws {
-        // Thirty entries about the deadline, fifteen of which fit. Without this line the model
-        // describes the whole year from whatever twelve entries it can see, confidently.
-        for index in 0..<30 {
+        // Two hundred entries about the deadline. Twenty go whole and a hundred and fifty go as
+        // lines, and the thirty left over are what the model has to be told about: without the
+        // note it describes the whole stretch from what it can see, confidently.
+        for index in 0..<200 {
             entry("The deadline moved again, week \(index).", daysAgo: Double(index + 1))
         }
         let ask = service()
@@ -314,7 +315,8 @@ struct AskServiceTests {
 
         #expect(request.user.contains("bear on this"))
         #expect(ask.turns.last?.wasCut == true)
-        #expect(ask.turns.last?.matchedCount == 30)
+        #expect(ask.turns.last?.matchedCount == 200)
+        #expect(ask.turns.last?.digestEntryCount == AskRetrieval.maxDigestEntries)
     }
 
     @Test func aSetThatWentWholeSaysNothingAboutBeingCut() async throws {
@@ -421,7 +423,7 @@ struct AskServiceTests {
     // MARK: - What a reopened turn still knows
 
     @Test func theCountsSurviveAReopen() async throws {
-        for index in 0..<30 {
+        for index in 0..<200 {
             entry("The deadline moved again, week \(index).", daysAgo: Double(index + 1))
         }
         let ask = service()
@@ -436,5 +438,6 @@ struct AskServiceTests {
         reopened.open(conversation, in: context)
         #expect(reopened.turns.last?.matchedCount == matched)
         #expect(reopened.turns.last?.wasCut == true)
+        #expect(reopened.turns.last?.digestEntryCount == AskRetrieval.maxDigestEntries)
     }
 }

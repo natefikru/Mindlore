@@ -10,15 +10,22 @@ import Foundation
 // Nothing in here reads text. The index knows what rendering each entry would cost, which is what
 // lets the line under the field say what asking costs without reading the journal.
 nonisolated enum AskRetrieval {
-    // A second brake beside the budget. Fifteen entries is more than any answer needs, and it stops
-    // a long tail of weak matches arriving just because there was room.
-    static let maxRankedEntriesOpenAI = 15
+    // A second brake beside the budget: how many entries go in whole. Past twenty the tail is weak
+    // matches arriving because there was room, and what a broad question needs from the tail is
+    // coverage, not another two thousand characters of it. That is what the digest tier is for.
+    static let maxRankedEntriesOpenAI = 20
     static let maxRankedEntriesOnDevice = 5
+
+    // The digest tier. An entry that matched but didn't fit goes in as one line, so "what happened
+    // this year" sees the year instead of whichever twenty entries ranked highest. A hundred and
+    // fifty lines cost about what seven whole entries do.
+    static let maxDigestEntries = 150
 
     // Absolute, per provider, not shares of the budget. On device the whole budget lands near 3,300
     // characters, where a 20% slice is 660 and a single entry block can be 2,050.
     static let aboutBudgetOpenAI = 3_600
     static let rollupBudgetOpenAI = 6_000
+    static let digestBudgetOpenAI = 24_000
     static let continuityBudgetOpenAI = 4_800
     static let aboutBudgetOnDevice = 800
 
@@ -27,8 +34,12 @@ nonisolated enum AskRetrieval {
     // life area matches most of itself on "how was work", and "12 of 3,000" teaches everyone to
     // ignore the line.
     static let matchRelevanceFloor = 0.25
-    // A matched set this much larger than what fits is an aggregate question whatever its wording.
-    static let aggregateSizeFactor = 3
+    // A matched set this large is an aggregate question whatever its wording. An absolute number
+    // rather than a multiple of the ranked cap, which is what it was: raising the cap from fifteen
+    // to twenty silently moved the threshold from forty-five to sixty and turned rollups off for a
+    // fifty-entry question. Rollups answer "how often", digests answer "what about"; widening one
+    // must not narrow the other.
+    static let aggregateMatchCount = 45
     // When nothing matches at all, the newest entries go instead of nothing. A7 chose this and the
     // rewrite dropped it by accident: "nothing to go on" offers no Retry, so a question the journal
     // simply has no word in common with became a dead end.
@@ -41,10 +52,11 @@ nonisolated enum AskRetrieval {
     nonisolated struct Slices: Sendable, Equatable {
         var about = 0
         var rollups = 0
+        var digests = 0
         var continuity = 0
         var ranked = 0
 
-        var total: Int { about + rollups + continuity + ranked }
+        var total: Int { about + rollups + digests + continuity + ranked }
     }
 
     nonisolated struct Plan: Sendable, Equatable {
@@ -53,6 +65,12 @@ nonisolated enum AskRetrieval {
         var continuityEntryIDs: [UUID] = []
         // Best first.
         var rankedEntryIDs: [UUID] = []
+        // Matched, didn't fit whole, and goes in as one line each. Newest first, which is the order
+        // they render in.
+        var digestEntryIDs: [UUID] = []
+        // What the digest block is allowed to cost, decided here so the renderer holds exactly the
+        // slice the plan spent rather than the ceiling it chose from.
+        var digestCharacters = 0
         // Entries reached because the question is about someone. They render as the sentences that
         // concern them, the way the old tier 1 did, so ten fit where three whole blocks would.
         var excerptEntryIDs: Set<UUID> = []
@@ -69,10 +87,15 @@ nonisolated enum AskRetrieval {
         var isAggregate = false
         var slices = Slices()
 
+        // The entries that go in whole.
         var entryIDs: [UUID] { rankedEntryIDs + continuityEntryIDs }
+        // Everything whose text has to be fetched, digests included: a one-line digest is still
+        // entry text leaving the phone, so it goes through the same gate in AskSources.
+        var fetchedEntryIDs: [UUID] { entryIDs + digestEntryIDs }
         var isEmpty: Bool { entryIDs.isEmpty && aboutEntityIDs.isEmpty }
-        // Whether the prompt has to own up to a cut.
-        var wasCut: Bool { matchedCount > rankedEntryIDs.count }
+        // Whether the prompt has to own up to a cut. A digest counts as having seen the entry, so a
+        // question whose whole matched set fit in lines has nothing to own up to.
+        var wasCut: Bool { matchedCount > rankedEntryIDs.count + digestEntryIDs.count }
     }
 
     // The caps. The renderer applies each as min(cap, what is left) in this order, so a slice that
@@ -84,14 +107,15 @@ nonisolated enum AskRetrieval {
         case .openAI:
             let about = min(aboutBudgetOpenAI, budget)
             let rollups = min(rollupBudgetOpenAI, budget - about)
-            let continuity = min(continuityBudgetOpenAI, budget - about - rollups)
-            return Slices(about: about, rollups: rollups, continuity: continuity,
-                          ranked: budget - about - rollups - continuity)
+            let digests = min(digestBudgetOpenAI, budget - about - rollups)
+            let continuity = min(continuityBudgetOpenAI, budget - about - rollups - digests)
+            return Slices(about: about, rollups: rollups, digests: digests, continuity: continuity,
+                          ranked: budget - about - rollups - digests - continuity)
         case .onDevice:
-            // No rollups and no continuity here: one entry block is most of the budget, and an
-            // answer with nothing to quote is worse than one that lost the thread.
+            // No rollups, no digests, and no continuity here: one entry block is most of the budget,
+            // and an answer with nothing to quote is worse than one that lost the thread.
             let about = min(aboutBudgetOnDevice, budget)
-            return Slices(about: about, rollups: 0, continuity: 0, ranked: budget - about)
+            return Slices(about: about, rollups: 0, digests: 0, continuity: 0, ranked: budget - about)
         }
     }
 
@@ -148,7 +172,7 @@ nonisolated enum AskRetrieval {
         }
         plan.matchedCount = matchedIndices.count
         plan.matchedEntryIDs = Set(matchedIndices.map { index.documents[Int($0)].id })
-        plan.isAggregate = query.aggregateHint || plan.matchedCount > aggregateSizeFactor * limit
+        plan.isAggregate = query.aggregateHint || plan.matchedCount > aggregateMatchCount
 
         // Rollups first, because what they take decides how much is left to rank into. The months
         // come from the matched set, not from everything scored: a single weak tail hit should not
@@ -171,7 +195,14 @@ nonisolated enum AskRetrieval {
         // question shape there is, and on device it could reserve the entire budget and send no
         // entry at all.
         let aboutReserve = self.aboutReserve(for: plan.aboutEntityIDs, in: index, slices: plan.slices, budget: budget)
-        var remaining = max(0, budget - aboutReserve - rollupCharacters)
+
+        // Digest room is held back before the ranked loop runs, or twenty whole entries would eat
+        // it: the ranked loop spends whatever is left, and it is the tail of that same list the
+        // digests exist to cover. Reserved from a count, because nothing here has read an entry.
+        let digestCandidateCount = min(maxDigestEntries, max(0, plan.matchedCount - limit))
+        let digestReserve = min(plan.slices.digests, AskDigests.estimatedCharacters(lineCount: digestCandidateCount))
+
+        var remaining = max(0, budget - aboutReserve - rollupCharacters - digestReserve)
 
         let subjects = Set(plan.aboutEntityIDs)
         var taken: Set<UUID> = []
@@ -205,11 +236,23 @@ nonisolated enum AskRetrieval {
             }
         }
 
+        // Newest first, which is the order they render in, and only what nothing else already took.
+        // A digest of an entry sitting whole three blocks below it would be the same day twice.
+        let digestCapacity = AskDigests.lineCapacity(characters: digestReserve)
+        if digestCapacity > 0 {
+            let candidates = matchedIndices
+                .map { index.documents[Int($0)] }
+                .filter { $0.isSendable && !taken.contains($0.id) }
+                .sorted { $0.date > $1.date }
+            plan.digestEntryIDs = candidates.prefix(digestCapacity).map(\.id)
+            plan.digestCharacters = AskDigests.estimatedCharacters(lineCount: plan.digestEntryIDs.count)
+        }
+
         // "12 of 8" would be nonsense. The floor can cut below what the ranked list then takes,
         // since ranking is not limited to what counts as a match.
-        plan.matchedCount = max(plan.matchedCount, plan.rankedEntryIDs.count)
+        plan.matchedCount = max(plan.matchedCount, plan.rankedEntryIDs.count + plan.digestEntryIDs.count)
 
-        plan.estimatedCharacters = aboutReserve + rollupCharacters + plan.entryIDs.compactMap {
+        plan.estimatedCharacters = aboutReserve + rollupCharacters + plan.digestCharacters + plan.entryIDs.compactMap {
             index.document(withID: $0)?.blockCharacters
         }.reduce(0) { $0 + $1 + blockSeparator }
 

@@ -102,11 +102,13 @@ enum AskSources {
     // The only place entry text is read for a prompt. It still fetches the tables and filters in
     // memory, the way the rest of this codebase does rather than reaching through a relationship in
     // a predicate, but it runs once per question rather than on every pause in typing, and only the
-    // dozen entries the plan chose are read for their text. Eligibility is checked again here
+    // entries the plan chose are read for their text. Eligibility is checked again here
     // because the index is a snapshot, and an entry can have become a draft, gone back to awaiting
     // text, or been deleted since it was built.
     static func blocks(for plan: AskRetrieval.Plan, in context: ModelContext) -> Selection {
-        let wanted = Set(plan.entryIDs)
+        // Digests included: a single line of an entry is still that entry's text leaving the phone,
+        // so it is fetched here, under the same eligibility check, and gets no side door.
+        let wanted = Set(plan.fetchedEntryIDs)
         guard !wanted.isEmpty || !plan.aboutEntityIDs.isEmpty else { return Selection() }
 
         let directory = EntityDirectory(in: context)
@@ -129,7 +131,7 @@ enum AskSources {
         // The plan's order is the ranking, and it survives the fetch, which returns whatever order
         // the store feels like.
         let byID = Dictionary(entries.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
-        let ordered = plan.entryIDs.compactMap { byID[$0] }
+        let ordered = plan.fetchedEntryIDs.compactMap { byID[$0] }
 
         var openLooseEnds: [UUID: [String]] = [:]
         for looseEnd in LooseEnd.all(in: context) where looseEnd.isOpen {

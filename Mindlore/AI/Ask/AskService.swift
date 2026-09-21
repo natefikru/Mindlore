@@ -26,11 +26,14 @@ nonisolated struct AskTurn: Identifiable, Equatable, Sendable {
     var sentCharacters: Int = 0
     var matchedCount = 0
     var rollupMonthCount = 0
+    // Of sentEntryIDs, how many went as one line. The rest went whole.
+    var digestEntryCount = 0
     var failureRaw: String?
 
     // Whether the answer was written from a sample of a larger set, which is what "What was sent"
-    // has to say out loud.
+    // has to say out loud. A digest counts: the model saw the day, in a line.
     var wasCut: Bool { matchedCount > sentEntryIDs.count }
+    var fullEntryCount: Int { sentEntryIDs.count - digestEntryCount }
 
     var failure: AIJobFailure? { failureRaw.map(AIJobFailure.init(raw:)) }
     // "Nothing to go on" is a note about the journal, not something to offer a Retry for.
@@ -160,6 +163,7 @@ final class AskService {
                 sentCharacters: $0.sentCharacters,
                 matchedCount: $0.matchedCount,
                 rollupMonthCount: $0.rollupMonthCount,
+                digestEntryCount: $0.digestEntryCount,
                 failureRaw: $0.failureRaw
             )
         }
@@ -225,7 +229,7 @@ final class AskService {
         guard !trimmed.isEmpty, case .success(let provider) = resolve() else { return Estimate() }
         let plan = retrieval(for: trimmed, asked: false, provider: provider).plan
         return Estimate(
-            entries: plan.entryIDs.count,
+            entries: plan.fetchedEntryIDs.count,
             characters: plan.estimatedCharacters,
             matched: plan.matchedCount
         )
@@ -270,6 +274,7 @@ final class AskService {
         diagnostics.record("ask.retrieved", [
             "matched": .int(retrievalPlan.matchedCount),
             "ranked": .int(retrievalPlan.rankedEntryIDs.count),
+            "digests": .int(retrievalPlan.digestEntryIDs.count),
             "excerpts": .int(retrievalPlan.excerptEntryIDs.count),
             "continuity": .int(retrievalPlan.continuityEntryIDs.count),
             "rollupMonths": .int(retrievalPlan.rollupMonths.count),
@@ -334,6 +339,7 @@ final class AskService {
             turn.sentCharacters = built.characters
             turn.matchedCount = built.matchedCount
             turn.rollupMonthCount = built.rollupMonthCount
+            turn.digestEntryCount = built.digestEntryIDs.count
             finish(question: question, turn: turn, context: built, in: context)
             return
         }
@@ -349,10 +355,12 @@ final class AskService {
             sentEntryIDs: built.entryIDs,
             sentCharacters: built.characters,
             matchedCount: built.matchedCount,
-            rollupMonthCount: built.rollupMonthCount
+            rollupMonthCount: built.rollupMonthCount,
+            digestEntryCount: built.digestEntryIDs.count
         )
         diagnostics.record("ask.answered", [
             "entries": .int(built.entryIDs.count),
+            "digests": .int(built.digestEntryIDs.count),
             "citations": .int(answer.handles.count),
             "characters": .int(built.characters),
             "durationMilliseconds": .int(Int(now().timeIntervalSince(startedAt) * 1000)),
@@ -487,6 +495,7 @@ final class AskService {
                     sentCharacters: turn.sentCharacters,
                     matchedCount: turn.matchedCount,
                     rollupMonthCount: turn.rollupMonthCount,
+                    digestEntryCount: turn.digestEntryCount,
                     failureRaw: turn.failureRaw
                 )
                 context.insert(message)

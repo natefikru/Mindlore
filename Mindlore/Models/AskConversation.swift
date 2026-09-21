@@ -69,6 +69,9 @@ final class AskMessage {
     // gone. Defaulted and not unique, so the CloudKit rules hold.
     var matchedCount: Int = 0
     var rollupMonthCount: Int = 0
+    // How many of sentEntryIDs went as a single line rather than whole, so the privacy sheet can
+    // still say which after a reopen.
+    var digestEntryCount: Int = 0
     // AIJobFailure.raw when the answer failed, or "ask.noEntries" when there was nothing to send.
     var failureRaw: String?
 
@@ -84,6 +87,7 @@ final class AskMessage {
         sentCharacters: Int = 0,
         matchedCount: Int = 0,
         rollupMonthCount: Int = 0,
+        digestEntryCount: Int = 0,
         failureRaw: String? = nil
     ) {
         self.id = id
@@ -96,6 +100,7 @@ final class AskMessage {
         self.sentEntryIDs = sentEntryIDs
         self.matchedCount = matchedCount
         self.rollupMonthCount = rollupMonthCount
+        self.digestEntryCount = digestEntryCount
         self.sentCharacters = sentCharacters
         self.failureRaw = failureRaw
     }

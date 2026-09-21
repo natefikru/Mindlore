@@ -76,12 +76,13 @@ struct AskRetrievalTests {
 
     // MARK: - Slices
 
-    @Test func openAISlicesLeaveRankedFortyPercentOfTheBudget() {
+    @Test func openAISlicesLeaveRankedMostOfTheBudget() {
         let slices = AskRetrieval.slices(budget: AskContextBuilder.openAIBudget, provider: .openAI)
         #expect(slices.about == 3_600)
         #expect(slices.rollups == 6_000)
+        #expect(slices.digests == 24_000)
         #expect(slices.continuity == 4_800)
-        #expect(slices.ranked == 9_600)
+        #expect(slices.ranked == 25_600)
         #expect(slices.total == AskContextBuilder.openAIBudget)
     }
 
@@ -91,6 +92,7 @@ struct AskRetrievalTests {
         let slices = AskRetrieval.slices(budget: 3_300, provider: .onDevice)
         #expect(slices.about == 800)
         #expect(slices.rollups == 0)
+        #expect(slices.digests == 0)
         #expect(slices.continuity == 0)
         #expect(slices.ranked == 2_500)
         #expect(slices.total == 3_300)
@@ -129,12 +131,13 @@ struct AskRetrievalTests {
     }
 
     @Test func rankedIsCappedByWhatTheBudgetActuallyFits() {
-        // Six entries at 2,050 characters is 12,300, and the ranked slice is 9,600 with nothing
-        // else claiming a share, so the whole budget of 24,000 is what limits it.
-        let inputs = (0..<20).map { input("entry\($0)", daysAgo: $0, blockCharacters: 2_050) }
-        let result = plan("deadline", in: index(inputs))
+        // Forty entries at 2,050 characters is 82,000, against a budget of 20,000 that has already
+        // held back room for the digests. Twenty would otherwise go, so it is the budget and not
+        // the cap that decides here.
+        let inputs = (0..<40).map { input("entry\($0)", daysAgo: $0, blockCharacters: 2_050) }
+        let result = plan("deadline", in: index(inputs), budget: 20_000)
         #expect(result.rankedEntryIDs.count < AskRetrieval.maxRankedEntriesOpenAI)
-        #expect(result.estimatedCharacters <= AskContextBuilder.openAIBudget)
+        #expect(result.estimatedCharacters <= 20_000)
     }
 
     // MARK: - matchedCount
@@ -148,8 +151,10 @@ struct AskRetrievalTests {
         let result = plan("deadline", in: index(inputs))
         #expect(result.matchedCount == 21)
         #expect(result.rankedEntryIDs.first == id(for: "strong"))
-        // And the line has something to own up to: fifteen went, twenty-one matched.
-        #expect(result.wasCut)
+        // Twenty went whole and the twenty-first went as a line, so nothing was left behind and
+        // the prompt has nothing to own up to. Before the digest tier this was a cut.
+        #expect(result.digestEntryIDs.count == 1)
+        #expect(result.wasCut == false)
     }
 
     @Test func anEntryThatOnlyBrushedTheQuestionIsNotCounted() {
@@ -170,7 +175,10 @@ struct AskRetrievalTests {
         let result = plan("How have I been feeling this year?", in: index(inputs), rollups: true)
         #expect(result.appliedRange != nil)
         #expect(result.matchedCount > 200)
-        #expect(result.rankedEntryIDs.count < 20)
+        #expect(result.rankedEntryIDs.count <= AskRetrieval.maxRankedEntriesOpenAI)
+        // The year arrives as lines. Two hundred of them still don't, which is what the cut note
+        // is for.
+        #expect(result.digestEntryIDs.count == AskRetrieval.maxDigestEntries)
         #expect(result.wasCut)
         // And a set that much larger than the cut is an aggregate question whatever its wording,
         // so the rollup goes in beside the sample.
@@ -185,7 +193,9 @@ struct AskRetrievalTests {
     }
 
     @Test func wasCutIsTrueWhenTheListWasTrimmed() {
-        let inputs = (0..<30).map { input("entry\($0)", daysAgo: $0, blockCharacters: 100) }
+        // Twenty whole and a hundred and fifty lines cover a hundred and seventy of them; the rest
+        // are what a cut is now.
+        let inputs = (0..<200).map { input("entry\($0)", daysAgo: $0, blockCharacters: 100) }
         #expect(plan("deadline", in: index(inputs)).wasCut)
     }
 
@@ -198,7 +208,7 @@ struct AskRetrievalTests {
     }
 
     @Test func aMatchedSetFarLargerThanTheCutIsAggregateWhateverTheWording() {
-        let inputs = (0..<60).map { input("entry\($0)", daysAgo: $0, blockCharacters: 100) }
+        let inputs = (0..<(AskRetrieval.aggregateMatchCount + 5)).map { input("entry\($0)", daysAgo: $0, blockCharacters: 100) }
         let result = plan("what did I write about the deadline", in: index(inputs))
         #expect(result.isAggregate)
     }
