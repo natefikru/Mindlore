@@ -111,6 +111,19 @@ struct AskView: View {
         .sheet(item: $sentTurn) { turn in
             AskWhatWasSentView(turn: turn, openEntry: open(entryID:))
         }
+        // Siri, Shortcuts, or the Action button asked for Ask. Taken on appear too, since the jump
+        // may be what built this view. A question from outside isn't a follow-up to whatever was on
+        // screen, so it starts a new conversation, unless an answer is still being written.
+        .onChange(of: router.askFieldRequest, initial: true) { _, request in
+            guard request != nil, let taken = router.consumeAskField() else { return }
+            if !ask.turns.isEmpty, !ask.isRunning {
+                ask.newConversation()
+            }
+            if let question = taken.question?.trimmingCharacters(in: .whitespacesAndNewlines), !question.isEmpty {
+                ask.draftQuestion = question
+            }
+            fieldFocused = true
+        }
         .onChange(of: router.dismissPresentationsToken) {
             peekTarget = nil
             sentTurn = nil

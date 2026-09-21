@@ -32,6 +32,13 @@ nonisolated struct MindFocusRequest: Equatable, Sendable {
     let token: Int
 }
 
+// A request for Ask to take the field, with a question to put in it or none. Ask fills the field
+// and focuses it; the user sends. The token makes asking twice count.
+nonisolated struct AskFieldRequest: Equatable, Sendable {
+    let question: String?
+    let token: Int
+}
+
 // The selected tab and each tab's path. Every jump between tabs goes through here, and an entry's
 // close rules run when it leaves Journal's path, never when its view merely disappears (a tab
 // switch or a cover over the editor).
@@ -45,6 +52,8 @@ final class AppRouter {
     var mindPath: [EntityRoute] = []
     // Waits here until Mind takes it, since a jump can arrive before Mind was ever built.
     private(set) var mindFocusRequest: MindFocusRequest?
+    // The same for Ask, which may not have been built when an intent asks for it.
+    private(set) var askFieldRequest: AskFieldRequest?
     // Sheets close when this changes, so a jump never lands underneath one.
     private(set) var dismissPresentationsToken = 0
     // Full-screen covers can't be closed from outside (the page screen has its own close rules),
@@ -52,10 +61,13 @@ final class AppRouter {
     @ObservationIgnored private var openCovers: Set<String> = []
     @ObservationIgnored private(set) var pendingJump: PendingJump?
     @ObservationIgnored private var mindFocusToken = 0
+    @ObservationIgnored private var askFieldToken = 0
 
     enum PendingJump: Equatable {
         case entry(JournalRoute)
+        case newEntry
         case mind(UUID)
+        case ask(String?)
         case settings
     }
 
@@ -103,9 +115,43 @@ final class AppRouter {
         pendingJump = nil
         switch pending {
         case .entry(let route): showEntry(route.entryID, forReading: route.opensForReading)
+        case .newEntry: showNewEntry()
         case .mind(let id): showInMind(id)
+        case .ask(let question): showAsk(question: question)
         case .settings: showSettings()
         }
+    }
+
+    // A new written entry from outside the app (Shortcuts, Siri). Replaces Journal's path like
+    // showEntry, so it never lands on top of another open entry, whose close rules run as it goes.
+    func showNewEntry() {
+        guard openCovers.isEmpty else {
+            pendingJump = .newEntry
+            return
+        }
+        keptEntryID = nil
+        dismissPresentationsToken += 1
+        tab = .journal
+        journalPath = [.new()]
+    }
+
+    // Switches to Ask and asks it to take the field. Journal's path is left alone, like Mind.
+    func showAsk(question: String?) {
+        guard openCovers.isEmpty else {
+            pendingJump = .ask(question)
+            return
+        }
+        keptEntryID = nil
+        dismissPresentationsToken += 1
+        askFieldToken += 1
+        askFieldRequest = AskFieldRequest(question: question, token: askFieldToken)
+        tab = .ask
+    }
+
+    // Ask takes the request once, whether it was built before the jump or because of it.
+    func consumeAskField() -> AskFieldRequest? {
+        defer { askFieldRequest = nil }
+        return askFieldRequest
     }
 
     // Switches to Mind at its map and asks it to focus the entity. Journal's path is left alone,

@@ -19,6 +19,8 @@ struct RootView: View {
     private let places: any PlaceDirectory = MKPlaceDirectory()
     @State private var ask: AskService
     @State private var router: AppRouter
+    // Siri, Shortcuts, and the Action button leave their requests here, even before this view exists.
+    @State private var intents = IntentRequests.shared
     @State private var confirmingDiscard = false
     private let context: ModelContext
 
@@ -227,6 +229,12 @@ struct RootView: View {
                 }
                 Task { await pageTranscription.processQueue(context: context) }
             }
+        }
+        // Taken on appear as well as on change: an intent that launched the app left its request
+        // before this view was built.
+        .onChange(of: intents.token, initial: true) {
+            guard let action = intents.take() else { return }
+            IntentHandler.handle(action, recording: recording, router: router)
         }
         .onChange(of: network.isConnected) { _, connected in
             guard connected else { return }
