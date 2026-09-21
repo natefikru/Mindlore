@@ -293,3 +293,38 @@ field should read as glass over the conversation.
 Open an entry's insights: cards on Paper. Mark a loose end done: a success tap. Send a question in
 Ask: a selection tap. Open a person's page from a chip: Paper behind, cards for rows, and swiping a
 loose end still offers Done and Let go.
+
+## Reflect steps (added for the Reflect PR)
+
+Everything here reads mood, area, and loose-end counts off the owner's real journal, which the
+simulator and its demo seed can't stand in for.
+
+### 33. Reflect: a real week
+
+Tap the week strip on Today (now a button). Expect the Reflect sheet opens on the current week,
+showing the area-balance chart, the mood-over-time chart across the trailing six weeks, and a
+generated narrative paragraph if Ask's generator isn't off.
+
+Expect: `reflect.narrated` with `kind=week`, `entryCount` matching the week's real entry count, and
+`success=true`.
+
+### 34. Reflect: a real month, and stepping back
+
+Switch to Month. Step back to a month with real entries in it.
+
+Expect: the area and mood chart counts match what is actually in the journal for that month
+(cross-check a couple by eye against the journal list), and `reflect.narrated kind=month`.
+
+### 35. Reflect: an empty period
+
+Step to a period (within the present) with nothing written in it.
+
+Expect: the "Nothing here" empty state, no chart, no narrative section, and no `reflect.narrated`
+event (an empty period never calls the generator).
+
+### 36. Reflect with the generator off
+
+Settings, turn Ask's generator to Off. Open Reflect on a period with real entries.
+
+Expect: both charts still render normally, no narrative section appears, and no `reflect.narrated`
+event is logged.
