@@ -33,6 +33,9 @@ final class FakeStreamingTextGenerator: StreamingTextGenerator {
         AsyncThrowingStream { continuation in
             let task = Task { @MainActor in
                 streamedRequests.append(request)
+                // Counted per stream, so a second question in the same test can pause where the
+                // first one did.
+                emitted = 0
                 for delta in deltas {
                     continuation.yield(.delta(delta))
                     emitted += 1
