@@ -9,8 +9,7 @@ here in the same commit.
 
 ## Where things stand
 
-`main` is still at PR #3, the knowledge graph. Everything since lives on `feature/phase-a`, which
-is 161 commits ahead: all of Phase A, Phase B up to Today (B0 to B2b), the Ask conversation work
+`main` is Phase A as of 2026-09-21 (PR #6). What it carries: all of Phase A, Phase B up to Today (B0 to B2b), the Ask conversation work
 (#18), the settings sprint (#17, #19), and streaming Ask answers over SSE. Draft PR #6 carries it
 to `main`. No other branch holds work phase-a doesn't.
 
@@ -98,7 +97,9 @@ last, after deciding the real journal can go, or run against `-seedDemoJournal 3
 
 ### Then
 
-- [ ] Mark PR #6 ready and merge phase-a into `main`.
+- [x] Mark PR #6 ready and merge phase-a into `main`. Merged 2026-09-21. The unit suite was green
+      (1,355 tests) and the full UI suite was not run: the owner called it on cost, and the three
+      Ask UI tests had passed against the new streaming stub earlier the same day.
 
 ## 2. Finish Phase B
 
