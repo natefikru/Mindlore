@@ -121,6 +121,15 @@ final class AppRouter {
         mindPath = []
     }
 
+    // Switches to Settings. The insights sheet's "AI is off" recovery is the only caller: it is a
+    // sheet, and a tab switch underneath a sheet leaves the sheet covering the tab it switched to,
+    // so the token has to take the sheet down on the way. Journal's path is left alone, like Mind.
+    func showSettings() {
+        keptEntryID = nil
+        dismissPresentationsToken += 1
+        tab = .settings
+    }
+
     // Mind takes the request once, whether it was built before the jump or because of it.
     func consumeMindFocus() -> UUID? {
         guard let request = mindFocusRequest else { return nil }

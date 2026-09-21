@@ -1,6 +1,6 @@
 import XCTest
 
-// Drives the AI settings screen against the app's stubbed OpenAI (-uiTestingFakeAI). Settings and
+// Drives the AI settings screens against the app's stubbed OpenAI (-uiTestingFakeAI). Settings and
 // Keychain are isolated per test by UITEST_STORE_NAME, so nothing leaks into other tests.
 final class AISettingsUITests: XCTestCase {
     private var app: XCUIApplication!
@@ -17,13 +17,16 @@ final class AISettingsUITests: XCTestCase {
     @MainActor
     func testKeySetupConnectionAndRemoval() throws {
         app.launch()
-        openAISettings()
+        openSettings()
 
+        // Use AI is a row on the Settings root now, not inside an AI screen.
         let toggle = app.switches["aiEnabledToggle"]
         XCTAssertTrue(toggle.waitForExistence(timeout: 5))
         XCTAssertEqual(toggle.value as? String, "0")
         toggle.switches.firstMatch.tap()
         XCTAssertEqual(toggle.value as? String, "1")
+
+        openKey()
 
         // A key the provider rejects is saved but reported as invalid.
         enterKey("sk-wrong")
@@ -36,9 +39,13 @@ final class AISettingsUITests: XCTestCase {
         // Relaunch with the same store: AI stays on and the key stays saved.
         app.terminate()
         app.launch()
-        openAISettings()
+        openSettings()
         XCTAssertTrue(app.switches["aiEnabledToggle"].waitForExistence(timeout: 5))
         XCTAssertEqual(app.switches["aiEnabledToggle"].value as? String, "1")
+        // The root's own row reports the key without opening it.
+        XCTAssertTrue(app.buttons["aiKeyLink"].label.contains("Saved"))
+
+        openKey()
         // The labeled row reads as one element, "API key, Saved".
         let saved = app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", "Saved")).firstMatch
         XCTAssertTrue(saved.waitForExistence(timeout: 5))
@@ -50,11 +57,16 @@ final class AISettingsUITests: XCTestCase {
         XCTAssertFalse(app.buttons["Test connection"].exists)
     }
 
-    private func openAISettings() {
-        let settings = app.buttons["Settings"]
+    // Scoped to the tab bar on purpose: app.buttons["Settings"] also matches the tab item, so an
+    // unscoped tap cannot tell a tab from a toolbar gear. See SettingsTabUITests.
+    private func openSettings() {
+        let settings = app.tabBars.buttons["Settings"]
         XCTAssertTrue(settings.waitForExistence(timeout: 5))
         settings.tap()
-        let link = app.buttons["aiSettingsLink"]
+    }
+
+    private func openKey() {
+        let link = app.buttons["aiKeyLink"]
         XCTAssertTrue(link.waitForExistence(timeout: 5))
         link.tap()
     }

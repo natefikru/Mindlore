@@ -51,7 +51,7 @@ struct JournalVoiceSettingsView: View {
             }
         }
         .paperBackground()
-        .navigationTitle("How AI writes about you")
+        .navigationTitle("How You're Written About")
         .navigationBarTitleDisplayMode(.inline)
         .onAppear { name = settings.userName }
     }

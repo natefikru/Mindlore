@@ -17,6 +17,7 @@ struct EntryInsightsView: View {
     @Environment(InsightsCoordinator.self) private var insightsCoordinator
     @Environment(TitleCoordinator.self) private var titleCoordinator
     @Environment(AIPassTrigger.self) private var aiPass
+    @Environment(AppRouter.self) private var router
     @State private var confirmingRun = false
     @State private var confirmingDelete = false
     @State private var editingMoods = false
@@ -154,7 +155,8 @@ struct EntryInsightsView: View {
             }
             switch state {
             case .aiOff, .missingKey:
-                NavigationLink("Open AI settings") { AISettingsView() }
+                Button("Open AI settings") { router.showSettings() }
+                    .accessibilityIdentifier("openAISettingsButton")
             case .awaitingApproval:
                 Button("Approve text") { approve() }
                     .accessibilityIdentifier("approveFromInsightsButton")

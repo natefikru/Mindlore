@@ -14,9 +14,6 @@ struct LifeAreasSettingsView: View {
             } footer: {
                 Text("Each entry is filed under one or two of these. Renaming changes what you see, and hiding an area removes it from the journal's chips and filters without changing any entry.")
             }
-            #if DEBUG
-            LifeAreaDebugSection()
-            #endif
         }
         .paperBackground()
         .navigationTitle("Life areas")
@@ -54,45 +51,6 @@ private struct LifeAreaRow: View {
         .onAppear { name = settings.lifeAreaNames[area.rawValue] ?? "" }
     }
 }
-
-#if DEBUG
-private struct LifeAreaDebugSection: View {
-    @Environment(\.modelContext) private var modelContext
-    @Environment(InsightsCoordinator.self) private var insights
-    @State private var shares: [(area: LifeArea, percent: Int)] = []
-    @State private var filed = 0
-    @State private var regenerating = false
-
-    var body: some View {
-        Section {
-            ForEach(shares, id: \.area) { share in
-                LabeledContent(share.area.defaultName, value: "\(share.percent)%")
-            }
-            Button(regenerating ? "Regenerating…" : "Regenerate insights for every entry") {
-                regenerating = true
-                Task {
-                    await insights.regenerateEverything(context: modelContext)
-                    regenerating = false
-                    refresh()
-                }
-            }
-            .disabled(regenerating)
-        } header: {
-            Text("Debug: distribution")
-        } footer: {
-            Text("Share of \(filed) filed entries per area. Above 40% suggests splitting an area, below 3% merging it. Regenerating sends every entry to the AI provider, oldest first.")
-        }
-        .task { refresh() }
-    }
-
-    private func refresh() {
-        let all = (try? modelContext.fetch(FetchDescriptor<EntryInsights>())) ?? []
-        let filedInsights = all.filter { !$0.areas.isEmpty }
-        filed = filedInsights.count
-        shares = LifeAreaDistribution.shares(filedInsights.map(\.areas))
-    }
-}
-#endif
 
 nonisolated enum LifeAreaDistribution {
     // Percent of filed entries that carry each area. An entry with two areas counts for both,
