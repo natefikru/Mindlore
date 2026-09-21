@@ -13,7 +13,7 @@ scrolling. What it found was fixed the same evening.
 
 These steps are still unrun. `tasks/smoke-test.md` has the expected events for each.
 
-- [ ] **Bad key.** Settings, AI, replace the key with `sk-not-a-real-key`, record 10 seconds. Expect
+- [ ] **Bad key.** Settings tab, OpenAI key, replace the key with `sk-not-a-real-key`, record 10 seconds. Expect
       `ai.error` with `ai.invalidKey`, a fallback to the phone, and no re-upload after a relaunch.
       Restore the real key afterwards.
 - [ ] **Pages offline.** Airplane mode on, photograph one page, confirm. Expect one `ai.offline` and
@@ -85,8 +85,11 @@ Left for later, each with its reason:
       the entry are untouched.
 - [ ] **Diff and thumbnail work happens in view bodies** (`CleanupReviewView`, `PageStripView`,
       `PageOrderView`): fine at today's sizes, worth caching if entries or page counts grow.
-- [ ] **Turning every insight section off** lets Run AI send a request with an empty schema, which the
-      provider rejects. Should be blocked in the UI.
+- [x] **Turning every insight section off** let a request go out with an empty schema, which the
+      provider rejects. Fixed in the settings sprint, and it was worse than this line said: the
+      automatic path sent it too, and which sections reach the schema depends on the entry's source.
+      `InsightsCoordinator.generate` now refuses a plan that asks for nothing (`insights.skipped`),
+      and the settings screen keeps the last section from being switched off.
 - [ ] **Test harness fakes hang rather than fail** when a coordinator stops calling them; the unit test
       command's per-test time allowance is what stops a full stall.
 

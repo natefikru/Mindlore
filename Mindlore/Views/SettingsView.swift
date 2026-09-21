@@ -5,6 +5,20 @@ import SwiftUI
 // top level rather than three levels down inside AI.
 struct SettingsView: View {
     @Environment(SettingsStore.self) private var settings
+    @Environment(\.modelContext) private var modelContext
+    @Environment(EntrySaver.self) private var saver
+    @Environment(GraphServices.self) private var graph
+    @State private var totals = JournalTotals()
+
+    // Today's fingerprint, minus the day: `saver` and `graph` are observable and redraw this view
+    // when they move, and `JournalSaves.revision` rides along for the coordinators that save
+    // straight through `saveStampingEntries`. Never a count, which an add and a delete can return
+    // to where it was.
+    private struct TotalsFingerprint: Equatable {
+        let saver: Int
+        let graph: Int
+        let stamped: Int
+    }
 
     var body: some View {
         @Bindable var settings = settings
@@ -44,6 +58,18 @@ struct SettingsView: View {
                 }
 
                 AISettingsSection()
+
+                Section {
+                    LabeledContent("Entries", value: "\(totals.entries)")
+                        .accessibilityIdentifier("totalEntries")
+                    LabeledContent("People, places, and more", value: "\(totals.names)")
+                        .accessibilityIdentifier("totalNames")
+                } header: {
+                    Text("About")
+                }
+                .task(id: TotalsFingerprint(saver: saver.revision, graph: graph.revision, stamped: JournalSaves.revision)) {
+                    totals = JournalTotals.count(in: modelContext)
+                }
 
                 #if DEBUG
                 LifeAreaDebugSection()

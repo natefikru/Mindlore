@@ -6,7 +6,7 @@ simulator `iPhone 17 settings` (`DBF519FD-3CB6-430F-B092-A166BA8C4E5B`). Baselin
 `AskRetrievalQualityTests` question; that is the cold-simulator lemma asset issue in
 `tasks/lessons.md`, and the second run passed with no code change.
 
-Status: awaiting approval. Nothing below is built.
+Status: built on `feature/settings` (PR #17), approved by the owner on 2026-09-21. The "Done" notes under each phase and the "Built" section at the end record what changed on the way.
 
 ## What this is
 
@@ -459,3 +459,28 @@ toolbar buttons.
 One, and it is small: **"Your journal" in About.** It is new behaviour rather than audit or
 restyle, it was in the IA you picked, and it is phase 5, so it can be dropped without touching
 anything else. Say the word either way when you approve the rest.
+
+## Built
+
+Five commits on `feature/settings`, PR #17. 1271 unit tests (1263 at the start), plus
+`AISettingsUITests`, `AIConfigurationUITests`, `TodayUITests`, and two new classes:
+`SettingsTabUITests` and `SettingsScreenshotTests`.
+
+What changed on the way, against the plan above:
+
+- **Phase 1's open question was answered the uncomfortable way.** Both AI settings classes passed
+  unchanged, because `app.buttons["Settings"]` matched the tab item as readily as the gear.
+  `SettingsTabUITests` scopes to `tabBars` and was proven to fail with the `Tab` deleted.
+- **Phase 3's guard failed the way the review predicted.** With the guard removed, the new test's
+  failure printed the request going out with `schema: object([])`.
+- **The screenshots caught four things the suite did not**: life area names in placeholder grey,
+  the voice options in Ember, a bare "I" as the root row's value, and an Edit button on an empty
+  list. All fixed, then re-shot and looked at again. Twenty screenshots, ten screens in each
+  appearance, plus the bottom of the root in both.
+- **About lost "hours spoken".** `Entry.removeAudio()` clears `audioDuration` when Keep recordings
+  is off, so that total would shrink behind the user's back, which breaks phase B's rule for numbers
+  on screen. Entries and names stay. Keeping the duration after the audio goes is a model change,
+  left for whoever wants the number.
+- **Advanced's model rows** show two free-text fields and one picker under the UI test stub, because
+  `ModelField` falls back to a field when the provider's list has one match or fewer. With a real
+  key all three are pickers. Left as it is.

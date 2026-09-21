@@ -53,6 +53,13 @@ final class SettingsScreenshotTests: XCTestCase {
         XCTAssertTrue(app.navigationBars["Settings"].waitForExistence(timeout: 10))
         attach("\(tag)-settings-root")
 
+        // About and, in this Debug build, the Debug section sit below the fold.
+        let entries = app.descendants(matching: .any)["totalEntries"]
+        for _ in 0..<4 where !(entries.exists && entries.isHittable) { app.swipeUp() }
+        XCTAssertTrue(entries.exists, "About should be on the root")
+        attach("\(tag)-settings-root-bottom")
+        for _ in 0..<4 { app.swipeDown() }
+
         open("lifeAreasSettingsLink")
         attach("\(tag)-life-areas")
         back()
