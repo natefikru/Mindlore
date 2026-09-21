@@ -155,9 +155,15 @@ What shipped, phase by phase:
 - **R3**: the generated narrative, one `TextGenerator` call per period the user actually opens,
   routed through the existing `AskGenerator` setting, built only from the aggregated facts already
   on screen (never raw entry text), never persisted or retried.
-- **R4** (in progress): privacy test for `reflect.narrated`, a read-only review of the diff. The
-  device pass (a real week and month on the owner's journal, an empty period, the narrative on and
-  off) needs the phone and is what's left before the PR (#22) comes off draft.
+- **R4**: privacy test for `reflect.narrated`, and a read-only review of the diff whose seven
+  findings were all fixed (a `LooseEnd` soft-delete filter gap, a stale-AI-task race, a loading
+  state that read as an empty period, a sixfold loose-end refetch, a spec that described the
+  pre-build decision, and the branch's em dashes).
+
+**Reflect merged without its device pass**, the owner's call on 2026-09-21, the same way B5 and B6
+did in PR #23. Steps 33-36 in `tasks/smoke-test.md` (a real week, a real month, an empty period,
+the generator off) are owed against whatever device session happens next. What that leaves unproven
+is only what a simulator can't show: the charts and the narrative against a real journal's shape.
 
 Search, which the build plan lists in the same phase, already shipped as Ask's search panel. The
 graph maintenance pass (§4.4, refreshing stale bios) is not part of Reflect and stays open below.

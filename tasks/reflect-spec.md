@@ -2,8 +2,9 @@
 
 Branch: `feature/reflect` from `main` at `c4449a1` ("Phase A is on main").
 
-Status: revision 1, approved by the owner on 2026-09-21. R0 through R4 are built, on `feature/reflect`
-(PR #22). The device pass in R4 is still open, run by the owner on a physical iPhone.
+Status: revision 1, approved by the owner on 2026-09-21. R0 through R4 are built and merged to
+`main` (PR #22). R4's device pass did not run: the owner called it on 2026-09-21, as with B5 and
+B6 in PR #23, so `tasks/smoke-test.md` steps 33-36 are owed against the next device session.
 
 ## Why
 
