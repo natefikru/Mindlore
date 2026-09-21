@@ -456,6 +456,133 @@ struct AskDiagnosticsPrivacyTests {
     }
 }
 
+// The AI paths that end somewhere other than success: no provider, offline, a result that lands
+// after the text changed or the entry restarted, a title held while the editor is open, the
+// automatic pass itself, and removing a key. Every entry and answer carries the sentinel.
+@MainActor
+struct AIEdgePathDiagnosticsPrivacyTests {
+    private static let sentinel = DiagnosticsPrivacyTests.sentinel
+
+    @Test func unhappyAIPathsNeverLogTextOrKeys() async throws {
+        let file = DiagnosticsFile()
+        let log = DiagnosticsLog(fileURL: file.url)
+        let sentinel = Self.sentinel
+        let container = try ModelContainerFactory.make(.inMemory)
+        let context = container.mainContext
+        let presence = EditorPresence()
+
+        let settings = SettingsStore(store: FakeKeyValueStore(), diagnostics: log)
+        let accounts = ProviderAccountStore(settings: settings, secrets: FakeSecretStore(), http: FakeHTTPClient(), diagnostics: log)
+        let account = try accounts.saveOpenAIKey("sk-\(sentinel)")
+        settings.aiEnabled = true
+        settings.recordAutomationStartIfNeeded()
+
+        func voiceEntry() throws -> Entry {
+            let entry = Entry(source: .voice, text: "Spoken \(sentinel)")
+            context.insert(entry)
+            try context.save()
+            return entry
+        }
+
+        // The automatic pass.
+        let trigger = AIPassTrigger(settings: settings, presence: presence, titleUsable: { true }, insightsUsable: { true }, diagnostics: log)
+        #expect(trigger.fire(for: try voiceEntry(), at: .finished))
+
+        // No provider: insights, titles, and pages each say so and stop.
+        let refused: () -> AIJobFailure = { AIJobFailure(raw: "ai.missingKey") }
+        let refusedInsights = InsightsCoordinator(
+            resolve: { .failure(refused()) }, sections: { AIServices.insightSections(settings) },
+            autoApplyCleanedText: { false }, presence: presence, diagnostics: log
+        )
+        let unanalyzed = try voiceEntry()
+        unanalyzed.insightsPending = true
+        await refusedInsights.processQueue(context: context)
+        unanalyzed.insightsPending = false
+
+        let refusedTitles = TitleCoordinator(resolve: { .failure(refused()) }, presence: presence, diagnostics: log)
+        let untitled = try voiceEntry()
+        untitled.titlePending = true
+        await refusedTitles.processQueue(context: context)
+        untitled.titlePending = false
+
+        let photo = Entry(source: .photo, text: "")
+        photo.pagesConfirmed = true
+        photo.awaitingText = true
+        context.insert(photo)
+        let page = EntryPage(index: 0, imageData: Data([1, 2, 3]), thumbnailData: Data([1]), pixelWidth: 10, pixelHeight: 10, origin: .camera)
+        context.insert(page)
+        page.entry = photo
+        try context.save()
+        await PageTranscriptionCoordinator(
+            resolve: { .failure(refused()) }, diagnostics: log,
+            beginBackgroundTask: { _ in {} }, prepareUpload: { $0 }
+        ).processQueue(context: context)
+
+        // Offline pages: one ai.offline, and the page's failure.
+        await PageTranscriptionCoordinator(
+            resolve: { .success(.init(transcriber: OfflinePageTranscriber(), label: "openai:test")) }, diagnostics: log,
+            beginBackgroundTask: { _ in {} }, prepareUpload: { $0 }
+        ).processQueue(context: context)
+        photo.awaitingText = false
+        try context.save()
+
+        // Insights that land after the entry changed underneath them: edited text is stale, a
+        // restarted entry is discarded.
+        let generator = FakeTextGenerator()
+        generator.suspends = true
+        let insights = InsightsCoordinator(
+            resolve: { .success(.init(generator: generator, model: "m", label: "openai:m")) },
+            sections: { AIServices.insightSections(settings) },
+            autoApplyCleanedText: { false }, presence: presence, diagnostics: log
+        )
+        let answer = #"{"summary":"About \#(sentinel)","primaryMood":"calm","lifeAreas":["work"],"tags":["\#(sentinel)"],"mentions":[{"name":"\#(sentinel)","kind":"person"}],"looseEnds":[]}"#
+        for change in [{ (entry: Entry) in entry.text = "Edited \(sentinel)" }, { (entry: Entry) in entry.contentRevision += 1 }] {
+            let entry = try voiceEntry()
+            entry.insightsPending = true
+            try context.save()
+            let run = Task { await insights.processQueue(context: context) }
+            await generator.waitForRequest(number: generator.requests.count + 1)
+            change(entry)
+            generator.answer(.success(answer))
+            await run.value
+            entry.insightsPending = false
+        }
+
+        // Titles that land while the editor is open are held; after a restart they are discarded.
+        let titles = TitleCoordinator(
+            resolve: { .success(.init(generator: generator, model: "m", label: "openai:m")) },
+            presence: presence, diagnostics: log
+        )
+        for opensEditor in [true, false] {
+            let entry = try voiceEntry()
+            entry.titlePending = true
+            try context.save()
+            let run = Task { await titles.processQueue(context: context) }
+            await generator.waitForRequest(number: generator.requests.count + 1)
+            if opensEditor { presence.open(entry.id) } else { entry.contentRevision += 1 }
+            generator.answer(.success("Title \(sentinel)"))
+            await run.value
+            presence.close(entry.id)
+        }
+
+        try accounts.remove(account)
+
+        let contents = file.contents()
+        for event in ["ai.pass", "insights.unavailable", "title.unavailable", "pages.transcription.unavailable",
+                      "ai.offline", "pages.transcription.failed", "insights.stale", "insights.discarded",
+                      "title.held", "title.discarded", "ai.keyRemoved"] {
+            #expect(contents.contains(event), "\(event) was never exercised")
+        }
+        #expect(contents.contains(sentinel) == false)
+    }
+}
+
+private final class OfflinePageTranscriber: PageTranscriber {
+    nonisolated func transcribe(_ request: PageRequest) async throws -> PageResult {
+        throw AIError.offline(.notConnectedToInternet)
+    }
+}
+
 @MainActor
 private final class SentinelPageTranscriber: PageTranscriber {
     let text: String
