@@ -94,6 +94,10 @@ final class InsightsCoordinator {
     // Creates, retries, or replaces insights for one entry, whatever its history.
     func runAI(for entry: Entry, context: ModelContext) async {
         guard !isRunning(entry), Self.canRunAI(on: entry) else { return }
+        // Cheap short-circuit so tapping Run AI with every section off doesn't spend the entry's
+        // automatic pass on a request `generate` will refuse to send. That guard is the real one;
+        // this one only avoids the side effects below.
+        guard !sections().isEmpty else { return }
         // The automatic pass exists so each entry is analyzed once without asking. Asking counts, or
         // closing the entry afterwards would pay for the same analysis again.
         entry.automaticAIPassUsed = true
@@ -173,6 +177,17 @@ final class InsightsCoordinator {
             vocabulary.looseEnds = LooseEndWriter.candidates(for: entry, in: context)
         }
         let plan = InsightsPromptBuilder.plan(text: analyzedText, source: source, sections: sections, vocabulary: vocabulary, model: generator.model, entryDate: entry.entryDate, voice: promptVoice(), calendar: calendar)
+
+        // Every section turned off asks for an empty schema, which the provider rejects. This is the
+        // one place that can tell: which sections reach the schema depends on the entry, so a
+        // typed entry with only "clean up transcriptions" on asks for nothing while a voice entry
+        // with the same settings asks for something. `insightsPending` stays set rather than being
+        // cleared like the canRunAI miss above, so turning a section back on runs the entry instead
+        // of silently skipping it forever. No attempt is counted: nothing was sent.
+        guard !plan.asksForNothing else {
+            diagnostics.record("insights.skipped", ["id": .id(entryID), "reason": "emptySchema", "source": .string(source.rawValue)])
+            return
+        }
 
         AIJobPolicy.recordAttempt(.insights, entry)
         try? save(context, [id])

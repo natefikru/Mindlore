@@ -37,6 +37,16 @@ nonisolated struct InsightsRequestPlan: Sendable {
     // This entry's own earlier loose ends: the model may say a new one is the same, never that
     // the entry settled its own.
     var ownLooseEndIDs: Set<UUID> = []
+
+    // Nothing was asked for, so there is nothing to send: a provider rejects an empty schema.
+    // Read off the built request rather than off `InsightSections`, because which sections reach
+    // the schema depends on the entry. `cleanedText` is only offered for voice and photo, and only
+    // under the length cap; `writtenDate` only for typed. So the same toggles give a real schema
+    // for one entry and an empty one for the next, and no settings-level predicate can see that.
+    var asksForNothing: Bool {
+        guard case .object(let properties, _, _) = request.schema else { return true }
+        return properties.isEmpty
+    }
 }
 
 // What one insights run says about loose ends, with handles already turned back into ids.

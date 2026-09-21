@@ -239,6 +239,27 @@ struct AIDiagnosticsPrivacyTests {
         await insights.runAI(for: entry, context: context)
         #expect(LooseEnd.fade(in: context, now: .distantFuture, diagnostics: log) > 0)
 
+        // Every section off asks the provider for an empty schema, so the run is skipped before
+        // anything is sent. A voice entry, because a typed one would still be asked for its written
+        // date and the schema would not be empty. The event names the entry and why, and gets the
+        // same sentinel check as everything else here.
+        settings.insightSummary = false
+        settings.insightMoods = false
+        settings.insightLifeAreas = false
+        settings.insightTags = false
+        settings.insightMentions = false
+        settings.insightLooseEnds = false
+        settings.insightCleanedText = false
+        settings.customInsightPrompts = []
+        let skipped = Entry(source: .voice, text: "Spoken \(sentinel)")
+        context.insert(skipped)
+        skipped.insightsPending = true
+        try context.save()
+        await insights.processQueue(context: context)
+        #expect(skipped.insights == nil)
+        // Left pending on purpose: turning a section back on runs it rather than skipping forever.
+        #expect(skipped.insightsPending)
+
         // Titles, including a generator that throws a DecodingError carrying the sentinel.
         let titles = TitleCoordinator(
             resolve: { .success(.init(generator: generator, model: "m", label: "openai:m")) },
@@ -337,6 +358,7 @@ struct AIDiagnosticsPrivacyTests {
         #expect(contents.contains("pages.transcription.completed"))
         #expect(contents.contains("insights.completed"))
         #expect(contents.contains("insights.failed"))
+        #expect(contents.contains("insights.skipped"))
         #expect(contents.contains("looseEnds.written"))
         #expect(contents.contains("looseEnds.faded"))
         for event in ["graph.indexed", "graph.entityEdited", "graph.hidden", "graph.resurfacingMuted",

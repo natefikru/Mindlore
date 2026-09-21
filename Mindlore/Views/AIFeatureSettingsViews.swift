@@ -152,13 +152,31 @@ struct InsightsSettingsView: View {
                      : "Nothing is analyzed until you tap Run AI on an entry.")
             }
 
-            Section("What to generate") {
-                Toggle("Summary", isOn: $settings.insightSummary).accessibilityIdentifier("insightSummaryToggle")
-                Toggle("Moods", isOn: $settings.insightMoods).accessibilityIdentifier("insightMoodsToggle")
-                Toggle("Life areas", isOn: $settings.insightLifeAreas).accessibilityIdentifier("insightLifeAreasToggle")
-                Toggle("Tags", isOn: $settings.insightTags).accessibilityIdentifier("insightTagsToggle")
-                Toggle("People and places", isOn: $settings.insightMentions).accessibilityIdentifier("insightMentionsToggle")
-                Toggle("Loose ends", isOn: $settings.insightLooseEnds).accessibilityIdentifier("insightLooseEndsToggle")
+            Section {
+                Toggle("Summary", isOn: $settings.insightSummary)
+                    .accessibilityIdentifier("insightSummaryToggle")
+                    .disabled(isLastEnabled(settings.insightSummary))
+                Toggle("Moods", isOn: $settings.insightMoods)
+                    .accessibilityIdentifier("insightMoodsToggle")
+                    .disabled(isLastEnabled(settings.insightMoods))
+                Toggle("Life areas", isOn: $settings.insightLifeAreas)
+                    .accessibilityIdentifier("insightLifeAreasToggle")
+                    .disabled(isLastEnabled(settings.insightLifeAreas))
+                Toggle("Tags", isOn: $settings.insightTags)
+                    .accessibilityIdentifier("insightTagsToggle")
+                    .disabled(isLastEnabled(settings.insightTags))
+                Toggle("People and places", isOn: $settings.insightMentions)
+                    .accessibilityIdentifier("insightMentionsToggle")
+                    .disabled(isLastEnabled(settings.insightMentions))
+                Toggle("Loose ends", isOn: $settings.insightLooseEnds)
+                    .accessibilityIdentifier("insightLooseEndsToggle")
+                    .disabled(isLastEnabled(settings.insightLooseEnds))
+            } header: {
+                Text("What to generate")
+            } footer: {
+                if onlyOneLeft {
+                    Text("Insights need at least one thing to look for.")
+                }
             }
 
             Section {
@@ -205,6 +223,34 @@ struct InsightsSettingsView: View {
         .paperBackground()
         .navigationTitle("Insights")
         .navigationBarTitleDisplayMode(.inline)
+    }
+
+    // Turning the last one off asks the provider for an empty schema, which it rejects. The rule is
+    // asked of `InsightSections` rather than restated here, so the screen and the request cannot
+    // drift; note that cleanup and an enabled custom prompt count towards not-empty too, which is
+    // why these six are free whenever either of those is on. It can only ever be an approximation:
+    // what actually reaches the schema depends on the entry, and a settings screen has no entry.
+    // `InsightsCoordinator.generate` holds the guard that does.
+    private func isLastEnabled(_ toggle: Bool) -> Bool {
+        toggle && onlyOneLeft
+    }
+
+    private var onlyOneLeft: Bool {
+        let sections = AIServices.insightSections(settings)
+        // Ask InsightSections whether anything outside these six would still be asked for: cleanup
+        // and an enabled custom prompt each keep the schema alive on their own, and then all six
+        // stay free. `suggestEntryDates` deliberately does not count, and isEmpty agrees.
+        var withoutTheSix = sections
+        withoutTheSix.summary = false
+        withoutTheSix.moods = false
+        withoutTheSix.lifeAreas = false
+        withoutTheSix.tags = false
+        withoutTheSix.mentions = false
+        withoutTheSix.looseEnds = false
+        guard withoutTheSix.isEmpty else { return false }
+
+        let enabled = [sections.summary, sections.moods, sections.lifeAreas, sections.tags, sections.mentions, sections.looseEnds]
+        return enabled.filter { $0 }.count == 1
     }
 }
 
