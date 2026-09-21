@@ -484,3 +484,33 @@ What changed on the way, against the plan above:
 - **Advanced's model rows** show two free-text fields and one picker under the UI test stub, because
   `ModelField` falls back to a field when the provider's list has one match or fewer. With a real
   key all three are pickers. Left as it is.
+
+## Post-merge review
+
+A read-only review of the whole diff ran while PR #17 was merging (the owner called the merge), so
+its findings landed as a follow-up on `feature/phase-a`. Each was checked against the code first.
+
+Fixed:
+
+1. **`runAI`'s short-circuit used `InsightSections.isEmpty`**, the predicate this spec spent a
+   section rejecting. With only "suggest entry dates" on, Run AI on a typed entry did nothing and
+   said nothing, though the request it would have made is valid. It now asks
+   `InsightsPromptBuilder.plan` with an empty vocabulary, which gives the same answer as the real one
+   because vocabulary only adds fields inside a section that is already on.
+   `runAIStillRunsATypedEntryWhenOnlyEntryDatesAreOn` covers it.
+2. **`AppRouter.showSettings()` had no cover guard**, unlike `showEntry` and `showInMind`. It
+   queues a `.settings` pending jump now. The trigger was unlikely (the editor's covers hide the tab
+   bar), but a jump that behaves differently from its two siblings is the kind that bites later.
+3. **`tasks/smoke-test.md` steps 9 and 12** still said "Settings, AI". Updated.
+
+Not fixed, on purpose:
+
+- **About's counts can lag while Settings is already on screen.** `JournalSaves.revision` is a plain
+  static, so a recording ingested in the background while Settings is showing changes nothing
+  observable and the counts wait for the next saver or graph change. Today's header has the same
+  fingerprint and the same gap. Making `JournalSaves` observable would fix both, and belongs with
+  Today rather than here.
+- **Clearing a renamed life area's field** shows it blank until submit, though the store already
+  holds the default. That is an ordinary text field mid-edit.
+- **The `settingsButton` identifier** did not move onto the tab, as this spec said it would. Nothing
+  read it, and SwiftUI's `Tab` gives it no obvious home. Gone rather than moved.

@@ -128,4 +128,28 @@ struct InsightsEmptySchemaTests {
         #expect(generator.requests.isEmpty)
         #expect(!entry.automaticAIPassUsed)
     }
+
+    // The review of the first version of this guard: runAI short-circuited on InsightSections.isEmpty,
+    // which is true here, so Run AI on this entry did nothing at all while the request it would have
+    // made is valid. It asks the builder now.
+    @Test func runAIStillRunsATypedEntryWhenOnlyEntryDatesAreOn() async throws {
+        let container = try ModelContainerFactory.make(.inMemory)
+        let context = container.mainContext
+        let generator = FakeTextGenerator()
+        generator.results = [.success(#"{"writtenDate":null}"#)]
+        let insights = coordinator(generator) {
+            var sections = self.sections()
+            sections.suggestEntryDates = true
+            return sections
+        }
+
+        let entry = Entry(source: .typed, text: "Monday 3 March 2025. Rain again.")
+        context.insert(entry)
+        try context.save()
+
+        await insights.runAI(for: entry, context: context)
+
+        #expect(generator.requests.count == 1)
+        #expect(entry.automaticAIPassUsed)
+    }
 }
