@@ -6,6 +6,7 @@ struct TodayHeader: View {
     let today: Today
     let dismiss: (TodayCard) -> Void
     let mute: (EntityFacts) -> Void
+    var openReflect: () -> Void = {}
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
@@ -13,7 +14,7 @@ struct TodayHeader: View {
             Text(today.greeting)
                 .font(.system(.title2, design: .serif).weight(.semibold))
                 .foregroundStyle(Palette.ink)
-            WeekStrip(days: today.week)
+            WeekStrip(days: today.week, onTap: openReflect)
                 .padding(.bottom, 2)
             ForEach(Array(today.cards.enumerated()), id: \.element.id) { index, card in
                 TodayCardView(card: card, dismiss: { dismiss(card) }, mute: mute)

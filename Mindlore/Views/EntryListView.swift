@@ -14,6 +14,7 @@ struct EntryListView: View {
     @State private var insightsEntry: Entry?
     @State private var pickedAreas: Set<LifeArea> = []
     @State private var today = Today()
+    @State private var showingReflect = false
     @Environment(RecordingSession.self) private var recording
     @Environment(InsightsCoordinator.self) private var insightsCoordinator
 
@@ -34,7 +35,7 @@ struct EntryListView: View {
         NavigationStack(path: $router.journalPath) {
             List {
                 if !today.isEmpty {
-                    TodayHeader(today: today, dismiss: dismissTodayCard, mute: muteFromToday)
+                    TodayHeader(today: today, dismiss: dismissTodayCard, mute: muteFromToday, openReflect: { showingReflect = true })
                         .listRowInsets(EdgeInsets())
                         .listRowBackground(Color.clear)
                         .listRowSeparator(.hidden)
@@ -99,6 +100,9 @@ struct EntryListView: View {
             .sheet(item: $insightsEntry) { entry in
                 EntryInsightsView(entry: entry)
             }
+            .sheet(isPresented: $showingReflect) {
+                ReflectView()
+            }
             .fullScreenCover(item: $pageOrder) { target in
                 switch target {
                 case .new:
@@ -115,6 +119,7 @@ struct EntryListView: View {
             }
             .onChange(of: router.dismissPresentationsToken) {
                 insightsEntry = nil
+                showingReflect = false
             }
         }
     }
