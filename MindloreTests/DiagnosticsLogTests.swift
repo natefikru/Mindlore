@@ -464,15 +464,29 @@ struct AskDiagnosticsPrivacyTests {
         await streamingAsk.send("Streamed \(sentinel)?", in: context)
         #expect(streamingAsk.turns.last?.citedEntryIDs.isEmpty == false)
 
+        // Its own generator, so the count the stop waits on belongs to this stream alone.
         streamingAsk.newConversation()
-        streaming.pauseAfter = 1
-        let stopping = Task { await streamingAsk.send("Stop \(sentinel)?", in: context) }
-        await streaming.waitForDeltas(1)
-        streamingAsk.stop()
-        streaming.release()
+        let stopped = FakeStreamingTextGenerator()
+        // Cut just past the sentinel, so what is on screen when the stop lands is the sentinel
+        // itself, which is the thing that must not reach the log.
+        let cut = streamed.range(of: sentinel).map { streamed.index(after: $0.upperBound) } ?? streamed.endIndex
+        stopped.deltas = [String(streamed[..<cut]), String(streamed[cut...])]
+        stopped.finished = streamed
+        stopped.pauseAfter = 1
+        let stoppingAsk = AskService(
+            resolve: { .success(AskProvider(generator: stopped, model: "m", label: "openai:m", kind: .openAI)) },
+            index: AskIndexStore(diagnostics: log),
+            revisions: { .init(saver: JournalSaves.revision, graph: 0, stamped: JournalSaves.revision) },
+            store: AskStore(save: { try $0.save() }),
+            diagnostics: log
+        )
+        let stopping = Task { await stoppingAsk.send("Stop \(sentinel)?", in: context) }
+        await stopped.waitForDeltas(1)
+        stoppingAsk.stop()
+        stopped.release()
         await stopping.value
-        #expect(streamingAsk.turns.last?.wasStopped == true)
-        #expect(streamingAsk.turns.last?.text.contains(sentinel) == true, "the partial answer is the sentinel, and it still must not be logged")
+        #expect(stoppingAsk.turns.last?.wasStopped == true)
+        #expect(stoppingAsk.turns.last?.text.contains(sentinel) == true, "the partial answer is the sentinel, and it still must not be logged")
 
         let contents = file.contents()
         for event in ["ask.answered", "ask.stopped", "ask.failed", "ask.conversationDeleted", "ask.indexed", "ask.retrieved"] {

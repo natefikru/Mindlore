@@ -14,7 +14,9 @@ final class FakeStreamingTextGenerator: StreamingTextGenerator {
     // The whole raw text, yielded as .finished. Nil with no failure means the stream just ends.
     var finished: String?
     var failure: (any Error)?
-    // The stream waits here, after this many deltas, until release() is called.
+    // The stream waits here, after this many deltas, until release() is called. Counted across
+    // every stream this generator serves, never reset: a reset would land inside the emitting
+    // task, after a test had already read the old count and decided the stream was under way.
     var pauseAfter: Int?
 
     private var emitted = 0
@@ -33,9 +35,6 @@ final class FakeStreamingTextGenerator: StreamingTextGenerator {
         AsyncThrowingStream { continuation in
             let task = Task { @MainActor in
                 streamedRequests.append(request)
-                // Counted per stream, so a second question in the same test can pause where the
-                // first one did.
-                emitted = 0
                 for delta in deltas {
                     continuation.yield(.delta(delta))
                     emitted += 1
