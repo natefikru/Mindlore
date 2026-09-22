@@ -28,6 +28,7 @@ To redo it: add a one-line append to `record`, run the tests below one at a time
 | `CloudTranscriptionIntegrationTests/keyAndProviderErrorBodiesNeverReachTheLog` | `ai.error`, `transcription.fallback` (plus `ai.keySaved`, `ai.connectionTested`, `transcription.*` above) |
 | `BioDiagnosticsPrivacyTests/draftingNeverLogsNamesExcerptsOrBios` | `graph.bioDrafted`, `graph.bioFailed` |
 | `KeepTests/nothingTheCardLogsCarriesAWordTheUserSaid` | `keep.shown`, `keep.dismissed` |
+| `TrustDiagnosticsPrivacyTests/exportWipeAndLockNeverLogJournalText` | `journal.exported`, `journal.wiped`, `lock.locked`, `lock.unlock` |
 | `TodayTests/nothingTodayLogsCarriesAWordTheUserWrote` | `today.shown`, `today.dismissed` |
 | `RecordingSessionTests/liveTextNeverReachesTheLog` | `live.availability`, `recording.expanded`, `recording.minimized` |
 | `RecordingSessionTests/takingAPromptMarksItAndLeavesItAloneForAFewDays` | `looseEnds.prompted` |

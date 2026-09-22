@@ -231,9 +231,13 @@ struct EntryListView: View {
             guard let looseEnd = LooseEnd.fetch(end.id, in: modelContext) else { return }
             saver.flush()
             looseEnd.setByUser(action == .done ? .resolved : .dismissed)
-            // A loose end counts as journal content, so this save moves JournalSaves.revision and
-            // the row refreshes on its own.
             try? modelContext.saveStampingEntries()
+            // Refreshed here, not left to the fingerprint: JournalSaves.revision is a plain static
+            // that SwiftUI doesn't observe, so the save alone left the card on the row until
+            // something else happened to redraw the list.
+            DiagnosticsLog.shared.record("today.thread", ["action": .string(String(describing: action))])
+            refreshToday()
+            return
         }
         DiagnosticsLog.shared.record("today.thread", ["action": .string(String(describing: action))])
     }

@@ -22,6 +22,7 @@ struct RootView: View {
     // Siri, Shortcuts, and the Action button leave their requests here, even before this view exists.
     @State private var intents = IntentRequests.shared
     @State private var reminder = DailyReminder()
+    @State private var lock: AppLock
     @Environment(SettingsStore.self) private var settings
     @Environment(ProviderAccountStore.self) private var accounts
     @State private var confirmingDiscard = false
@@ -127,6 +128,7 @@ struct RootView: View {
             }
         ))
 
+        _lock = State(initialValue: AppLock(isEnabled: { settings.appLockEnabled }))
         _presence = State(initialValue: presence)
         _pageTranscription = State(initialValue: pageTranscription)
         _transcription = State(initialValue: transcription)
@@ -187,6 +189,7 @@ struct RootView: View {
         .environment(router)
         .environment(recording)
         .environment(reminder)
+        .environment(lock)
         // The address book, injected like every other boundary: nothing asks for permission
         // until the user taps a row on a person's page.
         .environment(\.contactDirectory, contacts)
@@ -241,8 +244,10 @@ struct RootView: View {
             await titles.processQueue(context: context)
             await insights.processQueue(context: context)
         }
+        .onAppear { lock.lockAtLaunch() }
         .onChange(of: scenePhase) { _, phase in
             DiagnosticsLog.shared.record("app.scenePhase", ["phase": .string(String(describing: phase))])
+            lock.sceneChanged(to: phase)
             if phase != .active {
                 saver.flush()
                 // Leaving is the moment that matters: if the user wrote today, today's reminder goes.

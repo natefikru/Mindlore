@@ -25,6 +25,8 @@ final class AIConfigurationUITests: XCTestCase {
         XCTAssertTrue(settings.waitForExistence(timeout: 5))
         settings.tap()
         let link = app.buttons["aiFeaturesLink"]
+        // The AI rows sit below the fold, and the list only draws a row once it scrolls in.
+        for _ in 0..<4 where !link.exists || !link.isHittable { app.swipeUp() }
         XCTAssertTrue(link.waitForExistence(timeout: 5))
         link.tap()
     }

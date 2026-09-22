@@ -42,6 +42,7 @@ final class SettingsStore {
         static let reminderMinutes = "reminderMinutes"
         static let todayDismissed = "todayDismissed"
         static let reflectDismissed = "reflectDismissed"
+        static let appLockEnabled = "appLockEnabled"
     }
 
     @ObservationIgnored private let store: any KeyValueStore
@@ -52,6 +53,11 @@ final class SettingsStore {
 
     var keepAudioAfterTranscription: Bool {
         didSet { write(keepAudioAfterTranscription, Key.keepAudioAfterTranscription, logged: .bool(keepAudioAfterTranscription)) }
+    }
+
+    // Face ID or the passcode whenever the app comes back from the background. Off by default.
+    var appLockEnabled: Bool {
+        didSet { write(appLockEnabled, Key.appLockEnabled, logged: .bool(appLockEnabled)) }
     }
 
     // Turning AI on stamps the time, so recordings made while it was off stay on-device automatically.
@@ -311,6 +317,7 @@ final class SettingsStore {
         }
 
         keepAudioAfterTranscription = bool(Key.keepAudioAfterTranscription, true)
+        appLockEnabled = bool(Key.appLockEnabled, false)
         aiEnabled = bool(Key.aiEnabled, false)
         aiEnabledAt = store.object(forKey: Key.aiEnabledAt) as? Date
         automationStartedAt = store.object(forKey: Key.automationStartedAt) as? Date

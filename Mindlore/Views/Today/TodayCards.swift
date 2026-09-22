@@ -184,22 +184,36 @@ struct TodayCardView: View {
         }
     }
 
+    // Three equal choices. Let it go used to be greyed out beside an ember Done, which read as the
+    // app preferring one ending over the other, and nothing here should steer.
     private var actions: some View {
         HStack(spacing: 16) {
-            Button("Write about it", systemImage: "square.and.pencil") { act(.writeAbout) }
+            action("Write about it", "square.and.pencil", .writeAbout)
                 .accessibilityIdentifier("threadWrite")
             Spacer(minLength: 0)
-            Button("Let it go", systemImage: "xmark") { act(.letGo) }
-                .foregroundStyle(.secondary)
+            action("Let it go", "xmark", .letGo)
                 .accessibilityIdentifier("threadLetGo")
-            Button("Done", systemImage: "checkmark") { act(.done) }
-                .fontWeight(.semibold)
+            action("Done", "checkmark", .done)
                 .accessibilityIdentifier("threadDone")
         }
-        .font(.caption)
-        .labelStyle(.titleAndIcon)
+        .font(.caption.weight(.medium))
         .buttonStyle(.plain)
         .foregroundStyle(Palette.ember)
         .padding(.top, 4)
+    }
+
+    // The icon hard against its word. A system Label here spaced them like a toolbar item.
+    private func action(_ title: String, _ symbol: String, _ kind: TodayThreadAction) -> some View {
+        Button { act(kind) } label: {
+            HStack(spacing: 4) {
+                Image(systemName: symbol)
+                    .imageScale(.small)
+                    .accessibilityHidden(true)
+                Text(title)
+            }
+            .frame(minHeight: 44)
+            .contentShape(Rectangle())
+        }
+        .accessibilityLabel(title)
     }
 }
