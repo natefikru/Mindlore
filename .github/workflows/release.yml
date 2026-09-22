@@ -41,7 +41,7 @@ jobs:
       ARCHIVE: ${{ github.workspace }}/build/Mindlore.xcarchive
       EXPORT_DIR: ${{ github.workspace }}/build/export
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # The runner context is not available in a job's env block, so the temp paths are set here.
       - name: Set temp paths
