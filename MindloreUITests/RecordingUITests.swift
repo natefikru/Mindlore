@@ -39,6 +39,15 @@ final class RecordingUITests: XCTestCase {
         XCTAssertTrue(app.buttons["finishRecordingButton"].waitForExistence(timeout: 5))
         app.buttons["minimizeRecordingButton"].tap()
 
+        // Pause and resume from the bar itself, not only from its long-press menu.
+        let pause = app.buttons["accessoryPauseButton"]
+        XCTAssertTrue(pause.waitForExistence(timeout: 5))
+        XCTAssertEqual(pause.label, "Pause")
+        pause.tap()
+        XCTAssertTrue(app.buttons["Resume"].waitForExistence(timeout: 5))
+        app.buttons["accessoryPauseButton"].tap()
+        XCTAssertTrue(app.buttons["Pause"].waitForExistence(timeout: 5))
+
         let finish = app.buttons["accessoryFinishButton"]
         XCTAssertTrue(finish.waitForExistence(timeout: 5))
         finish.tap()

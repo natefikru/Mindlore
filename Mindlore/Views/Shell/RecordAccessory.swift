@@ -33,6 +33,16 @@ struct RecordAccessory: View {
                 .accessibilityLabel(isCapturing ? "Recording" : "Recording paused")
                 .accessibilityHint("Shows the recorder")
                 .accessibilityIdentifier("recordingAccessory")
+                // Pause was only in a long-press menu nobody found. Where the bar is wide enough it
+                // sits beside Finish; the inline bar keeps it in the menu below.
+                if placement != .inline {
+                    Button(isCapturing ? "Pause" : "Resume", systemImage: isCapturing ? "pause.fill" : "record.circle") {
+                        session.togglePause()
+                    }
+                    .labelStyle(.iconOnly)
+                    .disabled(!session.isRecording || session.isFinishing)
+                    .accessibilityIdentifier("accessoryPauseButton")
+                }
                 Button("Finish", systemImage: "checkmark") {
                     Task { await session.finish() }
                 }

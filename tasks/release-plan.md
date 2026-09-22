@@ -47,7 +47,8 @@ Option 1 also answers pricing: a free or one-time-purchase app with no running c
 
 **Product**
 - [x] AI without a key: on-device insights through guided generation (2026-09-22). Quality is below OpenAI's and says so in Settings.
-- [ ] First run (B3, never built). One screen, not a carousel: what Mindlore is, that it works offline, the microphone and speech prompt with a reason in front of it, and an optional AI setup. Plus the contextual empty states below.
+- [x] First run (B3), PR #35: one welcome screen; the microphone and speech prompts arrive together at the first recording.
+- [x] ~~First run (B3, never built).~~ One screen, not a carousel: what Mindlore is, that it works offline, the microphone and speech prompt with a reason in front of it, and an optional AI setup. Plus the contextual empty states below.
 - [x] App lock (Face ID, fallback to passcode), plus covering the app switcher snapshot.
 - [x] Export (a folder of Markdown files, journal.json, recordings and page photos), and "Delete all data" in Settings.
 - [x] iPad: set `TARGETED_DEVICE_FAMILY = 1` (iPhone only). It's currently `1,2` with no iPad layout.
@@ -94,9 +95,9 @@ From the audit, each small, ranked by how much it helps.
 
 ## Should
 
-- [ ] Reflect needs a second door. It's reachable only through the week strip, which hides when Today is empty.
-- [ ] Pause in the record accessory. Pause and Discard sit in a long-press menu nobody finds.
-- [ ] Crash reporting through MetricKit. No third party, nothing leaves the phone that the user didn't send, and today a user's crash is invisible to you.
+- [x] Reflect's second door: not needed. The week strip only hides when the journal has no entries, and then there is nothing to reflect on.
+- [x] Pause in the record accessory.
+- [x] Crash reporting: no code needed. App Store and TestFlight crashes reach Xcode's Organizer from users who share analytics.
 - [ ] Honor `retryAfter` on a 429.
 - [ ] Remaining Phase B polish (B4 recording motion, B7 remainder, B9 final privacy pass).
 - [ ] Year view in Reflect.

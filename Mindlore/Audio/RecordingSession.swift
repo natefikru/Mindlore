@@ -37,6 +37,10 @@ final class RecordingSession {
     @ObservationIgnored private let afterIngest: () async -> Void
     @ObservationIgnored private let onFinished: (Entry) -> Void
     @ObservationIgnored private let takePrompt: () -> String?
+    // Asked before the first recording starts, so the microphone and speech prompts arrive
+    // together, at the moment the reason is obvious. Speech used to be asked only once the first
+    // recording's text was generated, popping up over the Keep card, and live text never asked.
+    @ObservationIgnored private let askPermissions: () async -> Void
     @ObservationIgnored private let diagnostics: DiagnosticsLog
     // Bumped whenever a recording ends, so work still awaiting from an earlier one drops its result
     // instead of writing into the next.
@@ -56,6 +60,7 @@ final class RecordingSession {
         afterIngest: @escaping () async -> Void,
         onFinished: @escaping (Entry) -> Void,
         takePrompt: @escaping () -> String? = { nil },
+        askPermissions: @escaping () async -> Void = {},
         diagnostics: DiagnosticsLog = .shared
     ) {
         self.context = context
@@ -68,6 +73,7 @@ final class RecordingSession {
         self.afterIngest = afterIngest
         self.onFinished = onFinished
         self.takePrompt = takePrompt
+        self.askPermissions = askPermissions
         self.diagnostics = diagnostics
     }
 
@@ -183,6 +189,7 @@ final class RecordingSession {
     }
 
     private func start(_ recorder: any AudioRecording, generation: Int) async {
+        await askPermissions()
         do {
             try await recorder.start()
         } catch AudioRecorder.RecorderError.permissionDenied {
