@@ -4,6 +4,9 @@ import Foundation
 // Cases carry codes only: provider error bodies and decoding errors can quote entry text.
 nonisolated enum AIError: Error, Equatable, Sendable {
     case missingKey
+    // The key is saved but the Keychain wouldn't hand it over, usually before the first unlock.
+    // Nothing was sent, so the attempt is rolled back and the job waits for a later pass.
+    case keyUnavailable
     case invalidKey
     case permissionDenied
     case rateLimited(retryAfter: TimeInterval?)
@@ -22,7 +25,7 @@ nonisolated enum AIError: Error, Equatable, Sendable {
 
     var isRetryable: Bool {
         switch self {
-        case .rateLimited, .serverError, .offline, .network, .cancelled: true
+        case .keyUnavailable, .rateLimited, .serverError, .offline, .network, .cancelled: true
         default: false
         }
     }
@@ -35,7 +38,7 @@ nonisolated enum AIError: Error, Equatable, Sendable {
     // backgrounded mid-request. The attempt is rolled back so the job isn't spent.
     var wasAbandoned: Bool {
         switch self {
-        case .offline, .cancelled: true
+        case .keyUnavailable, .offline, .cancelled: true
         default: false
         }
     }
@@ -44,6 +47,7 @@ nonisolated enum AIError: Error, Equatable, Sendable {
     var caseName: String {
         switch self {
         case .missingKey: "missingKey"
+        case .keyUnavailable: "keyUnavailable"
         case .invalidKey: "invalidKey"
         case .permissionDenied: "permissionDenied"
         case .rateLimited: "rateLimited"
@@ -63,6 +67,7 @@ nonisolated enum AIError: Error, Equatable, Sendable {
     init?(caseName: String) {
         switch caseName {
         case "missingKey": self = .missingKey
+        case "keyUnavailable": self = .keyUnavailable
         case "invalidKey": self = .invalidKey
         case "permissionDenied": self = .permissionDenied
         case "rateLimited": self = .rateLimited(retryAfter: nil)
@@ -83,6 +88,7 @@ nonisolated enum AIError: Error, Equatable, Sendable {
     var userMessage: String {
         switch self {
         case .missingKey: "Add your OpenAI API key in Settings to use AI."
+        case .keyUnavailable: "Mindlore couldn't read your API key just now. It will try again."
         case .invalidKey: "OpenAI didn't accept your API key. Check it in Settings."
         case .permissionDenied: "Your OpenAI key doesn't have access to this model."
         case .rateLimited: "OpenAI is limiting requests right now. Mindlore will try again later."

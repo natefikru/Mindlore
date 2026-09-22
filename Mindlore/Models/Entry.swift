@@ -40,6 +40,11 @@ final class Entry {
     // AI job state is persisted so failures and attempt caps survive relaunches.
     var textAttempts: Int = 0
     var textFailureRaw: String?
+    // Each finished chunk of a long cloud transcription, in order ("" for a silent one), for the chunk
+    // plan named in `textChunkPlan`. A failure part-way resends only the chunks still missing.
+    // Cleared once the entry has its text.
+    var textChunkPlan: String?
+    var textChunkTexts: [String] = []
     var automaticAIPassUsed: Bool = false
     // A typed entry the user hasn't finished with Done. Drafts never get the automatic AI pass.
     var isDraft: Bool = false

@@ -137,7 +137,7 @@ final class TranscriptionCoordinator {
             try audio.write(to: url)
             if let cloud = route.cloud {
                 do {
-                    text = try await transcribeInCloud(cloud, url: url, entryID: entryID)
+                    text = try await transcribeInCloud(cloud, url: url, id: id, entryID: entryID, context: context)
                     generatedBy = cloud.label
                     // A successful upload proves the connection is back.
                     pausedForOffline = false
@@ -165,6 +165,8 @@ final class TranscriptionCoordinator {
             diagnostics.record("transcription.discarded", ["id": entryID, "reason": "deleted"])
             return
         }
+        current.textChunkPlan = nil
+        current.textChunkTexts = []
         guard current.applyGeneratedText(text, generatedBy: generatedBy) else {
             AIJobPolicy.recordSuccess(.text, current)
             try? save(context)
@@ -196,7 +198,7 @@ final class TranscriptionCoordinator {
         return text
     }
 
-    private func transcribeInCloud(_ cloud: TranscriptionRoute.Cloud, url: URL, entryID: DiagnosticValue) async throws -> String {
+    private func transcribeInCloud(_ cloud: TranscriptionRoute.Cloud, url: URL, id: PersistentIdentifier, entryID: DiagnosticValue, context: ModelContext) async throws -> String {
         let endBackgroundTask = beginBackgroundTask("transcription")
         defer { endBackgroundTask() }
 
@@ -223,26 +225,43 @@ final class TranscriptionCoordinator {
             diagnostics.record("transcription.chunks", ["id": entryID, "count": .int(chunks.count), "seconds": .string(chunks.map { String(format: "%.1f", $0.duration) }.joined(separator: ","))])
         }
 
-        var texts: [String] = []
-        for chunk in chunks {
-            let prompt = texts.last.map { String($0.suffix(200)) }
+        // Chunk boundaries come from the audio alone, so the same recording and target give the same
+        // plan, and chunks finished by an earlier attempt can be kept.
+        let plan = "\(cloud.label)|" + chunks.map { String(format: "%.2f", $0.start) }.joined(separator: ",")
+        var done: [String] = []
+        if chunks.count > 1, let entry = Self.fetch(id, in: context), entry.textChunkPlan == plan, entry.textChunkTexts.count < chunks.count {
+            done = entry.textChunkTexts
+            diagnostics.record("transcription.resumed", ["id": entryID, "done": .int(done.count), "count": .int(chunks.count)])
+        }
+        for chunk in chunks.dropFirst(done.count) {
+            let prompt = done.last(where: { !$0.isEmpty }).map { String($0.suffix(200)) }
             let requestStarted = ContinuousClock.now
             do {
                 let text = try await cloud.makeTranscriber(prompt).transcribe(audioFileURL: chunk.url, locale: locale)
                 diagnostics.record("ai.request", ["capability": "speech", "model": .string(cloud.label), "ok": true, "milliseconds": .int(Self.milliseconds(since: requestStarted))])
-                texts.append(text)
+                done.append(text)
             } catch TranscriptionError.noSpeechDetected where chunks.count > 1 {
                 // A silent stretch of a long recording isn't a failure of the whole entry.
-                continue
+                done.append("")
             } catch {
                 let failure = AIJobFailure(any: error)
                 diagnostics.record("ai.error", ["capability": "speech", "model": .string(cloud.label), "error": .string(failure.raw), "milliseconds": .int(Self.milliseconds(since: requestStarted))])
                 throw error
             }
+            if chunks.count > 1, done.count < chunks.count {
+                keepChunkProgress(done, plan: plan, id: id, context: context)
+            }
         }
-        let joined = texts.joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
+        let joined = done.filter { !$0.isEmpty }.joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
         guard !joined.isEmpty else { throw TranscriptionError.noSpeechDetected }
         return joined
+    }
+
+    private func keepChunkProgress(_ done: [String], plan: String, id: PersistentIdentifier, context: ModelContext) {
+        guard let entry = Self.fetch(id, in: context), entry.awaitingText else { return }
+        entry.textChunkPlan = plan
+        entry.textChunkTexts = done
+        try? save(context)
     }
 
     private func recordFailure(_ error: any Error, id: PersistentIdentifier, entryID: DiagnosticValue, context: ModelContext) {

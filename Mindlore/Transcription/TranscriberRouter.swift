@@ -28,7 +28,7 @@ struct TranscriberRouter {
     let onDevice: any Transcriber
 
     func route(for entry: Entry, manualRetry: Bool) -> TranscriptionRoute {
-        guard settings.aiEnabled, settings.speechEngine == .cloud, let provider = accounts.resolve(.speech) else {
+        guard settings.aiEnabled, settings.speechEngine == .cloud, case .success(let provider) = accounts.resolve(.speech) else {
             return .onDevice(onDevice)
         }
         // Recordings from before AI was turned on stay on-device unless the user asks.
