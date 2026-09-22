@@ -109,7 +109,12 @@ jobs:
       - name: Unpack test products
         run: mkdir -p "$MINDLORE_DERIVED_DATA" && tar -xzf test-products.tgz -C "$MINDLORE_DERIVED_DATA"
 
+      # With the secret set, OpenAILiveTests and CreativeClassificationQualityTests call real
+      # OpenAI (about 30 small requests); without it (a fork's PR) they skip. xcodebuild hands
+      # TEST_RUNNER_-prefixed variables to the test process with the prefix removed.
       - name: Run unit tests
+        env:
+          TEST_RUNNER_MINDLORE_OPENAI_KEY: ${{ secrets.MINDLORE_OPENAI_KEY }}
         run: scripts/ci/test.sh unit
 
       - name: Keep the result bundle
@@ -142,7 +147,10 @@ jobs:
       - name: Unpack test products
         run: mkdir -p "$MINDLORE_DERIVED_DATA" && tar -xzf test-products.tgz -C "$MINDLORE_DERIVED_DATA"
 
+      # The AI UI classes use real OpenAI when the key is present and the app's stub otherwise.
       - name: Run ${{ matrix.classes }}
+        env:
+          TEST_RUNNER_MINDLORE_OPENAI_KEY: ${{ secrets.MINDLORE_OPENAI_KEY }}
         run: scripts/ci/test.sh ui ${{ matrix.classes }}
 
       - name: Keep the result bundle
