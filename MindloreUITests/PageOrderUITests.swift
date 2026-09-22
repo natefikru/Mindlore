@@ -50,10 +50,13 @@ final class PageOrderUITests: XCTestCase {
         XCTAssertTrue(app.descendants(matching: .any)["pageRow-1000"].waitForExistence(timeout: 5))
 
         // Move the third scanned page to the top with its reorder handle, top to bottom on screen.
+        // Every row has to be in place first, and the drag is slow with a hold at the drop point:
+        // on a CI runner a fast drag that lifts straight away let the list settle back unmoved.
+        XCTAssertTrue(app.descendants(matching: .any)["pageRow-2310"].waitForExistence(timeout: 5))
         let handles = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Reorder")).allElementsBoundByIndex
             .sorted { $0.frame.minY < $1.frame.minY }
         XCTAssertGreaterThanOrEqual(handles.count, 5)
-        handles[2].press(forDuration: 0.6, thenDragTo: handles[0])
+        handles[2].press(forDuration: 0.6, thenDragTo: handles[0], withVelocity: .slow, thenHoldForDuration: 0.5)
 
         // Remove the last page (one of the library pages).
         app.buttons["Remove page 5"].tap()

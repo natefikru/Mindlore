@@ -175,7 +175,9 @@ struct AskRetrievalQualityTests {
 
     // MARK: - The measurement
 
-    @Test func recallAtFiveOverTheFixedQuestionSet() {
+    // Two of its questions ("How was the run?" among them) are answered only through a lemma.
+    @Test(.enabled(if: LemmaAvailability.isAvailable, "NLTagger has no English lemma assets on this machine"))
+    func recallAtFiveOverTheFixedQuestionSet() {
         let index = index(corpus)
         var report = ["", "recall@5 over \(corpus.count) entries:"]
         var total = 0.0

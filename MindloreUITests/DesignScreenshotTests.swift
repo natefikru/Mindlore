@@ -16,7 +16,13 @@ final class DesignScreenshotTests: XCTestCase {
         XCUIDevice.shared.orientation = .portrait
         app = XCUIApplication()
         // The demo seed only runs outside -uiTesting, so this launch uses the demo store alone.
-        app.launchArguments = ["-seedDemoJournal", "300"]
+        // TEST_RUNNER_DESIGN_SEED=story tours the hand-written story journal instead, which is the
+        // one to show people (the README's screenshots come from it).
+        if ProcessInfo.processInfo.environment["DESIGN_SEED"] == "story" {
+            app.launchArguments = ["-seedStoryJournal", "-resetStoryJournal"]
+        } else {
+            app.launchArguments = ["-seedDemoJournal", "300"]
+        }
     }
 
     private func attach(_ name: String) {

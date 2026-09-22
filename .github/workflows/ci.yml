@@ -1,0 +1,173 @@
+# Build once, then five test jobs at once: unit, and the UI suite split four ways. Five is the free
+# plan's limit of concurrent macOS jobs, so none of them queues.
+#
+#   build  compiles the app and both test bundles for the simulator (about four minutes) and
+#          hands the products to the test jobs.
+#   unit   every pull request and push to main. The only required check.
+#   ui     every push to main, a pull request labeled "ui", and manual runs. Advisory: a failed
+#          shard is red on its own job, and continue-on-error keeps it out of the run's result.
+#          Each shard asks scripts/ci/ui-shards.sh for its classes, balanced by test count.
+#
+# Why one build and not one per job: each job building for itself while its simulator booted in
+# the background was tried, and the boot fought the compiler for the runner's three cores, so
+# builds took 6.5 to 11.5 minutes instead of 4. A fresh simulator's boot and first launch cost
+# a few minutes wherever they happen; they are cheapest on a runner that isn't also compiling.
+#
+# A manual run with "only" set (for example "PageOrderUITests/testScanReorderRemoveAndConfirmPages",
+# several separated by spaces) skips unit and runs just those UI tests on one runner.
+#
+# The scripts under scripts/ci are the same ones that run in a terminal here.
+
+name: CI
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, labeled]
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      ui:
+        description: Run the UI suite
+        type: boolean
+        default: true
+      only:
+        description: "Run only these UI tests (Class or Class/testMethod, space-separated); skips unit"
+        type: string
+        default: ""
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  XCODE_VERSION: "26.6"
+  UI_SHARDS: 4
+  MINDLORE_SIM_NAME: iPhone 17
+  MINDLORE_SIM_OS: "26.5"
+  MINDLORE_DERIVED_DATA: ${{ github.workspace }}/build/DerivedData
+  MINDLORE_RESULTS: ${{ github.workspace }}/build/results
+
+jobs:
+  build:
+    name: Build for testing
+    runs-on: macos-26
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select Xcode ${{ env.XCODE_VERSION }}
+        run: sudo xcode-select -s "/Applications/Xcode_${XCODE_VERSION}.app" && xcodebuild -version
+
+      - name: Build
+        run: scripts/ci/build-for-testing.sh
+
+      # upload-artifact does not keep file modes, and an .app whose binary lost its execute
+      # bit will not launch, so the products travel as a tarball.
+      - name: Pack test products
+        run: tar -czf test-products.tgz -C "$MINDLORE_DERIVED_DATA" Build/Products
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: test-products
+          path: test-products.tgz
+          retention-days: 1
+          if-no-files-found: error
+
+  unit:
+    name: Unit tests
+    needs: build
+    if: inputs.only == ''
+    runs-on: macos-26
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select Xcode ${{ env.XCODE_VERSION }}
+        run: sudo xcode-select -s "/Applications/Xcode_${XCODE_VERSION}.app"
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: test-products
+
+      - name: Unpack test products
+        run: mkdir -p "$MINDLORE_DERIVED_DATA" && tar -xzf test-products.tgz -C "$MINDLORE_DERIVED_DATA"
+
+      # With the secret set, OpenAILiveTests and CreativeClassificationQualityTests call real
+      # OpenAI (about 30 small requests); without it (a fork's PR) they skip. xcodebuild hands
+      # TEST_RUNNER_-prefixed variables to the test process with the prefix removed.
+      - name: Run unit tests
+        env:
+          TEST_RUNNER_MINDLORE_OPENAI_KEY: ${{ secrets.MINDLORE_OPENAI_KEY }}
+        run: scripts/ci/test.sh unit
+
+      - name: Keep the result bundle
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: unit-xcresult
+          path: build/results/unit.xcresult
+          retention-days: 7
+
+  ui:
+    name: UI tests (shard ${{ matrix.shard }})
+    needs: build
+    if: >-
+      github.event_name == 'push' ||
+      (github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'ui')) ||
+      (github.event_name == 'workflow_dispatch' && (inputs.ui || inputs.only != ''))
+    continue-on-error: true
+    runs-on: macos-26
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        # One runner for a manual "only" run, otherwise one per shard.
+        shard: ${{ fromJSON(inputs.only != '' && '[1]' || '[1, 2, 3, 4]') }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Pick this shard's tests
+        id: pick
+        env:
+          ONLY: ${{ inputs.only }}
+          SHARD: ${{ matrix.shard }}
+        run: |
+          # A pull request's run leaves out the screenshot classes; main and manual runs keep them.
+          if [ -n "$ONLY" ]; then
+            classes="$ONLY"
+          else
+            flag=""
+            [ "${{ github.event_name }}" = "pull_request" ] && flag="--skip-screenshots"
+            classes="$(scripts/ci/ui-shards.sh "$UI_SHARDS" $flag --shard "$SHARD")"
+          fi
+          echo "Shard $SHARD: ${classes:-nothing}"
+          echo "classes=$classes" >> "$GITHUB_OUTPUT"
+
+      - name: Select Xcode ${{ env.XCODE_VERSION }}
+        if: steps.pick.outputs.classes != ''
+        run: sudo xcode-select -s "/Applications/Xcode_${XCODE_VERSION}.app"
+
+      - uses: actions/download-artifact@v4
+        if: steps.pick.outputs.classes != ''
+        with:
+          name: test-products
+
+      - name: Unpack test products
+        if: steps.pick.outputs.classes != ''
+        run: mkdir -p "$MINDLORE_DERIVED_DATA" && tar -xzf test-products.tgz -C "$MINDLORE_DERIVED_DATA"
+
+      # The AI UI classes use real OpenAI when the key is present and the app's stub otherwise.
+      - name: Run UI tests
+        if: steps.pick.outputs.classes != ''
+        env:
+          TEST_RUNNER_MINDLORE_OPENAI_KEY: ${{ secrets.MINDLORE_OPENAI_KEY }}
+        run: scripts/ci/test.sh ui ${{ steps.pick.outputs.classes }}
+
+      - name: Keep the result bundle
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ui-shard-${{ matrix.shard }}-xcresult
+          path: build/results/ui-*.xcresult
+          retention-days: 7

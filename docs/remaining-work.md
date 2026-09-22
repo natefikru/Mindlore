@@ -202,6 +202,18 @@ spike was built and rejected on 2026-09-21; 2D ships).
 - **A paid tier** (build plan Phase 6: a thin proxy backend, metering, RevenueCat). Not started, and
   a business decision before it's an engineering one.
 - **B8** until its signing spike runs.
+- **TestFlight from CI.** `.github/workflows/release.yml` is written and gated off. Once the paid
+  team exists, in the GitHub repo settings: set the variable `RELEASE_ENABLED` to `true` and
+  `APPLE_TEAM_ID` to the new team's ID; add the secrets `APPLE_DISTRIBUTION_P12_BASE64` and
+  `APPLE_DISTRIBUTION_P12_PASSWORD` (an Apple Distribution certificate exported from Keychain
+  Access, `base64 -i cert.p12 | pbcopy`), and `ASC_KEY_ID`, `ASC_ISSUER_ID`, `ASC_API_KEY_P8`
+  (an App Store Connect API key with the Developer role). Then push a `v*` tag or run the
+  workflow by hand. The app record in App Store Connect has to exist first; the build number is
+  the run number, the version stays `MARKETING_VERSION` in the project.
+
+Not blocked, but done in the GitHub UI rather than the repo: under Branches, protect `main` and
+require the `Unit tests` check; the UI shards stay advisory on pull requests (add the `ui` label to
+a PR that touches views) and run on every push to `main`.
 
 ## Known bugs and debt
 
