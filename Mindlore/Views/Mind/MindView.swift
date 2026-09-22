@@ -9,6 +9,7 @@ struct MindView: View {
     @Environment(GraphServices.self) private var graph
     @Environment(AppRouter.self) private var router
     @Environment(SettingsStore.self) private var settings
+    @Environment(RecordingSession.self) private var recording
     @State private var simulation: GraphSimulation?
     @State private var version = 0
     @State private var names: [UUID: String] = [:]
@@ -19,6 +20,9 @@ struct MindView: View {
     @State private var regionLabels: [GraphRegion] = []
     @State private var haloed: Set<UUID> = []
     @State private var arrivedAt: [UUID: Date] = [:]
+    // Entities the journal has at all, whatever the filters do with them: what tells an empty
+    // journal apart from a filtered-out one.
+    @State private var browsableCount = 0
     @State private var highlightedArea: LifeArea?
     @State private var trail = FocusTrail()
     @State private var panelStop: SearchPanel.Stop = .half
@@ -156,16 +160,48 @@ struct MindView: View {
             .accessibilityIdentifier("mindGraphCanvas")
             .overlay {
                 if simulation.nodeCount == 0 {
-                    ContentUnavailableView(
-                        "Nothing on the map yet",
-                        systemImage: "circle.hexagongrid",
-                        description: Text("People, places, and tags from your entries will gather here.")
-                    )
-                    .padding(.bottom, SearchPanel.height(for: panelStop, available: available))
+                    emptyState
+                        .padding(.bottom, SearchPanel.height(for: panelStop, available: available))
                 }
             }
         } else {
             ProgressView()
+        }
+    }
+
+    // Two ways for the map to be blank, and they need opposite things said to them. An empty
+    // journal has nothing to draw and the only fix is writing something. A journal whose nodes are
+    // all filtered out used to draw an empty screen with a panel on it and no explanation at all.
+    @ViewBuilder
+    private var emptyState: some View {
+        if browsableCount > 0 {
+            ContentUnavailableView {
+                Label("Nothing matches these filters", systemImage: "line.3.horizontal.decrease")
+                    .font(.system(.headline, design: .serif))
+            } description: {
+                Text("Search still finds everything the map leaves out.")
+            } actions: {
+                // Back to this journal's own default, minimum included: a minimum set too high is
+                // the likeliest reason the map went blank, so a clear that kept it would do
+                // nothing and look broken.
+                Button("Clear filters") {
+                    filters = MindFilters(minimumMentions: MindFilters.defaultMinimum(browsableCount: browsableCount))
+                }
+                    .accessibilityIdentifier("mindClearFilters")
+            }
+            .accessibilityIdentifier("mindEmptyState")
+        } else {
+            ContentUnavailableView {
+                Label("Your map starts with a word", systemImage: "circle.hexagongrid")
+                    .font(.system(.headline, design: .serif))
+            } description: {
+                Text("The people, places, and things you write about gather here, and draw lines to each other as they turn up together.")
+            } actions: {
+                Button("Record something") { recording.begin() }
+                    .disabled(recording.status != .idle)
+                    .accessibilityIdentifier("mindEmptyRecord")
+            }
+            .accessibilityIdentifier("mindEmptyState")
         }
     }
 
@@ -397,6 +433,7 @@ struct MindView: View {
         // Taken at the frame's own date, so a replay's rings follow the replay.
         let rings = MindMap.haloed(snapshot, asOf: asOf)
         if rings != haloed { haloed = rings }
+        if snapshot.entities.count != browsableCount { browsableCount = snapshot.entities.count }
 
         if let simulation {
             simulation.update(nodes: frame.nodes, edges: frame.edges, regions: frame.regions)
