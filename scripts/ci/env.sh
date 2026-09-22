@@ -59,7 +59,9 @@ boot_simulator() {
 run_xcodebuild() {
   if command -v xcbeautify >/dev/null 2>&1; then
     local renderer=()
-    [ -n "${GITHUB_ACTIONS:-}" ] && renderer=(--renderer github-actions)
+    # On CI keep the lines xcbeautify doesn't recognize: GitHub timestamps each one, and without
+    # them four silent minutes between "Running unit tests" and the first test explained nothing.
+    [ -n "${GITHUB_ACTIONS:-}" ] && renderer=(--renderer github-actions --preserve-unbeautified)
     xcodebuild "$@" 2>&1 | xcbeautify "${renderer[@]}"
   else
     xcodebuild "$@"

@@ -1,28 +1,24 @@
 #!/bin/bash
-# Split the UI test classes into N balanced shards and print them as a GitHub Actions matrix.
+# Split the UI tests into N shards of about equal running time.
 #
-#   scripts/ci/ui-shards.sh 5
-#   {"include":[{"shard":1,"classes":"GraphUITests TodayUITests ..."}, ...]}
+#   scripts/ci/ui-shards.sh 4                                 every shard, one line each
+#   scripts/ci/ui-shards.sh 4 --skip-screenshots --shard 2    shard 2 only, what a CI job asks for
 #
-# Every file in MindloreUITests/ whose class has at least one test is a unit of work weighted by
-# its test count (each UI test launches the app, so the count is a fair proxy for time). Classes
-# are dealt largest first to whichever shard is lightest. Nothing is maintained by hand: a new
-# test class joins a shard on the next run, and a file with no tests (a helper) is ignored.
+# The unit of work is one test method (Class/testMethod), not a class. Every UI test launches the
+# app fresh, so splitting a class costs nothing, and GraphUITests alone runs over eleven minutes on
+# a runner: whole classes left one shard twice as long as another.
 #
-# The class name is the file name; that is a convention in this repo, and test.sh passes each
-# one as -only-testing:MindloreUITests/<Class>.
-
-#   scripts/ci/ui-shards.sh 4 --skip-screenshots
-#   scripts/ci/ui-shards.sh 4 --skip-screenshots --shard 2
+# Each test is weighted by its measured seconds in ui-test-seconds.txt, 60 if it isn't there yet,
+# and dealt heaviest first to whichever shard is lightest. Tests are found by scanning
+# MindloreUITests/*.swift for `func test...`, so a new test joins a shard on the next run with
+# nothing registered. The class name is the file name, a convention in this repo.
 #
-# --skip-screenshots leaves out the *ScreenshotTests classes, which exist to produce pictures
-# for a person to look at. CI passes it for a pull request's label-triggered run; pushes to
-# main and manual runs keep them. --shard N prints only shard N's classes, space-separated
-# (nothing if that shard is empty), which is what each CI job asks for.
+# --skip-screenshots leaves out the *ScreenshotTests classes, which exist to produce pictures for a
+# person to look at. CI passes it for a pull request's run; pushes to main and manual runs keep them.
 
 set -euo pipefail
 
-count="${1:-5}"
+count="${1:-4}"
 shift || true
 skip_screenshots=false
 only_shard=""
@@ -34,44 +30,41 @@ while [ $# -gt 0 ]; do
   esac
   shift
 done
+
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 
-# "weight class" per line, heaviest first.
-weighted=()
-for file in "$root"/MindloreUITests/*.swift; do
-  class="$(basename "$file" .swift)"
-  if $skip_screenshots && [[ "$class" == *ScreenshotTests ]]; then continue; fi
-  tests="$(grep -c 'func test' "$file" || true)"
-  [ "$tests" -gt 0 ] && weighted+=("$tests $class")
-done
-if [ ${#weighted[@]} -eq 0 ]; then
-  echo "no UI test classes found under $root/MindloreUITests" >&2
-  exit 1
-fi
+/usr/bin/python3 - "$root" "$count" "$skip_screenshots" "$only_shard" <<'EOF'
+import glob, os, re, sys
+root, count, skip_screenshots, only_shard = sys.argv[1], int(sys.argv[2]), sys.argv[3] == "true", sys.argv[4]
 
-loads=()
-members=()
-for ((i = 0; i < count; i++)); do loads[i]=0; members[i]=""; done
+seconds = {}
+timings = os.path.join(root, "scripts/ci/ui-test-seconds.txt")
+if os.path.exists(timings):
+    for line in open(timings):
+        if line.strip() and not line.startswith("#"):
+            value, test = line.split()
+            seconds[test] = int(value)
 
-while read -r tests class; do
-  lightest=0
-  for ((i = 1; i < count; i++)); do
-    [ "${loads[i]}" -lt "${loads[lightest]}" ] && lightest=$i
-  done
-  loads[lightest]=$(( loads[lightest] + tests ))
-  members[lightest]="${members[lightest]:+${members[lightest]} }$class"
-done < <(printf '%s\n' "${weighted[@]}" | sort -rn -k1,1 -k2,2)
+tests = []
+for path in sorted(glob.glob(os.path.join(root, "MindloreUITests/*.swift"))):
+    cls = os.path.basename(path)[:-len(".swift")]
+    if skip_screenshots and cls.endswith("ScreenshotTests"):
+        continue
+    for name in re.findall(r"func (test\w+)\s*\(", open(path).read()):
+        test = f"{cls}/{name}"
+        tests.append((seconds.get(test, 60), test))
+if not tests:
+    sys.exit("no UI tests found under MindloreUITests")
 
-if [ -n "$only_shard" ]; then
-  echo "${members[only_shard - 1]:-}"
-  exit 0
-fi
+shards = [[0, []] for _ in range(count)]
+for weight, test in sorted(tests, key=lambda t: (-t[0], t[1])):
+    lightest = min(shards, key=lambda s: s[0])
+    lightest[0] += weight
+    lightest[1].append(test)
 
-json='{"include":['
-for ((i = 0; i < count; i++)); do
-  [ -z "${members[i]}" ] && continue
-  [ "$json" != '{"include":[' ] && json+=','
-  json+="{\"shard\":$((i + 1)),\"tests\":${loads[i]},\"classes\":\"${members[i]}\"}"
-done
-json+=']}'
-echo "$json"
+if only_shard:
+    print(" ".join(shards[int(only_shard) - 1][1]))
+else:
+    for i, (load, members) in enumerate(shards, 1):
+        print(f"shard {i}: {len(members)} tests, about {load // 60} min: {' '.join(members)}")
+EOF

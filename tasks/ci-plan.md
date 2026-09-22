@@ -116,6 +116,12 @@ build (macos-26, ~5 min)
   `testMindSearchOpenMergeAndUnmerge` (134 s) and `testKeySetupConnectionAndRemoval` exceeded the
   two-minute allowance, and the forced kill surfaced on the next launch as "Failed to terminate".
   CI now allows five minutes a UI test, and test.sh prints the bundle's failures and retries.
+- Fourth hosted run (35776496508): everything green. Build 2m33s without the index store. Unit
+  11 minutes: boot 108 s, 4.5 minutes before the first test, 3.7 minutes of tests (1,518 passed,
+  13 skipped). UI shards 15 to 21 minutes, one retry (`PageTranscriptionUITests`, passed on it).
+  Shards balanced by test count ran 8 to 16 minutes of tests because `GraphUITests` alone is 683 s,
+  so shards now split by test method, weighted by the measured seconds in
+  `scripts/ci/ui-test-seconds.txt`: about 9 minutes each for a pull request.
 - `OnDeviceInsightsLiveTests` failed once locally (Apple's model returned no summary) and passed the
   run before. It is gated on `FoundationModelsAvailability`, so it skips on hosted runners; it is a
   flaky live test on a Mac with Apple Intelligence, not a CI concern.
