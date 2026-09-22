@@ -15,6 +15,8 @@ struct EntryEditorView: View {
     @State private var currentEntry: Entry?
     // The id a new entry is created with, so the close rules find it when its route leaves the path.
     private let newEntryID: UUID?
+    // A Reflect card's prompt, seeded into the entry on appear rather than the first keystroke.
+    private let startingText: String?
     @State private var editingDate = false
     @State private var editingPages = false
     @State private var viewingPage: Int?
@@ -42,9 +44,10 @@ struct EntryEditorView: View {
 
     static let fallbackNoticeSeconds = 8.0
 
-    init(entry: Entry?, newEntryID: UUID? = nil, opensForReading: Bool = false) {
+    init(entry: Entry?, newEntryID: UUID? = nil, opensForReading: Bool = false, startingText: String? = nil) {
         _currentEntry = State(initialValue: entry)
         self.newEntryID = newEntryID
+        self.startingText = startingText
         _isReading = State(initialValue: opensForReading)
         _openedForReading = State(initialValue: opensForReading)
     }
@@ -66,14 +69,28 @@ struct EntryEditorView: View {
                     } else {
                         // The text view grows with its text and never ends shorter than the screen, so the
                         // whole entry scrolls as one and a tap below short text still lands in the text.
-                        GrowingTextEditor(
-                            text: textBinding,
-                            isFocused: editorFocused,
-                            focusAtEndToken: focusAtEndToken,
-                            onFocusChange: { editorFocused = $0 }
-                        )
+                        ZStack(alignment: .topLeading) {
+                            // A Reflect card's prompt shows as a hint, not real content: entry stays nil
+                            // (and nothing is saved) until the user actually types, the same rule any
+                            // other new entry follows. Seeding real text here once did create a
+                            // permanent draft from a card the user only glanced at and left.
+                            if entry == nil, let startingText, !startingText.isEmpty {
+                                Text(startingText)
+                                    .journalText(.body)
+                                    .foregroundStyle(.tertiary)
+                                    .padding(.top, 8)
+                                    .allowsHitTesting(false)
+                                    .accessibilityHidden(true)
+                            }
+                            GrowingTextEditor(
+                                text: textBinding,
+                                isFocused: editorFocused,
+                                focusAtEndToken: focusAtEndToken,
+                                onFocusChange: { editorFocused = $0 }
+                            )
+                            .accessibilityIdentifier("entryEditor")
+                        }
                         .padding(.horizontal)
-                        .accessibilityIdentifier("entryEditor")
                         .onAppear {
                             guard focusWhenEditorAppears else { return }
                             focusWhenEditorAppears = false

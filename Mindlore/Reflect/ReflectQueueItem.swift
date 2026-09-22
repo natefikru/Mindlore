@@ -1,0 +1,31 @@
+import Foundation
+
+// One thing Reflect surfaces for a week: a loose end still open at its end, or the week's own
+// generated summary. `Codable` because a generated item is what `ReflectSummary` persists; a
+// loose-end item is never stored, only built fresh at read time, so it never goes stale between
+// the loose end resolving and the cache catching up.
+nonisolated struct ReflectQueueItem: Identifiable, Equatable, Codable, Sendable {
+    enum Source: Equatable, Codable, Sendable {
+        case looseEnd(UUID)
+        case generated
+    }
+
+    // Stable across a re-fetch of the same week, since it is what dismissal keys against. A loose
+    // end or an entity's own id for those sources; a generated item's id is assigned once, at
+    // generation, and persisted with it.
+    let id: String
+    let source: Source
+    let title: String
+    let body: String
+    // What seeds a new entry when the card is tapped. Never empty in practice; a caller that has
+    // nothing worth writing about doesn't make the item.
+    let prompt: String
+
+    init(id: String, source: Source, title: String, body: String, prompt: String) {
+        self.id = id
+        self.source = source
+        self.title = title
+        self.body = body
+        self.prompt = prompt
+    }
+}

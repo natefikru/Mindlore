@@ -9,24 +9,108 @@ enum ReflectSource {
         aggregate(interval, looseEnds: looseEndFacts(in: context), context: context)
     }
 
-    // The trailing periods ending at `selection`, oldest first, for the mood-over-time chart.
-    // Loose ends are fetched once and reused across every period, rather than once per period: the
-    // set is the same unfiltered table read each time, so fetching it `trailingCount` times over
-    // would cost that many full-table reads for identical rows.
-    static func trend(
-        for selection: ReflectPeriodSelection,
-        trailingCount: Int = 6,
-        now: Date = .now,
-        calendar: Calendar = .current,
-        in context: ModelContext
-    ) -> [(selection: ReflectPeriodSelection, period: ReflectAggregator.Period)] {
-        let looseEnds = looseEndFacts(in: context)
-        return stride(from: trailingCount - 1, through: 0, by: -1).map { stepsBack in
-            var point = selection
-            point.offset = selection.offset - stepsBack
-            let interval = point.interval(now: now, calendar: calendar)
-            return (point, aggregate(interval, looseEnds: looseEnds, context: context))
+    // MARK: - Reused signals
+
+    // Mirrors TodaySource.looseEnds exactly: the same hidden/muted filtering and the same fact
+    // shape, just asked about a past week's end rather than now. ReflectSignals decides what a
+    // given end date makes of them.
+    static func queueLooseEnds(in context: ModelContext, directory: EntityDirectory) -> [LooseEndFacts] {
+        LooseEnd.all(in: context).compactMap { end in
+            let subjects = Set(end.entityIDs.map(directory.root(of:)))
+            let concealed = subjects.contains { id in
+                guard let entity = directory.entity(id) else { return false }
+                return entity.hidden || entity.resurfacingMuted
+            }
+            guard !concealed else { return nil }
+            return LooseEndFacts(
+                id: end.id,
+                text: end.text,
+                status: end.status,
+                sourceEntryDate: end.sourceEntryDate,
+                dueDate: end.dueDate,
+                resolvedByEntryID: end.resolvedByEntryID
+            )
         }
+    }
+
+    static func queueSignals(weekEnd: Date, in context: ModelContext) -> [ReflectQueueItem] {
+        let directory = EntityDirectory(in: context)
+        return ReflectSignals.compose(looseEnds: queueLooseEnds(in: context, directory: directory), weekEnd: weekEnd)
+    }
+
+    // MARK: - Feed bounds
+
+    static func earliestEntryDate(in context: ModelContext) -> Date? {
+        var descriptor = FetchDescriptor<Entry>(sortBy: [SortDescriptor(\Entry.entryDate, order: .forward)])
+        descriptor.fetchLimit = 1
+        return (try? context.fetch(descriptor))?.first?.entryDate
+    }
+
+    static func hasEntries(in interval: DateInterval, context: ModelContext) -> Bool {
+        let start = interval.start
+        let end = interval.end
+        let count = (try? context.fetchCount(FetchDescriptor<Entry>(predicate: #Predicate { $0.entryDate >= start && $0.entryDate < end }))) ?? 0
+        return count > 0
+    }
+
+    // MARK: - Tiered fidelity
+
+    // A week's own entries, sanitized-eligible and in order. Never a digest: a week is small
+    // enough that full text is cheap.
+    static func weekEntries(in interval: DateInterval, context: ModelContext) -> [ReflectFidelity.WeekEntry] {
+        let start = interval.start
+        let end = interval.end
+        let descriptor = FetchDescriptor<Entry>(predicate: #Predicate { $0.entryDate >= start && $0.entryDate < end })
+        let entries = ((try? context.fetch(descriptor)) ?? [])
+            .filter { !$0.isDeleted && InsightsCoordinator.canRunAI(on: $0) }
+        return entries
+            .sorted { $0.entryDate < $1.entryDate }
+            .map { ReflectFidelity.WeekEntry(id: $0.id, date: $0.entryDate, title: $0.title, text: $0.text) }
+    }
+
+    // The weeks whose start falls inside a month interval, for both the fold-out UI and the
+    // month's own prompt.
+    static func weeksStarting(in monthInterval: DateInterval, calendar: Calendar = .current) -> [DateInterval] {
+        var weeks: [DateInterval] = []
+        var seen: Set<Date> = []
+        var cursor = monthInterval.start
+        while cursor < monthInterval.end {
+            if let week = calendar.dateInterval(of: .weekOfYear, for: cursor),
+               week.start >= monthInterval.start, week.start < monthInterval.end,
+               seen.insert(week.start).inserted {
+                weeks.append(week)
+            }
+            guard let next = calendar.date(byAdding: .day, value: 1, to: cursor) else { break }
+            cursor = next
+        }
+        return weeks.sorted { $0.start < $1.start }
+    }
+
+    // A month's prompt: every week inside it that already has a cached summary contributes its
+    // items free; every other eligible entry in the month gets a digest line. Never a whole
+    // month of raw entry text. The entry count is the month's own "anything here at all" check,
+    // separate from whether any week was individually visited.
+    static func monthPrompt(interval: DateInterval, calendar: Calendar = .current, context: ModelContext) -> (prompt: String, entryCount: Int) {
+        var cachedItems: [[ReflectQueueItem]] = []
+        var covered: [DateInterval] = []
+        for week in weeksStarting(in: interval, calendar: calendar) {
+            guard let summary = ReflectSummaryStore.summary(kind: .week, periodStart: week.start, in: context) else { continue }
+            cachedItems.append(summary.items)
+            covered.append(week)
+        }
+
+        let start = interval.start
+        let end = interval.end
+        let descriptor = FetchDescriptor<Entry>(predicate: #Predicate { $0.entryDate >= start && $0.entryDate < end })
+        let monthEntries = ((try? context.fetch(descriptor)) ?? [])
+            .filter { !$0.isDeleted && InsightsCoordinator.canRunAI(on: $0) }
+        let uncovered = monthEntries
+            .filter { entry in !covered.contains { $0.start <= entry.entryDate && entry.entryDate < $0.end } }
+            .sorted { $0.entryDate < $1.entryDate }
+        let digestLines = uncovered.enumerated().map { index, entry in
+            AskDigests.line(handle: "D\(index + 1)", date: entry.entryDate, title: entry.title, text: entry.text)
+        }
+        return (ReflectFidelity.monthPrompt(cachedWeekItems: cachedItems, digestLines: digestLines), monthEntries.count)
     }
 
     private static func aggregate(
