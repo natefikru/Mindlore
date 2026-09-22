@@ -64,7 +64,7 @@ last, after deciding the real journal can go, or run against `-seedDemoJournal 3
 - [ ] A real week of entries produces few loose ends, and a later entry closes one.
 - [ ] Loose ends fade after a clock change.
 - [ ] The life area distribution on your own journal.
-- [ ] Today on your own journal, especially "It's been a while" (decision 7 was to try it on real
+- [ ] Today on your own journal, especially "Quiet lately" (decision 7 was to try it on real
       entries before trusting it).
 
 *Ask* (A9b, A10, and `tasks/ask-conversation.md` phase 4, which are the same gap)
@@ -217,6 +217,13 @@ Real, deferred on purpose, each with why it can wait.
       ten aggregate turns. Not wrong, just larger than it needs to be.
 - [ ] **Diff and thumbnail work happens in view bodies** (`CleanupReviewView`, `PageStripView`,
       `PageOrderView`). Fine at today's sizes; cache it if entries or page counts grow.
+- [ ] **Two UI tests fail on main as well as on branches** (checked 2026-09-22):
+      `GraphUITests.testMindFocusesATappedNodeAndKeepsResponding` (and the Mind screenshot test)
+      pinch the full-screen canvas closed, and a pinch-in starts with the fingers spread, so the
+      lower one lands on the tab bar and switches to Ask; the fix is to pinch a smaller region or
+      with the panel at peek. And
+      `ReflectUITests.testADismissalOutlivesARelaunch` finds the dismissed row still present.
+      Both look like harness problems, not app bugs, and want their own look.
 - [ ] **Test harness fakes hang rather than fail** when a coordinator stops calling them. The unit
       command's per-test time allowance is what stops a full stall.
 

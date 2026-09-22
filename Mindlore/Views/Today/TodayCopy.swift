@@ -20,7 +20,7 @@ nonisolated enum TodayCopy {
         case .dueToday: "Due today"
         case .onThisDay(_, let span): heading(span)
         case .stillOpen: "Still open"
-        case .beenAWhile: "It's been a while"
+        case .beenAWhile: "Quiet lately"
         case .latestSummary: "Your last entry"
         }
     }
@@ -70,7 +70,7 @@ nonisolated enum TodayCopy {
         case 2..<7: "Fades in \(days) days"
         default: "Fades \(day(end.fadeDate, locale: locale))"
         }
-        return end.dueDate == nil ? "\(when) unless you write about it" : when
+        return end.dueDate == nil ? "\(when) if it doesn't come up again" : when
     }
 
     private static func heading(_ span: TodaySpan) -> String {

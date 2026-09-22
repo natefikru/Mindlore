@@ -182,7 +182,7 @@ struct KeepCard: View {
             if insights.pausedForOffline {
                 Text("Insights will arrive when you're online.").font(.subheadline).foregroundStyle(.secondary)
             } else {
-                Label("Noticing", systemImage: "sparkles").font(.subheadline).foregroundStyle(.secondary).breathing()
+                Label("Reading", systemImage: "sparkles").font(.subheadline).foregroundStyle(.secondary).breathing()
             }
         }
     }

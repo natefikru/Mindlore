@@ -5,11 +5,13 @@ import SwiftUI
 // bottom. Tapping a node or a result focuses it and shows its card; the trail of focuses is the
 // breadcrumb row. Entity pages push onto the router's Mind path.
 struct MindView: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.modelContext) private var modelContext
     @Environment(GraphServices.self) private var graph
     @Environment(AppRouter.self) private var router
     @Environment(SettingsStore.self) private var settings
     @Environment(RecordingSession.self) private var recording
+    @Environment(ProviderAccountStore.self) private var accounts
     @State private var simulation: GraphSimulation?
     @State private var version = 0
     @State private var names: [UUID: String] = [:]
@@ -38,7 +40,9 @@ struct MindView: View {
     // between its round button and its wider date chip rather than being replaced by it.
     @Namespace private var glass
 
-    static let cardHeight: CGFloat = 200
+    // Grows with the text size, or the peek card's name, details, and bio clip at accessibility
+    // sizes. Capped so the map keeps some room.
+    static var cardHeight: CGFloat { min(UIFontMetrics.default.scaledValue(for: 200), 360) }
     private static let topBarHeight: CGFloat = 52
 
     private struct RefreshKey: Equatable {
@@ -82,7 +86,7 @@ struct MindView: View {
                             open: { router.mindPath.append(EntityRoute(id: $0)) }
                         )
                     }
-                    .animation(.snappy, value: trail.current)
+                    .animation(Motion.resolve(.snappy, reduceMotion: reduceMotion), value: trail.current)
                 }
             }
             // The keyboard never resizes the map or the panel's stops; only the panel's list
@@ -177,7 +181,6 @@ struct MindView: View {
         if browsableCount > 0 {
             ContentUnavailableView {
                 Label("Nothing matches these filters", systemImage: "line.3.horizontal.decrease")
-                    .font(.system(.headline, design: .serif))
             } description: {
                 Text("Search still finds everything the map leaves out.")
             } actions: {
@@ -190,10 +193,21 @@ struct MindView: View {
                     .accessibilityIdentifier("mindClearFilters")
             }
             .accessibilityIdentifier("mindEmptyState")
+        } else if !AIServices.textUsable(settings: settings, accounts: accounts) {
+            // Names come from insights, so with AI off a new entry adds nothing here. Saying "record
+            // something" then left people recording and watching the map stay empty.
+            ContentUnavailableView {
+                Label("Nothing on the map yet", systemImage: "circle.hexagongrid")
+            } description: {
+                Text("The map is built from the people, places, and projects AI finds in your entries. Turn on AI in Settings to start it.")
+            } actions: {
+                Button("Open AI settings") { router.showSettings() }
+                    .accessibilityIdentifier("mindEmptyOpenSettings")
+            }
+            .accessibilityIdentifier("mindEmptyState")
         } else {
             ContentUnavailableView {
-                Label("Your map starts with a word", systemImage: "circle.hexagongrid")
-                    .font(.system(.headline, design: .serif))
+                Label("Nothing on the map yet", systemImage: "circle.hexagongrid")
             } description: {
                 Text("The people, places, and things you write about gather here, and draw lines to each other as they turn up together.")
             } actions: {
@@ -231,7 +245,7 @@ struct MindView: View {
                         glass: glass
                     )
                     Menu {
-                        Picker("Colour by", selection: $lens) {
+                        Picker("Color by", selection: $lens) {
                             ForEach(MindLens.allCases, id: \.self) { lens in
                                 Label(lens.title, systemImage: lens.symbol)
                                     .accessibilityIdentifier("mindLens-\(lens.rawValue)")
@@ -243,7 +257,7 @@ struct MindView: View {
                             .frame(width: 40, height: 40)
                             .glassEffect(.regular.interactive(), in: Circle())
                     }
-                    .accessibilityLabel("Colour by")
+                    .accessibilityLabel("Color by")
                     .accessibilityIdentifier("mindLens")
                     Button {
                         showingFilters = true

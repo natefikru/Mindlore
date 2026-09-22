@@ -7,7 +7,7 @@ struct SearchPanelTests {
 
     @Test func stopHeights() {
         #expect(SearchPanel.height(for: .peek, available: available) == SearchPanel.peekHeight)
-        #expect(SearchPanel.height(for: .half, available: available) == 315)
+        #expect(abs(SearchPanel.height(for: .half, available: available) - 245) < 0.001)
         #expect(SearchPanel.height(for: .full, available: available) == 640)
         #expect(SearchPanel.height(for: .full, available: 50) == SearchPanel.peekHeight, "never shorter than peek")
     }

@@ -58,7 +58,7 @@ struct ReflectQueueGeneratorTests {
     }
 
     // An answer that can't be read is a failed generation, not "nothing to say": caching it as
-    // all caught up is how every period on the phone ended up permanently blank.
+    // an empty summary is how every period on the phone ended up permanently blank.
     @Test func malformedJSONIsRetriedNotCached() async {
         let fake = FakeTextGenerator()
         fake.results = [.success("not json at all")]

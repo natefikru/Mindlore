@@ -161,6 +161,16 @@ struct RootView: View {
             RecordingView()
                 .environment(recording)
         }
+        // Recording starts from the accessory, the recorder, empty states, and Siri, so the tap back
+        // lives here, on the session every one of them drives.
+        .sensoryFeedback(trigger: recording.status) { old, new in
+            switch new {
+            case .active where old != .active: Haptics.recordStart
+            case .permissionDenied, .startFailed: Haptics.failed
+            default: nil
+            }
+        }
+        .sensoryFeedback(Haptics.recordStop, trigger: recording.isFinishing) { _, finishing in finishing }
         .confirmationDialog("Discard this recording?", isPresented: $confirmingDiscard, titleVisibility: .visible) {
             Button("Discard Recording", role: .destructive) { recording.discard() }
                 .accessibilityIdentifier("confirmDiscardRecordingButton")

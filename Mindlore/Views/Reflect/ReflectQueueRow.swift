@@ -22,7 +22,12 @@ struct ReflectQueueRow: View {
                         .labelStyle(.iconOnly)
                         .font(.caption)
                         .buttonStyle(.plain)
-                        .foregroundStyle(.tertiary)
+                        .foregroundStyle(.secondary)
+                        // The glyph is 12 points; the target is the 44 a thumb needs, without
+                        // pushing the title row apart.
+                        .frame(width: 44, height: 44)
+                        .contentShape(Rectangle())
+                        .padding(-14)
                         .accessibilityIdentifier("reflectDismiss-\(item.id)")
                 }
                 // No line limit: a generated summary is deliberately short (two to four

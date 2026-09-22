@@ -24,6 +24,7 @@ final class EntryDateUITests: XCTestCase {
         editor.tap()
         editor.typeText("Written last month")
 
+        app.buttons["entryMoreButton"].tap()
         let dateButton = app.buttons["entryDateButton"]
         XCTAssertTrue(dateButton.waitForExistence(timeout: 5))
         dateButton.tap()

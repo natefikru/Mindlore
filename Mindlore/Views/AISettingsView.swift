@@ -60,16 +60,23 @@ struct AIKeyView: View {
         case failed(String)
     }
 
+    @State private var undo = UndoQueue()
+
     var body: some View {
         Form {
             Section {
-                if let account = accounts.openAIAccount, accounts.hasKey(for: account), !replacingKey {
+                if let account = accounts.openAIAccount, accounts.hasKey(for: account), !replacingKey, undo.pending == nil {
                     LabeledContent("API key", value: "Saved")
                     Button("Replace key") { replacingKey = true }
+                    // A key often lives nowhere else once it's pasted here, so removing it waits
+                    // for Undo's window like any other delete.
                     Button("Remove key", role: .destructive) {
-                        try? accounts.remove(account)
-                        status = .idle
+                        undo.schedule([account.id], message: "Key removed") {
+                            try? accounts.remove(account)
+                            status = .idle
+                        }
                     }
+                    .accessibilityIdentifier("removeKeyButton")
                 } else {
                     SecureField("sk-...", text: $keyDraft)
                         .textContentType(.password)
@@ -82,7 +89,7 @@ struct AIKeyView: View {
                 if let saveError {
                     Text(saveError).foregroundStyle(.orange)
                 }
-                if accounts.openAIAccount.map(accounts.hasKey(for:)) == true {
+                if undo.pending == nil, accounts.openAIAccount.map(accounts.hasKey(for:)) == true {
                     Button("Test connection") { Task { await test() } }
                         .disabled(status == .testing)
                     statusView
@@ -96,6 +103,7 @@ struct AIKeyView: View {
         .animation(Motion.resolve(Motion.settle, reduceMotion: reduceMotion), value: replacingKey)
         .animation(Motion.resolve(Motion.settle, reduceMotion: reduceMotion), value: status)
         .paperBackground()
+        .undoPill(undo)
         .navigationTitle("OpenAI Key")
         .navigationBarTitleDisplayMode(.inline)
         .task {

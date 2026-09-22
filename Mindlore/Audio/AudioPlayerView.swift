@@ -28,7 +28,7 @@ struct AudioPlayerView: View {
 
                 Button(action: toggle) {
                     Image(systemName: isPlaying ? "pause.circle.fill" : "play.circle.fill")
-                        .font(.system(size: 34))
+                        .font(.largeTitle)
                 }
                 .accessibilityLabel(isPlaying ? "Pause recording" : "Play recording")
 

@@ -20,6 +20,7 @@ struct AskView: View {
     @State private var sentTurn: AskTurn?
     @State private var scrollPosition = ScrollPosition()
     @State private var suggestions: [AskSuggestion] = []
+    @State private var hasEntries = true
     // Counts sends, so the button's bounce and the tap both fire once per question.
     @State private var sends = 0
     @FocusState private var fieldFocused: Bool
@@ -100,7 +101,7 @@ struct AskView: View {
                         .ignoresSafeArea()
                         .allowsHitTesting(false)
                 }
-                .animation(.snappy(duration: 0.2), value: showsSearchPanel)
+                .animation(Motion.resolve(.snappy(duration: 0.2), reduceMotion: reduceMotion), value: showsSearchPanel)
             }
         }
         .sheet(isPresented: $showsHistory) {
@@ -146,6 +147,8 @@ struct AskView: View {
         // body, which would fetch every entity each time the screen redrew.
         .task(id: SuggestionsKey(empty: ask.turns.isEmpty, graph: graph.revision, saver: saver.revision, stamped: JournalSaves.revision)) {
             guard ask.turns.isEmpty else { return }
+            let finished = FetchDescriptor<Entry>(predicate: #Predicate { !$0.isDraft })
+            hasEntries = ((try? modelContext.fetchCount(finished)) ?? 0) > 0
             suggestions = AskSuggestionSource.suggestions(in: modelContext, settings: settings)
         }
         .task(id: ask.draftQuestion) {
@@ -231,31 +234,41 @@ struct AskView: View {
         VStack(alignment: .leading, spacing: 20) {
             VStack(alignment: .leading, spacing: 6) {
                 Text("Ask your journal")
-                    .journalText(.title2)
+                    .font(.title2)
                     .fontWeight(.semibold)
                     .accessibilityIdentifier("askEmptyState")
-                Text("Answers come from what you've written, and nothing else.")
+                Text(hasEntries
+                     ? "Answers come from what you've written, and nothing else."
+                     : "Answers come from what you've written. Write a few entries first, then ask about them.")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
             }
 
-            VStack(spacing: 10) {
-                ForEach(Array(suggestions.enumerated()), id: \.element) { index, suggestion in
-                    AskSuggestionCard(suggestion: suggestion) {
-                        ask.draftQuestion = suggestion.text
-                        fieldFocused = true
-                    }
-                    .transition(.bloom)
-                    .animation(
-                        Motion.resolve(Motion.settle, reduceMotion: reduceMotion)?
-                            .delay(Double(index) * Motion.stagger),
-                        value: suggestions
-                    )
-                }
+            // A suggestion is a question to send. With nothing written, or with Ask unable to
+            // answer, tapping one led straight to a question nothing could answer.
+            if hasEntries, ask.isAvailable {
+                suggestionCards
             }
         }
         .padding(.horizontal)
         .padding(.top, 12)
+    }
+
+    private var suggestionCards: some View {
+        VStack(spacing: 10) {
+            ForEach(Array(suggestions.enumerated()), id: \.element) { index, suggestion in
+                AskSuggestionCard(suggestion: suggestion) {
+                    ask.draftQuestion = suggestion.text
+                    fieldFocused = true
+                }
+                .transition(.bloom)
+                .animation(
+                    Motion.resolve(Motion.settle, reduceMotion: reduceMotion)?
+                        .delay(Double(index) * Motion.stagger),
+                    value: suggestions
+                )
+            }
+        }
     }
 
     // MARK: - The field
@@ -323,6 +336,7 @@ struct AskView: View {
         .padding(.top, 8)
         .padding(.bottom, 6)
         .sensoryFeedback(Haptics.selected, trigger: sends)
+        .sensoryFeedback(Haptics.failed, trigger: ask.turns.last?.failureRaw) { _, failure in failure != nil }
     }
 
     private var canSend: Bool {

@@ -20,6 +20,7 @@ struct EntryListView: View {
     @State private var returnToReflectAfterEntry = false
     @Environment(RecordingSession.self) private var recording
     @Environment(InsightsCoordinator.self) private var insightsCoordinator
+    @State private var undo = UndoQueue()
 
     enum PageOrderTarget: Identifiable {
         case new
@@ -71,13 +72,24 @@ struct EntryListView: View {
             // The three monotonic counters AskIndexStore keys off, plus the day. Never a count:
             // an add and a delete return one to where it was, and the header would miss the change.
             .task(id: todayFingerprint) { refreshToday() }
+            .undoPill(undo)
             .overlay {
-                if entries.isEmpty {
-                    ContentUnavailableView(
-                        "No entries yet",
-                        systemImage: "book.closed",
-                        description: Text("Tap the microphone to speak an entry, or the pencil to write one.")
-                    )
+                if visibleEntries.isEmpty {
+                    // The toolbar's glyphs carry no words, so the empty state names what they do
+                    // and offers the two that start an entry.
+                    ContentUnavailableView {
+                        Label("No entries yet", systemImage: "book.closed")
+                    } description: {
+                        Text("Speak an entry, write one, or photograph pages from a paper journal.")
+                    } actions: {
+                        Button("Record", systemImage: "mic") { recording.begin() }
+                            .buttonStyle(.borderedProminent)
+                            .disabled(recording.status != .idle)
+                            .accessibilityIdentifier("journalEmptyRecord")
+                        Button("Write", systemImage: "square.and.pencil") { router.journalPath.append(.new()) }
+                            .buttonStyle(.bordered)
+                            .accessibilityIdentifier("journalEmptyWrite")
+                    }
                 } else if shownEntries.isEmpty, !activeAreas.isEmpty {
                     ContentUnavailableView {
                         Label(
@@ -259,10 +271,16 @@ struct EntryListView: View {
         LifeArea.allCases.filter { activeAreas.contains($0) }
     }
 
+    // Everything but an entry whose delete is still waiting on its Undo.
+    private var visibleEntries: [Entry] {
+        let hidden = undo.hiddenIDs
+        return hidden.isEmpty ? entries : entries.filter { !hidden.contains($0.id) }
+    }
+
     private var shownEntries: [Entry] {
         let areas = activeAreas
-        guard !areas.isEmpty else { return entries }
-        return entries.filter { JournalFilter.matches(areasRaw: $0.insights?.areasRaw ?? [], areas: areas) }
+        guard !areas.isEmpty else { return visibleEntries }
+        return visibleEntries.filter { JournalFilter.matches(areasRaw: $0.insights?.areasRaw ?? [], areas: areas) }
     }
 
     // The query is already newest first, so the groups come out in order with no re-sorting.
@@ -307,18 +325,26 @@ struct EntryListView: View {
         insightsCoordinator.isRunning(entry) || entry.insightsPending || entry.titlePending
     }
 
+    // The row goes at once and the delete waits for Undo's window. An entry takes its insights,
+    // links, and loose ends with it, which is a lot for one stray swipe.
     private func delete(_ offsets: IndexSet, in sectionEntries: [Entry]) {
-        let byID = Dictionary(sectionEntries.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         let ids = JournalGroups.ids(at: offsets, in: sectionEntries.map(\.id))
-        for entry in ids.compactMap({ byID[$0] }) {
-            DiagnosticsLog.shared.record("entry.deleted", ["id": .id(entry.id), "reason": "swipe"])
-            Entry.delete(entry, in: modelContext)
+        guard !ids.isEmpty else { return }
+        let context = modelContext
+        let saver = saver
+        let graph = graph
+        undo.schedule(Set(ids), message: ids.count == 1 ? "Entry deleted" : "\(ids.count) entries deleted") {
+            let doomed = (try? context.fetch(FetchDescriptor<Entry>(predicate: #Predicate { ids.contains($0.id) }))) ?? []
+            for entry in doomed {
+                DiagnosticsLog.shared.record("entry.deleted", ["id": .id(entry.id), "reason": "swipe"])
+                Entry.delete(entry, in: context)
+            }
+            // Flush first so the cascade is real, then recount over what is left: the entry took
+            // its links with it, and anything nobody mentions any more goes too.
+            saver.flush()
+            graph.entriesDeleted(in: context)
+            saver.flush()
         }
-        // Flush first so the cascade is real, then recount over what is left: the entry took
-        // its links with it, and anything nobody mentions any more goes too.
-        saver.flush()
-        graph.entriesDeleted(in: modelContext)
-        saver.flush()
     }
 }
 

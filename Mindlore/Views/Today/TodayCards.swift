@@ -122,13 +122,21 @@ struct TodayCardView: View {
                         .labelStyle(.iconOnly)
                         .font(.caption)
                         .buttonStyle(.plain)
-                        .foregroundStyle(.tertiary)
+                        .foregroundStyle(.secondary)
+                        .frame(width: 44, height: 44)
+                        .contentShape(Rectangle())
+                        .padding(-14)
                         .accessibilityIdentifier("todayDismiss-\(card.kind.rawValue)")
                 }
             }
-            content
-                .contentShape(Rectangle())
-                .onTapGesture { open?() }
+            // A button, not a tap gesture, so VoiceOver can open the entry too.
+            if let open {
+                Button(action: open) { content.contentShape(Rectangle()) }
+                    .buttonStyle(.plain)
+                    .accessibilityHint("Opens the entry")
+            } else {
+                content
+            }
             Spacer(minLength: 0)
             if case .beenAWhile(let who) = card {
                 Button("Don't show \(who.name)") { mute(who) }

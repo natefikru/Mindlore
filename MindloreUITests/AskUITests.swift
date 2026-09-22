@@ -85,9 +85,19 @@ final class AskUITests: XCTestCase {
 
     // The keyboard covers the tab bar, so it has to go away without sending anything: a tap on
     // empty space, or a drag down. A suggestion's own tap must still reach the field.
+    // With nothing written, a suggestion would be a question nothing can answer.
+    @MainActor
+    func testAnEmptyJournalOffersNoSuggestions() throws {
+        app.launch()
+        openAsk()
+        XCTAssertTrue(app.staticTexts["askEmptyState"].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.buttons["askExample"].waitForExistence(timeout: 2))
+    }
+
     @MainActor
     func testTheKeyboardGoesAwaySoTheTabsCanBeReached() throws {
-        app.launch()
+        // Suggestions only show once there is something to ask about.
+        writeTheRiverEntry()
         openAsk()
         let journalTab = app.tabBars.buttons["Journal"]
 
@@ -108,11 +118,8 @@ final class AskUITests: XCTestCase {
         suggestion.tap()
         XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5), "a suggestion still focuses the field")
         XCTAssertFalse((field.value as? String ?? "").isEmpty, "and fills it")
-
-        app.staticTexts["askEmptyState"].tap()
-        XCTAssertTrue(app.keyboards.firstMatch.waitForNonExistence(timeout: 5))
-        journalTab.tap()
-        XCTAssertTrue(app.buttons["newEntryButton"].waitForExistence(timeout: 5), "the tab bar works again")
+        // Nothing to dismiss past this point: with an entry in the journal, the filled field is
+        // also showing its search results, which the tap and the drag above already cover.
     }
 
     @MainActor

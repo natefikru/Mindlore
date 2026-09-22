@@ -46,27 +46,27 @@ struct ReflectSummaryStoreTests {
         let fake = FakeTextGenerator()
         fake.results = [.success(#"{"summary":"A new job came up.","prompt":"How's the new job going?"}"#)]
 
-        let first = await ReflectSummaryStore.generateIfMissing(
+        let first = await ReflectSummaryStore.generateIfNeeded(
             kind: .week, interval: week, resolve: resolve(fake), voice: .default, calendar: utc, in: context
         )
         #expect(first?.items.first?.body == "A new job came up.")
         #expect(fake.requests.count == 1)
 
         // A second call finds the cache and makes no request.
-        let second = await ReflectSummaryStore.generateIfMissing(
+        let second = await ReflectSummaryStore.generateIfNeeded(
             kind: .week, interval: week, resolve: resolve(fake), voice: .default, calendar: utc, in: context
         )
         #expect(fake.requests.count == 1, "a cached period is read back, never asked about again")
         #expect(second?.items == first?.items)
     }
 
-    // A week or month with nothing eligible is cached as "all caught up" without ever calling the
+    // A week or month with nothing eligible is cached as an empty summary without ever calling the
     // provider, so an empty stretch of the journal costs nothing.
     @Test func aWeekWithNoEligibleEntriesIsCachedWithoutARequest() async throws {
         let week = utc.dateInterval(of: .weekOfYear, for: date(2026, 9, 8))!
         let fake = FakeTextGenerator()
 
-        let summary = await ReflectSummaryStore.generateIfMissing(
+        let summary = await ReflectSummaryStore.generateIfNeeded(
             kind: .week, interval: week, resolve: resolve(fake), voice: .default, calendar: utc, in: context
         )
 
@@ -81,7 +81,7 @@ struct ReflectSummaryStoreTests {
 
         let failing = FakeTextGenerator()
         failing.results = [.failure(AIError.invalidResponse)]
-        let firstAttempt = await ReflectSummaryStore.generateIfMissing(
+        let firstAttempt = await ReflectSummaryStore.generateIfNeeded(
             kind: .week, interval: week, resolve: resolve(failing), voice: .default, calendar: utc, in: context
         )
         #expect(firstAttempt == nil)
@@ -89,10 +89,94 @@ struct ReflectSummaryStoreTests {
 
         let succeeding = FakeTextGenerator()
         succeeding.results = [.success(#"{"summary":"noticed","prompt":"ask?"}"#)]
-        let retried = await ReflectSummaryStore.generateIfMissing(
+        let retried = await ReflectSummaryStore.generateIfNeeded(
             kind: .week, interval: week, resolve: resolve(succeeding), voice: .default, calendar: utc, in: context
         )
         #expect(retried?.items.first?.body == "noticed", "the next call tries again rather than remembering the failure")
+    }
+
+    // MARK: - The running week (owner, 2026-09-22)
+
+    private func rows(for week: DateInterval) -> Int {
+        let start = week.start
+        return (try? context.fetchCount(FetchDescriptor<ReflectSummary>(predicate: #Predicate { $0.periodStart == start }))) ?? -1
+    }
+
+    private func reply(_ body: String) -> Result<String, any Error> {
+        .success(#"{"summary":"\#(body)","prompt":"ask?"}"#)
+    }
+
+    @Test func theRunningWeekIsRewrittenWhenItsEntriesChange() async throws {
+        let week = utc.dateInterval(of: .weekOfYear, for: .now)!
+        entry("first thing this week", on: week.start)
+        try context.save()
+        let fake = FakeTextGenerator()
+        fake.results = [reply("one"), reply("two")]
+
+        let first = await ReflectSummaryStore.generateIfNeeded(kind: .week, interval: week, resolve: resolve(fake), voice: .default, calendar: utc, in: context)
+        #expect(first?.items.first?.body == "one")
+        _ = await ReflectSummaryStore.generateIfNeeded(kind: .week, interval: week, resolve: resolve(fake), voice: .default, calendar: utc, in: context)
+        #expect(fake.requests.count == 1, "nothing changed, nothing asked")
+
+        entry("second thing this week", on: week.start)
+        try context.save()
+        let second = await ReflectSummaryStore.generateIfNeeded(kind: .week, interval: week, resolve: resolve(fake), voice: .default, calendar: utc, in: context)
+        #expect(fake.requests.count == 2)
+        #expect(second?.items.first?.body == "two")
+        #expect(rows(for: week) == 1, "a rewrite replaces the row rather than adding one")
+    }
+
+    @Test func aWeekSummedUpAfterItEndedIsFinal() async throws {
+        let week = utc.dateInterval(of: .weekOfYear, for: date(2026, 9, 8))!
+        entry("wrote about the new job", on: week.start)
+        try context.save()
+        let fake = FakeTextGenerator()
+        fake.results = [reply("done")]
+        _ = await ReflectSummaryStore.generateIfNeeded(kind: .week, interval: week, resolve: resolve(fake), voice: .default, calendar: utc, in: context)
+
+        entry("a late addition to that week", on: week.start)
+        try context.save()
+        let again = await ReflectSummaryStore.generateIfNeeded(kind: .week, interval: week, resolve: resolve(fake), voice: .default, calendar: utc, in: context)
+
+        #expect(fake.requests.count == 1)
+        #expect(again?.items.first?.body == "done")
+    }
+
+    // Written on the Wednesday, then more entries: once the week is over it is summed up one last
+    // time from everything, and that one stands.
+    @Test func aMidWeekSummaryIsRewrittenOnceAfterTheWeekEnds() async throws {
+        let week = utc.dateInterval(of: .weekOfYear, for: date(2026, 9, 8))!
+        entry("wrote about the new job", on: week.start)
+        context.insert(ReflectSummary(
+            kind: .week, periodStart: week.start, generatedAt: week.start.addingTimeInterval(86_400),
+            items: [ReflectQueueItem(id: "old", source: .generated, title: "t", body: "partial", prompt: "p")],
+            sourceFingerprint: "an earlier set of entries"
+        ))
+        try context.save()
+        let fake = FakeTextGenerator()
+        fake.results = [reply("whole week")]
+
+        let final = await ReflectSummaryStore.generateIfNeeded(kind: .week, interval: week, resolve: resolve(fake), voice: .default, calendar: utc, in: context)
+        _ = await ReflectSummaryStore.generateIfNeeded(kind: .week, interval: week, resolve: resolve(fake), voice: .default, calendar: utc, in: context)
+
+        #expect(final?.items.first?.body == "whole week")
+        #expect(fake.requests.count == 1)
+        #expect(rows(for: week) == 1)
+    }
+
+    @Test func aFailedRewriteKeepsTheSummaryItHad() async throws {
+        let week = utc.dateInterval(of: .weekOfYear, for: .now)!
+        entry("first thing this week", on: week.start)
+        try context.save()
+        let fake = FakeTextGenerator()
+        fake.results = [reply("one"), .failure(AIError.invalidResponse)]
+        _ = await ReflectSummaryStore.generateIfNeeded(kind: .week, interval: week, resolve: resolve(fake), voice: .default, calendar: utc, in: context)
+
+        entry("second thing this week", on: week.start)
+        try context.save()
+        let kept = await ReflectSummaryStore.generateIfNeeded(kind: .week, interval: week, resolve: resolve(fake), voice: .default, calendar: utc, in: context)
+
+        #expect(kept?.items.first?.body == "one")
     }
 
     // MARK: - The launch sweep's scope
@@ -125,7 +209,7 @@ struct ReflectSummaryStoreTests {
 
         let fake = FakeTextGenerator()
         fake.results = [.success(#"{"summary":"","prompt":""}"#)]
-        _ = await ReflectSummaryStore.generateIfMissing(
+        _ = await ReflectSummaryStore.generateIfNeeded(
             kind: .week, interval: week, resolve: resolve(fake), voice: .default, calendar: utc, in: context
         )
 
@@ -156,7 +240,7 @@ struct ReflectSummaryStoreTests {
 
         let fake = FakeTextGenerator()
         fake.results = [.success(#"{"summary":"","prompt":""}"#)]
-        _ = await ReflectSummaryStore.generateIfMissing(
+        _ = await ReflectSummaryStore.generateIfNeeded(
             kind: .month, interval: month, resolve: resolve(fake), voice: .default, calendar: utc, in: context
         )
 

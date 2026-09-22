@@ -37,6 +37,7 @@ enum AskEntryRefs {
 // saying what went out. Answers are always Text(verbatim:), so nothing an entry contains can
 // become a link or markdown.
 struct AskTurnView: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let turn: AskTurn
     // The conversation's own map, so a chip is labelled with the handle the answer cited.
     let handles: [String: UUID]
@@ -105,7 +106,8 @@ struct AskTurnView: View {
             .foregroundStyle(.tertiary)
             .opacity(pulse ? 0.2 : 1)
             .animation(.easeInOut(duration: 0.6).repeatForever(autoreverses: true), value: pulse)
-            .onAppear { pulse = true }
+            // With Reduce Motion the caret holds still; it still marks where the answer is growing.
+            .onAppear { pulse = !reduceMotion }
             .accessibilityHidden(true)
     }
 

@@ -95,7 +95,7 @@ struct SettingsView: View {
                 }
 
                 Section {
-                    Toggle("Names you haven't written about", isOn: $settings.resurfacingEnabled)
+                    Toggle("Resurface quiet names", isOn: $settings.resurfacingEnabled)
                         .accessibilityIdentifier("resurfacingToggle")
                 } header: {
                     Text("Today")

@@ -8,7 +8,8 @@ struct EntityPeekSheet: View {
     @State private var path: [EntityRoute] = []
     @State private var detent: PresentationDetent = Self.cardDetent
 
-    static let cardDetent = PresentationDetent.height(220)
+    // Scaled with the text size, like MindView.cardHeight, so the card's content fits.
+    static var cardDetent: PresentationDetent { .height(min(UIFontMetrics.default.scaledValue(for: 220), 420)) }
 
     var body: some View {
         NavigationStack(path: $path) {

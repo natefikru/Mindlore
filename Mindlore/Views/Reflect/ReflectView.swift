@@ -11,8 +11,12 @@ struct ReflectView: View {
     @Environment(SettingsStore.self) private var settings
     @Environment(ProviderAccountStore.self) private var accounts
     @State private var earliestEntryDate: Date?
+    @State private var recentWeeks: [ReflectFeed.WeekRow] = []
     @State private var months: [ReflectFeed.MonthRow] = []
     @State private var hasLoaded = false
+    // Rows that loaded and found no summary, by period start. When every row is in here, the feed
+    // says there is nothing to look back on rather than showing a blank sheet.
+    @State private var emptyRows: Set<Date> = []
 
     var recentWeekCount = ReflectFeed.defaultRecentWeekCount
     // The presenter's chance to remember it should reopen Reflect once the seeded entry closes,
@@ -22,16 +26,22 @@ struct ReflectView: View {
     var body: some View {
         NavigationStack {
             Group {
-                if hasLoaded {
+                if hasLoaded, allRowsEmpty {
+                    ContentUnavailableView(
+                        "Nothing to look back on yet",
+                        systemImage: "calendar",
+                        description: Text("A week shows up here once there's something to sum up.")
+                    )
+                    .paperBackground()
+                    .accessibilityIdentifier("reflectEmpty")
+                } else if hasLoaded {
                     ScrollView {
-                        LazyVStack(alignment: .leading, spacing: 4) {
+                        LazyVStack(alignment: .leading, spacing: 0) {
                             ForEach(recentWeeks) { week in
-                                ReflectWeekSection(week: week, onTapItem: openEntry)
-                                Divider().padding(.leading, 16)
+                                ReflectWeekSection(week: week, onTapItem: openEntry) { markEmpty(week.id, $0) }
                             }
                             ForEach(months) { month in
-                                ReflectMonthRow(month: month, onTapItem: openEntry)
-                                Divider().padding(.leading, 16)
+                                ReflectMonthRow(month: month, onTapItem: openEntry) { markEmpty(month.id, $0) }
                             }
                         }
                     }
@@ -44,7 +54,7 @@ struct ReflectView: View {
             .navigationTitle("Reflect")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
+                ToolbarItem(placement: .confirmationAction) {
                     Button("Done") { dismiss() }
                 }
             }
@@ -53,13 +63,9 @@ struct ReflectView: View {
         }
     }
 
-    private var recentWeeks: [ReflectFeed.WeekRow] {
-        ReflectFeed.recentWeeks(recentWeekCount: recentWeekCount, now: .now)
-    }
-
     // Loaded once per appearance: the journal's first entry date decides how far back the feed
-    // reaches, and the month list is filtered here (not per-row) so a zero-entry month never
-    // renders even for a frame.
+    // reaches, and weeks and months are filtered here (not per-row) so a period with no entries
+    // never renders, not even for a frame. A row with nothing in it is clutter, not a finding.
     private func load() async {
         // The same check AskView runs on its own open (Checked on every open, so adding a key
         // moves questions without a trip to Settings): otherwise a key saved just now sits unused
@@ -74,13 +80,26 @@ struct ReflectView: View {
             return
         }
         earliestEntryDate = earliest
-        guard let oldestRecentWeekStart = recentWeeks.last?.interval.start else {
+        let weeks = ReflectFeed.recentWeeks(recentWeekCount: recentWeekCount, now: .now)
+        recentWeeks = weeks.filter { ReflectSource.hasEntries(in: $0.interval, context: modelContext) }
+        // The cut-off comes from the unfiltered weeks, or an empty recent week would pull its days
+        // into a month row as well.
+        guard let oldestRecentWeekStart = weeks.last?.interval.start else {
             hasLoaded = true
             return
         }
         let candidates = ReflectFeed.months(beforeWeekStart: oldestRecentWeekStart, earliestEntryDate: earliest)
         months = candidates.filter { ReflectSource.hasEntries(in: $0.interval, context: modelContext) }
         hasLoaded = true
+    }
+
+    private var allRowsEmpty: Bool {
+        let ids = Set(recentWeeks.map(\.id) + months.map(\.id))
+        return ids.isSubset(of: emptyRows)
+    }
+
+    private func markEmpty(_ id: Date, _ empty: Bool) {
+        if empty { emptyRows.insert(id) } else { emptyRows.remove(id) }
     }
 
     private func openEntry(_ item: ReflectQueueItem) {

@@ -9,11 +9,16 @@ struct AskHistoryView: View {
     @Environment(AskService.self) private var ask
     @Environment(\.dismiss) private var dismiss
     @State private var conversations: [AskConversation] = []
+    @State private var undo = UndoQueue()
+
+    private var visibleConversations: [AskConversation] {
+        conversations.filter { !undo.hiddenIDs.contains($0.id) }
+    }
 
     var body: some View {
         NavigationStack {
             List {
-                ForEach(conversations) { conversation in
+                ForEach(visibleConversations) { conversation in
                     Button { open(conversation) } label: {
                         VStack(alignment: .leading, spacing: 2) {
                             Text(verbatim: conversation.title)
@@ -27,15 +32,19 @@ struct AskHistoryView: View {
                     .accessibilityIdentifier("askHistoryRow")
                 }
                 .onDelete { offsets in
-                    for conversation in offsets.map({ conversations[$0] }) {
-                        ask.delete(conversation, in: modelContext)
+                    let doomed = offsets.map { visibleConversations[$0] }
+                    undo.schedule(Set(doomed.map(\.id)), message: "Conversation deleted") {
+                        for conversation in doomed {
+                            ask.delete(conversation, in: modelContext)
+                        }
+                        refresh()
                     }
-                    refresh()
                 }
             }
             .paperBackground()
+            .undoPill(undo)
             .overlay {
-                if conversations.isEmpty {
+                if visibleConversations.isEmpty {
                     ContentUnavailableView("No conversations yet", systemImage: "clock.arrow.circlepath")
                         .accessibilityIdentifier("askHistoryEmpty")
                 }

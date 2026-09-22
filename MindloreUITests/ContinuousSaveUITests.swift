@@ -63,6 +63,14 @@ final class ContinuousSaveUITests: XCTestCase {
         app.buttons["Delete"].tap()
         XCTAssertTrue(app.staticTexts["No entries yet"].waitForExistence(timeout: 5))
 
+        // Undo brings it back; a second delete lets the window run out and is permanent.
+        app.buttons["undoButton"].tap()
+        XCTAssertTrue(row.waitForExistence(timeout: 5))
+        row.swipeLeft()
+        app.buttons["Delete"].tap()
+        XCTAssertTrue(app.staticTexts["No entries yet"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.otherElements["undoPill"].waitForNonExistence(timeout: 10))
+
         app.terminate()
         app.launch()
         XCTAssertTrue(app.staticTexts["No entries yet"].waitForExistence(timeout: 5))
