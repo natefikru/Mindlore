@@ -139,7 +139,9 @@ enum TodaySource {
                 id: end.id,
                 text: end.text,
                 status: end.status,
+                sourceEntryID: end.sourceEntryID,
                 sourceEntryDate: end.sourceEntryDate,
+                lastMentionedAt: end.lastMentionedAt,
                 dueDate: end.dueDate,
                 resolvedByEntryID: end.resolvedByEntryID
             )

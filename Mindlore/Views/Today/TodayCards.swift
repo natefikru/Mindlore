@@ -1,37 +1,103 @@
 import SwiftUI
 
-// The header above the journal: a greeting, the week, and at most three cards. Everything here is
-// a query over what the app already stored. Nothing asks the AI anything, and nothing keeps score.
+// What a thread card's buttons ask for. The header hands it up; EntryListView owns the store.
+enum TodayThreadAction {
+    case done, letGo, writeAbout
+}
+
+// The header above the journal: a greeting, the week, and one row of cards to swipe through each
+// day. Everything here is a query over what the app already stored. Nothing asks the AI anything,
+// and nothing keeps score.
 struct TodayHeader: View {
     let today: Today
     let dismiss: (TodayCard) -> Void
     let mute: (EntityFacts) -> Void
+    var act: (TodayThreadAction, LooseEndFacts) -> Void = { _, _ in }
+    var openEntry: (UUID) -> Void = { _ in }
     var openReflect: () -> Void = {}
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var position: String?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             Text(today.greeting)
                 .font(.system(.title2, design: .serif).weight(.semibold))
                 .foregroundStyle(Palette.ink)
+                .padding(.horizontal, 16)
             WeekStrip(days: today.week, onTap: openReflect)
                 .padding(.bottom, 2)
-            ForEach(Array(today.cards.enumerated()), id: \.element.id) { index, card in
-                TodayCardView(card: card, dismiss: { dismiss(card) }, mute: mute)
-                    .transition(.bloom)
-                    .animation(
-                        Motion.resolve(Motion.settle, reduceMotion: reduceMotion)?
-                            .delay(Double(index) * Motion.stagger),
-                        value: today.cards
-                    )
+                .padding(.horizontal, 16)
+            if !today.cards.isEmpty {
+                row
             }
         }
-        .padding(.horizontal, 16)
         .padding(.top, 8)
         .padding(.bottom, 16)
         .frame(maxWidth: .infinity, alignment: .leading)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("todayHeader")
+    }
+
+    // One card per page. Every card takes the tallest one's height, so the row doesn't jump as it
+    // pages; the horizontal swipe belongs to paging alone, which is why nothing here dismisses on
+    // a swipe the way a lone card used to.
+    private var row: some View {
+        VStack(spacing: 8) {
+            ScrollView(.horizontal) {
+                HStack(alignment: .top, spacing: 10) {
+                    ForEach(today.cards) { card in
+                        TodayCardView(
+                            card: card,
+                            dismiss: { advance(past: card); dismiss(card) },
+                            mute: mute,
+                            act: { action in
+                                guard let end = card.thread else { return }
+                                if action != .writeAbout { advance(past: card) }
+                                act(action, end)
+                            },
+                            open: entryID(of: card).map { id in { openEntry(id) } }
+                        )
+                        .frame(maxHeight: .infinity, alignment: .top)
+                        .containerRelativeFrame(.horizontal)
+                        .id(card.id)
+                    }
+                }
+                .fixedSize(horizontal: false, vertical: true)
+                .scrollTargetLayout()
+            }
+            .contentMargins(.horizontal, 16, for: .scrollContent)
+            .scrollTargetBehavior(.viewAligned)
+            .scrollPosition(id: $position)
+            .scrollIndicators(.hidden)
+            .accessibilityIdentifier("todayRow")
+
+            if today.cards.count > 1 {
+                Text("\(currentIndex + 1) of \(today.cards.count)")
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.secondary)
+                    .contentTransition(.numericText())
+                    .accessibilityIdentifier("todayRowPosition")
+            }
+        }
+    }
+
+    private var currentIndex: Int {
+        position.flatMap { id in today.cards.firstIndex { $0.id == id } } ?? 0
+    }
+
+    // A card leaving takes the reader to the one after it (or before, at the end), rather than
+    // leaving the row pointed at an id that no longer exists.
+    private func advance(past card: TodayCard) {
+        guard let index = today.cards.firstIndex(of: card) else { return }
+        let next = today.cards.indices.contains(index + 1) ? index + 1 : index - 1
+        position = today.cards.indices.contains(next) ? today.cards[next].id : nil
+    }
+
+    private func entryID(of card: TodayCard) -> UUID? {
+        switch card {
+        case .onThisDay(let entry, _), .latestSummary(let entry): entry.id
+        case .closed(let end), .dueToday(let end), .stillOpen(let end): end.sourceEntryID
+        case .beenAWhile: nil
+        }
     }
 }
 
@@ -39,43 +105,31 @@ struct TodayCardView: View {
     let card: TodayCard
     let dismiss: () -> Void
     let mute: (EntityFacts) -> Void
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    // Plain @State, not @GestureState: a @GestureState resets to zero the instant the gesture
-    // ends, which is exactly the moment a past-threshold swipe needs to keep going, off-screen,
-    // rather than snapping back.
-    @State private var dragOffset: CGFloat = 0
-    @State private var leaving = false
-
-    private static let dismissThreshold: CGFloat = 90
+    var act: (TodayThreadAction) -> Void = { _ in }
+    var open: (() -> Void)?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(alignment: .firstTextBaseline) {
                 Text(TodayCopy.title(card))
                     .font(.caption.weight(.semibold))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(card.kind == .dueToday ? Palette.ember : .secondary)
                 Spacer(minLength: 8)
-                Button("Not today", systemImage: "xmark", action: dismiss)
-                    .labelStyle(.iconOnly)
-                    .font(.caption)
-                    .buttonStyle(.plain)
-                    .foregroundStyle(.tertiary)
-                    .accessibilityIdentifier("todayDismiss-\(card.kind.rawValue)")
+                // A thread stays until it's done, let go, or fades, so only a day card can be put
+                // away until tomorrow.
+                if card.thread == nil {
+                    Button("Not today", systemImage: "xmark", action: dismiss)
+                        .labelStyle(.iconOnly)
+                        .font(.caption)
+                        .buttonStyle(.plain)
+                        .foregroundStyle(.tertiary)
+                        .accessibilityIdentifier("todayDismiss-\(card.kind.rawValue)")
+                }
             }
-            // The user's own words, in the user's own face.
-            let body = TodayCopy.body(card)
-            if !body.isEmpty {
-                Text(body)
-                    .journalText(.callout)
-                    .foregroundStyle(Palette.ink)
-                    .lineLimit(3)
-                    .strikethrough(card.kind == .closed, color: .secondary)
-            }
-            if let detail = TodayCopy.detail(card) {
-                Text(detail)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
+            content
+                .contentShape(Rectangle())
+                .onTapGesture { open?() }
+            Spacer(minLength: 0)
             if case .beenAWhile(let who) = card {
                 Button("Don't show \(who.name)") { mute(who) }
                     .font(.caption)
@@ -84,37 +138,60 @@ struct TodayCardView: View {
                     .padding(.top, 2)
                     .accessibilityIdentifier("todayMute")
             }
+            if card.thread != nil {
+                actions
+            }
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .card()
-        .offset(x: dragOffset)
-        .opacity(leaving ? 0 : 1)
-        // The X button stays the accessible, discoverable way to dismiss; this is the faster
-        // gesture for a sighted hand already touching the card. `minimumDistance` keeps a vertical
-        // scroll of the list from being read as a swipe.
-        .gesture(
-            DragGesture(minimumDistance: 16)
-                .onChanged { value in
-                    guard abs(value.translation.width) > abs(value.translation.height) else { return }
-                    dragOffset = value.translation.width
-                }
-                .onEnded { value in
-                    guard abs(value.translation.width) > Self.dismissThreshold else {
-                        withAnimation(Motion.resolve(Motion.settle, reduceMotion: reduceMotion)) { dragOffset = 0 }
-                        return
-                    }
-                    let direction: CGFloat = value.translation.width > 0 ? 1 : -1
-                    withAnimation(Motion.resolve(Motion.settle, reduceMotion: reduceMotion)) {
-                        dragOffset = direction * 600
-                        leaving = true
-                    }
-                    // Bloom transition already animates a card's removal from `today.cards`; this
-                    // just lets the fly-out finish before the array changes under it, or the two
-                    // animations fight over the same frame.
-                    DispatchQueue.main.asyncAfter(deadline: .now() + (reduceMotion ? 0 : 0.2)) { dismiss() }
-                }
-        )
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("todayCard-\(card.kind.rawValue)")
+    }
+
+    // The user's own words, in the user's own face, then when it was and, for a thread, when it
+    // fades.
+    @ViewBuilder
+    private var content: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            let body = TodayCopy.body(card)
+            if !body.isEmpty {
+                Text(body)
+                    .journalText(.callout)
+                    .foregroundStyle(Palette.ink)
+                    .lineLimit(3)
+                    .strikethrough(card.kind == .closed, color: .secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            if let detail = TodayCopy.detail(card) {
+                Text(detail)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            if let fade = TodayCopy.fade(card, now: .now) {
+                Text(fade)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .accessibilityIdentifier("todayFade")
+            }
+        }
+    }
+
+    private var actions: some View {
+        HStack(spacing: 16) {
+            Button("Write about it", systemImage: "square.and.pencil") { act(.writeAbout) }
+                .accessibilityIdentifier("threadWrite")
+            Spacer(minLength: 0)
+            Button("Let it go", systemImage: "xmark") { act(.letGo) }
+                .foregroundStyle(.secondary)
+                .accessibilityIdentifier("threadLetGo")
+            Button("Done", systemImage: "checkmark") { act(.done) }
+                .fontWeight(.semibold)
+                .accessibilityIdentifier("threadDone")
+        }
+        .font(.caption)
+        .labelStyle(.titleAndIcon)
+        .buttonStyle(.plain)
+        .foregroundStyle(Palette.ember)
+        .padding(.top, 4)
     }
 }

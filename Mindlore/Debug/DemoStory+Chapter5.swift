@@ -655,7 +655,7 @@ extension DemoStory {
   {
     "date": "2026-09-01T15:00",
     "title": "Labor Day",
-    "text": "Cookout at Kev and Jess's, June is sitting up on her own now and extremely pleased about it. Kev grilled, Omar showed up late from a run, we argued about whether the Bears' offensive line is actually better this year or just facing worse defenses. Jess asked how I'm doing about Maya without making it weird, I said better, mostly true. Home by nine, tired in the good way.",
+    "text": "Cookout at Kev and Jess's, June is sitting up on her own now and extremely pleased about it. Kev grilled, Omar showed up late from a run, we argued about whether the Bears' offensive line is actually better this year or just facing worse defenses. Jess asked how I'm doing about Maya without making it weird, I said better, mostly true. Home by nine, tired in the good way. Kev pulled me aside by the grill and asked if I'd be June's godfather. I said I needed to think about it for real before I say yes, which is true, and also I almost cried into a bratwurst.",
     "summary": "I spent Labor Day at a cookout with Kev, Jess, and Omar.",
     "mood": "content",
     "secondaryMood": "grateful",
@@ -685,6 +685,16 @@ extension DemoStory {
       {
         "name": "Maya",
         "kind": "person"
+      }
+    ],
+    "opens": [
+      {
+        "id": "c5-godfather",
+        "text": "Give Kev an answer about being June's godfather",
+        "about": [
+          "Kev",
+          "June"
+        ]
       }
     ]
   },
@@ -746,7 +756,7 @@ extension DemoStory {
   {
     "date": "2026-09-07T19:20",
     "title": "El Primo's best week",
-    "text": "El Primo did its best week yet, Danny texted me a photo of the receipts like a proud parent. Trivia with Kev and Omar, we actually won for once, Quizteama Aguilera redeemed. Taper is annoying, my body wants to keep running and I'm supposed to be resting it. Watched the Bears actually win a real game for once. Small good week all around.",
+    "text": "El Primo did its best week yet, Danny texted me a photo of the receipts like a proud parent. Trivia with Kev and Omar, we actually won for once, Quizteama Aguilera redeemed. Taper is annoying, my body wants to keep running and I'm supposed to be resting it. Watched the Bears actually win a real game for once. Small good week all around. Danny wants the menu board redone before the fall festival on the 27th, the chalk one is a crime scene. Told him I'd do it. I need to actually do it.",
     "summary": "El Primo had its best week yet and our trivia team finally won.",
     "mood": "content",
     "secondaryMood": "excited",
@@ -774,6 +784,17 @@ extension DemoStory {
       {
         "name": "Omar",
         "kind": "person"
+      }
+    ],
+    "opens": [
+      {
+        "id": "c5-menu-board",
+        "text": "Redo the El Primo menu board before the fall festival",
+        "about": [
+          "Danny",
+          "El Primo"
+        ],
+        "due": "2026-09-27"
       }
     ]
   },
@@ -871,7 +892,7 @@ extension DemoStory {
   {
     "date": "2026-09-15T21:10",
     "title": "Lighter today",
-    "text": "Running easy today felt good. In therapy, told Dr. Adler about the coffee, she said it sounded like a real ending instead of a door left open, and asked how that landed. Lighter, I said, and meant it. Cooked, called Nina who wanted every detail and got maybe forty percent of them. Good quiet day.",
+    "text": "Running easy today felt good. In therapy, told Dr. Adler about the coffee, she said it sounded like a real ending instead of a door left open, and asked how that landed. Lighter, I said, and meant it. Cooked, called Nina who wanted every detail and got maybe forty percent of them. Good quiet day. Nina reminded me I still haven't sent Leo the dinosaur book I promised him in August. He asks her about it. Every week, apparently.",
     "summary": "I told Dr. Adler about the coffee with Maya and felt lighter about it.",
     "mood": "grateful",
     "secondaryMood": "calm",
@@ -891,13 +912,26 @@ extension DemoStory {
       {
         "name": "Nina",
         "kind": "person"
+      },
+      {
+        "name": "Leo",
+        "kind": "person"
+      }
+    ],
+    "opens": [
+      {
+        "id": "c5-leo-book",
+        "text": "Send Leo the dinosaur book",
+        "about": [
+          "Leo"
+        ]
       }
     ]
   },
   {
     "date": "2026-09-16T19:00",
     "title": "Abuela's cane",
-    "text": "Drove out to Naperville to see Abuela, who is up and walking now with a cane Nina picked out for her, purple with little flowers on it because Abuela refused the plain one. She's slower than before the fall but sharp as ever, gave me grief about my hair and asked three separate times if I'm eating enough. Told her about the Chicago Half Marathon on Sunday, she said she'll light a candle, which is either superstition or faith depending on how you were raised, and for her it's both. Mom sent me home with tamales from the freezer.",
+    "text": "Drove out to Naperville to see Abuela, who is up and walking now with a cane Nina picked out for her, purple with little flowers on it because Abuela refused the plain one. She's slower than before the fall but sharp as ever, gave me grief about my hair and asked three separate times if I'm eating enough. Told her about the Chicago Half Marathon on Sunday, she said she'll light a candle, which is either superstition or faith depending on how you were raised, and for her it's both. Mom sent me home with tamales from the freezer. The railing on the back steps wobbles when she grabs it. Told Abuela I'd come fix it before it gets cold and she said I'd better, in the voice.",
     "summary": "I visited Abuela, who is walking again with a cane after her fall.",
     "mood": "grateful",
     "secondaryMood": "nostalgic",
@@ -927,6 +961,15 @@ extension DemoStory {
       {
         "name": "Chicago Half Marathon",
         "kind": "event"
+      }
+    ],
+    "opens": [
+      {
+        "id": "c5-railing",
+        "text": "Fix the railing on Abuela's back steps",
+        "about": [
+          "Abuela"
+        ]
       }
     ]
   },

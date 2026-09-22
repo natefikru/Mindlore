@@ -1,11 +1,11 @@
 import XCTest
 
-// Reflect's queue against the demo journal, which has enough loose ends to have something to show
-// without a configured key (Foundation Models answers on-device once one is available, otherwise
-// only the reused "Still open" signal appears). What a card says is decided in ReflectSignalsTests
-// and ReflectSummaryStoreTests, on plain values; this drives the parts that only the real app can
-// show: a tap landing on an entry with the card's prompt as a placeholder (not real, saved
-// content), a month row expanding, and a dismissal surviving a relaunch.
+// Reflect's queue against the generated demo journal, which caches a plain summary for every
+// finished week so there is something to show without a key. What a summary says is decided in
+// ReflectQueueGeneratorTests and ReflectSummaryStoreTests, on plain values; this drives the parts
+// that only the real app can show: a tap landing on an entry with the card's prompt as a
+// placeholder (not real, saved content), a month row expanding, and a dismissal surviving a
+// relaunch.
 final class ReflectUITests: XCTestCase {
     override func setUpWithError() throws {
         continueAfterFailure = false
@@ -41,7 +41,7 @@ final class ReflectUITests: XCTestCase {
         openReflect(app)
 
         let card = app.descendants(matching: .any).matching(identifier: "reflectQueueRow").element(boundBy: 0)
-        XCTAssertTrue(card.waitForExistence(timeout: Self.generationTimeout), "a 300-entry demo journal has at least one open thread")
+        XCTAssertTrue(card.waitForExistence(timeout: Self.generationTimeout), "every finished week in the demo journal has a cached summary")
         card.tap()
 
         let editor = app.textViews["entryEditor"]

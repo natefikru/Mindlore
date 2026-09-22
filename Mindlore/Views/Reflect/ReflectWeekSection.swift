@@ -37,9 +37,9 @@ struct ReflectWeekSection: View {
                 ReflectMoodChipStrip(moodCounts: moodCounts)
             }
             // Scoped to the header alone, not the whole section: applied to an ancestor of the
-            // queue rows below, it silently overwrote their own identifiers (a "Still open"
-            // button came back identified as this week's own id, not "reflectQueueRow"), which is
-            // why no automated test could ever find one.
+            // queue rows below, it silently overwrote their own identifiers (a row came back
+            // identified as this week's own id, not "reflectQueueRow"), which is why no automated
+            // test could ever find one.
             .accessibilityIdentifier("reflectWeek-\(week.isCurrent ? "current" : "\(week.interval.start.timeIntervalSince1970)")")
 
             if !hasLoaded {
@@ -77,8 +77,7 @@ struct ReflectWeekSection: View {
         dismissedIDs = settings.dismissedReflectItems(for: periodKey)
         moodCounts = ReflectSource.period(week.interval, in: modelContext).moodCounts
 
-        let referenceEnd = week.isCurrent ? Date.now : week.interval.end
-        var loaded = ReflectSource.queueSignals(weekEnd: referenceEnd, in: modelContext)
+        var loaded: [ReflectQueueItem] = []
         if !week.isCurrent {
             let summary = await ReflectSummaryStore.generateIfMissing(
                 kind: .week,

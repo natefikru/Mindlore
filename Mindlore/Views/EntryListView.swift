@@ -38,7 +38,14 @@ struct EntryListView: View {
         NavigationStack(path: $router.journalPath) {
             List {
                 if !today.isEmpty {
-                    TodayHeader(today: today, dismiss: dismissTodayCard, mute: muteFromToday, openReflect: { showingReflect = true })
+                    TodayHeader(
+                        today: today,
+                        dismiss: dismissTodayCard,
+                        mute: muteFromToday,
+                        act: actOnThread,
+                        openEntry: { router.showEntry($0, forReading: true) },
+                        openReflect: { showingReflect = true }
+                    )
                         .listRowInsets(EdgeInsets())
                         .listRowBackground(Color.clear)
                         .listRowSeparator(.hidden)
@@ -199,6 +206,24 @@ struct EntryListView: View {
         settings.dismissTodayCard(card.id, on: TodayDismissal.stamp(.now))
         DiagnosticsLog.shared.record("today.dismissed", TodayCopy.dismissedFields(card, rank: rank))
         refreshToday()
+    }
+
+    // Done and Let it go are the same two choices the insights sheet offers, made from the row.
+    // Both stop the thread for good; Done also counts it as closed. Writing about it opens a new
+    // entry with the thread as the prompt and changes nothing until the user writes.
+    private func actOnThread(_ action: TodayThreadAction, _ end: LooseEndFacts) {
+        switch action {
+        case .writeAbout:
+            router.showNewEntry(startingText: end.text)
+        case .done, .letGo:
+            guard let looseEnd = LooseEnd.fetch(end.id, in: modelContext) else { return }
+            saver.flush()
+            looseEnd.setByUser(action == .done ? .resolved : .dismissed)
+            // A loose end counts as journal content, so this save moves JournalSaves.revision and
+            // the row refreshes on its own.
+            try? modelContext.saveStampingEntries()
+        }
+        DiagnosticsLog.shared.record("today.thread", ["action": .string(String(describing: action))])
     }
 
     // No refresh here: the edit bumps graph.revision, which is already in the fingerprint, and
