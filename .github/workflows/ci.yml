@@ -82,7 +82,7 @@ jobs:
       - name: Pack test products
         run: tar -czf test-products.tgz -C "$MINDLORE_DERIVED_DATA" Build/Products
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: test-products
           path: test-products.tgz
@@ -114,7 +114,7 @@ jobs:
 
       - name: Keep the result bundle
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: unit-xcresult
           path: build/results/unit.xcresult
@@ -150,7 +150,7 @@ jobs:
 
       - name: Keep the result bundle
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: live-xcresult
           path: build/results/live.xcresult
@@ -214,7 +214,7 @@ jobs:
 
       - name: Keep the result bundle
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ui-shard-${{ matrix.shard }}-xcresult
           path: build/results/ui-*.xcresult
