@@ -14,6 +14,9 @@ import SwiftData
 struct ReflectWeekSection: View {
     let week: ReflectFeed.WeekRow
     let onTapItem: (ReflectQueueItem) -> Void
+    // Told when the section has settled on having nothing to show, so the feed knows when every
+    // row has gone and it should say so instead.
+    var onEmpty: (Bool) -> Void = { _ in }
 
     @Environment(\.modelContext) private var modelContext
     @Environment(SettingsStore.self) private var settings
@@ -28,12 +31,40 @@ struct ReflectWeekSection: View {
     private var periodKey: String { ReflectDismissal.periodKey(kind: .week, periodStart: week.interval.start) }
     private var visibleItems: [ReflectQueueItem] { items.filter { !dismissedIDs.contains($0.id) } }
 
+    // A week with no summary to show has no row at all: mood chips over nothing read as clutter
+    // (owner, 2026-09-22). It stays in the feed as a zero-height view only so its load can run.
+    private var isEmpty: Bool { hasLoaded && visibleItems.isEmpty }
+
     var body: some View {
+        Group {
+            if isEmpty {
+                Color.clear.frame(height: 0)
+            } else {
+                VStack(alignment: .leading, spacing: 0) {
+                    section
+                    Divider().padding(.leading, 16)
+                }
+            }
+        }
+        .task(id: fingerprint) { await load() }
+        .onChange(of: isEmpty, initial: true) { _, empty in onEmpty(empty) }
+    }
+
+    private var section: some View {
         VStack(alignment: .leading, spacing: 10) {
             VStack(alignment: .leading, spacing: 4) {
-                Text(ReflectFidelity.title(kind: .week, interval: week.interval))
-                    .font(.system(.subheadline, design: .serif).weight(.medium))
-                    .foregroundStyle(Palette.ink)
+                HStack(alignment: .firstTextBaseline) {
+                    Text(ReflectFidelity.title(kind: .week, interval: week.interval))
+                        .font(.subheadline.weight(.medium))
+                        .foregroundStyle(Palette.ink)
+                    // The running week's summary is rewritten as entries arrive, and final once
+                    // the week is over.
+                    if week.isCurrent {
+                        Text("So far")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
                 ReflectMoodChipStrip(moodCounts: moodCounts)
             }
             // Scoped to the header alone, not the whole section: applied to an ancestor of the
@@ -45,10 +76,6 @@ struct ReflectWeekSection: View {
             if !hasLoaded {
                 ProgressView()
                     .frame(maxWidth: .infinity, alignment: .leading)
-            } else if visibleItems.isEmpty {
-                Text("All caught up.")
-                    .foregroundStyle(.secondary)
-                    .accessibilityIdentifier("reflectAllCaughtUp")
             } else {
                 VStack(alignment: .leading, spacing: 12) {
                     ForEach(visibleItems) { item in
@@ -59,7 +86,6 @@ struct ReflectWeekSection: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
-        .task(id: fingerprint) { await load() }
     }
 
     private struct Fingerprint: Equatable {
@@ -77,18 +103,15 @@ struct ReflectWeekSection: View {
         dismissedIDs = settings.dismissedReflectItems(for: periodKey)
         moodCounts = ReflectSource.period(week.interval, in: modelContext).moodCounts
 
-        var loaded: [ReflectQueueItem] = []
-        if !week.isCurrent {
-            let summary = await ReflectSummaryStore.generateIfMissing(
-                kind: .week,
-                interval: week.interval,
-                resolve: { AIServices.askGenerator(settings: settings, accounts: accounts) },
-                voice: settings.promptVoice,
-                in: modelContext
-            )
-            if let summary { loaded += summary.items }
-        }
-        items = loaded
+        // The running week too: its summary is rewritten whenever its entries have changed.
+        let summary = await ReflectSummaryStore.generateIfNeeded(
+            kind: .week,
+            interval: week.interval,
+            resolve: { AIServices.askGenerator(settings: settings, accounts: accounts) },
+            voice: settings.promptVoice,
+            in: modelContext
+        )
+        items = summary?.items ?? []
         hasLoaded = true
     }
 

@@ -25,7 +25,7 @@ struct WeekStrip: View {
                                 .foregroundStyle(.secondary)
                             Circle()
                                 .fill(day.hasEntry ? (day.tint?.color ?? Palette.ember) : .clear)
-                                .overlay(Circle().strokeBorder(day.hasEntry ? .clear : Palette.hairline))
+                                .overlay(Circle().strokeBorder(day.hasEntry ? .clear : Color.primary.opacity(0.22)))
                                 .frame(width: 9, height: 9)
                         }
                         .frame(maxWidth: .infinity)

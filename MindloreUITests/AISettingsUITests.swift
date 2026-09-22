@@ -42,8 +42,12 @@ final class AISettingsUITests: XCTestCase {
         openSettings()
         XCTAssertTrue(app.switches["aiEnabledToggle"].waitForExistence(timeout: 5))
         XCTAssertEqual(app.switches["aiEnabledToggle"].value as? String, "1")
-        // The root's own row reports the key without opening it.
-        XCTAssertTrue(app.buttons["aiKeyLink"].label.contains("Saved"))
+        // The root's own row reports the key without opening it. It sits below the fold, and a
+        // lazily drawn list has no row there until it is scrolled to.
+        let keyLink = app.buttons["aiKeyLink"]
+        for _ in 0..<4 where !keyLink.exists { app.swipeUp() }
+        XCTAssertTrue(keyLink.waitForExistence(timeout: 5))
+        XCTAssertTrue(keyLink.label.contains("Saved"))
 
         openKey()
         // The labeled row reads as one element, "API key, Saved".
@@ -54,6 +58,14 @@ final class AISettingsUITests: XCTestCase {
 
         app.buttons["Remove key"].tap()
         XCTAssertTrue(app.secureTextFields["openAIKeyField"].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.buttons["Test connection"].exists)
+
+        // Undo keeps the key; letting the window pass removes it.
+        app.buttons["undoButton"].tap()
+        XCTAssertTrue(saved.waitForExistence(timeout: 5))
+        app.buttons["Remove key"].tap()
+        XCTAssertTrue(app.otherElements["undoPill"].waitForNonExistence(timeout: 10))
+        XCTAssertTrue(app.secureTextFields["openAIKeyField"].exists)
         XCTAssertFalse(app.buttons["Test connection"].exists)
     }
 

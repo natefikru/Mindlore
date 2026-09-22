@@ -10,13 +10,14 @@ struct SearchPanel: View {
         case peek, half, full
     }
 
-    static let peekHeight: CGFloat = 76
+    static var peekHeight: CGFloat { min(UIFontMetrics.default.scaledValue(for: 76), 120) }
     static let fullTopGap: CGFloat = 60
+    static let edgeFade: CGFloat = 32
 
     nonisolated static func height(for stop: Stop, available: CGFloat) -> CGFloat {
         switch stop {
         case .peek: peekHeight
-        case .half: max(peekHeight, available * 0.45)
+        case .half: max(peekHeight, available * 0.35)
         case .full: max(peekHeight, available - fullTopGap)
         }
     }
@@ -38,6 +39,7 @@ struct SearchPanel: View {
     @Environment(GraphServices.self) private var graph
     @Environment(EntrySaver.self) private var saver
     @Environment(SettingsStore.self) private var settings
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Query private var looseEnds: [LooseEnd]
     @State private var query = ""
     @State private var segment: EntitySearch.Segment = .all
@@ -113,7 +115,8 @@ struct SearchPanel: View {
         .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in
             keyboardOverlap = 0
         }
-        .animation(.snappy(duration: 0.3), value: stop)
+        .animation(Motion.resolve(.snappy(duration: 0.3), reduceMotion: reduceMotion), value: stop)
+        .sensoryFeedback(Haptics.detent, trigger: stop)
         .onChange(of: fieldFocused) { _, focused in
             if focused { stop = .full }
         }
@@ -166,7 +169,21 @@ struct SearchPanel: View {
             .padding(.vertical, 9)
             .background(.fill.tertiary, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
             .padding(.horizontal, 16)
-            .padding(.bottom, 12)
+            .padding(.bottom, stop == .peek ? 12 : 4)
+            // The search's scope, so it sits with the field. In the list it scrolled with the
+            // tiles, and the half-open panel's edge used to slice straight through it.
+            if stop != .peek {
+                Picker("Show", selection: $segment) {
+                    ForEach(EntitySearch.Segment.allCases, id: \.self) { segment in
+                        Text(segment.title)
+                            .accessibilityIdentifier("mindSegment-\(segment.title)")
+                            .tag(segment)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .padding(.horizontal, 16)
+                .padding(.bottom, 8)
+            }
         }
         .contentShape(Rectangle())
         .gesture(
@@ -196,17 +213,6 @@ struct SearchPanel: View {
                     .listRowBackground(Color.clear)
                     .listRowSeparator(.hidden)
             }
-            Picker("Show", selection: $segment) {
-                ForEach(EntitySearch.Segment.allCases, id: \.self) { segment in
-                    Text(segment.title)
-                        .accessibilityIdentifier("mindSegment-\(segment.title)")
-                        .tag(segment)
-                }
-            }
-            .pickerStyle(.segmented)
-            .listRowBackground(Color.clear)
-            .listRowSeparator(.hidden)
-
             Section {
                 ForEach(results) { row in
                     EntityRowButton(row: row) { choose(row.id) }
@@ -218,9 +224,9 @@ struct SearchPanel: View {
                 // own the list, because the tiles are hidden while searching.
                 if results.isEmpty, hiddenResults.isEmpty, !searching, rows.visible.isEmpty, rows.hidden.isEmpty {
                     ContentUnavailableView(
-                        "No people or places yet",
+                        "No names yet",
                         systemImage: "person.2",
-                        description: Text("Insights on your entries fill this in.")
+                        description: Text("AI insights pull the people, places, and projects out of your entries.")
                     )
                     .listRowSeparator(.hidden)
                     .accessibilityIdentifier("mindDirectoryEmpty")
@@ -247,6 +253,16 @@ struct SearchPanel: View {
         .listStyle(.plain)
         .scrollContentBackground(.hidden)
         .scrollDismissesKeyboard(.immediately)
+        // Whatever the panel's edge cuts off fades out rather than stopping on a hard line, which
+        // reads as more below; the margin lets the last row scroll clear of the fade.
+        .contentMargins(.bottom, Self.edgeFade, for: .scrollContent)
+        .mask {
+            VStack(spacing: 0) {
+                Color.black
+                LinearGradient(colors: [.black, .clear], startPoint: .top, endPoint: .bottom)
+                    .frame(height: Self.edgeFade)
+            }
+        }
         .safeAreaInset(edge: .bottom, spacing: 0) {
             Color.clear.frame(height: keyboardOverlap)
         }
@@ -270,7 +286,8 @@ struct SearchPanel: View {
                             .foregroundStyle(area.color)
                         Text(settings.name(of: area))
                             .font(.caption)
-                            .lineLimit(1)
+                            .lineLimit(2)
+                            .multilineTextAlignment(.center)
                     }
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 10)

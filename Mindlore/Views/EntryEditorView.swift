@@ -138,8 +138,17 @@ struct EntryEditorView: View {
                             .symbolVariant(InsightsPresentation.isFilled(insightsState(for: entry)) ? .fill : .none)
                     }
                     .accessibilityIdentifier("insightsButton")
-                    if entry.originalText != nil {
-                        Menu {
+                    // Done and Insights are what an entry is for; the rest are occasional and wait
+                    // behind one menu, or a photo entry with cleaned text showed five icons at once.
+                    Menu {
+                        Button("Entry date", systemImage: "calendar") { editingDate = true }
+                            .accessibilityIdentifier("entryDateButton")
+                        if entry.source == .photo && entry.pagesConfirmed {
+                            Button("Edit pages", systemImage: "doc.on.doc") { editingPages = true }
+                                .disabled(pageTranscription.isRunning(entry))
+                                .accessibilityIdentifier("editPagesButton")
+                        }
+                        if entry.originalText != nil {
                             Button("Use original text", systemImage: "arrow.uturn.backward") {
                                 if entry.textChangedSinceCleanup {
                                     confirmingRevert = true
@@ -148,17 +157,11 @@ struct EntryEditorView: View {
                                 }
                             }
                             .accessibilityIdentifier("viewOriginalTextButton")
-                        } label: {
-                            Label("More", systemImage: "ellipsis.circle")
                         }
+                    } label: {
+                        Label("More", systemImage: "ellipsis.circle")
                     }
-                    if entry.source == .photo && entry.pagesConfirmed {
-                        Button("Edit pages", systemImage: "doc.on.doc") { editingPages = true }
-                            .disabled(pageTranscription.isRunning(entry))
-                            .accessibilityIdentifier("editPagesButton")
-                    }
-                    Button("Entry date", systemImage: "calendar") { editingDate = true }
-                        .accessibilityIdentifier("entryDateButton")
+                    .accessibilityIdentifier("entryMoreButton")
                 }
             }
         }

@@ -22,7 +22,7 @@ struct TodayFadeTests {
     @Test func anUndatedThreadFadesSixWeeksAfterItWasLastWrittenAbout() {
         let end = LooseEndFacts(id: UUID(), text: "t", sourceEntryDate: date(8, 1), lastMentionedAt: date(9, 1))
         #expect(end.fadeDate == date(10, 13))
-        #expect(fade(end, at: date(9, 22)) == "Fades October 13 unless you write about it")
+        #expect(fade(end, at: date(9, 22)) == "Fades October 13 if it doesn't come up again")
     }
 
     @Test func aDatedThreadFadesAWeekAfterItsDayAndSaysNothingAboutWriting() {

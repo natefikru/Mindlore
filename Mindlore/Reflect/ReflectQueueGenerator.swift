@@ -24,7 +24,7 @@ enum ReflectQueueGenerator {
 
     // nil means the request failed, or came back as something that can't be read, and nothing
     // should be cached, so the period is asked again next time. An empty list means the model
-    // read the period and had nothing to say, which is cached as "all caught up" rather than
+    // read the period and had nothing to say, which is cached as an empty summary rather than
     // retried every time the period is viewed.
     static func generate(
         kind: ReflectSummaryKind,

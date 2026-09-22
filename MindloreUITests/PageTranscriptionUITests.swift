@@ -66,6 +66,7 @@ final class PageTranscriptionUITests: XCTestCase {
         XCTAssertFalse(app.buttons["approveTextButton"].waitForExistence(timeout: 2))
 
         // Editing pages and cancelling changes nothing.
+        app.buttons["entryMoreButton"].tap()
         app.buttons["editPagesButton"].tap()
         XCTAssertTrue(app.buttons["pageOrderCloseButton"].waitForExistence(timeout: 5))
         XCTAssertEqual(app.buttons["pageOrderCloseButton"].label, "Cancel")
@@ -73,6 +74,7 @@ final class PageTranscriptionUITests: XCTestCase {
         XCTAssertTrue(waitForText(["fixture page 1", "fixture page 2", "fixture page 3"], timeout: 5))
 
         // Removing a page warns, then erases and transcribes the remaining pages again.
+        app.buttons["entryMoreButton"].tap()
         app.buttons["editPagesButton"].tap()
         app.buttons["Remove page 1"].tap()
         let confirmRemove = app.buttons["confirmRemovePageButton"].firstMatch

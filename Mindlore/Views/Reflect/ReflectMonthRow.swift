@@ -9,8 +9,10 @@ import SwiftData
 // row whose height jumps once its own generation request lands must never be torn down and
 // recreated by a reused-row container mid-request.
 struct ReflectMonthRow: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let month: ReflectFeed.MonthRow
     let onTapItem: (ReflectQueueItem) -> Void
+    var onEmpty: (Bool) -> Void = { _ in }
 
     @Environment(\.modelContext) private var modelContext
     @Environment(SettingsStore.self) private var settings
@@ -22,19 +24,36 @@ struct ReflectMonthRow: View {
     @State private var hasLoaded = false
     @State private var isExpanded = false
 
+    // Same rule as a week: no summary line, no row.
+    private var isEmpty: Bool { hasLoaded && (line ?? "").isEmpty }
+
     var body: some View {
-        if isExpanded {
-            ForEach(ReflectFeed.weeks(in: month.interval)) { week in
-                ReflectWeekSection(week: week, onTapItem: onTapItem)
+        Group {
+            if isExpanded {
+                ForEach(ReflectFeed.weeks(in: month.interval).filter { ReflectSource.hasEntries(in: $0.interval, context: modelContext) }) { week in
+                    ReflectWeekSection(week: week, onTapItem: onTapItem)
+                }
+            } else if isEmpty {
+                Color.clear.frame(height: 0)
+            } else {
+                VStack(alignment: .leading, spacing: 0) {
+                    collapsed
+                    Divider().padding(.leading, 16)
+                }
             }
-        } else {
+        }
+        .task(id: fingerprint) { await load() }
+        .onChange(of: isEmpty, initial: true) { _, empty in onEmpty(empty) }
+    }
+
+    private var collapsed: some View {
             Button {
-                withAnimation { isExpanded = true }
+                withAnimation(Motion.resolve(.default, reduceMotion: reduceMotion)) { isExpanded = true }
             } label: {
                 VStack(alignment: .leading, spacing: 6) {
                     HStack(alignment: .firstTextBaseline) {
                         Text(ReflectFidelity.title(kind: .month, interval: month.interval))
-                            .font(.system(.subheadline, design: .serif).weight(.medium))
+                            .font(.subheadline.weight(.medium))
                             .foregroundStyle(Palette.ink)
                         Spacer()
                         Image(systemName: "chevron.down")
@@ -56,9 +75,7 @@ struct ReflectMonthRow: View {
             .buttonStyle(.plain)
             .padding(.horizontal, 16)
             .padding(.vertical, 12)
-            .task(id: fingerprint) { await load() }
             .accessibilityIdentifier("reflectMonth-\(month.interval.start.timeIntervalSince1970)")
-        }
     }
 
     private struct Fingerprint: Equatable {
@@ -74,7 +91,7 @@ struct ReflectMonthRow: View {
 
     private func load() async {
         moodCounts = ReflectSource.period(month.interval, in: modelContext).moodCounts
-        let summary = await ReflectSummaryStore.generateIfMissing(
+        let summary = await ReflectSummaryStore.generateIfNeeded(
             kind: .month,
             interval: month.interval,
             resolve: { AIServices.askGenerator(settings: settings, accounts: accounts) },

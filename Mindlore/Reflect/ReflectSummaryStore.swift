@@ -1,10 +1,12 @@
 import Foundation
 import SwiftData
 
-// Generate once, cache, read back. Both the launch sweep and a lazy view-triggered generation call
-// generateIfMissing; "only run once" is the cache check here, not a rule two callers have to agree
-// on separately (tasks/reflect-queue-spec.md). A failed generation writes nothing and is retried
-// next launch or next view, whichever comes first.
+// Generate, cache, read back. Both the launch sweep and a lazy view-triggered generation call
+// generateIfNeeded; when to ask again is decided here, not by two callers agreeing separately
+// (tasks/reflect-queue-spec.md). A month is written once. A week is written as soon as it has
+// entries, even while it is still running, and rewritten whenever its entries change, until a
+// summary has been written after the week ended: that one is final (owner, 2026-09-22). A failed
+// generation writes nothing, keeps whatever was there, and is retried next launch or next view.
 //
 // `resolve` is injected the same way InsightsCoordinator takes its generator: production callers
 // pass `{ AIServices.askGenerator(settings: settings, accounts: accounts) }`, and a test passes a
@@ -20,7 +22,7 @@ enum ReflectSummaryStore {
 
     // The newest row for a period. There is deliberately no uniqueness constraint (the CloudKit
     // rule every model here follows), so a caller that somehow finds two rows for the same period
-    // reads the newest by generatedAt; generateIfMissing's own cache check is what keeps a second
+    // reads the newest by generatedAt; generateIfNeeded deletes the rows it replaces, which is what keeps a second
     // one from being written in the first place.
     static func summary(kind: ReflectSummaryKind, periodStart: Date, in context: ModelContext) -> ReflectSummary? {
         let kindRaw = kind.rawValue
@@ -30,8 +32,21 @@ enum ReflectSummaryStore {
         return ((try? context.fetch(descriptor)) ?? []).max { $0.generatedAt < $1.generatedAt }
     }
 
+    // What a week's summary is written from, reduced to a hash: the eligible entries' ids, titles,
+    // and text. Stamps and AI saves don't move it, so only a real change to the week asks again.
+    nonisolated static func fingerprint(_ entries: [ReflectFidelity.WeekEntry]) -> String {
+        TextHash.of(entries.map { "\($0.id.uuidString)\u{1F}\($0.title)\u{1F}\($0.text)" }.joined(separator: "\u{1E}"))
+    }
+
+    // Whether a cached summary still stands. A week's stands if nothing it was written from has
+    // changed, or if it was written after the week was over, which is when a week is done.
+    nonisolated static func isCurrent(_ summary: ReflectSummary, interval: DateInterval, fingerprint: String?) -> Bool {
+        guard summary.kind == .week, let fingerprint else { return true }
+        return summary.generatedAt >= interval.end || summary.sourceFingerprint == fingerprint
+    }
+
     @discardableResult
-    static func generateIfMissing(
+    static func generateIfNeeded(
         kind: ReflectSummaryKind,
         interval: DateInterval,
         resolve: @escaping () -> Result<AskProvider, AIJobFailure>,
@@ -39,7 +54,9 @@ enum ReflectSummaryStore {
         calendar: Calendar = .current,
         in context: ModelContext
     ) async -> ReflectSummary? {
-        if let existing = summary(kind: kind, periodStart: interval.start, in: context) { return existing }
+        let existing = summary(kind: kind, periodStart: interval.start, in: context)
+        let fingerprint = kind == .week ? Self.fingerprint(ReflectSource.weekEntries(in: interval, context: context)) : nil
+        if let existing, isCurrent(existing, interval: interval, fingerprint: fingerprint) { return existing }
 
         let key = "\(kind.rawValue):\(interval.start.timeIntervalSince1970)"
         if let running = inFlight[key] {
@@ -50,7 +67,8 @@ enum ReflectSummaryStore {
         }
         inFlight[key] = task
         defer { inFlight[key] = nil }
-        return await task.value
+        // A rewrite that fails leaves the older summary standing rather than an empty week.
+        return await task.value ?? existing
     }
 
     private static func generate(
@@ -62,9 +80,11 @@ enum ReflectSummaryStore {
         in context: ModelContext
     ) async -> ReflectSummary? {
         let items: [ReflectQueueItem]?
+        var fingerprint: String?
         switch kind {
         case .week:
             let entries = ReflectSource.weekEntries(in: interval, context: context)
+            fingerprint = Self.fingerprint(entries)
             if entries.isEmpty {
                 items = []
             } else {
@@ -96,7 +116,12 @@ enum ReflectSummaryStore {
         }
 
         guard let items else { return nil }
-        let created = ReflectSummary(kind: kind, periodStart: interval.start, generatedAt: .now, items: items)
+        // The rows it replaces go, so a week rewritten all through its seven days leaves one row.
+        let kindRaw = kind.rawValue
+        let start = interval.start
+        let older = (try? context.fetch(FetchDescriptor<ReflectSummary>(predicate: #Predicate { $0.periodKindRaw == kindRaw && $0.periodStart == start }))) ?? []
+        older.forEach(context.delete)
+        let created = ReflectSummary(kind: kind, periodStart: interval.start, generatedAt: .now, items: items, sourceFingerprint: fingerprint)
         context.insert(created)
         try? context.saveStampingEntries()
         return created
@@ -113,10 +138,10 @@ enum ReflectSummaryStore {
         in context: ModelContext
     ) async {
         if let week = mostRecentlyCompleted(.weekOfYear, now: now, calendar: calendar) {
-            await generateIfMissing(kind: .week, interval: week, resolve: resolve, voice: voice, calendar: calendar, in: context)
+            await generateIfNeeded(kind: .week, interval: week, resolve: resolve, voice: voice, calendar: calendar, in: context)
         }
         if let month = mostRecentlyCompleted(.month, now: now, calendar: calendar) {
-            await generateIfMissing(kind: .month, interval: month, resolve: resolve, voice: voice, calendar: calendar, in: context)
+            await generateIfNeeded(kind: .month, interval: month, resolve: resolve, voice: voice, calendar: calendar, in: context)
         }
     }
 
