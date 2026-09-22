@@ -5,10 +5,15 @@
 #   ui     runs the UI classes split across five runners, each launching the app 25 to 35
 #          seconds per test; the split is computed from the files by scripts/ci/ui-shards.sh.
 #
-# unit runs on every pull request and every push to main. ui runs on every push to main, on a
-# pull request carrying the "ui" label, and on manual dispatch. The repo is public, so runner
-# minutes are free; what this layout buys is wall-clock, and the free plan's cap of five
-# concurrent macOS jobs is why there are five shards and not ten.
+# unit runs on every pull request and every push to main, and is the only required check. ui
+# runs on every push to main, on a pull request carrying the "ui" label, and on manual dispatch;
+# it never blocks a merge. ui waits for unit to finish, pass or fail: the free plan runs five
+# macOS jobs at once, and six starting together could leave the required check queued behind the
+# advisory ones.
+#
+# A manual run with "only" set (for example "PageOrderUITests/testScanReorderRemoveAndConfirmPages",
+# several separated by spaces) skips unit and runs just those UI tests on one runner, for chasing
+# a single failure without paying for the suite.
 #
 # The scripts under scripts/ci are the same ones that run in a terminal here.
 
@@ -25,6 +30,10 @@ on:
         description: Run the UI suite
         type: boolean
         default: true
+      only:
+        description: "Run only these UI tests (Class or Class/testMethod, space-separated); skips unit"
+        type: string
+        default: ""
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -83,17 +92,25 @@ jobs:
 
       - name: Compute UI shards
         id: shards
+        env:
+          ONLY: ${{ inputs.only }}
         run: |
-          # A pull request's run skips the screenshot classes; main and manual runs keep them.
-          flag=""
-          [ "${{ github.event_name }}" = "pull_request" ] && flag="--skip-screenshots"
-          matrix="$(scripts/ci/ui-shards.sh 5 $flag)"
+          # A manual run naming tests gets one shard of exactly those. Otherwise a pull request's
+          # run skips the screenshot classes; main and manual runs keep them.
+          if [ -n "$ONLY" ]; then
+            matrix="$(jq -cn --arg c "$ONLY" '{include: [{shard: 1, tests: 0, classes: $c}]}')"
+          else
+            flag=""
+            [ "${{ github.event_name }}" = "pull_request" ] && flag="--skip-screenshots"
+            matrix="$(scripts/ci/ui-shards.sh 5 $flag)"
+          fi
           echo "$matrix"
           echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
 
   unit:
     name: Unit tests
     needs: build
+    if: inputs.only == '' || inputs.only == null
     runs-on: macos-26
     timeout-minutes: 30
     steps:
@@ -127,8 +144,10 @@ jobs:
 
   ui:
     name: UI tests (shard ${{ matrix.shard }})
-    needs: build
-    if: needs.build.outputs.run-ui == 'true'
+    # After unit, whatever its result (or skipped, on an "only" run), so the required check
+    # always gets a runner first. Stops only if the run was cancelled or the build failed.
+    needs: [build, unit]
+    if: ${{ !cancelled() && needs.build.result == 'success' && needs.build.outputs.run-ui == 'true' }}
     runs-on: macos-26
     timeout-minutes: 45
     strategy:

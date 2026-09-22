@@ -90,6 +90,16 @@ build (macos-26, ~5 min)
 - Local run of the scripts: build 36 s warm, unit 1,531 tests in 63 s, two UI classes green.
   The first attempt failed code signing because products went under `~/Documents` (iCloud file
   attributes); the local default now lives in `~/Library/Developer/Xcode/DerivedData/Mindlore-ci`.
+- First full hosted run (35768127014): build 3m57s and green. Unit failed on the fresh-runner
+  lemma cold start (8 `AskIndexLemmaTests`, 2 `AskRetrievalQualityTests`, and the live Ask test,
+  whose only link from "dog's name" to "named Pepper" is a lemma). A new simulator on this Mac
+  passes, since the assets live on the host, so it can't be reproduced here; the fix is
+  `LanguageAssetsWarmUp`, which awaits `NLTagger.requestAssets` in a run of its own first.
+  UI: four of five shards failed, one test each. Three were "Failed to terminate" and one a launch
+  timeout, simulator trouble on a small runner with everything around them passing; answered with
+  one retry on CI. The fourth was `PageOrderUITests`' reorder drag, which lifted before the list
+  committed the move; now a slow drag with a hold, 3/3 locally. The unit job queued behind the
+  shards (six jobs, five runners), so `ui` now needs `unit`.
 - `OnDeviceInsightsLiveTests` failed once locally (Apple's model returned no summary) and passed the
   run before. It is gated on `FoundationModelsAvailability`, so it skips on hosted runners; it is a
   flaky live test on a Mac with Apple Intelligence, not a CI concern.
