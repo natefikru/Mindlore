@@ -46,7 +46,7 @@ Option 1 also answers pricing: a free or one-time-purchase app with no running c
 - [ ] TestFlight build to a few people before submission.
 
 **Product**
-- [ ] AI without a key (decision above).
+- [x] AI without a key: on-device insights through guided generation (2026-09-22). Quality is below OpenAI's and says so in Settings.
 - [ ] First run (B3, never built). One screen, not a carousel: what Mindlore is, that it works offline, the microphone and speech prompt with a reason in front of it, and an optional AI setup. Plus the contextual empty states below.
 - [x] App lock (Face ID, fallback to passcode), plus covering the app switcher snapshot.
 - [x] Export (a folder of Markdown files, journal.json, recordings and page photos), and "Delete all data" in Settings.

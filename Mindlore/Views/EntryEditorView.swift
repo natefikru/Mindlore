@@ -391,8 +391,8 @@ struct EntryEditorView: View {
             insightsAreCurrent: entry.insights?.isCurrent(for: entry) ?? false,
             running: insightsCoordinator.isRunning(entry),
             failure: AIJobPolicy.failure(.insights, entry),
-            aiEnabled: settings.aiEnabled,
-            hasKey: accounts.hasUsableKey && accounts.settingsAccount(for: .text) != nil
+            aiEnabled: AIServices.insightsReadiness(settings: settings, accounts: accounts).enabled,
+            hasKey: AIServices.insightsReadiness(settings: settings, accounts: accounts).ready
         ))
     }
 

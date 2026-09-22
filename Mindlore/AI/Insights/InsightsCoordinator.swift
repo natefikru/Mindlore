@@ -158,7 +158,7 @@ final class InsightsCoordinator {
         if sections.looseEnds {
             vocabulary.looseEnds = LooseEndWriter.candidates(for: entry, in: context)
         }
-        let plan = InsightsPromptBuilder.plan(text: analyzedText, source: source, sections: sections, vocabulary: vocabulary, model: generator.model, entryDate: entry.entryDate, voice: promptVoice(), calendar: calendar)
+        let plan = InsightsPromptBuilder.plan(text: analyzedText, source: source, sections: sections, vocabulary: vocabulary, model: generator.model, entryDate: entry.entryDate, voice: promptVoice(), calendar: calendar, budget: generator.onDevice ? .onDevice : .cloud)
 
         // Every section turned off asks for an empty schema, which the provider rejects. This is the
         // one place that can tell: which sections reach the schema depends on the entry, so a

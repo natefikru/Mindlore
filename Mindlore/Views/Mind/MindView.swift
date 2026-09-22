@@ -193,7 +193,7 @@ struct MindView: View {
                     .accessibilityIdentifier("mindClearFilters")
             }
             .accessibilityIdentifier("mindEmptyState")
-        } else if !AIServices.textUsable(settings: settings, accounts: accounts) {
+        } else if !AIServices.insightsUsable(settings: settings, accounts: accounts) {
             // Names come from insights, so with AI off a new entry adds nothing here. Saying "record
             // something" then left people recording and watching the map stay empty.
             ContentUnavailableView {
