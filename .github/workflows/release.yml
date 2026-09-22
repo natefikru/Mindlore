@@ -40,10 +40,14 @@ jobs:
     env:
       ARCHIVE: ${{ github.workspace }}/build/Mindlore.xcarchive
       EXPORT_DIR: ${{ github.workspace }}/build/export
-      KEYCHAIN: ${{ runner.temp }}/release.keychain-db
-      ASC_KEY_PATH: ${{ runner.temp }}/AuthKey.p8
     steps:
       - uses: actions/checkout@v4
+
+      # The runner context is not available in a job's env block, so the temp paths are set here.
+      - name: Set temp paths
+        run: |
+          echo "KEYCHAIN=$RUNNER_TEMP/release.keychain-db" >> "$GITHUB_ENV"
+          echo "ASC_KEY_PATH=$RUNNER_TEMP/AuthKey.p8" >> "$GITHUB_ENV"
 
       - name: Select Xcode ${{ env.XCODE_VERSION }}
         run: sudo xcode-select -s "/Applications/Xcode_${XCODE_VERSION}.app" && xcodebuild -version
