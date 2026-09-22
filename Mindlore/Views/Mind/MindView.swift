@@ -18,6 +18,7 @@ struct MindView: View {
     @State private var entryAreas: [UUID: [LifeArea]] = [:]
     @State private var regionLabels: [GraphRegion] = []
     @State private var haloed: Set<UUID> = []
+    @State private var arrivedAt: [UUID: Date] = [:]
     @State private var highlightedArea: LifeArea?
     @State private var trail = FocusTrail()
     @State private var panelStop: SearchPanel.Stop = .half
@@ -143,6 +144,7 @@ struct MindView: View {
                 // The recency lens already colours by how lately a name came up, over thirty days
                 // rather than seven. Two answers to the same question on one map is one too many.
                 haloedIDs: lens == .recency ? [] : haloed,
+                arrivedAt: arrivedAt,
                 lens: lens,
                 animating: player.isRunning,
                 clearsMissingFocus: false,
@@ -334,7 +336,7 @@ struct MindView: View {
             }
         }
         let frame = Self.frame(snapshot, filters: filters, visibleAreas: settings.visibleLifeAreas, asOf: now)
-        show(frame, snapshot: snapshot, asOf: now)
+        show(frame, snapshot: snapshot, asOf: now, blooms: loadedFilters == filters)
 
         let directory = EntityDirectory(in: modelContext)
         trail.normalize(root: directory.root(of:), exists: { directory.entity($0).map { !$0.isDeleted } ?? false })
@@ -359,10 +361,29 @@ struct MindView: View {
     // Puts a frame on the canvas. State is only written when it changed. `publish: false` moves
     // the simulation alone: a replay step's view-state writes re-render all of Mind, which on the
     // phone pushed frame p95 to 32 ms at ten steps a second, so a replay publishes twice a second.
-    private func show(_ frame: Frame, snapshot: MindMapSnapshot, asOf: Date, publish: Bool = true) {
+    private func show(_ frame: Frame, snapshot: MindMapSnapshot, asOf: Date, publish: Bool = true, blooms: Bool = false) {
         if !publish, let simulation {
             simulation.update(nodes: frame.nodes, edges: frame.edges, regions: frame.regions)
             return
+        }
+        // Bloom is the app noticing something, so it fires for the one case the user caused: a
+        // name that was not on the map before an entry was written. Not on the first build, where
+        // three hundred nodes arriving at once is a firework rather than a notice; not on a filter
+        // change, where the stepper reveals nodes that are not new; and not during a replay, which
+        // adds nodes by construction and is already its own animation. `blooms` carries the last
+        // two, the `simulation` check the first.
+        if blooms, let simulation {
+            let known = Set(simulation.nodes.map(\.id))
+            let arrived = frame.nodes.filter { !known.contains($0.id) && !$0.isEntry }
+            if !arrived.isEmpty {
+                let now = Date.now
+                // Better-connected first, one Motion.stagger apart, on the rare entry that brings
+                // several names at once.
+                arrivedAt = Dictionary(uniqueKeysWithValues: arrived
+                    .sorted { $0.linkCount == $1.linkCount ? $0.id.uuidString < $1.id.uuidString : $0.linkCount > $1.linkCount }
+                    .enumerated()
+                    .map { ($0.element.id, now.addingTimeInterval(Double($0.offset) * Motion.stagger)) })
+            }
         }
         var names = frame.names
         for id in trail.ids where names[id] == nil {

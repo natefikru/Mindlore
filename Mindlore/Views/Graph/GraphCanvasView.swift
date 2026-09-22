@@ -34,6 +34,10 @@ struct GraphCanvasView: View {
     // one shared sine. Empty turns the halo off, which is what the recency lens does, since that
     // lens is already saying this and saying it better.
     var haloedIDs: Set<UUID> = []
+    // Nodes that have just joined the map, against the moment they joined: they scale and fade up
+    // out of the spot the simulation put them in. The caller decides what counts as joining; see
+    // `MindView.show`.
+    var arrivedAt: [UUID: Date] = [:]
     var lens: MindLens = .kind
     // A replay is moving the map: keep drawing, and measure it.
     var animating = false
@@ -327,6 +331,17 @@ struct GraphCanvasView: View {
             let fill: GraphFill
             let opacity: Double
         }
+        // Nodes that arrived in the last 0.6 s, as indices. Usually one; an entry that named five
+        // new people is five. Resolved here rather than per node, since the lookup is by id.
+        var blooming: [Int: Double] = [:]
+        if !arrivedAt.isEmpty {
+            let now = Date.now
+            for (id, at) in arrivedAt {
+                let elapsed = now.timeIntervalSince(at)
+                guard BloomCurve.isRunning(at: elapsed), let index = simulation.index(of: id) else { continue }
+                blooming[index] = elapsed
+            }
+        }
         var nodePaths: [Bucket: Path] = [:]
         for index in nodes.indices {
             var opacity = 1.0
@@ -336,7 +351,12 @@ struct GraphCanvasView: View {
                 opacity = Self.highlightDim
             }
             if plan.fadedNodes.contains(index) { opacity *= GraphPaint.fadedOpacity }
-            nodePaths[Bucket(fill: plan.fills[index], opacity: opacity), default: Path()].addEllipse(in: circle(index))
+            var scale = 1.0
+            if let elapsed = blooming[index] {
+                scale = BloomCurve.scale(at: elapsed, reduceMotion: reduceMotion)
+                opacity *= BloomCurve.opacity(at: elapsed)
+            }
+            nodePaths[Bucket(fill: plan.fills[index], opacity: opacity), default: Path()].addEllipse(in: circle(index, scale: scale))
         }
         for (bucket, path) in nodePaths.sorted(by: { $0.key.opacity < $1.key.opacity }) {
             let base = color(bucket.fill)
