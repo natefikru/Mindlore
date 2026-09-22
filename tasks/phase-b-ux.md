@@ -340,7 +340,22 @@ open it tomorrow. If the phase stopped here, the brief would be answered.
 - Device: Action button, Siri, delivery.
 
 ### B7: Mind and Ask polish (S to M)
-- [ ] Halos, Bloom, glass, empty state, suggested questions, citation cards.
+- [x] Ask's half: suggested questions and citation chips shipped with B5/B6 in PR #23.
+- [x] The kind palette was already done, in B0 (`Palette.swift`). Nothing was left to repaint.
+- [x] Glass on the panel, the controls, the lens legend and the peek overlay; a Breathe halo; Bloom
+      for arriving nodes; the replay tick; two empty states told apart. Spec and the audit:
+      `tasks/b7-mind-spec.md`.
+- Three things the spec got wrong and the build corrected. The panel cannot be glass at every size:
+  opened it is a content surface holding rows, and the map bleeds through it as smudge. Reflect's
+  period control cannot be glass at all: it is a full-width strip under a navigation bar that
+  already has its own. And `.transition(.bloom)` cannot reach a graph node, because a `Canvas` has
+  no transition system, so `BloomCurve` samples the spring instead.
+- The wider iOS 26 audit lives in the spec, one verdict per surface. Three are recommended against
+  for now with reasons: `.tabBarMinimizeBehavior` (it hides the accessory that stops a recording,
+  and the tab-bar queries hold up the UI suite), `.scrollEdgeEffectStyle` (Journal's, not Mind's),
+  and the accessory-to-recorder Carry (a `fullScreenCover` with no shared geometry; it is B4's, and
+  a spike before it is a change). `ToolbarSpacer` and `.backgroundExtensionEffect` have no
+  candidate in this app, and Mind's `SearchPanel` should not become `.searchable`.
 
 ### B8: Extension: recording control, Live Activity, maybe a widget (L, gated)
 - [ ] Starts with a one-hour signing spike: add an empty widget extension and install it on the

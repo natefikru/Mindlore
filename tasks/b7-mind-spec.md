@@ -266,6 +266,47 @@ than assumed working.
 5. The two empty states.
 6. Screenshot coverage, and `CLAUDE.md` plus `phase-b-ux.md` updated with what landed.
 
+## As built
+
+Six commits. What changed against the spec above, and why:
+
+1. **The panel's glass is stop-dependent.** The spec said glass, the table said glass, and the
+   screenshot said no. At `.peek` the panel is a field floating over the map and glass is right.
+   Opened, it is most of the screen holding a review card, nine area tiles and a list of rows, and
+   the map bleeds through them as blurred colour: smudge rather than depth, and the same house rule
+   that puts glass on floating things says never glass on list rows. Glass at `.peek`, opaque Paper
+   with a hairline above it. This only showed on the screen.
+2. **Reflect's period control kept its material.** The spec put it on the glass list from the
+   principle. The code says it is a full-width strip in a `safeAreaInset` directly under an inline
+   navigation bar, which in iOS 26 has glass of its own, so glass there is the glass-on-glass case
+   the rule exists to prevent. Making it a floating capsule instead would be a redesign of Reflect,
+   which is not this pass. Left alone, and written down so it is not rediscovered as an oversight.
+3. **`.buttonStyle(.glass)` was not used.** Two of Mind's four controls are `Menu`s, whose labels do
+   not reliably take a button style, and a mix of two mechanisms for one row of buttons is worse
+   than one. All four use `.glassEffect(.regular.interactive(), in:)`, the call site Ask proved,
+   and `.interactive()` supplies the press response the button style was wanted for.
+4. **The replay tick and the two symbol effects landed in the glass commit**, not their own, because
+   the replay control's morph, its symbol replace and its tick are one control's worth of change.
+5. **The panel's own empty state was a bug, found by the same screenshot.** "No people or places
+   yet" was an overlay centred on the whole list, so an empty journal printed it across the area
+   tiles and the segmented picker, both still there and still working. It is a row now.
+6. **Bloom landed as designed**, curve and all, and the curve's overshoot assertions passed first
+   run.
+
+**Tests.** 1452 unit tests pass, up from a 1438 baseline: 8 in `MindHaloTests`, 6 in
+`BloomCurveTests`. `DesignScreenshotTests` passes in both appearances and now covers the panel, the
+filters sheet and the empty map.
+
+**Two pre-existing failures, not from this branch.** `GraphUITests
+.testMindFocusesATappedNodeAndKeepsResponding` and `GraphScreenshotTests.testDemoJournalMind` both
+fail with "No matches found for `mindGraphCanvas`" at `GraphScreenshotTests.swift:100`, where the
+canvas query goes stale after a pinch. Both were run on unmodified `main` on a clean simulator and
+fail there identically. Worth its own fix; it is not this pass's.
+
+**Unverified, because it needs a phone.** The replay tick is a haptic and the simulator has none.
+The halo's 12 fps idle tick can be measured for frame time on the simulator but its battery cost
+cannot. Glass over a canvas that is moving under it is a GPU behaviour worth one look on hardware.
+
 ## Owner decisions
 
 1. **The halo's idle cost.** Option 3 (slow tick, measured) is the recommendation. Option 1 (freeze
