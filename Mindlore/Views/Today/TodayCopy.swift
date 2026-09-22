@@ -45,9 +45,10 @@ nonisolated enum TodayCopy {
         case .closed(let end):
             "Open since \(day(end.sourceEntryDate, locale: locale))"
         case .stillOpen(let end):
+            ["Since \(day(end.sourceEntryDate, locale: locale))", end.dueDate.map { "due \(day($0, locale: locale))" }]
+                .compactMap { $0 }.joined(separator: " \u{00B7} ")
+        case .dueToday(let end):
             "Since \(day(end.sourceEntryDate, locale: locale))"
-        case .dueToday:
-            nil
         case .onThisDay(let entry, _):
             day(entry.entryDate, locale: locale)
         case .beenAWhile(let entity):
@@ -55,6 +56,21 @@ nonisolated enum TodayCopy {
         case .latestSummary(let entry):
             day(entry.entryDate, locale: locale)
         }
+    }
+
+    // When a thread card's loose end fades if nothing touches it. Close to the day it counts
+    // down; further out it names the date. An undated one says that writing about it moves the
+    // date, since that is the one thing on the card the user can't otherwise guess.
+    static func fade(_ card: TodayCard, now: Date, calendar: Calendar = .current, locale: Locale = .current) -> String? {
+        guard let end = card.thread else { return nil }
+        let days = calendar.dateComponents([.day], from: calendar.startOfDay(for: now), to: calendar.startOfDay(for: end.fadeDate)).day ?? 0
+        let when = switch days {
+        case ..<1: "Fades today"
+        case 1: "Fades tomorrow"
+        case 2..<7: "Fades in \(days) days"
+        default: "Fades \(day(end.fadeDate, locale: locale))"
+        }
+        return end.dueDate == nil ? "\(when) unless you write about it" : when
     }
 
     private static func heading(_ span: TodaySpan) -> String {

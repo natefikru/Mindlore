@@ -33,7 +33,9 @@ nonisolated struct LooseEndFacts: Equatable, Sendable, Identifiable {
     let id: UUID
     let text: String
     let status: LooseEndStatus
+    let sourceEntryID: UUID?
     let sourceEntryDate: Date
+    let lastMentionedAt: Date
     let dueDate: Date?
     let resolvedByEntryID: UUID?
 
@@ -41,16 +43,25 @@ nonisolated struct LooseEndFacts: Equatable, Sendable, Identifiable {
         id: UUID,
         text: String,
         status: LooseEndStatus = .open,
+        sourceEntryID: UUID? = nil,
         sourceEntryDate: Date,
+        lastMentionedAt: Date? = nil,
         dueDate: Date? = nil,
         resolvedByEntryID: UUID? = nil
     ) {
         self.id = id
         self.text = text
         self.status = status
+        self.sourceEntryID = sourceEntryID
         self.sourceEntryDate = sourceEntryDate
+        self.lastMentionedAt = lastMentionedAt ?? sourceEntryDate
         self.dueDate = dueDate
         self.resolvedByEntryID = resolvedByEntryID
+    }
+
+    // When it fades if nothing touches it first, by the same rule the sweep applies.
+    var fadeDate: Date {
+        LooseEndFading.date(dueDate: dueDate, lastMentionedAt: lastMentionedAt)
     }
 }
 
@@ -113,6 +124,9 @@ nonisolated enum TodayCardKind: String, Sendable {
     case closed, dueToday, onThisDay, stillOpen, beenAWhile, latestSummary
 }
 
+// Two families share the row. A day card (a thread the last entry closed, this day in an earlier
+// year, a name gone quiet, what you last wrote) is about today and can be put away until tomorrow. A thread card (every
+// open loose end, the one due today first) stays until it is done, let go, or fades.
 nonisolated enum TodayCard: Equatable, Sendable, Identifiable {
     case closed(LooseEndFacts)
     case dueToday(LooseEndFacts)
@@ -129,6 +143,14 @@ nonisolated enum TodayCard: Equatable, Sendable, Identifiable {
         case .stillOpen: .stillOpen
         case .beenAWhile: .beenAWhile
         case .latestSummary: .latestSummary
+        }
+    }
+
+    // The open loose end a thread card is about; nil for a day card.
+    var thread: LooseEndFacts? {
+        switch self {
+        case .dueToday(let end), .stillOpen(let end): end
+        case .closed, .onThisDay, .beenAWhile, .latestSummary: nil
         }
     }
 

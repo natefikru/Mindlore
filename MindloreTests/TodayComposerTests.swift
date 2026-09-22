@@ -96,32 +96,40 @@ struct TodayComposerTests {
         #expect(!today.cards.contains { $0.kind == .closed })
     }
 
-    @Test func theFullLadderComesOutInOrderAndStopsAtThree() {
+    @Test func theFullRowComesOutInOrder() {
         let latest = entry(now, summary: "a summary")
         let yearAgo = entry(date(2025, 9, 19))
         let closed = looseEnd("the landlord", opened: date(2026, 9, 3), status: .resolved, resolvedBy: latest.id)
-        let open = looseEnd("the dentist", opened: date(2026, 1, 4))
+        let due = looseEnd("the form", opened: date(2026, 9, 1), due: date(2026, 9, 19, hour: 9))
+        let open = looseEnd("the dentist", opened: date(2026, 9, 4))
         let lapsed = entity("Maya", lastSeen: date(2026, 7, 1))
 
         let today = TodayComposer.compose(input(
-            entries: [latest, yearAgo], looseEnds: [closed, open], entities: [lapsed]
+            entries: [latest, yearAgo], looseEnds: [closed, due, open], entities: [lapsed]
         ))
 
-        #expect(today.cards.map(\.kind) == [.closed, .onThisDay, .stillOpen])
+        #expect(today.cards.map(\.kind) == [.dueToday, .closed, .onThisDay, .beenAWhile, .latestSummary, .stillOpen])
     }
 
-    @Test func noMoreThanThreeCards() {
-        let latest = entry(now, summary: "a summary")
-        let cards = TodayComposer.compose(input(
-            entries: [latest, entry(date(2025, 9, 19)), entry(date(2026, 8, 19))],
-            looseEnds: [
-                looseEnd("one", opened: date(2026, 9, 3), status: .resolved, resolvedBy: latest.id),
-                looseEnd("two", opened: date(2026, 1, 4))
-            ],
-            entities: [entity("Maya", lastSeen: date(2026, 7, 1))]
-        )).cards
+    // The row is something to go through, not a top three: every open thread has a card.
+    @Test func everyOpenThreadGetsACard() {
+        let threads = (1...12).map { looseEnd("thread \($0)", opened: date(2026, 9, $0)) }
 
-        #expect(cards.count == TodayComposer.cardLimit)
+        let cards = TodayComposer.compose(input(entries: [entry(now)], looseEnds: threads)).cards
+
+        #expect(cards.filter { $0.kind == .stillOpen }.count == 12)
+    }
+
+    // A thread is put away by acting on it, never by "not today": it stays until done, let go,
+    // or faded.
+    @Test func aThreadIgnoresTheDaysDismissals() {
+        let open = looseEnd(opened: date(2026, 9, 4))
+
+        let today = TodayComposer.compose(input(
+            entries: [entry(now)], looseEnds: [open], dismissed: [TodayCard.stillOpen(open).id]
+        ))
+
+        #expect(today.cards == [.stillOpen(open)])
     }
 
     // MARK: - Nothing twice
@@ -261,13 +269,16 @@ struct TodayComposerTests {
 
     // MARK: - Still open, and been a while
 
-    @Test func theOldestOpenThreadIsTheOneShown() {
-        let older = looseEnd("the dentist", opened: date(2025, 3, 1))
-        let newer = looseEnd("the landlord", opened: date(2026, 8, 1))
+    // The first thread card is the one that most needs you: whichever fades soonest. A dated one
+    // fades a week after its day; an undated one six weeks after it was last written about.
+    @Test func threadsComeInTheOrderTheyWouldFade() {
+        let quietLong = looseEnd("the dentist", opened: date(2026, 8, 20))
+        let dueSoon = looseEnd("the form", opened: date(2026, 9, 15), due: date(2026, 9, 22))
+        let recent = LooseEndFacts(id: UUID(), text: "the landlord", sourceEntryDate: date(2026, 8, 1), lastMentionedAt: date(2026, 9, 18))
 
-        let today = TodayComposer.compose(input(entries: [entry(now)], looseEnds: [newer, older]))
+        let cards = TodayComposer.compose(input(entries: [entry(now)], looseEnds: [recent, quietLong, dueSoon])).cards
 
-        #expect(today.cards.first == .stillOpen(older))
+        #expect(cards.compactMap(\.thread) == [dueSoon, quietLong, recent])
     }
 
     @Test func aFadedOrResolvedThreadIsNotOpen() {
@@ -282,13 +293,19 @@ struct TodayComposerTests {
         #expect(!today.cards.contains { $0.kind == .stillOpen })
     }
 
-    @Test func theBestLinkedQuietPersonIsTheOneShown() {
-        let quiet = entity("Maya", links: 12, lastSeen: date(2026, 6, 1))
-        let quieter = entity("Tom", links: 2, lastSeen: date(2026, 1, 1))
+    // One name all day, a different one the next: the best-linked quiet person no longer holds
+    // the card until someone writes about them.
+    @Test func theQuietNameChangesDailyAndHoldsWithinADay() {
+        let people = ["Maya", "Tom", "Priya"].enumerated().map { index, name in
+            entity(name, links: 12 - index, lastSeen: date(2026, 6, 1))
+        }
+        func shown(_ moment: Date) -> EntityFacts? {
+            TodayComposer.compose(input(entries: [entry(now)], entities: people, at: moment)).cards
+                .compactMap { if case .beenAWhile(let who) = $0 { who } else { nil } }.first
+        }
 
-        let today = TodayComposer.compose(input(entries: [entry(now)], entities: [quiet, quieter]))
-
-        #expect(today.cards.contains(.beenAWhile(quiet)))
+        #expect(shown(date(2026, 9, 19, hour: 8)) == shown(date(2026, 9, 19, hour: 22)))
+        #expect(Set((19...21).compactMap { shown(date(2026, 9, $0))?.name }).count == 3)
     }
 
     @Test func thirtyDaysIsNotYetAWhile() {

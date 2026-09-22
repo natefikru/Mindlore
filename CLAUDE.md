@@ -357,17 +357,22 @@ computed, not stored: `MindMap.primaryAreas`, over the areas of the entries it a
 **Views** (`Mindlore/Views/`). `RootView` is a four-tab `TabView` (Journal, Mind, Ask, Settings; `AppTab` in `Views/Shell/AppRouter.swift`, which also owns each tab's path and cross-tab routes). Recording lives in the bottom accessory (`RecordAccessory`) and keeps going while tabs change. `RootView` owns the saver, ingestor, `RecordingSession`, the four coordinators, `AIPassTrigger`, `EditorPresence`, `NetworkMonitor`, `GraphServices`, `AskService`, `DailyReminder`, and the router, and passes them through the environment. `EditorLifecycle` (`Views/Shell/`) is what runs when an editor opens and closes: presence, deleting a blank entry, discarding audio unless kept, and the `.editorClosed` AI pass. Past entries open in read mode (`EntryReadMode`) with tappable names. After a recording, `KeepCard` (`Views/Capture/`) shows what the journal noticed, from stored data only, no AI call. Colors, type, motion, and haptics come from `Mindlore/Design/`, and colors only from the asset catalog's light and dark variants. RootView runs transcription in one lane and titles plus insights in another, and resumes both when the network returns. `EntryListView` lists entries and opens `EntryEditorView` or `RecordingView`. The editor is one scroll view: header (banners, player, page strip, title) above a `GrowingTextEditor` (a UITextView that grows with its text and never ends shorter than the screen, so a tap below short text puts the cursor at the end). `EntryInsightsView` is a sheet over the editor, never a push, because the editor's `onDisappear` runs its close rules. It is a scroll of `InsightCard`s on Paper (not a `Form`), its scroll view named `insightsSheet` so UI tests scroll it rather than the editor underneath. The entity page stays a `Form` on purpose: its rows carry swipe actions, a disclosure, and links a hand-built card would lose, and an inset-grouped section already is a rounded card, so Paper behind and `Palette.card` rows are what make it match.
 
 **Today** (`Mindlore/Views/Today/`). The header above the journal list: a greeting, a seven-dot
-week strip, and at most three cards. `TodayComposer` is `nonisolated` and reads no SwiftData, the
-same split as `EntityGraph`; `TodaySource` does the fetching, walks merges through
-`EntityDirectory` (`Graph/`), and drops hidden and muted entities. Card order is fixed: a thread
-the last entry closed or one due today, this day in an earlier year, the oldest thread still open,
-a well-linked name whose `lastLinkedAt` is over 30 days old, the latest entry's summary. Nothing
-backs two cards, there is one on-this-day card chosen once, and a dismissal is day-scoped
-(`TodayDismissal` in `SettingsStore`, thrown away when the day changes). `Entity.resurfacingMuted`
-is the per-name mute; it is in `GraphIndexer.recount`'s keep-list beside `hidden`, or a muted name
-that loses its last link is pruned and returns under a new id. A loose end with any hidden or muted
-subject never becomes a card. The header refreshes on `.task(id:)` over the three monotonic
-revision counters, the day, and the two settings the composer reads, never on a count.
+week strip, and one horizontal row of cards to page through each day ("2 of 9" under it).
+`TodayComposer` is `nonisolated` and reads no SwiftData, the same split as `EntityGraph`;
+`TodaySource` does the fetching, walks merges through `EntityDirectory` (`Graph/`), and drops
+hidden and muted entities. The row opens on the open loose end that most needs attention (due
+today, else fading soonest), then the day cards (a thread the last entry closed, this day in an
+earlier year, a well-linked name whose `lastLinkedAt` is over 30 days old, rotating one name per
+day, the latest entry's summary), then every other open loose end in the order they would fade.
+Nothing backs two cards. A day card's X is day-scoped (`TodayDismissal` in `SettingsStore`,
+thrown away when the day changes). A thread card has no X and no swipe-dismiss (the horizontal
+swipe is paging): it stays until Done (resolved), Let it go (dismissed), or it fades, and it shows
+the fade date from `LooseEndFading`, the one rule the fade sweep also reads. Reflect carries no
+loose ends. `Entity.resurfacingMuted` is the per-name mute; it is in `GraphIndexer.recount`'s
+keep-list beside `hidden`, or a muted name that loses its last link is pruned and returns under a
+new id. A loose end with any hidden or muted subject never becomes a card. The header refreshes on
+`.task(id:)` over the three monotonic revision counters, the day, and the two settings the
+composer reads, never on a count.
 
 **Intents and the reminder** (`Mindlore/Intents/`, `Mindlore/Reminders/`). Start Recording, New
 Written Entry, and Ask Your Journal are App Intents in the app target (no extension, no entitlement,

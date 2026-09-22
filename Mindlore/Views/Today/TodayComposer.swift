@@ -4,11 +4,11 @@ import Foundation
 // merges, drops hidden and muted entities, and filters future-dated entries into plain values
 // first, the same way GraphServices feeds EntityGraph.
 //
-// The order is the product's, not an implementation detail: a thread that just closed or is due
-// today, then this day in an earlier year, then the oldest thread still open, then someone who
-// has gone quiet, then what you last wrote. At most three, and nothing appears twice.
+// The row's order is the product's, not an implementation detail. It opens on the open thread that
+// most needs you (due today, else fading soonest), then the day's cards: a thread your last entry
+// closed, this day in an earlier year, a name gone quiet, what you last wrote. Then every other
+// open thread, the one that fades soonest first. Nothing appears twice.
 nonisolated enum TodayComposer {
-    static let cardLimit = 3
     static let weekLength = 7
     // "More than a month" in the only sense that survives a month of 28 days and one of 31.
     static let staleAfter: TimeInterval = 30 * 86_400
@@ -39,58 +39,38 @@ nonisolated enum TodayComposer {
     }
 
     private static func cards(_ entries: [EntryFacts], _ input: TodayInput) -> [TodayCard] {
-        var chosen: [TodayCard] = []
-        var usedEntries: Set<UUID> = []
-        var usedLooseEnds: Set<UUID> = []
-
-        for candidate in candidates(entries, input) {
-            guard chosen.count < cardLimit else { break }
-            guard !input.dismissed.contains(candidate.id) else { continue }
-            // Nothing backs two cards. In a young journal the newest entry can also be the one
-            // from a year ago, and reading it twice looks like a bug.
-            switch candidate {
-            case .closed(let end), .dueToday(let end), .stillOpen(let end):
-                guard usedLooseEnds.insert(end.id).inserted else { continue }
-            case .onThisDay(let entry, _), .latestSummary(let entry):
-                guard usedEntries.insert(entry.id).inserted else { continue }
-            case .beenAWhile:
-                break
-            }
-            chosen.append(candidate)
-        }
-        return chosen
-    }
-
-    // One candidate per kind, in priority order. A kind that is dismissed or already used simply
-    // lets the next kind take the slot; it never offers a second of its own.
-    private static func candidates(_ entries: [EntryFacts], _ input: TodayInput) -> [TodayCard] {
         let latest = entries.first
-        var candidates: [TodayCard] = []
-
-        if let settled = closedOrDue(input, latest: latest) { candidates.append(settled) }
-        if let anniversary = onThisDay(entries, input) { candidates.append(anniversary) }
-        if let open = stillOpen(input) { candidates.append(.stillOpen(open)) }
-        if input.resurfacingEnabled, let lapsed = beenAWhile(input) { candidates.append(.beenAWhile(lapsed)) }
-        if let latest, let summary = latest.summary, !summary.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            candidates.append(.latestSummary(latest))
+        let open = input.looseEnds.filter { $0.status == .open }.sorted(by: fadesSooner)
+        let dueToday = open.filter { end in
+            end.dueDate.map { EntryDates.isSameDay($0, input.now, calendar: input.calendar) } ?? false
         }
-        return candidates
+
+        // A day card the user put away is gone until tomorrow; a thread card never is.
+        var day: [TodayCard] = []
+        if let latest, let closed = closed(by: latest, input) { day.append(.closed(closed)) }
+        if let anniversary = onThisDay(entries, input) { day.append(anniversary) }
+        if input.resurfacingEnabled, let lapsed = beenAWhile(input) { day.append(.beenAWhile(lapsed)) }
+        if let latest, let summary = latest.summary, !summary.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            day.append(.latestSummary(latest))
+        }
+        day = day.filter { !input.dismissed.contains($0.id) }
+        // In a young journal the newest entry can also be the one from a year ago, and reading it
+        // twice looks like a bug.
+        if case .onThisDay(let entry, _) = day.first(where: { $0.kind == .onThisDay }) {
+            day.removeAll { if case .latestSummary(let latest) = $0 { latest.id == entry.id } else { false } }
+        }
+
+        // The row always opens on a thread when there is one (the one due today, else the one that
+        // fades soonest), then the day's cards, then the rest of the threads.
+        let threads = dueToday.map(TodayCard.dueToday)
+            + open.filter { end in !dueToday.contains { $0.id == end.id } }.map(TodayCard.stillOpen)
+        return Array(threads.prefix(1)) + day + Array(threads.dropFirst())
     }
 
-    private static func closedOrDue(_ input: TodayInput, latest: EntryFacts?) -> TodayCard? {
-        if let latest {
-            let closed = input.looseEnds
-                .filter { $0.status == .resolved && $0.resolvedByEntryID == latest.id }
-                .min { older($0, $1) }
-            if let closed { return .closed(closed) }
-        }
-        let due = input.looseEnds
-            .filter { end in
-                guard end.status == .open, let dueDate = end.dueDate else { return false }
-                return EntryDates.isSameDay(dueDate, input.now, calendar: input.calendar)
-            }
+    private static func closed(by latest: EntryFacts, _ input: TodayInput) -> LooseEndFacts? {
+        input.looseEnds
+            .filter { $0.status == .resolved && $0.resolvedByEntryID == latest.id }
             .min { older($0, $1) }
-        return due.map(TodayCard.dueToday)
     }
 
     private static func onThisDay(_ entries: [EntryFacts], _ input: TodayInput) -> TodayCard? {
@@ -141,13 +121,12 @@ nonisolated enum TodayComposer {
         return nil
     }
 
-    private static func stillOpen(_ input: TodayInput) -> LooseEndFacts? {
-        input.looseEnds.filter { $0.status == .open }.min { older($0, $1) }
-    }
-
+    // A different quiet name each day, the same one all day: one who is never written about
+    // again shouldn't hold the card for good while the rest wait behind them. Ranked the way it
+    // always was, then rotated by the day.
     private static func beenAWhile(_ input: TodayInput) -> EntityFacts? {
         let cutoff = input.now.addingTimeInterval(-staleAfter)
-        return input.entities
+        let quiet = input.entities
             .filter { entity in
                 guard let last = entity.lastLinkedAt else { return false }
                 return entity.linkCount > 0 && entity.kind.isAName && last < cutoff
@@ -159,7 +138,13 @@ nonisolated enum TodayComposer {
                 if firstSeen != secondSeen { return firstSeen < secondSeen }
                 return first.id.uuidString < second.id.uuidString
             }
-            .first
+        guard !quiet.isEmpty else { return nil }
+        let day = input.calendar.ordinality(of: .day, in: .era, for: input.now) ?? 0
+        return quiet[day % quiet.count]
+    }
+
+    private static func fadesSooner(_ first: LooseEndFacts, _ second: LooseEndFacts) -> Bool {
+        (first.fadeDate, first.sourceEntryDate, first.id.uuidString) < (second.fadeDate, second.sourceEntryDate, second.id.uuidString)
     }
 
     private static func older(_ first: LooseEndFacts, _ second: LooseEndFacts) -> Bool {

@@ -70,6 +70,7 @@ enum DemoJournal {
         try context.save()
         GraphIndexer().sweep(in: context)
         seedLooseEnds(drafts: drafts, entries: entries, in: context, now: now)
+        seedWeekSummaries(drafts: drafts, in: context, now: now)
         try context.save()
         DiagnosticsLog.shared.record("demo.seeded", [
             "entries": .int(count),
@@ -96,6 +97,22 @@ enum DemoJournal {
                 let entryID = entry.id
                 created[index] = LooseEnd.all(in: context).first { $0.sourceEntryID == entryID }?.id
             }
+        }
+    }
+
+    // A cached summary for every finished week, built from the week's titles, so Reflect has rows
+    // to show and tap in a journal that runs with AI off. The story journal doesn't do this; its
+    // summaries are really generated.
+    private static func seedWeekSummaries(drafts: [Draft], in context: ModelContext, now: Date, calendar: Calendar = .current) {
+        let weeks = Dictionary(grouping: drafts) { calendar.dateInterval(of: .weekOfYear, for: $0.date)?.start ?? $0.date }
+        for (start, week) in weeks {
+            guard let interval = calendar.dateInterval(of: .weekOfYear, for: start), interval.end <= now else { continue }
+            let titles = week.sorted { $0.date < $1.date }.prefix(3).map(\.title).joined(separator: ", ")
+            let item = ReflectQueueItem(
+                id: "generated:0", source: .generated, title: "This week",
+                body: "\(week.count) entries: \(titles).", prompt: "What else happened that week?"
+            )
+            context.insert(ReflectSummary(kind: .week, periodStart: interval.start, generatedAt: now, items: [item]))
         }
     }
 

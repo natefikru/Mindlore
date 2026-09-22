@@ -62,9 +62,22 @@ final class LooseEnd {
     }
 }
 
+// When an open loose end fades if nothing touches it first. One rule, read by the sweep that
+// fades it and by the card that says when it will, so the two can never disagree. A dated one
+// waits for its day however quiet it is, then gets a week; an undated one fades six weeks after
+// it was last written about, which is why writing about it moves the date.
+nonisolated enum LooseEndFading {
+    static let afterSilence: TimeInterval = 42 * 86_400
+    static let afterDue: TimeInterval = 7 * 86_400
+
+    static func date(dueDate: Date?, lastMentionedAt: Date) -> Date {
+        dueDate.map { $0.addingTimeInterval(afterDue) } ?? lastMentionedAt.addingTimeInterval(afterSilence)
+    }
+}
+
 extension LooseEnd {
-    static let fadesAfterSilence: TimeInterval = 42 * 86_400
-    static let fadesAfterDue: TimeInterval = 7 * 86_400
+    static let fadesAfterSilence = LooseEndFading.afterSilence
+    static let fadesAfterDue = LooseEndFading.afterDue
 
     static func all(in context: ModelContext) -> [LooseEnd] {
         ((try? context.fetch(FetchDescriptor<LooseEnd>())) ?? []).filter { !$0.isDeleted }
@@ -141,12 +154,8 @@ extension LooseEnd {
         return faded
     }
 
-    // A dated one waits for its day however quiet it is, then gets a week.
     static func shouldFade(_ looseEnd: LooseEnd, now: Date) -> Bool {
-        if let due = looseEnd.dueDate {
-            return now.timeIntervalSince(due) > fadesAfterDue
-        }
-        return now.timeIntervalSince(looseEnd.lastMentionedAt) > fadesAfterSilence
+        now > LooseEndFading.date(dueDate: looseEnd.dueDate, lastMentionedAt: looseEnd.lastMentionedAt)
     }
 }
 

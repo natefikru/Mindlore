@@ -9,35 +9,6 @@ enum ReflectSource {
         aggregate(interval, looseEnds: looseEndFacts(in: context), context: context)
     }
 
-    // MARK: - Reused signals
-
-    // Mirrors TodaySource.looseEnds exactly: the same hidden/muted filtering and the same fact
-    // shape, just asked about a past week's end rather than now. ReflectSignals decides what a
-    // given end date makes of them.
-    static func queueLooseEnds(in context: ModelContext, directory: EntityDirectory) -> [LooseEndFacts] {
-        LooseEnd.all(in: context).compactMap { end in
-            let subjects = Set(end.entityIDs.map(directory.root(of:)))
-            let concealed = subjects.contains { id in
-                guard let entity = directory.entity(id) else { return false }
-                return entity.hidden || entity.resurfacingMuted
-            }
-            guard !concealed else { return nil }
-            return LooseEndFacts(
-                id: end.id,
-                text: end.text,
-                status: end.status,
-                sourceEntryDate: end.sourceEntryDate,
-                dueDate: end.dueDate,
-                resolvedByEntryID: end.resolvedByEntryID
-            )
-        }
-    }
-
-    static func queueSignals(weekEnd: Date, in context: ModelContext) -> [ReflectQueueItem] {
-        let directory = EntityDirectory(in: context)
-        return ReflectSignals.compose(looseEnds: queueLooseEnds(in: context, directory: directory), weekEnd: weekEnd)
-    }
-
     // MARK: - Feed bounds
 
     static func earliestEntryDate(in context: ModelContext) -> Date? {
