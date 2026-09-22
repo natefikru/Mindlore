@@ -1,11 +1,11 @@
 import XCTest
 
-// Reflect's queue against the demo journal, which has enough loose ends and quiet names to have
-// something to show without AI on (the demo suite starts with AI off, so only reused-signal cards
-// appear; generated "Worth asking" cards need a key, which these tests don't set up). What a card
-// says is decided in ReflectSignalsTests and ReflectSummaryStoreTests, on plain values; this drives
-// the parts that only the real app can show: a tap landing on a prefilled editor, a month row
-// expanding, and a dismissal surviving a relaunch.
+// Reflect's queue against the demo journal, which has enough loose ends to have something to show
+// without a configured key (Foundation Models answers on-device once one is available, otherwise
+// only the reused "Still open" signal appears). What a card says is decided in ReflectSignalsTests
+// and ReflectSummaryStoreTests, on plain values; this drives the parts that only the real app can
+// show: a tap landing on an entry with the card's prompt as a placeholder (not real, saved
+// content), a month row expanding, and a dismissal surviving a relaunch.
 final class ReflectUITests: XCTestCase {
     override func setUpWithError() throws {
         continueAfterFailure = false
@@ -22,20 +22,32 @@ final class ReflectUITests: XCTestCase {
         let weekStrip = app.descendants(matching: .any)["weekStrip"]
         XCTAssertTrue(weekStrip.waitForExistence(timeout: 20))
         weekStrip.tap()
-        XCTAssertTrue(app.descendants(matching: .any)["reflectView"].waitForExistence(timeout: 5))
+        let reflectView = app.descendants(matching: .any)["reflectView"]
+        XCTAssertTrue(reflectView.waitForExistence(timeout: 5))
+        // A LazyVStack's rows can exist visually before XCTest's accessibility tree walker
+        // exposes them: a tiny nudge forces a layout pass so later element queries actually see
+        // what's already on screen.
+        app.swipeUp(velocity: .slow)
+        app.swipeDown(velocity: .slow)
     }
 
-    func testTappingACardOpensAPrefilledEntry() throws {
+    // Generous: a week with no cached summary yet generates on this appear, and when the
+    // simulator's on-device model is what answers (FoundationModelsAvailability.isAvailable can be
+    // true under the Simulator), that's real inference time, not an instant failure.
+    private static let generationTimeout: TimeInterval = 60
+
+    func testTappingACardOpensAnEntryWithThePromptAsAPlaceholder() throws {
         let app = launch(reset: true)
         openReflect(app)
 
         let card = app.descendants(matching: .any).matching(identifier: "reflectQueueRow").element(boundBy: 0)
-        XCTAssertTrue(card.waitForExistence(timeout: 20), "a 300-entry demo journal has at least one open thread or quiet name")
+        XCTAssertTrue(card.waitForExistence(timeout: Self.generationTimeout), "a 300-entry demo journal has at least one open thread")
         card.tap()
 
         let editor = app.textViews["entryEditor"]
         XCTAssertTrue(editor.waitForExistence(timeout: 5))
-        XCTAssertFalse((editor.value as? String ?? "").isEmpty, "the card's prompt seeded the entry")
+        XCTAssertTrue((editor.value as? String ?? "").isEmpty, "nothing is saved until the user actually types")
+        XCTAssertTrue(app.descendants(matching: .any)["entryStartingTextPlaceholder"].waitForExistence(timeout: 2), "the card's prompt shows as a hint")
     }
 
     func testAMonthRowExpandsIntoItsWeeks() throws {
@@ -43,10 +55,28 @@ final class ReflectUITests: XCTestCase {
         openReflect(app)
 
         let month = app.descendants(matching: .any).matching(NSPredicate(format: "identifier BEGINSWITH 'reflectMonth-'")).element(boundBy: 0)
-        XCTAssertTrue(month.waitForExistence(timeout: 20), "a year-old demo journal has months before the recent stretch")
-        month.tap()
+        XCTAssertTrue(month.waitForExistence(timeout: Self.generationTimeout), "a year-old demo journal has months before the recent stretch")
+        // The exact identifier of the row tapped, not a live re-query: other collapsed month rows
+        // below it match the same "reflectMonth-" prefix, so re-querying `.element(boundBy: 0)`
+        // after the tap can find one of those instead and wrongly look like nothing changed.
+        let tappedIdentifier = month.identifier
+        // The row is off the bottom of the screen (a year-old demo journal has plenty above it).
+        // `.tap()` on an off-screen element auto-scrolls to it and taps immediately, and that tap
+        // can land while the scroll view is still decelerating and get read as part of the
+        // gesture rather than a discrete tap, so the row never toggles open. Scrolling the
+        // ScrollView itself first, settling, and only then tapping (now that the element is
+        // already on screen and needs no further auto-scroll) avoids that.
+        let scrollView = app.scrollViews["reflectView"]
+        for _ in 0..<6 where !month.isHittable {
+            scrollView.swipeUp()
+        }
+        XCTAssertTrue(month.isHittable, "scrolled the tapped row into view")
+        Thread.sleep(forTimeInterval: 1)
+        // A coordinate tap, computed fresh now that the row is confirmed on screen, rather than
+        // `.tap()`'s own hit-point heuristic (which can be stale immediately after a scroll).
+        month.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
 
-        XCTAssertFalse(month.waitForExistence(timeout: 3), "the collapsed row is replaced by its weeks")
+        XCTAssertFalse(app.buttons[tappedIdentifier].waitForExistence(timeout: 3), "the tapped row is replaced by its weeks")
         let expandedWeek = app.descendants(matching: .any).matching(NSPredicate(format: "identifier BEGINSWITH 'reflectWeek-'")).element(boundBy: 0)
         XCTAssertTrue(expandedWeek.waitForExistence(timeout: 5))
     }
@@ -56,7 +86,7 @@ final class ReflectUITests: XCTestCase {
         openReflect(app)
 
         let card = app.descendants(matching: .any).matching(identifier: "reflectQueueRow").element(boundBy: 0)
-        XCTAssertTrue(card.waitForExistence(timeout: 20))
+        XCTAssertTrue(card.waitForExistence(timeout: Self.generationTimeout))
         let dismissButtons = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'reflectDismiss-'"))
         XCTAssertTrue(dismissButtons.element(boundBy: 0).waitForExistence(timeout: 5))
         let identifier = dismissButtons.element(boundBy: 0).identifier

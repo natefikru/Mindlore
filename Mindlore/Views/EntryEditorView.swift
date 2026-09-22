@@ -80,7 +80,8 @@ struct EntryEditorView: View {
                                     .foregroundStyle(.tertiary)
                                     .padding(.top, 8)
                                     .allowsHitTesting(false)
-                                    .accessibilityHidden(true)
+                                    .accessibilityLabel(startingText)
+                                    .accessibilityIdentifier("entryStartingTextPlaceholder")
                             }
                             GrowingTextEditor(
                                 text: textBinding,

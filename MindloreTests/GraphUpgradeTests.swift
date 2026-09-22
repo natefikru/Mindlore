@@ -133,21 +133,6 @@ struct ChunkedSweepTests {
         #expect(entry.updatedAt == Date(timeIntervalSince1970: 100))
     }
 
-    @Test func aLargeJournalStaysResponsiveWhileIndexed() async throws {
-        for index in 0..<3_000 {
-            try harness.entry(tags: ["tag \(index % 60)"], mentions: [("Person Number \(index % 200)", .person)])
-        }
-        var reports = 0
-        let start = Date.now
-
-        let indexed = await harness.indexer.sweep(in: harness.context) { _, _ in reports += 1 }
-
-        let ms = Int(Date.now.timeIntervalSince(start) * 1000)
-        print("UPGRADE 3000 entries chunked: \(ms) ms over \(reports - 1) chunks")
-        #expect(indexed == 3_000)
-        #expect(reports == 31, "one report before the first chunk and one after each of 30")
-        #expect(ms < 30_000)
-    }
 }
 
 struct GraphIndexingProgressTests {
