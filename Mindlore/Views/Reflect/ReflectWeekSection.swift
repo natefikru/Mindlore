@@ -36,6 +36,11 @@ struct ReflectWeekSection: View {
                     .foregroundStyle(Palette.ink)
                 ReflectMoodChipStrip(moodCounts: moodCounts)
             }
+            // Scoped to the header alone, not the whole section: applied to an ancestor of the
+            // queue rows below, it silently overwrote their own identifiers (a "Still open"
+            // button came back identified as this week's own id, not "reflectQueueRow"), which is
+            // why no automated test could ever find one.
+            .accessibilityIdentifier("reflectWeek-\(week.isCurrent ? "current" : "\(week.interval.start.timeIntervalSince1970)")")
 
             if !hasLoaded {
                 ProgressView()
@@ -55,7 +60,6 @@ struct ReflectWeekSection: View {
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
         .task(id: fingerprint) { await load() }
-        .accessibilityIdentifier("reflectWeek-\(week.isCurrent ? "current" : "\(week.interval.start.timeIntervalSince1970)")")
     }
 
     private struct Fingerprint: Equatable {
