@@ -1,63 +1,47 @@
 # CI for the TestFlight beta
 
-Status: proposed 2026-09-22, awaiting the owner's go. Nothing below is built.
-
-## What was measured
-
-- The repo is public, so GitHub-hosted macOS runners cost nothing and there is no minute budget.
-  The limits that matter are wall-clock and the free plan's cap of 5 macOS jobs at once.
-- `macos-26` runners ship Xcode 26.6 (17F113), the same build as the development Mac, with an
-  iOS 26.5 runtime and an iPhone 17 simulator, plus xcbeautify 3.2.1.
-- Unit suite: 1,531 tests in 188 suites, 61 seconds of test time on a warm build. The compile is
-  the cost; on a cold runner expect 3 to 5 minutes of build before that minute of tests.
-- UI suite: 52 tests in 26 classes, each launch 25 to 35 seconds (`tasks/lessons.md`), so about
-  25 minutes serial. Five of the classes seed a 300-entry journal first.
-- The scheme is auto-created, not shared: `xcodebuild -list` shows it locally, a fresh checkout
-  has no scheme file. CI needs `Mindlore.xcodeproj/xcshareddata/xcschemes/Mindlore.xcscheme`.
-- `CODE_SIGNING_ALLOWED=NO` makes `KeychainSecretStoreTests` fail with `errSecMissingEntitlement`
-  (-34018): the simulator Keychain wants a signed app. Default ad-hoc simulator signing passes on
-  a runner with no certificates, so CI leaves signing alone and never touches the team.
-- `OpenAILiveTests` skips without `MINDLORE_OPENAI_KEY`; the on-device model tests skip when
-  `FoundationModelsAvailability.isAvailable` is false. Both are naturally off on a runner.
-- Known cold-start hazard: `AskIndexLemmaTests` can fail on a simulator's very first run while
-  `NLTagger` loads its assets (`tasks/lessons.md`, "A fresh simulator has no lemmas"). Every
-  hosted runner is a first run. Watch the first CI run; if it bites, warm the tagger in a
-  setup step rather than retrying tests.
+Status: built and green on PR #40, 2026-09-22. The measurements behind every choice are in the
+review log at the bottom, run by run.
 
 ## Shape
 
-One workflow, `ci.yml`, three stages. Build once, test many.
-
 ```
-build (macos-26, ~5 min)
-  xcodebuild build-for-testing, upload Build/Products as an artifact
+build (macos-26, about 2 minutes)      build-for-testing, no index store, products as an artifact
   |
-  +-- unit (1 runner, ~2 min)      test-without-building, MindloreTests
-  |
-  +-- ui   (5 runners, ~6 min)     test-without-building, one shard of UI classes each
+  +-- unit (1 runner)                  every PR and push to main; the only required check
+  +-- ui   (4 runners)                 push to main, PR labeled "ui", manual; continue-on-error
 ```
 
-- **Triggers.** `build` and `unit` run on every pull request and every push to `main`.
-  `ui` runs on every push to `main`, on a pull request carrying the `ui` label, and on manual
-  dispatch. A PR that touches views gets the label; a PR to a parser doesn't pay 10 minutes for it.
+Five test jobs after one build is exactly the free plan's five concurrent macOS runners, so none
+of them queues. Wall-clock on a pull request: the required check about 13 minutes after a push
+(2 build, 11 unit), the UI shards about 18.
+
+Where a test job's time goes, measured: about 2 minutes booting a fresh simulator, then about 3
+more before the first test (xcodebuild starting, resolving the destination, installing the app,
+its first launch on a cold simulator). None of it is the app's own startup, and a test job has
+nothing to overlap it with. Unit tests themselves are under 4 minutes; each UI shard about 10.
+Building in every job and booting during the compile was tried and was slower (the boot fought
+the compiler: 6.5 to 11.5 minute builds).
+
+- **Triggers.** `ui` runs on every push to `main`, on a PR carrying the `ui` label, and on manual
+  dispatch; a manual run with `only` runs named tests (`Class` or `Class/testMethod`) on one
+  runner and skips unit. A PR's UI run leaves out the `*ScreenshotTests` classes.
 - **Concurrency.** One run per branch; a new push cancels the one in flight.
-- **Shards are computed, not maintained.** `scripts/ci/ui-shards.sh N` reads
-  `MindloreUITests/*.swift`, counts `func test` per class, and greedy-balances the classes into
-  N lists printed as a JSON matrix. A new UI class joins a shard on its next run; nothing to
-  forget. Each shard runs `-only-testing:MindloreUITests/<Class>` per class, serial, with the
-  per-test time allowance from CLAUDE.md, against a booted `iPhone 17` on iOS 26.5.
-- **Same commands locally.** `scripts/ci/build-for-testing.sh` and `scripts/ci/test.sh unit|ui`
-  wrap xcodebuild so the CI run and the terminal run are one script, piped through xcbeautify
-  when it is installed (GitHub annotations on the runner, plain output at home).
+- **Shards are computed, not maintained.** `ui-shards.sh` deals test methods, heaviest first, by
+  the seconds each took on a runner (`ui-test-seconds.txt`, 60 when unknown). A new test needs
+  nothing registered; `ui-test-seconds.sh <run-id>` refreshes the numbers.
+- **CI-only settings.** A UI test gets five minutes and one retry (two minutes and none locally).
+  `test.sh` ends with the result bundle's failures and retries, since the formatted log can show a
+  green check for a killed test.
+- **What skips on CI, and why.** Lemma tests (`LemmaAvailability`: runners have no NLTagger
+  assets and `requestAssets` hangs), on-device model quality (`TestHost.canMeasureOnDeviceModel`:
+  present on a runner but meaningless), and the OpenAI creative quality measurement (a live model
+  varies call to call and would make the required check flaky). All of them run on every Mac.
+- **Same commands locally.** `scripts/ci/build-for-testing.sh` and `scripts/ci/test.sh unit|ui`.
 - **On failure** the `.xcresult` uploads (7-day retention) so a red run can be opened in Xcode.
-- **Required check.** Make `unit` required on `main` in branch protection. `ui` stays advisory
-  on PRs and is the gate for cutting a build.
-- **Release** is `release.yml`: manual dispatch or a `v*` tag, gated on a repository variable
-  `RELEASE_ENABLED` that stays unset until the paid team exists. Steps are real (import a
-  certificate into a throwaway keychain, `xcodebuild archive`, export, upload with the App Store
-  Connect API key) and every secret is a named placeholder. Build number comes from the run
-  number so TestFlight never sees a duplicate.
-- **Dependabot** watches the action versions weekly. Nothing else has dependencies.
+- **Release** is `release.yml`: manual dispatch or a `v*` tag, gated on the repository variable
+  `RELEASE_ENABLED` until the paid team exists. Build number comes from the run number.
+- **Dependabot** watches the action versions weekly.
 
 ## Not doing
 
@@ -76,7 +60,7 @@ build (macos-26, ~5 min)
 - [x] `.github/dependabot.yml`.
 - [x] CLAUDE.md: a CI paragraph under Commands; `docs/remaining-work.md`: the branch-protection
       and secrets steps the owner does in the GitHub UI.
-- [ ] Open the PR, watch the first run, fix whatever a cold runner shows (lemmas, simulator boot).
+- [x] Open the PR, watch the first run, fix whatever a cold runner shows (lemmas, simulator boot).
 
 ## Review
 
@@ -122,6 +106,12 @@ build (macos-26, ~5 min)
   Shards balanced by test count ran 8 to 16 minutes of tests because `GraphUITests` alone is 683 s,
   so shards now split by test method, weighted by the measured seconds in
   `scripts/ci/ui-test-seconds.txt`: about 9 minutes each for a pull request.
+- Fifth hosted run (35779396030): UI green in every shard, 43 tests, no retries, shards finishing
+  within two minutes of each other (16 to 18). Unit: 1,517 passed and one failed,
+  `CreativeOpenAIQualityTests` filing the haiku as life after 19/19 the run before, with no code
+  change between; now skipped on CI. The raw xcodebuild lines showed the four minutes before the
+  first unit test are xcodebuild startup (46 s), destination (21 s), install (80 s), and a cold
+  first launch (2 min): the simulator's cost, not the app's.
 - `OnDeviceInsightsLiveTests` failed once locally (Apple's model returned no summary) and passed the
   run before. It is gated on `FoundationModelsAvailability`, so it skips on hosted runners; it is a
   flaky live test on a Mac with Apple Intelligence, not a CI concern.
