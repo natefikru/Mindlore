@@ -2,26 +2,52 @@
 import Foundation
 import SwiftData
 
-// A made-up journal for building and measuring UI without recording weeks of entries. Launch a
-// Debug build with `-seedDemoJournal <count>`: the app opens its own store, settings, and
-// Keychain service, fills the store once, and indexes it through the real GraphIndexer.
-// Release builds don't contain any of this.
+// Made-up journals for building and measuring UI without recording weeks of entries. Launch a
+// Debug build with `-seedStoryJournal` for Teo's year (`DemoStory`, 200 hand-written entries with a
+// plot, a cast, and loose ends that open and close), which is the one to look at. Tests use
+// `-seedDemoJournal <count>`, a generated journal of any size, which is what the 300-entry
+// performance checks run against. Either way the app opens its own store, settings, and Keychain
+// service, fills the store once, and indexes it through the real GraphIndexer. Release builds
+// don't contain any of this.
 //
-// Each entry is a scene (a work day, a call with family, a run) that decides together who is in
-// it, where it happened, what it was about, and how it felt, so the names, tags, area, and mood
-// the insights carry are all things the text actually says. Loose ends are sentences in the text
-// too, and a later entry settles one by saying so.
+// In the generated journal each entry is a scene (a work day, a call with family, a run) that
+// decides together who is in it, where it happened, what it was about, and how it felt, so the
+// names, tags, area, and mood the insights carry are all things the text actually says. Loose ends
+// are sentences in the text too, and a later entry settles one by saying so.
 enum DemoJournal {
     static let argument = "-seedDemoJournal"
+    static let storyArgument = "-seedStoryJournal"
     static let resetSettingsArgument = "-resetDemoSettings"
     static let settingsSuiteName = "demo-journal"
-    static let storeFileName = "demo-journal.store"
 
-    static func requestedCount(in arguments: [String]) -> Int? {
+    enum Request: Equatable {
+        case story
+        case generated(count: Int)
+
+        // Separate files, so switching between them never finds the other one's entries and
+        // declines to seed.
+        var storeFileName: String {
+            switch self {
+            case .story: "demo-story.store"
+            case .generated: "demo-journal.store"
+            }
+        }
+    }
+
+    static func request(in arguments: [String]) -> Request? {
+        if arguments.contains(storyArgument) { return .story }
         guard let index = arguments.firstIndex(of: argument) else { return nil }
         let next = arguments.index(after: index)
-        guard arguments.indices.contains(next), let count = Int(arguments[next]), count > 0 else { return 300 }
-        return count
+        guard arguments.indices.contains(next), let count = Int(arguments[next]), count > 0 else { return .generated(count: 300) }
+        return .generated(count: count)
+    }
+
+    @discardableResult
+    static func seedIfEmpty(_ request: Request, in context: ModelContext, now: Date = .now) throws -> Int {
+        switch request {
+        case .story: try DemoStory.seedIfEmpty(in: context, now: now)
+        case .generated(let count): try seedIfEmpty(count: count, in: context, now: now)
+        }
     }
 
     // Seeds only an empty store, so relaunching with the argument keeps whatever was changed.
@@ -170,7 +196,7 @@ enum DemoJournal {
 
     // Past-dated and already past the automatic pass, so no AI job ever picks these up.
     @discardableResult
-    private static func insert(_ draft: Draft, in context: ModelContext) -> Entry {
+    static func insert(_ draft: Draft, in context: ModelContext) -> Entry {
         let entry = Entry(createdAt: draft.date, source: .typed, text: draft.text)
         entry.title = draft.title
         entry.titleWasGenerated = true

@@ -142,17 +142,20 @@ struct DemoJournalTests {
         #expect((200...360).contains(entities))
     }
 
-    @Test func theArgumentReadsItsCountOrDefaultsTo300() {
-        #expect(DemoJournal.requestedCount(in: ["app"]) == nil)
-        #expect(DemoJournal.requestedCount(in: ["app", "-seedDemoJournal", "120"]) == 120)
-        #expect(DemoJournal.requestedCount(in: ["app", "-seedDemoJournal"]) == 300)
-        #expect(DemoJournal.requestedCount(in: ["app", "-seedDemoJournal", "-other"]) == 300)
+    @Test func theArgumentReadsItsCountOrDefaultsTo300AndTheStoryHasItsOwn() {
+        #expect(DemoJournal.request(in: ["app"]) == nil)
+        #expect(DemoJournal.request(in: ["app", "-seedDemoJournal", "120"]) == .generated(count: 120))
+        #expect(DemoJournal.request(in: ["app", "-seedDemoJournal"]) == .generated(count: 300))
+        #expect(DemoJournal.request(in: ["app", "-seedDemoJournal", "-other"]) == .generated(count: 300))
+        #expect(DemoJournal.request(in: ["app", "-seedStoryJournal"]) == .story)
     }
 
     @Test func theDemoNeverOpensTheDefaultStore() {
         let directory = URL(fileURLWithPath: "/tmp/demo-test")
         let location = StoreLocation.resolve(arguments: ["app", "-seedDemoJournal", "50"], environment: [:], directory: directory)
-        #expect(location == .file(directory.appendingPathComponent(DemoJournal.storeFileName)))
+        #expect(location == .file(directory.appendingPathComponent("demo-journal.store")))
+        let story = StoreLocation.resolve(arguments: ["app", "-seedStoryJournal"], environment: [:], directory: directory)
+        #expect(story == .file(directory.appendingPathComponent("demo-story.store")))
         // UI tests keep their own named store even if the argument is present.
         let uiTest = StoreLocation.resolve(
             arguments: ["app", "-uiTesting", "-seedDemoJournal", "50"],

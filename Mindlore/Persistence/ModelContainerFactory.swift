@@ -18,8 +18,8 @@ enum StoreLocation: Equatable {
             return .inMemory
         }
         #if DEBUG
-        if DemoJournal.requestedCount(in: arguments) != nil {
-            return .file(directory.appendingPathComponent(DemoJournal.storeFileName))
+        if let demo = DemoJournal.request(in: arguments) {
+            return .file(directory.appendingPathComponent(demo.storeFileName))
         }
         #endif
         return .default

@@ -33,27 +33,28 @@ struct MindloreApp: App {
         let uiTesting = arguments.contains(StoreLocation.uiTestingArgument)
         let testStoreName = uiTesting ? ProcessInfo.processInfo.environment[StoreLocation.uiTestStoreNameKey] : nil
         #if DEBUG
-        let demoCount = uiTesting ? nil : DemoJournal.requestedCount(in: arguments)
+        let demo = uiTesting ? nil : DemoJournal.request(in: arguments)
+        let isDemo = demo != nil
         #else
-        let demoCount: Int? = nil
+        let isDemo = false
         #endif
         // The demo journal keeps its own settings and Keychain entry, so AI starts off there and
         // nothing made up is ever sent with the real key.
         #if DEBUG
         // A UI test that dismisses something needs to start from the same place every run, and the
         // demo suite otherwise outlives the run that wrote it.
-        if demoCount != nil, arguments.contains(DemoJournal.resetSettingsArgument) {
+        if isDemo, arguments.contains(DemoJournal.resetSettingsArgument) {
             UserDefaults.standard.removePersistentDomain(forName: DemoJournal.settingsSuiteName)
         }
         #endif
-        let demoDefaults = demoCount == nil ? nil : UserDefaults(suiteName: DemoJournal.settingsSuiteName)
+        let demoDefaults = !isDemo ? nil : UserDefaults(suiteName: DemoJournal.settingsSuiteName)
         let defaults = testStoreName.flatMap { UserDefaults(suiteName: "uitest-\($0)") } ?? demoDefaults ?? .standard
         // A real key handed to a UI test run stays in memory so it never touches the Keychain; test
         // runs with the stub's key use a Keychain service named for the run, so saving a key and
         // finding it after a relaunch still works.
         let liveTestKey = ProcessInfo.processInfo.environment["MINDLORE_OPENAI_KEY"].flatMap { $0.isEmpty ? nil : $0 }
         let secrets: any SecretStore = switch (testStoreName, liveTestKey) {
-        case (nil, _) where demoCount != nil: KeychainSecretStore(service: "\(KeychainSecretStore.productionService).demo")
+        case (nil, _) where isDemo: KeychainSecretStore(service: "\(KeychainSecretStore.productionService).demo")
         case (nil, _): KeychainSecretStore()
         case (_, .some): InMemorySecretStore()
         case (.some(let name), nil): KeychainSecretStore(service: "\(KeychainSecretStore.productionService).uitest.\(name)")
@@ -88,9 +89,9 @@ struct MindloreApp: App {
         switch container {
         case .success(let opened):
             #if DEBUG
-            if let demoCount {
+            if let demo {
                 do {
-                    try DemoJournal.seedIfEmpty(count: demoCount, in: opened.mainContext)
+                    try DemoJournal.seedIfEmpty(demo, in: opened.mainContext)
                 } catch {
                     diagnostics.record("demo.seedFailed", ["error": .errorCode(error)])
                 }

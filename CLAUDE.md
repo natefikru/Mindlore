@@ -41,6 +41,8 @@ Anything the simulator can't show (recording, locking, force-quits, on-device sp
 - `scripts/device/launch.sh <run-id>` relaunches the app with its console attached and streams `MINDLORE` diagnostics lines (run it under a monitor). Routine throttle saves are filtered out. Arguments for the app go after `--`, or `devicectl` reads them as its own flags.
 - `scripts/device/pull-logs.sh <run-id>` copies `Library/Logs/Mindlore/diagnostics.jsonl` and Mindlore crash reports into `.smoke/<run-id>/` (git-ignored) and prints a timeline. Use it after any step that kills the app, since that ends the console stream.
 
+To look at the app with a believable journal, launch with `-seedStoryJournal` (for example `launch.sh story -- -seedStoryJournal`): 200 hand-written entries across a year, with a cast and a plot, in their own store (`Mindlore/Debug/DemoStory.swift`, bible in `docs/demo-story.md`). `-seedDemoJournal <count>` is the generated journal the UI tests and performance checks use; don't use it for looking at the app.
+
 Device builds go to `~/Library/Developer/Xcode/DerivedData/Mindlore-device`. Builds inside `~/Documents` pick up iCloud Drive file attributes and fail code signing.
 
 `DiagnosticsLog` (`Mindlore/Diagnostics/`) writes those events in Debug builds only and is disabled under XCTest. Events carry IDs, counts, sizes, durations, and framework error descriptions, never entry text. Log save errors with `DiagnosticValue.errorCode`, because SwiftData errors can embed model values. `DiagnosticsPrivacyTests` runs real components against a sentinel string to enforce this. When adding behavior that only a device can show, add events for it so the loop can see it.
