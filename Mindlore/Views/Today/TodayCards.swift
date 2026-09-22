@@ -39,6 +39,14 @@ struct TodayCardView: View {
     let card: TodayCard
     let dismiss: () -> Void
     let mute: (EntityFacts) -> Void
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    // Plain @State, not @GestureState: a @GestureState resets to zero the instant the gesture
+    // ends, which is exactly the moment a past-threshold swipe needs to keep going, off-screen,
+    // rather than snapping back.
+    @State private var dragOffset: CGFloat = 0
+    @State private var leaving = false
+
+    private static let dismissThreshold: CGFloat = 90
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -79,6 +87,33 @@ struct TodayCardView: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .card()
+        .offset(x: dragOffset)
+        .opacity(leaving ? 0 : 1)
+        // The X button stays the accessible, discoverable way to dismiss; this is the faster
+        // gesture for a sighted hand already touching the card. `minimumDistance` keeps a vertical
+        // scroll of the list from being read as a swipe.
+        .gesture(
+            DragGesture(minimumDistance: 16)
+                .onChanged { value in
+                    guard abs(value.translation.width) > abs(value.translation.height) else { return }
+                    dragOffset = value.translation.width
+                }
+                .onEnded { value in
+                    guard abs(value.translation.width) > Self.dismissThreshold else {
+                        withAnimation(Motion.resolve(Motion.settle, reduceMotion: reduceMotion)) { dragOffset = 0 }
+                        return
+                    }
+                    let direction: CGFloat = value.translation.width > 0 ? 1 : -1
+                    withAnimation(Motion.resolve(Motion.settle, reduceMotion: reduceMotion)) {
+                        dragOffset = direction * 600
+                        leaving = true
+                    }
+                    // Bloom transition already animates a card's removal from `today.cards`; this
+                    // just lets the fly-out finish before the array changes under it, or the two
+                    // animations fight over the same frame.
+                    DispatchQueue.main.asyncAfter(deadline: .now() + (reduceMotion ? 0 : 0.2)) { dismiss() }
+                }
+        )
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("todayCard-\(card.kind.rawValue)")
     }
