@@ -12,13 +12,23 @@ struct LiveTranscriptionAvailabilityTests {
     private func availability(
         transcriber: Bool = true,
         locale: Locale? = Locale(identifier: "en_US"),
-        asset: Bool = true
+        asset: Bool = true,
+        authorized: Bool = true
     ) -> LiveTranscriptionAvailability {
         LiveTranscriptionAvailability(
             transcriberAvailable: { transcriber },
             supportedLocale: { _ in locale },
-            assetInstalled: { _ in asset }
+            assetInstalled: { _ in asset },
+            speechAuthorized: { authorized }
         )
+    }
+
+    // The analyzer started before speech recognition was allowed ended the app on the phone. Live
+    // text waits for the permission; the recording is transcribed afterwards instead.
+    @Test func withoutSpeechPermissionLiveNeverStarts() async {
+        let live = availability(authorized: false)
+        #expect(await live.outcome(engine: .onDeviceLive, locale: .current) == .unavailable(.notAuthorized))
+        #expect(await live.resolvedLocale(.current) == nil)
     }
 
     @Test func liveRunsWhenEverythingIsInPlace() async {

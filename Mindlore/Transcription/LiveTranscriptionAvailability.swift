@@ -21,6 +21,7 @@ nonisolated struct LiveTranscriptionAvailability: Sendable {
         case transcriberUnavailable   // SpeechTranscriber missing (simulator, older hardware)
         case localeUnsupported
         case assetNotInstalled  // downloading now, live works from the next recording on
+        case notAuthorized      // speech recognition not allowed (yet); the recording still gets text afterwards
     }
 
     // SpeechTranscriber.isAvailable, injected so tests don't depend on the host.
@@ -29,9 +30,14 @@ nonisolated struct LiveTranscriptionAvailability: Sendable {
     let supportedLocale: @Sendable (Locale) async -> Locale?
     // Whether the model asset is already on disk. A download must never block a recording.
     let assetInstalled: @Sendable (Locale) async -> Bool
+    // Whether speech recognition is allowed. Starting the analyzer without it ended the app on the
+    // phone (2026-09-22): a first recording began before the prompt had ever been answered, and the
+    // process was gone a tenth of a second after live.started, with no crash report.
+    var speechAuthorized: @Sendable () -> Bool = { true }
 
     func outcome(engine: SpeechEngine, locale: Locale) async -> Outcome {
         guard engine.wantsLiveSession else { return .unavailable(.notChosen) }
+        guard speechAuthorized() else { return .unavailable(.notAuthorized) }
         guard transcriberAvailable() else { return .unavailable(.transcriberUnavailable) }
         guard let supported = await supportedLocale(locale) else { return .unavailable(.localeUnsupported) }
         guard await assetInstalled(supported) else { return .unavailable(.assetNotInstalled) }
@@ -41,7 +47,7 @@ nonisolated struct LiveTranscriptionAvailability: Sendable {
     // The locale live would run in, or nil if it can't run at all. Callers need this to build
     // the session, and it costs the same lookups as `outcome`.
     func resolvedLocale(_ locale: Locale) async -> Locale? {
-        guard transcriberAvailable() else { return nil }
+        guard speechAuthorized(), transcriberAvailable() else { return nil }
         return await supportedLocale(locale)
     }
 
@@ -57,7 +63,8 @@ nonisolated struct LiveTranscriptionAvailability: Sendable {
                 // Can't tell, so assume not. The recording still gets text from the batch path.
                 return false
             }
-        }
+        },
+        speechAuthorized: { SFSpeechRecognizer.authorizationStatus() == .authorized }
     )
 
     // Kicked off when the asset is missing, so the next recording can run live. Never awaited by

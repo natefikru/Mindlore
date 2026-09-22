@@ -126,7 +126,9 @@ struct RootView: View {
                 let text = RecordingSession.takePrompt(in: context)
                 if text != nil { saver.noteChange() }
                 return text
-            }
+            },
+            // The fake recorder under UI tests needs neither, and a system prompt would block them.
+            askPermissions: { if !fakeRecorder { await RecordingPermissions.askIfNeeded(speechEngine: settings.speechEngine) } }
         ))
 
         _lock = State(initialValue: AppLock(isEnabled: { settings.appLockEnabled }))
