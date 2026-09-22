@@ -69,8 +69,8 @@ struct ReflectWeekSection: View {
             let summary = await ReflectSummaryStore.generateIfMissing(
                 kind: .week,
                 interval: week.interval,
-                settings: settings,
-                accounts: accounts,
+                resolve: { AIServices.askGenerator(settings: settings, accounts: accounts) },
+                voice: settings.promptVoice,
                 in: modelContext
             )
             if let summary { loaded += summary.items }

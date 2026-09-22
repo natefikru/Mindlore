@@ -5,6 +5,10 @@ import SwiftData
 // generateIfMissing; "only run once" is the cache check here, not a rule two callers have to agree
 // on separately (tasks/reflect-queue-spec.md). A failed generation writes nothing and is retried
 // next launch or next view, whichever comes first.
+//
+// `resolve` is injected the same way InsightsCoordinator takes its generator: production callers
+// pass `{ AIServices.askGenerator(settings: settings, accounts: accounts) }`, and a test passes a
+// closure returning a fake provider directly, with no network or Keychain involved.
 @MainActor
 enum ReflectSummaryStore {
     // The newest row for a period. There is deliberately no uniqueness constraint (the CloudKit
@@ -23,8 +27,8 @@ enum ReflectSummaryStore {
     static func generateIfMissing(
         kind: ReflectSummaryKind,
         interval: DateInterval,
-        settings: SettingsStore,
-        accounts: ProviderAccountStore,
+        resolve: () -> Result<AskProvider, AIJobFailure>,
+        voice: PromptVoice,
         calendar: Calendar = .current,
         in context: ModelContext
     ) async -> ReflectSummary? {
@@ -37,13 +41,13 @@ enum ReflectSummaryStore {
             if entries.isEmpty {
                 items = []
             } else {
-                guard case .success(let provider) = AIServices.askGenerator(settings: settings, accounts: accounts) else { return nil }
+                guard case .success(let provider) = resolve() else { return nil }
                 items = await ReflectQueueGenerator.generate(
                     kind: .week,
                     title: ReflectFidelity.title(kind: .week, interval: interval, calendar: calendar),
                     prompt: ReflectFidelity.weekPrompt(entries),
                     provider: provider,
-                    voice: settings.promptVoice
+                    voice: voice
                 )
             }
         case .month:
@@ -51,13 +55,13 @@ enum ReflectSummaryStore {
             if entryCount == 0 {
                 items = []
             } else {
-                guard case .success(let provider) = AIServices.askGenerator(settings: settings, accounts: accounts) else { return nil }
+                guard case .success(let provider) = resolve() else { return nil }
                 items = await ReflectQueueGenerator.generate(
                     kind: .month,
                     title: ReflectFidelity.title(kind: .month, interval: interval, calendar: calendar),
                     prompt: prompt,
                     provider: provider,
-                    voice: settings.promptVoice
+                    voice: voice
                 )
             }
         }
@@ -73,17 +77,17 @@ enum ReflectSummaryStore {
     // Nothing older is swept here (a launch isn't the place to backfill a year of history); the
     // lazy path in the feed covers everything else.
     static func sweepMostRecentlyCompleted(
-        settings: SettingsStore,
-        accounts: ProviderAccountStore,
+        resolve: () -> Result<AskProvider, AIJobFailure>,
+        voice: PromptVoice,
         now: Date = .now,
         calendar: Calendar = .current,
         in context: ModelContext
     ) async {
         if let week = mostRecentlyCompleted(.weekOfYear, now: now, calendar: calendar) {
-            await generateIfMissing(kind: .week, interval: week, settings: settings, accounts: accounts, calendar: calendar, in: context)
+            await generateIfMissing(kind: .week, interval: week, resolve: resolve, voice: voice, calendar: calendar, in: context)
         }
         if let month = mostRecentlyCompleted(.month, now: now, calendar: calendar) {
-            await generateIfMissing(kind: .month, interval: month, settings: settings, accounts: accounts, calendar: calendar, in: context)
+            await generateIfMissing(kind: .month, interval: month, resolve: resolve, voice: voice, calendar: calendar, in: context)
         }
     }
 

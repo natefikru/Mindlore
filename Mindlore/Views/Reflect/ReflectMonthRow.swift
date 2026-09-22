@@ -71,8 +71,8 @@ struct ReflectMonthRow: View {
         let summary = await ReflectSummaryStore.generateIfMissing(
             kind: .month,
             interval: month.interval,
-            settings: settings,
-            accounts: accounts,
+            resolve: { AIServices.askGenerator(settings: settings, accounts: accounts) },
+            voice: settings.promptVoice,
             in: modelContext
         )
         line = summary?.items.first?.body

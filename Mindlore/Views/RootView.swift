@@ -222,7 +222,11 @@ struct RootView: View {
             // (an instant return) or are worth one request each, neither of which titles and
             // insights below should wait on.
             Task {
-                await ReflectSummaryStore.sweepMostRecentlyCompleted(settings: settings, accounts: accounts, in: context)
+                await ReflectSummaryStore.sweepMostRecentlyCompleted(
+                    resolve: { AIServices.askGenerator(settings: settings, accounts: accounts) },
+                    voice: settings.promptVoice,
+                    in: context
+                )
             }
             await titles.processQueue(context: context)
             await insights.processQueue(context: context)
