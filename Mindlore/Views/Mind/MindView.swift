@@ -9,6 +9,7 @@ struct MindView: View {
     @Environment(GraphServices.self) private var graph
     @Environment(AppRouter.self) private var router
     @Environment(SettingsStore.self) private var settings
+    @Environment(RecordingSession.self) private var recording
     @State private var simulation: GraphSimulation?
     @State private var version = 0
     @State private var names: [UUID: String] = [:]
@@ -17,6 +18,11 @@ struct MindView: View {
     @State private var areaOf: [UUID: LifeArea] = [:]
     @State private var entryAreas: [UUID: [LifeArea]] = [:]
     @State private var regionLabels: [GraphRegion] = []
+    @State private var haloed: Set<UUID> = []
+    @State private var arrivedAt: [UUID: Date] = [:]
+    // Entities the journal has at all, whatever the filters do with them: what tells an empty
+    // journal apart from a filtered-out one.
+    @State private var browsableCount = 0
     @State private var highlightedArea: LifeArea?
     @State private var trail = FocusTrail()
     @State private var panelStop: SearchPanel.Stop = .half
@@ -27,6 +33,10 @@ struct MindView: View {
     @State private var player = MindReplayPlayer()
     @State private var replayTask: Task<Void, Never>?
     @State private var replayAvailable = false
+    // The top bar's controls share one glass container, so three lenses a few points apart sample
+    // once and blend instead of stacking. The namespace is what lets the replay control morph
+    // between its round button and its wider date chip rather than being replaced by it.
+    @Namespace private var glass
 
     static let cardHeight: CGFloat = 200
     private static let topBarHeight: CGFloat = 52
@@ -135,6 +145,10 @@ struct MindView: View {
                 highlightGroup: highlightedArea?.rawValue,
                 paint: paint,
                 regions: regionLabels,
+                // The recency lens already colours by how lately a name came up, over thirty days
+                // rather than seven. Two answers to the same question on one map is one too many.
+                haloedIDs: lens == .recency ? [] : haloed,
+                arrivedAt: arrivedAt,
                 lens: lens,
                 animating: player.isRunning,
                 clearsMissingFocus: false,
@@ -146,16 +160,48 @@ struct MindView: View {
             .accessibilityIdentifier("mindGraphCanvas")
             .overlay {
                 if simulation.nodeCount == 0 {
-                    ContentUnavailableView(
-                        "Nothing on the map yet",
-                        systemImage: "circle.hexagongrid",
-                        description: Text("People, places, and tags from your entries will gather here.")
-                    )
-                    .padding(.bottom, SearchPanel.height(for: panelStop, available: available))
+                    emptyState
+                        .padding(.bottom, SearchPanel.height(for: panelStop, available: available))
                 }
             }
         } else {
             ProgressView()
+        }
+    }
+
+    // Two ways for the map to be blank, and they need opposite things said to them. An empty
+    // journal has nothing to draw and the only fix is writing something. A journal whose nodes are
+    // all filtered out used to draw an empty screen with a panel on it and no explanation at all.
+    @ViewBuilder
+    private var emptyState: some View {
+        if browsableCount > 0 {
+            ContentUnavailableView {
+                Label("Nothing matches these filters", systemImage: "line.3.horizontal.decrease")
+                    .font(.system(.headline, design: .serif))
+            } description: {
+                Text("Search still finds everything the map leaves out.")
+            } actions: {
+                // Back to this journal's own default, minimum included: a minimum set too high is
+                // the likeliest reason the map went blank, so a clear that kept it would do
+                // nothing and look broken.
+                Button("Clear filters") {
+                    filters = MindFilters(minimumMentions: MindFilters.defaultMinimum(browsableCount: browsableCount))
+                }
+                    .accessibilityIdentifier("mindClearFilters")
+            }
+            .accessibilityIdentifier("mindEmptyState")
+        } else {
+            ContentUnavailableView {
+                Label("Your map starts with a word", systemImage: "circle.hexagongrid")
+                    .font(.system(.headline, design: .serif))
+            } description: {
+                Text("The people, places, and things you write about gather here, and draw lines to each other as they turn up together.")
+            } actions: {
+                Button("Record something") { recording.begin() }
+                    .disabled(recording.status != .idle)
+                    .accessibilityIdentifier("mindEmptyRecord")
+            }
+            .accessibilityIdentifier("mindEmptyState")
         }
     }
 
@@ -175,37 +221,43 @@ struct MindView: View {
                 }
             }
             Spacer(minLength: 0)
-            MindReplayControls(
-                player: player,
-                available: replayAvailable,
-                play: startReplay,
-                stop: { endReplay(finished: false) }
-            )
-            Menu {
-                Picker("Colour by", selection: $lens) {
-                    ForEach(MindLens.allCases, id: \.self) { lens in
-                        Label(lens.title, systemImage: lens.symbol)
-                            .accessibilityIdentifier("mindLens-\(lens.rawValue)")
+            GlassEffectContainer(spacing: 8) {
+                HStack(spacing: 8) {
+                    MindReplayControls(
+                        player: player,
+                        available: replayAvailable,
+                        play: startReplay,
+                        stop: { endReplay(finished: false) },
+                        glass: glass
+                    )
+                    Menu {
+                        Picker("Colour by", selection: $lens) {
+                            ForEach(MindLens.allCases, id: \.self) { lens in
+                                Label(lens.title, systemImage: lens.symbol)
+                                    .accessibilityIdentifier("mindLens-\(lens.rawValue)")
+                            }
+                        }
+                    } label: {
+                        Image(systemName: "paintpalette")
+                            .font(.body.weight(.semibold))
+                            .frame(width: 40, height: 40)
+                            .glassEffect(.regular.interactive(), in: Circle())
                     }
+                    .accessibilityLabel("Colour by")
+                    .accessibilityIdentifier("mindLens")
+                    Button {
+                        showingFilters = true
+                    } label: {
+                        Image(systemName: "line.3.horizontal.decrease")
+                            .font(.body.weight(.semibold))
+                            .symbolEffect(.bounce, value: filters)
+                            .frame(width: 40, height: 40)
+                            .glassEffect(.regular.interactive(), in: Circle())
+                    }
+                    .accessibilityLabel("Filters")
+                    .accessibilityIdentifier("mindFilters")
                 }
-            } label: {
-                Image(systemName: "paintpalette")
-                    .font(.body.weight(.semibold))
-                    .frame(width: 40, height: 40)
-                    .background(.regularMaterial, in: Circle())
             }
-            .accessibilityLabel("Colour by")
-            .accessibilityIdentifier("mindLens")
-            Button {
-                showingFilters = true
-            } label: {
-                Image(systemName: "line.3.horizontal.decrease")
-                    .font(.body.weight(.semibold))
-                    .frame(width: 40, height: 40)
-                    .background(.regularMaterial, in: Circle())
-            }
-            .accessibilityLabel("Filters")
-            .accessibilityIdentifier("mindFilters")
             .padding(.trailing, 12)
         }
         .frame(height: Self.topBarHeight)
@@ -320,7 +372,7 @@ struct MindView: View {
             }
         }
         let frame = Self.frame(snapshot, filters: filters, visibleAreas: settings.visibleLifeAreas, asOf: now)
-        show(frame, snapshot: snapshot, asOf: now)
+        show(frame, snapshot: snapshot, asOf: now, blooms: loadedFilters == filters)
 
         let directory = EntityDirectory(in: modelContext)
         trail.normalize(root: directory.root(of:), exists: { directory.entity($0).map { !$0.isDeleted } ?? false })
@@ -345,10 +397,29 @@ struct MindView: View {
     // Puts a frame on the canvas. State is only written when it changed. `publish: false` moves
     // the simulation alone: a replay step's view-state writes re-render all of Mind, which on the
     // phone pushed frame p95 to 32 ms at ten steps a second, so a replay publishes twice a second.
-    private func show(_ frame: Frame, snapshot: MindMapSnapshot, asOf: Date, publish: Bool = true) {
+    private func show(_ frame: Frame, snapshot: MindMapSnapshot, asOf: Date, publish: Bool = true, blooms: Bool = false) {
         if !publish, let simulation {
             simulation.update(nodes: frame.nodes, edges: frame.edges, regions: frame.regions)
             return
+        }
+        // Bloom is the app noticing something, so it fires for the one case the user caused: a
+        // name that was not on the map before an entry was written. Not on the first build, where
+        // three hundred nodes arriving at once is a firework rather than a notice; not on a filter
+        // change, where the stepper reveals nodes that are not new; and not during a replay, which
+        // adds nodes by construction and is already its own animation. `blooms` carries the last
+        // two, the `simulation` check the first.
+        if blooms, let simulation {
+            let known = Set(simulation.nodes.map(\.id))
+            let arrived = frame.nodes.filter { !known.contains($0.id) && !$0.isEntry }
+            if !arrived.isEmpty {
+                let now = Date.now
+                // Better-connected first, one Motion.stagger apart, on the rare entry that brings
+                // several names at once.
+                arrivedAt = Dictionary(uniqueKeysWithValues: arrived
+                    .sorted { $0.linkCount == $1.linkCount ? $0.id.uuidString < $1.id.uuidString : $0.linkCount > $1.linkCount }
+                    .enumerated()
+                    .map { ($0.element.id, now.addingTimeInterval(Double($0.offset) * Motion.stagger)) })
+            }
         }
         var names = frame.names
         for id in trail.ids where names[id] == nil {
@@ -359,6 +430,10 @@ struct MindView: View {
         if frame.entryAreas != entryAreas { entryAreas = frame.entryAreas }
         let labels = regionLabels(snapshot)
         if labels != regionLabels { regionLabels = labels }
+        // Taken at the frame's own date, so a replay's rings follow the replay.
+        let rings = MindMap.haloed(snapshot, asOf: asOf)
+        if rings != haloed { haloed = rings }
+        if snapshot.entities.count != browsableCount { browsableCount = snapshot.entities.count }
 
         if let simulation {
             simulation.update(nodes: frame.nodes, edges: frame.edges, regions: frame.regions)
@@ -458,11 +533,15 @@ private struct MindPeekOverlay: View {
     let dismiss: () -> Void
 
     var body: some View {
+        // Glass goes here, on the overlay, never inside `EntityPeekCard`. The same card is also
+        // presented as a partial-height sheet (AskView, the editor), which iOS 26 already draws as
+        // glass; giving the card itself glass would double it there. Over the map it is a plain
+        // floating child with nothing under it but the canvas, which is what glass is for.
         EntityPeekCard(route: EntityRoute(id: entityID), showsMapHint: !onMap, open: open)
             .id(entityID)
             .frame(height: MindView.cardHeight)
-            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
-            .contentShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+            .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
+            .contentShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
             .gesture(
                 DragGesture(minimumDistance: 20)
                     .onEnded { value in

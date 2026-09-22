@@ -107,34 +107,54 @@ struct MindReplayControls: View {
     let available: Bool
     let play: () -> Void
     let stop: () -> Void
+    // Mind's top-bar glass namespace. Both states carry the same `glassEffectID`, so starting a
+    // replay grows the round button into the date chip instead of swapping one view for another.
+    let glass: Namespace.ID
+
+    // The month on screen. A tick fires when this changes, which is the one thing in a replay the
+    // user can both see and feel; a tick per 100 ms step would be a hundred buzzes in ten seconds.
+    private var month: String {
+        player.asOf.map { $0.formatted(.dateTime.month(.abbreviated).year()) } ?? ""
+    }
 
     var body: some View {
-        if player.isRunning {
-            Button(action: stop) {
-                HStack(spacing: 6) {
-                    Image(systemName: "stop.fill")
-                    Text(player.asOf.map { $0.formatted(.dateTime.month(.abbreviated).year()) } ?? "")
-                        .monospacedDigit()
-                        .accessibilityIdentifier("mindReplayDate")
+        Group {
+            if player.isRunning {
+                Button(action: stop) {
+                    HStack(spacing: 6) {
+                        Image(systemName: "stop.fill")
+                            .contentTransition(.symbolEffect(.replace))
+                        Text(month)
+                            .monospacedDigit()
+                            .accessibilityIdentifier("mindReplayDate")
+                    }
+                    .font(.subheadline.weight(.semibold))
+                    .padding(.horizontal, 12)
+                    .frame(height: 40)
+                    .glassEffect(.regular.interactive(), in: Capsule())
+                    .glassEffectID("replay", in: glass)
                 }
-                .font(.subheadline.weight(.semibold))
-                .padding(.horizontal, 12)
-                .frame(height: 40)
-                .background(.regularMaterial, in: Capsule())
+                .buttonStyle(.plain)
+                .accessibilityLabel("Stop replay")
+                .accessibilityIdentifier("mindReplayStop")
+            } else {
+                Button(action: play) {
+                    Image(systemName: "play.fill")
+                        .font(.body.weight(.semibold))
+                        .contentTransition(.symbolEffect(.replace))
+                        .frame(width: 40, height: 40)
+                        .glassEffect(.regular.interactive(), in: Circle())
+                        .glassEffectID("replay", in: glass)
+                }
+                .disabled(!available)
+                .accessibilityLabel("Replay")
+                .accessibilityIdentifier("mindReplay")
             }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Stop replay")
-            .accessibilityIdentifier("mindReplayStop")
-        } else {
-            Button(action: play) {
-                Image(systemName: "play.fill")
-                    .font(.body.weight(.semibold))
-                    .frame(width: 40, height: 40)
-                    .background(.regularMaterial, in: Circle())
-            }
-            .disabled(!available)
-            .accessibilityLabel("Replay")
-            .accessibilityIdentifier("mindReplay")
+        }
+        .animation(Motion.carry, value: player.isRunning)
+        .sensoryFeedback(.impact(weight: .light, intensity: 0.4), trigger: month) { old, new in
+            // Not on the first month, which is the replay starting rather than time passing.
+            !old.isEmpty && !new.isEmpty
         }
     }
 }

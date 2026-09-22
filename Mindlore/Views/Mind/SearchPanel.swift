@@ -72,6 +72,28 @@ struct SearchPanel: View {
         return min(Self.height(for: .full, available: available), max(Self.peekHeight, base - dragOffset))
     }
 
+    private static let shape = UnevenRoundedRectangle(topLeadingRadius: 24, topTrailingRadius: 24, style: .continuous)
+
+    // The panel is two different things at its two sizes, and it needs a different material for
+    // each. At `.peek` it is a grabber and a search field floating over the map, which is what the
+    // house rule reserves glass for. Opened, it is most of the screen holding review cards, area
+    // tiles and rows, and the same rule says never glass on list rows: the map bleeds through as
+    // blurred colour behind the tiles and reads as smudge rather than depth. Opened, it is an
+    // opaque surface with a hairline, like every other content card in the app.
+    //
+    // Found by looking at the screenshots. It looked right in the diff.
+    @ViewBuilder
+    private var panelBackground: some View {
+        if stop == .peek {
+            Self.shape.fill(.clear).glassEffect(.regular, in: Self.shape)
+        } else {
+            Self.shape
+                .fill(Palette.paper)
+                .overlay(Self.shape.stroke(Palette.hairline, lineWidth: 1))
+                .shadow(color: .black.opacity(0.12), radius: 8, y: -2)
+        }
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             header
@@ -81,9 +103,8 @@ struct SearchPanel: View {
         }
         .frame(maxWidth: .infinity)
         .frame(height: height, alignment: .top)
-        .background(.regularMaterial, in: UnevenRoundedRectangle(topLeadingRadius: 16, topTrailingRadius: 16, style: .continuous))
-        .clipShape(UnevenRoundedRectangle(topLeadingRadius: 16, topTrailingRadius: 16, style: .continuous))
-        .shadow(color: .black.opacity(0.12), radius: 8, y: -2)
+        .background(panelBackground)
+        .clipShape(Self.shape)
         .onGeometryChange(for: CGFloat.self) { $0.frame(in: .global).maxY } action: { panelBottom = $0 }
         .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillChangeFrameNotification)) { note in
             guard let frame = note.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect else { return }
@@ -191,6 +212,19 @@ struct SearchPanel: View {
                     EntityRowButton(row: row) { choose(row.id) }
                         .accessibilityIdentifier("mindRow-\(row.name)")
                 }
+                // A row, not an overlay. Centred over the whole list it landed on top of the area
+                // tiles and the segmented picker, which are still there and still tappable: two
+                // sentences printed across a working screen. Only the searching case below can
+                // own the list, because the tiles are hidden while searching.
+                if results.isEmpty, hiddenResults.isEmpty, !searching, rows.visible.isEmpty, rows.hidden.isEmpty {
+                    ContentUnavailableView(
+                        "No people or places yet",
+                        systemImage: "person.2",
+                        description: Text("Insights on your entries fill this in.")
+                    )
+                    .listRowSeparator(.hidden)
+                    .accessibilityIdentifier("mindDirectoryEmpty")
+                }
             }
             .listRowBackground(Color.clear)
 
@@ -217,18 +251,9 @@ struct SearchPanel: View {
             Color.clear.frame(height: keyboardOverlap)
         }
         .overlay {
-            if results.isEmpty && hiddenResults.isEmpty {
-                if searching {
-                    ContentUnavailableView.search(text: query)
-                        .padding(.top, 40)
-                } else if rows.visible.isEmpty && rows.hidden.isEmpty {
-                    ContentUnavailableView(
-                        "No people or places yet",
-                        systemImage: "person.2",
-                        description: Text("Insights on your entries fill this in.")
-                    )
-                    .padding(.top, 120)
-                }
+            if searching, results.isEmpty, hiddenResults.isEmpty {
+                ContentUnavailableView.search(text: query)
+                    .padding(.top, 40)
             }
         }
     }

@@ -9,7 +9,8 @@ enum Motion {
     // One object moving between two places: the accessory becoming the recorder, a row becoming an entry.
     static let carry = Animation.spring(duration: 0.5, bounce: 0.12)
     // Waiting: the idle mic, AI at work.
-    static let breathe = Animation.easeInOut(duration: 2.4).repeatForever(autoreverses: true)
+    static let breatheSeconds: Double = 2.4
+    static let breathe = Animation.easeInOut(duration: breatheSeconds).repeatForever(autoreverses: true)
     // What all of them become under Reduce Motion.
     static let reduced = Animation.easeInOut(duration: 0.2)
 

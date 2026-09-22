@@ -35,6 +35,7 @@ final class SettingsStore {
         static let lifeAreaNames = "lifeAreaNames"
         static let hiddenLifeAreas = "hiddenLifeAreas"
         static let journalVoice = "journalVoice"
+        static let appearance = "appearance"
         static let userName = "userName"
         static let resurfacingEnabled = "resurfacingEnabled"
         static let reminderEnabled = "reminderEnabled"
@@ -192,6 +193,10 @@ final class SettingsStore {
 
     var journalVoice: JournalVoice { didSet { write(journalVoice.rawValue, Key.journalVoice, logged: .string(journalVoice.rawValue)) } }
 
+    var appearance: AppearancePreference {
+        didSet { write(appearance.rawValue, Key.appearance, logged: .string(appearance.rawValue)) }
+    }
+
     // The user's own name, so only the change is logged, never the value. It reaches the AI
     // provider in a prompt only under the name voice; the other two have no use for it.
     private(set) var userName: String {
@@ -318,6 +323,7 @@ final class SettingsStore {
         lifeAreaNames = json(Key.lifeAreaNames, [:])
         hiddenLifeAreas = json(Key.hiddenLifeAreas, [])
         journalVoice = string(Key.journalVoice).flatMap(JournalVoice.init(rawValue:)) ?? .first
+        appearance = string(Key.appearance).flatMap(AppearancePreference.init(rawValue:)) ?? .system
         userName = json(Key.userName, "")
         resurfacingEnabled = bool(Key.resurfacingEnabled, true)
         reminderEnabled = bool(Key.reminderEnabled, false)

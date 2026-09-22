@@ -111,6 +111,26 @@ nonisolated enum MindMap {
         return entries.mapValues(\.count)
     }
 
+    // Nodes that breathe: anything an entry dated within `days` of `asOf` named. Derived from the
+    // links rather than from `Entity.lastLinkedAt` so it needs no fetch, so it uses the same
+    // `entryDate` the map's own recency weighting does, and so a replay's halo follows the replay
+    // instead of sitting on whoever is recent today.
+    //
+    // Capped, because a busy week on a large journal would ring eighty nodes and read as a target
+    // range rather than as news. The cap keeps the most-mentioned, ties broken by id so the same
+    // week always rings the same nodes.
+    static func haloed(_ snapshot: MindMapSnapshot, asOf: Date, days: Int = haloDays, cap: Int = haloCap) -> Set<UUID> {
+        let recent = recentMentions(snapshot, asOf: asOf, days: days)
+        guard recent.count > cap else { return Set(recent.keys) }
+        let ranked = recent.sorted { lhs, rhs in
+            lhs.value == rhs.value ? lhs.key.uuidString < rhs.key.uuidString : lhs.value > rhs.value
+        }
+        return Set(ranked.prefix(cap).map(\.key))
+    }
+
+    static let haloDays = 7
+    static let haloCap = 40
+
     // Entries as small dots: the newest `cap` entries up to `asOf` that mention something on the
     // map, each tied to those entities. An entry with nothing on the map is left out.
     static func entryNodes(_ snapshot: MindMapSnapshot, onMap: Set<UUID>, asOf: Date, cap: Int = entryCap) -> (nodes: [GraphSimulation.Node], edges: [EntityGraph.Edge]) {

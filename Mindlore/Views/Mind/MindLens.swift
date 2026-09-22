@@ -93,7 +93,7 @@ struct MindLensLegend: View {
         }
         .font(.caption)
         .padding(.vertical, 6)
-        .background(.regularMaterial, in: Capsule())
+        .glassEffect(.regular, in: Capsule())
         .padding(.horizontal, 12)
         .accessibilityElement(children: .combine)
         .accessibilityIdentifier("mindLensLegend")

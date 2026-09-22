@@ -57,7 +57,41 @@ final class DesignScreenshotTests: XCTestCase {
         sleep(5)
         attach("\(tag)-mind")
 
+        // The glass surfaces: the panel over the map, the controls in their container, and the
+        // peek card, which is the one presentation of EntityPeekCard that carries glass itself.
+        let panel = app.descendants(matching: .any)["mindSearchPanel"]
+        XCTAssertTrue(panel.waitForExistence(timeout: 10))
+        app.textFields["mindSearchField"].tap()
+        attach("\(tag)-mind-panel")
+
+        let firstRow = app.descendants(matching: .any).matching(identifier: "mindRow").firstMatch
+        if firstRow.waitForExistence(timeout: 5) {
+            firstRow.tap()
+            attach("\(tag)-mind-peek")
+        }
+
+        if app.buttons["mindFilters"].exists {
+            app.buttons["mindFilters"].tap()
+            attach("\(tag)-mind-filters")
+            app.swipeDown(velocity: .fast)
+        }
+
         app.tabBars.buttons["Ask"].tap()
         attach("\(tag)-ask")
+    }
+
+    // The demo seed cannot produce an empty map, so the empty state needs a launch of its own.
+    @MainActor
+    func testEmptyMap() throws {
+        let tag = ProcessInfo.processInfo.environment["DESIGN_APPEARANCE"] ?? "light"
+        app.launchArguments = ["-uiTesting"]
+        app.launchEnvironment = ["UITEST_STORE_NAME": UUID().uuidString]
+        app.launch()
+
+        let mind = app.tabBars.buttons["Mind"]
+        XCTAssertTrue(mind.waitForExistence(timeout: 60))
+        mind.tap()
+        XCTAssertTrue(app.descendants(matching: .any)["mindEmptyState"].waitForExistence(timeout: 20))
+        attach("\(tag)-mind-empty")
     }
 }

@@ -301,7 +301,25 @@ every view and service resolves an entity by fetching its id, never by walking t
   area tiles, and every entity via `MindDirectory`, which counts open loose ends through merges
   and keys its own refresh because closing a loose end doesn't bump `graph.revision`.
   `EntityPeekCard` is the shared card for any name. Tests: `MindMapTests`, `MindRegionsTests`,
-  `MindFiltersTests`, `MindReplayTests`, `MindDirectoryTests`.
+  `MindFiltersTests`, `MindReplayTests`, `MindDirectoryTests`, `MindHaloTests`.
+- **Mind's materials (B7).** Liquid Glass goes on what floats: the top-bar controls (one
+  `GlassEffectContainer`, with a shared `glassEffectID` growing the play button into the replay's
+  date chip), the lens legend, and `MindPeekOverlay`'s wrapper. Glass never goes inside
+  `EntityPeekCard` itself, which is also presented as a partial-height sheet that iOS 26 already
+  draws as glass. `SearchPanel` is the one surface that changes by size: glass at `.peek`, where it
+  is a field floating over the map, and opaque Paper once it opens and holds rows, because the map
+  bleeding through behind the area tiles reads as smudge and the house rule says never glass on
+  list rows. Reflect's period control was looked at and left on `.regularMaterial`: it is a
+  full-width strip under an inline navigation bar, so glass there would sit on the bar's own glass.
+- **Mind's motion (B7).** `MindMap.haloed` picks the nodes a recent entry named (7 days, capped at
+  the 40 most mentioned) from the snapshot's links, so it needs no fetch and a replay's rings follow
+  the replay's own `asOf`. `GraphDrawCache` resolves them to indices; the canvas strokes one ring
+  path per colour bucket off one shared sine. The canvas used to pause when the simulation settled;
+  with rings on screen it slows to 12 fps instead, and `graph.rendered` carries the cost. The
+  recency lens turns the halo off, since it answers the same question over 30 days.
+  `BloomCurve` is the sampled stand-in for `Motion.bloom`: a `Canvas` has no transition system, so
+  `BloomTransition` cannot reach a node. Bloom fires only for a name that was not on the map before
+  an entry was written, never on the first build, a filter change, or a replay.
 - **Diagnostics and privacy.** Every graph and `mind.*` event carries only ids, counts, kinds, and
   durations, never a name, alias, bio, or surface string; `AIDiagnosticsPrivacyTests` runs real
   graph components, including a Mind render with every lens and a replay, against a sentinel

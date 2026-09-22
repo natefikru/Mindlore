@@ -117,6 +117,7 @@ struct MindloreApp: App {
                     .modelContainer(container)
                     .environment(settings)
                     .environment(accounts)
+                    .preferredColorScheme(settings.appearance.colorScheme)
             case .failure(let error):
                 StoreErrorView(error: error)
             }

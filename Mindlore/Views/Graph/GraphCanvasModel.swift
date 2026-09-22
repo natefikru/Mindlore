@@ -153,6 +153,9 @@ nonisolated struct GraphDrawPlan: Sendable {
     var fills: [GraphFill] = []
     // Node indices a lens fades.
     var fadedNodes: Set<Int> = []
+    // Node indices that breathe: named by an entry in the last few days. Resolved here, with
+    // everything else the cache holds, so a frame strokes rings against a set it did not build.
+    var haloNodes: Set<Int> = []
 
     static let empty = GraphDrawPlan(focusedIndex: nil, litNodes: [], litEdges: [], rankedLabels: [], glowNodes: [], edgeStyles: [])
 
@@ -178,18 +181,20 @@ nonisolated final class GraphDrawCache {
         let focusedID: UUID?
         let highlighted: Set<UUID>?
         let paint: Int?
+        let haloed: Set<UUID>
     }
 
     private var key: Key?
     private var cached = GraphDrawPlan.empty
     private(set) var recomputeCount = 0
 
-    func plan(for simulation: GraphSimulation, focusedID: UUID?, highlighted: Set<UUID>? = nil, paint: GraphPaint? = nil) -> GraphDrawPlan {
-        let current = Key(simulation: ObjectIdentifier(simulation), version: simulation.topologyVersion, focusedID: focusedID, highlighted: highlighted, paint: paint?.generation)
+    func plan(for simulation: GraphSimulation, focusedID: UUID?, highlighted: Set<UUID>? = nil, paint: GraphPaint? = nil, haloed: Set<UUID> = []) -> GraphDrawPlan {
+        let current = Key(simulation: ObjectIdentifier(simulation), version: simulation.topologyVersion, focusedID: focusedID, highlighted: highlighted, paint: paint?.generation, haloed: haloed)
         if current == key { return cached }
         key = current
         cached = Self.makePlan(simulation, focusedID: focusedID, paint: paint)
         cached.highlightedNodes = highlighted.map { Set($0.compactMap(simulation.index(of:))) }
+        cached.haloNodes = Set(haloed.compactMap(simulation.index(of:)))
         recomputeCount += 1
         return cached
     }
