@@ -1,0 +1,154 @@
+# Build once, test many.
+#
+#   build  compiles the app and both test bundles for the simulator and uploads the products.
+#   unit   runs the 1,500-odd unit tests against those products (about a minute of test time).
+#   ui     runs the UI classes split across five runners, each launching the app 25 to 35
+#          seconds per test; the split is computed from the files by scripts/ci/ui-shards.sh.
+#
+# unit runs on every pull request and every push to main. ui runs on every push to main, on a
+# pull request carrying the "ui" label, and on manual dispatch. The repo is public, so runner
+# minutes are free; what this layout buys is wall-clock, and the free plan's cap of five
+# concurrent macOS jobs is why there are five shards and not ten.
+#
+# The scripts under scripts/ci are the same ones that run in a terminal here.
+
+name: CI
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, labeled]
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      ui:
+        description: Run the UI suite
+        type: boolean
+        default: true
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  XCODE_VERSION: "26.6"
+  MINDLORE_SIM_NAME: iPhone 17
+  MINDLORE_SIM_OS: "26.5"
+  MINDLORE_DERIVED_DATA: ${{ github.workspace }}/build/DerivedData
+  MINDLORE_RESULTS: ${{ github.workspace }}/build/results
+
+jobs:
+  build:
+    name: Build for testing
+    runs-on: macos-26
+    timeout-minutes: 40
+    outputs:
+      run-ui: ${{ steps.decide.outputs.run-ui }}
+      shards: ${{ steps.shards.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select Xcode ${{ env.XCODE_VERSION }}
+        run: sudo xcode-select -s "/Applications/Xcode_${XCODE_VERSION}.app" && xcodebuild -version
+
+      - name: Build
+        run: scripts/ci/build-for-testing.sh
+
+      # upload-artifact does not keep file modes, and an .app whose binary lost its execute
+      # bit will not launch, so the products travel as a tarball.
+      - name: Pack test products
+        run: tar -czf test-products.tgz -C "$MINDLORE_DERIVED_DATA" Build/Products
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: test-products
+          path: test-products.tgz
+          retention-days: 1
+          if-no-files-found: error
+
+      - name: Decide whether the UI suite runs
+        id: decide
+        env:
+          LABELS: ${{ github.event_name == 'pull_request' && join(github.event.pull_request.labels.*.name, ' ') || '' }}
+          DISPATCH_UI: ${{ inputs.ui }}
+        run: |
+          case "${{ github.event_name }}" in
+            push) run=true ;;
+            pull_request) [[ " $LABELS " == *" ui "* ]] && run=true || run=false ;;
+            workflow_dispatch) run="$DISPATCH_UI" ;;
+            *) run=false ;;
+          esac
+          echo "run-ui=$run" >> "$GITHUB_OUTPUT"
+          echo "UI suite: $run"
+
+      - name: Compute UI shards
+        id: shards
+        run: |
+          # A pull request's run skips the screenshot classes; main and manual runs keep them.
+          flag=""
+          [ "${{ github.event_name }}" = "pull_request" ] && flag="--skip-screenshots"
+          matrix="$(scripts/ci/ui-shards.sh 5 $flag)"
+          echo "$matrix"
+          echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
+
+  unit:
+    name: Unit tests
+    needs: build
+    runs-on: macos-26
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select Xcode ${{ env.XCODE_VERSION }}
+        run: sudo xcode-select -s "/Applications/Xcode_${XCODE_VERSION}.app"
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: test-products
+
+      - name: Unpack test products
+        run: mkdir -p "$MINDLORE_DERIVED_DATA" && tar -xzf test-products.tgz -C "$MINDLORE_DERIVED_DATA"
+
+      - name: Run unit tests
+        run: scripts/ci/test.sh unit
+
+      - name: Keep the result bundle
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: unit-xcresult
+          path: build/results/unit.xcresult
+          retention-days: 7
+
+  ui:
+    name: UI tests (shard ${{ matrix.shard }})
+    needs: build
+    if: needs.build.outputs.run-ui == 'true'
+    runs-on: macos-26
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.build.outputs.shards) }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select Xcode ${{ env.XCODE_VERSION }}
+        run: sudo xcode-select -s "/Applications/Xcode_${XCODE_VERSION}.app"
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: test-products
+
+      - name: Unpack test products
+        run: mkdir -p "$MINDLORE_DERIVED_DATA" && tar -xzf test-products.tgz -C "$MINDLORE_DERIVED_DATA"
+
+      - name: Run ${{ matrix.classes }}
+        run: scripts/ci/test.sh ui ${{ matrix.classes }}
+
+      - name: Keep the result bundle
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ui-shard-${{ matrix.shard }}-xcresult
+          path: build/results/ui-*.xcresult
+          retention-days: 7

@@ -31,7 +31,11 @@ xcodebuild -project Mindlore.xcodeproj -scheme Mindlore -destination 'platform=i
   -parallel-testing-enabled NO "-only-testing:MindloreTests/EntrySaverTests/flushWithNothingPendingDoesNotSave()"
 ```
 
-Use a per-test time allowance: an awaited continuation that never resumes hangs the whole run silently. Disable parallel testing so xcodebuild doesn't open a "Clone N of iPhone 17" simulator per worker. The simulator can't run on-device speech models, so transcription can only be verified on a physical iPhone. There is no SwiftPM package, lint config, or CI.
+Use a per-test time allowance: an awaited continuation that never resumes hangs the whole run silently. Disable parallel testing so xcodebuild doesn't open a "Clone N of iPhone 17" simulator per worker. The simulator can't run on-device speech models, so transcription can only be verified on a physical iPhone. There is no SwiftPM package or lint config.
+
+## CI
+
+`.github/workflows/ci.yml` builds once (`scripts/ci/build-for-testing.sh`) and tests from those products: `unit` on every pull request and push to `main`, and `ui` split across five runners on every push to `main`, on a PR carrying the `ui` label, or on manual dispatch. `scripts/ci/ui-shards.sh` computes the split from the files in `MindloreUITests/`, weighted by test count, so a new class needs nothing registered; the class name must match the file name. `scripts/ci/test.sh unit` and `scripts/ci/test.sh ui <Class> ...` are the same commands locally (they build first if `build/DerivedData` is empty). Signing stays at the project's defaults: `CODE_SIGNING_ALLOWED=NO` fails `KeychainSecretStoreTests` with `errSecMissingEntitlement`. The scheme is shared (`xcshareddata/xcschemes/Mindlore.xcscheme`); keep it that way or CI has nothing to build. `release.yml` archives and uploads to TestFlight and is gated off by the `RELEASE_ENABLED` repository variable until the paid team exists; the placeholders are listed at the top of that file and in `docs/remaining-work.md`. The plan and its measurements are in `tasks/ci-plan.md`.
 
 ## Device smoke testing
 
