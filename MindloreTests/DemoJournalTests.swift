@@ -37,6 +37,27 @@ struct DemoJournalTests {
         #expect(entries.allSatisfy { !AIPassTrigger.isEligible($0, automationStartedAt: .distantPast) })
     }
 
+    // Reflect shows a week or month only once it has a summary, and the generated journal runs
+    // with AI off, so every finished period needs one cached, months as well as weeks.
+    @Test func everyFinishedWeekAndMonthHasACachedSummary() throws {
+        let context = context()
+        try DemoJournal.seedIfEmpty(count: 120, in: context, now: now)
+        let calendar = Calendar.current
+        let entries = try context.fetch(FetchDescriptor<Entry>())
+        for (kind, component) in [(ReflectSummaryKind.week, Calendar.Component.weekOfYear), (.month, .month)] {
+            let periods = Set(entries.compactMap { calendar.dateInterval(of: component, for: $0.entryDate) })
+            let finished = periods.filter { $0.end <= now }
+            #expect(!finished.isEmpty)
+            for period in finished {
+                let summary = ReflectSummaryStore.summary(kind: kind, periodStart: period.start, in: context)
+                #expect(summary?.items.first?.body.isEmpty == false, "\(kind) starting \(period.start)")
+            }
+            for period in periods.subtracting(finished) {
+                #expect(ReflectSummaryStore.summary(kind: kind, periodStart: period.start, in: context) == nil)
+            }
+        }
+    }
+
     @Test func mentionedNamesAppearInTheEntryText() {
         for draft in DemoJournal.makeEntries(count: 40, now: now) {
             for mention in draft.mentions {

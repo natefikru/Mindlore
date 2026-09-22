@@ -51,6 +51,9 @@ struct GraphCanvasView: View {
     var onOpenEntry: (UUID) -> Void = { _ in }
     // Called once per appearance with what the device gate reads.
     var onRendered: (GraphRenderStats) -> Void = { _ in }
+    // Set here rather than by the caller: applied from outside, it lands on the hidden canvas as
+    // well as the element and a query finds two.
+    var accessibilityIdentifier = "graphCanvas"
 
     private enum DragTarget: Equatable {
         case node(UUID)
@@ -71,7 +74,7 @@ struct GraphCanvasView: View {
     @State private var size: CGSize = .zero
     // UI tests only: where the first entry dot sits once the layout settles, so a test can tap it
     // through the real hit rule.
-    @State private var entryDot: String?
+    @State private var entryDot: SIMD2<Double>?
     private static let reportsEntryDot = ProcessInfo.processInfo.arguments.contains(StoreLocation.uiTestingArgument)
     @State private var activityToken = 0
     @State private var dragTarget: DragTarget?
@@ -136,9 +139,24 @@ struct GraphCanvasView: View {
             .simultaneousGesture(longPressGesture(center: center))
         }
         .onGeometryChange(for: CGSize.self, of: \.size) { size = $0 }
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Graph")
-        .accessibilityValue(accessibilityValue(plan))
+        .accessibilityHidden(true)
+        // The accessibility element covers only the part of the map left visible. The canvas runs
+        // under the bars and the panel; with the element that size too, VoiceOver outlined the tab
+        // bar as part of the map, and a UI test's pinch, which starts near the element's corners,
+        // put a finger on a tab. Hit testing is off, so every touch still reaches the canvas.
+        .overlay(alignment: .topLeading) {
+            Color.clear
+                .frame(
+                    width: max(0, size.width - visibleInsets.leading - visibleInsets.trailing),
+                    height: max(0, size.height - visibleInsets.top - visibleInsets.bottom)
+                )
+                .accessibilityElement()
+                .accessibilityLabel("Graph")
+                .accessibilityValue(accessibilityValue(plan))
+                .accessibilityIdentifier(accessibilityIdentifier)
+                .offset(x: visibleInsets.leading, y: visibleInsets.top)
+                .allowsHitTesting(false)
+        }
         .sensoryFeedback(.selection, trigger: focusedID) { _, new in new != nil }
         .onChange(of: focusedID) {
             flyToFocus()
@@ -200,7 +218,16 @@ struct GraphCanvasView: View {
     private func accessibilityValue(_ plan: GraphDrawPlan) -> String {
         let entries = simulation.nodes.lazy.filter(\.isEntry).count
         let highlighted = plan.hasFocus ? 0 : plan.highlightedNodes?.count ?? 0
-        return "nodes=\(simulation.nodeCount - entries) highlighted=\(highlighted) entries=\(entries) lens=\(lens.rawValue) replay=\(animating ? "on" : "off")\(entryDot.map { " entryDot=\($0)" } ?? "") focused=\(focusedID.flatMap(namer) ?? "none")"
+        return "nodes=\(simulation.nodeCount - entries) highlighted=\(highlighted) entries=\(entries) lens=\(lens.rawValue) replay=\(animating ? "on" : "off")\(entryDotValue.map { " entryDot=\($0)" } ?? "") focused=\(focusedID.flatMap(namer) ?? "none")"
+    }
+
+    // The dot's canvas point, normalized to the accessibility element's frame (the visible part
+    // of the map) at the insets in force now, so moving the panel never leaves it stale.
+    private var entryDotValue: String? {
+        let width = Double(size.width - visibleInsets.leading - visibleInsets.trailing)
+        let height = Double(size.height - visibleInsets.top - visibleInsets.bottom)
+        guard let entryDot, width > 0, height > 0 else { return nil }
+        return String(format: "%.4f,%.4f", (entryDot.x - Double(visibleInsets.leading)) / width, (entryDot.y - Double(visibleInsets.top)) / height)
     }
 
     private func flyToFocus() {
@@ -449,11 +476,10 @@ struct GraphCanvasView: View {
     }
 
     private func noteEntryDot() {
-        var point: String?
+        var point: SIMD2<Double>?
         if let dot = simulation.nodes.firstIndex(where: \.isEntry), size.width > 0, size.height > 0 {
             let center = SIMD2(Double(size.width) / 2, Double(size.height) / 2)
-            let screen = camera.screen(simulation.position(at: dot), center: center)
-            point = String(format: "%.4f,%.4f", screen.x / Double(size.width), screen.y / Double(size.height))
+            point = camera.screen(simulation.position(at: dot), center: center)
         }
         if point != entryDot { entryDot = point }
     }

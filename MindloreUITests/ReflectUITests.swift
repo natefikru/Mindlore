@@ -1,7 +1,8 @@
 import XCTest
 
 // Reflect's queue against the generated demo journal, which caches a plain summary for every
-// finished week so there is something to show without a key. What a summary says is decided in
+// finished week and month so there is something to show without a key, reseeded from today on
+// each reset launch so those summaries reach the current week. What a summary says is decided in
 // ReflectQueueGeneratorTests and ReflectSummaryStoreTests, on plain values; this drives the parts
 // that only the real app can show: a tap landing on an entry with the card's prompt as a
 // placeholder (not real, saved content), a month row expanding, and a dismissal surviving a
@@ -13,7 +14,7 @@ final class ReflectUITests: XCTestCase {
 
     private func launch(reset: Bool) -> XCUIApplication {
         let app = XCUIApplication()
-        app.launchArguments = ["-seedDemoJournal", "300"] + (reset ? ["-resetDemoSettings"] : [])
+        app.launchArguments = ["-seedDemoJournal", "300"] + (reset ? ["-resetDemoSettings", "-resetDemoJournal"] : [])
         app.launch()
         return app
     }

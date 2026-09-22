@@ -7,6 +7,10 @@ import SwiftUI
 // `.swipeActions` does.
 struct ReflectQueueRow: View {
     let item: ReflectQueueItem
+    // An item's id is only unique within its period (every week's summary is "generated:0"), so
+    // the X's identifier carries the period too, or a test finds the next week's X and thinks the
+    // dismissal did nothing.
+    let periodKey: String
     let onTap: () -> Void
     let onDismiss: () -> Void
 
@@ -28,7 +32,7 @@ struct ReflectQueueRow: View {
                         .frame(width: 44, height: 44)
                         .contentShape(Rectangle())
                         .padding(-14)
-                        .accessibilityIdentifier("reflectDismiss-\(item.id)")
+                        .accessibilityIdentifier("reflectDismiss-\(periodKey)-\(item.id)")
                 }
                 // No line limit: a generated summary is deliberately short (two to four
                 // sentences), so there's nothing here worth truncating with no way to see the rest.

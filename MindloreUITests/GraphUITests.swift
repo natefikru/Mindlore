@@ -171,8 +171,9 @@ final class GraphUITests: XCTestCase {
         openMind()
         waitFor("value BEGINSWITH 'nodes=3 '", on: canvas)
 
-        // With nothing focused, the layout sits in the middle of what the panel leaves uncovered.
-        let focus = canvas.tapUntilGraphFocuses(from: CGVector(dx: 0.5, dy: 0.35))
+        // With nothing focused, the layout sits in the middle of what the panel leaves uncovered,
+        // which is the canvas element's own frame.
+        let focus = canvas.tapUntilGraphFocuses()
         XCTAssertNotNil(focus, "no tap landed on a node or edge: \(String(describing: canvas.value))")
         XCTAssertTrue(app.descendants(matching: .any)["entityPeekCard"].waitForExistence(timeout: 5))
         let panel = app.descendants(matching: .any)["mindSearchPanel"]
@@ -255,7 +256,11 @@ final class GraphUITests: XCTestCase {
         let sarahAgain = app.buttons["mindRow-Sarah"]
         XCTAssertTrue(sarahAgain.waitForExistence(timeout: 5))
         sarahAgain.tap()
-        app.buttons["entityPeekOpen"].tap()
+        // The card slides in over the panel; tapped before it lands, Open has no hit point and
+        // XCTest skips the tap without failing.
+        let openAgain = app.buttons["entityPeekOpen"]
+        wait(for: [expectation(for: NSPredicate(format: "isHittable == true"), evaluatedWith: openAgain)], timeout: 5)
+        openAgain.tap()
         XCTAssertTrue(app.navigationBars["Sarah"].waitForExistence(timeout: 5))
 
         let mergedInRow = app.buttons["mergedInRow-Tom"]

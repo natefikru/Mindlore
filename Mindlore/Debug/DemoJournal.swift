@@ -18,6 +18,11 @@ enum DemoJournal {
     static let argument = "-seedDemoJournal"
     static let storyArgument = "-seedStoryJournal"
     static let resetSettingsArgument = "-resetDemoSettings"
+    // With -seedDemoJournal: throw the generated store away and seed it fresh, dated from today.
+    // A UI test that marks a thread done or reads a week's summary needs this, or the store left
+    // by an earlier run has fewer open threads each time and its summaries stop at the day it was
+    // seeded, while its loose ends fade.
+    static let resetGeneratedArgument = "-resetDemoJournal"
     // With -seedStoryJournal: throw the story's store away first and seed it fresh, for when
     // what's been cached against it (summaries, Ask conversations, edits) should go too.
     static let resetStoryArgument = "-resetStoryJournal"
@@ -70,7 +75,7 @@ enum DemoJournal {
         try context.save()
         GraphIndexer().sweep(in: context)
         seedLooseEnds(drafts: drafts, entries: entries, in: context, now: now)
-        seedWeekSummaries(drafts: drafts, in: context, now: now)
+        seedSummaries(drafts: drafts, in: context, now: now)
         try context.save()
         DiagnosticsLog.shared.record("demo.seeded", [
             "entries": .int(count),
@@ -100,19 +105,21 @@ enum DemoJournal {
         }
     }
 
-    // A cached summary for every finished week, built from the week's titles, so Reflect has rows
-    // to show and tap in a journal that runs with AI off. The story journal doesn't do this; its
-    // summaries are really generated.
-    private static func seedWeekSummaries(drafts: [Draft], in context: ModelContext, now: Date, calendar: Calendar = .current) {
-        let weeks = Dictionary(grouping: drafts) { calendar.dateInterval(of: .weekOfYear, for: $0.date)?.start ?? $0.date }
-        for (start, week) in weeks {
-            guard let interval = calendar.dateInterval(of: .weekOfYear, for: start), interval.end <= now else { continue }
-            let titles = week.sorted { $0.date < $1.date }.prefix(3).map(\.title).joined(separator: ", ")
-            let item = ReflectQueueItem(
-                id: "generated:0", source: .generated, title: "This week",
-                body: "\(week.count) entries: \(titles).", prompt: "What else happened that week?"
-            )
-            context.insert(ReflectSummary(kind: .week, periodStart: interval.start, generatedAt: now, items: [item]))
+    // A cached summary for every finished week and month, built from its titles, so Reflect has
+    // rows to show and tap in a journal that runs with AI off: a week or month with no summary has
+    // no row. The story journal doesn't do this; its summaries are really generated.
+    private static func seedSummaries(drafts: [Draft], in context: ModelContext, now: Date, calendar: Calendar = .current) {
+        for (kind, component, title) in [(ReflectSummaryKind.week, Calendar.Component.weekOfYear, "week"), (.month, .month, "month")] {
+            let periods = Dictionary(grouping: drafts) { calendar.dateInterval(of: component, for: $0.date)?.start ?? $0.date }
+            for (start, period) in periods {
+                guard let interval = calendar.dateInterval(of: component, for: start), interval.end <= now else { continue }
+                let titles = period.sorted { $0.date < $1.date }.prefix(3).map(\.title).joined(separator: ", ")
+                let item = ReflectQueueItem(
+                    id: "generated:0", source: .generated, title: "This \(title)",
+                    body: "\(period.count) entries: \(titles).", prompt: "What else happened that \(title)?"
+                )
+                context.insert(ReflectSummary(kind: kind, periodStart: interval.start, generatedAt: now, items: [item]))
+            }
         }
     }
 
