@@ -48,8 +48,8 @@ Option 1 also answers pricing: a free or one-time-purchase app with no running c
 **Product**
 - [ ] AI without a key (decision above).
 - [ ] First run (B3, never built). One screen, not a carousel: what Mindlore is, that it works offline, the microphone and speech prompt with a reason in front of it, and an optional AI setup. Plus the contextual empty states below.
-- [ ] App lock (Face ID, fallback to passcode), plus blurring the app switcher snapshot.
-- [ ] Export (Markdown folder or zip, plus JSON), and "Delete all data" in Settings.
+- [x] App lock (Face ID, fallback to passcode), plus covering the app switcher snapshot.
+- [x] Export (a folder of Markdown files, journal.json, recordings and page photos), and "Delete all data" in Settings.
 - [x] iPad: set `TARGETED_DEVICE_FAMILY = 1` (iPhone only). It's currently `1,2` with no iPad layout.
 - [x] Release build check. Release didn't compile at all (`DemoJournal` referenced outside `#if DEBUG` in `MindloreApp`), so the app couldn't have been archived. Fixed; seeds are Debug-only.
 

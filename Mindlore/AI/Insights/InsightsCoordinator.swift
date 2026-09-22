@@ -114,29 +114,6 @@ final class InsightsCoordinator {
         await processQueue(context: context)
     }
 
-    #if DEBUG
-    // For checking how life areas spread over a real journal. Costs one request per entry.
-    @discardableResult
-    func regenerateEverything(context: ModelContext) async -> Int {
-        let entries = ((try? context.fetch(FetchDescriptor<Entry>())) ?? []).filter(Self.canRunAI)
-        for entry in entries {
-            entry.automaticAIPassUsed = true
-            AIJobPolicy.manualReset(.insights, entry)
-            failedThisSession.remove(entry.id)
-            manualRuns.insert(entry.id)
-        }
-        try? save(context, Set(entries.map(\.persistentModelID)))
-        diagnostics.record("insights.requested", ["count": .int(entries.count), "trigger": "regenerateEverything"])
-        await processQueue(context: context)
-        // A pass already running picks these up instead; wait for it rather than report early.
-        let ids = Set(entries.map(\.id))
-        while !manualRuns.isDisjoint(with: ids) {
-            try? await Task.sleep(for: .milliseconds(300))
-        }
-        return entries.count
-    }
-    #endif
-
     // Work that stopped because the phone was offline picks up as soon as the network is back,
     // without waiting for the next launch. Stored failures still gate what may run.
     func networkBecameAvailable(context: ModelContext) async {

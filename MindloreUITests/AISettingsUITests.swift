@@ -21,6 +21,8 @@ final class AISettingsUITests: XCTestCase {
 
         // Use AI is a row on the Settings root now, not inside an AI screen.
         let toggle = app.switches["aiEnabledToggle"]
+        // Below the fold under Privacy and data; the list only draws rows as they scroll in.
+        for _ in 0..<4 where !toggle.exists || !toggle.isHittable { app.swipeUp() }
         XCTAssertTrue(toggle.waitForExistence(timeout: 5))
         XCTAssertEqual(toggle.value as? String, "0")
         toggle.switches.firstMatch.tap()
@@ -40,6 +42,7 @@ final class AISettingsUITests: XCTestCase {
         app.terminate()
         app.launch()
         openSettings()
+        for _ in 0..<4 where !app.switches["aiEnabledToggle"].exists { app.swipeUp() }
         XCTAssertTrue(app.switches["aiEnabledToggle"].waitForExistence(timeout: 5))
         XCTAssertEqual(app.switches["aiEnabledToggle"].value as? String, "1")
         // The root's own row reports the key without opening it. It sits below the fold, and a

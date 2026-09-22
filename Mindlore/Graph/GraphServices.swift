@@ -380,6 +380,11 @@ final class GraphServices {
         revision += 1
     }
 
+    // Delete all data took every entity with it; every map and list keyed on the graph rebuilds.
+    func journalWiped() {
+        revision += 1
+    }
+
     // MARK: - Mind
 
     enum ReviewAnswer: Equatable {

@@ -84,6 +84,8 @@ struct SettingsView: View {
                     Text("When Keep recordings is off, a recording is deleted once its text has been generated and you've closed the entry.")
                 }
 
+                PrivacyDataSection()
+
                 Section {
                     Picker("Appearance", selection: $settings.appearance) {
                         ForEach(AppearancePreference.allCases, id: \.self) { option in
@@ -132,9 +134,6 @@ struct SettingsView: View {
                     totals = JournalTotals.count(in: modelContext)
                 }
 
-                #if DEBUG
-                LifeAreaDebugSection()
-                #endif
             }
             .paperBackground()
             .navigationTitle("Settings")
