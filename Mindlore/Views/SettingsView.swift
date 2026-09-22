@@ -85,6 +85,16 @@ struct SettingsView: View {
                 }
 
                 Section {
+                    Picker("Appearance", selection: $settings.appearance) {
+                        ForEach(AppearancePreference.allCases, id: \.self) { option in
+                            Text(option.settingsName).tag(option)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                    .accessibilityIdentifier("appearancePicker")
+                }
+
+                Section {
                     Toggle("Names you haven't written about", isOn: $settings.resurfacingEnabled)
                         .accessibilityIdentifier("resurfacingToggle")
                 } header: {
