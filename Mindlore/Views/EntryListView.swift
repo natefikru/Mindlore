@@ -13,6 +13,9 @@ struct EntryListView: View {
     @State private var pageOrder: PageOrderTarget?
     @State private var insightsEntry: Entry?
     @State private var pickedAreas: Set<LifeArea> = []
+    // Creative pieces have no areas, so this chip stands apart from them: picking it clears the
+    // areas, and picking an area clears it.
+    @State private var showingCreative = false
     @State private var today = Today()
     @State private var showingReflect = false
     // Set right before a Reflect card jumps to a new entry, so leaving that entry (back or Done)
@@ -51,7 +54,7 @@ struct EntryListView: View {
                         .listRowBackground(Color.clear)
                         .listRowSeparator(.hidden)
                 }
-                if !offeredAreas.isEmpty {
+                if !offeredAreas.isEmpty || hasCreative {
                     areaFilterRow
                         .listRowInsets(EdgeInsets())
                         .listRowBackground(Color.clear)
@@ -281,7 +284,10 @@ struct EntryListView: View {
         return hidden.isEmpty ? entries : entries.filter { !hidden.contains($0.id) }
     }
 
+    private var hasCreative: Bool { entries.contains(where: \.isCreative) }
+
     private var shownEntries: [Entry] {
+        if showingCreative { return visibleEntries.filter(\.isCreative) }
         let areas = activeAreas
         guard !areas.isEmpty else { return visibleEntries }
         return visibleEntries.filter { JournalFilter.matches(areasRaw: $0.insights?.areasRaw ?? [], areas: areas) }
@@ -308,6 +314,7 @@ struct EntryListView: View {
                     let selected = activeAreas.contains(area)
                     Button {
                         if selected { pickedAreas.remove(area) } else { pickedAreas.insert(area) }
+                        showingCreative = false
                     } label: {
                         Label(settings.name(of: area), systemImage: area.symbol)
                             .lineLimit(1)
@@ -316,6 +323,19 @@ struct EntryListView: View {
                     .buttonStyle(.plain)
                     .accessibilityAddTraits(selected ? .isSelected : [])
                     .accessibilityIdentifier("areaFilter-\(area.rawValue)")
+                }
+                if hasCreative {
+                    Button {
+                        showingCreative.toggle()
+                        pickedAreas = []
+                    } label: {
+                        Label("Creative", systemImage: "paintbrush.pointed")
+                            .lineLimit(1)
+                            .chip(tint: Palette.ember, selected: showingCreative)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityAddTraits(showingCreative ? .isSelected : [])
+                    .accessibilityIdentifier("creativeFilter")
                 }
             }
             .padding(.horizontal, 16)
@@ -402,6 +422,15 @@ private struct EntryRow: View {
                     .lineLimit(1)
                     .foregroundStyle(entry.text.isEmpty && entry.title.isEmpty ? .secondary : .primary)
                 Spacer(minLength: 4)
+                if entry.isCreative {
+                    Text("Creative")
+                        .font(.caption)
+                        .foregroundStyle(Palette.ember)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(Palette.ember.opacity(0.12), in: Capsule())
+                        .accessibilityIdentifier("creativeBadge")
+                }
                 if let status = statusBadge {
                     Text(status)
                         .font(.caption)

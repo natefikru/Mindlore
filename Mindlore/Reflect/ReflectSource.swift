@@ -36,7 +36,7 @@ enum ReflectSource {
             .filter { !$0.isDeleted && InsightsCoordinator.canRunAI(on: $0) }
         return entries
             .sorted { $0.entryDate < $1.entryDate }
-            .map { ReflectFidelity.WeekEntry(id: $0.id, date: $0.entryDate, title: $0.title, text: $0.text) }
+            .map { ReflectFidelity.WeekEntry(id: $0.id, date: $0.entryDate, title: $0.title, text: $0.text, isCreative: $0.isCreative) }
     }
 
     // The weeks whose start falls inside a month interval, for both the fold-out UI and the

@@ -75,6 +75,7 @@ nonisolated struct InsightsResult: Equatable, Sendable {
     var cleanedText: String?
     var writtenDate: Date?
     var custom: [CustomInsightResult] = []
+    var creative = false
 
     var sectionsReturned: Int {
         [summary != nil, primaryMood != nil, !areas.isEmpty, !tags.isEmpty, !mentions.isEmpty, !looseEnds.isEmpty, cleanedText != nil].filter { $0 }.count + custom.count
@@ -94,6 +95,14 @@ nonisolated enum InsightsPromptBuilder {
     static let maxNewLooseEnds = 2
     static let maxKnownLooseEnds = 15
     static let maxLooseEndCharacters = 200
+
+    static let creativeRule = """
+    What this entry is. creative: the entry is itself a poem, song lyrics, or a story, which shows \
+    as short lines broken like verse, rhyme, a repeated refrain, or characters in a scene, with no \
+    account of the author's own day. life: everything else, the author telling about their own \
+    day, plans, people, or feelings, including notes about a song they are working on or a dream \
+    they had.
+    """
 
     // Longer than any real name; anything past it is not a name worth steering towards.
     static let maxVocabularyItemCharacters = 60
@@ -174,6 +183,14 @@ nonisolated enum InsightsPromptBuilder {
         var handles: [String: UUID] = [:]
         var ownIDs: Set<UUID> = []
 
+        // First, so guided generation decides it before it fills the fields it changes. Strict on
+        // purpose: a real entry wrongly filed as creative quietly loses its names and threads. A
+        // choice between two named kinds, not a boolean: told "true only when… false when…", the
+        // on-device model called "worked on the Memphis song tonight" creative, the very example
+        // the rule gave for false.
+        if sections.lifeAreas || sections.mentions || sections.looseEnds {
+            properties.append(.init("entryKind", .enumeration(["life", "creative"], description: Self.creativeRule)))
+        }
         if sections.summary {
             // The small model answered "A personal journal entry." to the cloud wording, so it is told
             // what a summary is made of rather than what it is for.
@@ -404,6 +421,7 @@ nonisolated enum InsightsPromptBuilder {
         }
 
         var result = InsightsResult()
+        result.creative = (json["entryKind"] as? String) == "creative"
         result.summary = string("summary")
         result.primaryMood = string("primaryMood").flatMap(Mood.init(rawValue:))
         var secondary: [Mood] = []

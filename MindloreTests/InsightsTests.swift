@@ -42,7 +42,7 @@ struct InsightsPromptBuilderTests {
         let plan = InsightsPromptBuilder.plan(text: "I walked to the river.", source: .voice, sections: InsightSections(), vocabulary: .init(tags: ["work", "family"]), model: "gpt-test")
         let properties = try schemaProperties(plan)
 
-        #expect(Set(properties.keys) == ["summary", "primaryMood", "secondaryMoods", "lifeAreas", "tags", "mentions", "looseEnds", "cleanedText"])
+        #expect(Set(properties.keys) == ["entryKind", "summary", "primaryMood", "secondaryMoods", "lifeAreas", "tags", "mentions", "looseEnds", "cleanedText"])
         // Not nullable: every entry gets a mood, with neutral as the fallback.
         #expect((properties["primaryMood"]?["enum"] as? [Any])?.count == Mood.allCases.count)
         #expect(properties["primaryMood"]?["type"] as? String == "string")
@@ -79,7 +79,7 @@ struct InsightsPromptBuilderTests {
         let plan = InsightsPromptBuilder.plan(text: "x", source: .voice, sections: sections, vocabulary: .init(tags: ["work"]), model: "m")
         let properties = try schemaProperties(plan)
 
-        #expect(Set(properties.keys) == ["summary", "lifeAreas", "mentions", "looseEnds"])
+        #expect(Set(properties.keys) == ["entryKind", "summary", "lifeAreas", "mentions", "looseEnds"])
         #expect(!plan.request.system.contains("Moods come only"))
         #expect(!plan.request.system.contains("Tags already used"))
     }

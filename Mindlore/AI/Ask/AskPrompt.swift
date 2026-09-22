@@ -31,6 +31,8 @@ nonisolated enum AskPrompt {
 
         \(aboutRule)
 
+        \(provider == .openAI ? creativeRule : creativeRuleShort)
+
         \(rules)
 
         \(citationRule(provider))
@@ -48,6 +50,13 @@ nonisolated enum AskPrompt {
 
     static let addressRule = "Write to the author as you: \"you were fried\", \"your knee held\". "
         + "Never write about them in the first person, and never call them by name."
+
+    static let creativeRule = "An entry marked as a creative piece is a poem, a song, or a story the "
+        + "author wrote. Treat it as their writing: you may quote it or say what it is about, but "
+        + "never take what happens in it as something that happened to them."
+
+    // The on-device session has no room for the sentence above; this keeps the rule.
+    static let creativeRuleShort = "A creative piece is their writing, never an event."
 
     static let aboutRule = "A block beginning \"About\" describes one person, place, or project, and "
         + "may list the other spellings the journal has used for them. Those are the same one. Use "

@@ -163,7 +163,8 @@ enum AskSources {
                     date: entry.entryDate,
                     title: entry.title,
                     text: entry.text,
-                    entityIDs: Array(rootsByEntry[entry.id] ?? [])
+                    entityIDs: Array(rootsByEntry[entry.id] ?? []),
+                    isCreative: entry.isCreative
                 )
             },
             entities: entities

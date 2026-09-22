@@ -622,6 +622,32 @@ final class GraphServices {
         revision += 1
     }
 
+    // The user's call that an entry is, or isn't, creative work. Marked creative, it loses its
+    // AI names, its area, and the open loose ends it raised, at once and with no AI call; the
+    // ones the user touched stay theirs. Marked life, the caller reruns insights so they return.
+    // Callers flush EntrySaver first.
+    func setCreative(_ creative: Bool, on entry: Entry, in context: ModelContext) {
+        entry.setCreativeByUser(creative)
+        if creative {
+            entry.insights?.setMoods(primary: nil, secondary: [], editedByUser: false)
+            entry.insights?.areas = []
+            entry.insights?.mentions = []
+            let entryID = entry.id
+            for looseEnd in LooseEnd.all(in: context) where looseEnd.sourceEntryID == entryID && looseEnd.isOpen && !looseEnd.userTouched {
+                looseEnd.setStatus(.dismissed, at: .now)
+            }
+            indexer.index(entry, in: context)
+        }
+        indexer.recount(in: context)
+        do {
+            try context.saveStampingEntries()
+        } catch {
+            diagnostics.record("graph.saveFailed", ["error": .errorCode(error)])
+        }
+        diagnostics.record("entry.creativeSet", ["id": .id(entry.id), "creative": .bool(creative)])
+        revision += 1
+    }
+
     // After an insights run wrote this entry. The coordinator saves afterwards, and the bump
     // lets an open sheet pick up the new links.
     func insightsWritten(for entry: Entry, in context: ModelContext) {

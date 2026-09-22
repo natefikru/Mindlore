@@ -329,6 +329,19 @@ every view and service resolves an entity by fetching its id, never by walking t
   `docs/privacy-coverage.md` maps every event in the app to the test that drives it, or says why
   none can.
 
+**Creative entries** (`Entry.isCreative`, `AI/Insights/CreativeSignals.swift`). A poem, lyrics, or
+a story is work the author made, not an account of their life, so it keeps its title, tags, and a
+line saying what it is, and gets no names on the map, no area, no mood, and no loose ends (owner,
+2026-09-22). The insights request asks `entryKind` (life or creative) first. OpenAI's answer is
+trusted; the on-device model's is not: prose is never creative on device, a line over 15 words
+means prose, and only text laid out like verse gets a second single-question request. The error
+that matters is life filed as creative, which silently drops names and threads, so the bar is zero
+of those: `CreativeClassificationQualityTests` holds a labeled set, 0/12 wrong on device with the
+haiku and prose story as asserted misses, 19/19 on OpenAI. The user's flip (`GraphServices.setCreative`,
+the editor's More menu) is never overridden; marking creative clears names, area, mood, and open AI
+loose ends at once, marking life reruns insights. Ask and Reflect mark a creative block so neither
+takes a lyric as something that happened; the journal has a Creative filter chip.
+
 **Loose ends** (`Models/LooseEnd.swift`, `AI/Insights/LooseEndWriter.swift`). Open threads an entry
 leaves ("need to call the landlord") become `LooseEnd` records with a status (open, resolved,
 faded, dismissed), subject `entityIDs`, an optional due date, and the entry that raised them; same

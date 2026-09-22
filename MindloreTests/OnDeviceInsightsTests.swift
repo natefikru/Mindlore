@@ -116,3 +116,4 @@ struct OnDeviceInsightsLiveTests {
         #expect(result.mentions.contains { $0.name.contains("Maya") })
     }
 }
+

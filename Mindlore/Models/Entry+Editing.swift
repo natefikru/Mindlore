@@ -212,4 +212,10 @@ extension Entry {
         cleanupAppliedHash = nil
         return true
     }
+
+    // The user's call on whether this entry is creative work. Later insights never override it.
+    func setCreativeByUser(_ creative: Bool) {
+        isCreative = creative
+        creativeSetByUser = true
+    }
 }
