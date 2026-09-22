@@ -258,3 +258,13 @@ struct TrustDiagnosticsPrivacyTests {
         #expect(!written.contains(sentinel))
     }
 }
+
+struct WelcomeRuleTests {
+    @Test func onlyANewInstallSeesTheWelcome() {
+        #expect(RootView.showsWelcome(seen: false, arguments: [], entries: 0))
+        #expect(!RootView.showsWelcome(seen: true, arguments: [], entries: 0), "once is enough")
+        #expect(!RootView.showsWelcome(seen: false, arguments: [], entries: 3), "an existing journal skips it")
+        #expect(!RootView.showsWelcome(seen: false, arguments: ["-uiTesting"], entries: 0), "UI tests don't see it")
+        #expect(RootView.showsWelcome(seen: true, arguments: ["-uiTesting", "-showWelcome"], entries: 5), "unless they ask")
+    }
+}

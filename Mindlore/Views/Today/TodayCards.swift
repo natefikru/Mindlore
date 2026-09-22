@@ -175,8 +175,8 @@ struct TodayCardView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
-            if let fade = TodayCopy.fade(card, now: .now) {
-                Text(fade)
+            if let line = TodayCopy.threadLine(card, now: .now) {
+                Text(line)
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .accessibilityIdentifier("todayFade")
@@ -211,8 +211,11 @@ struct TodayCardView: View {
                     .accessibilityHidden(true)
                 Text(title)
             }
-            .frame(minHeight: 44)
+            // A 44pt target that takes no room: the padding widens what a tap can hit, and the
+            // negative padding gives the space back, so the row sits on the card's bottom edge.
+            .padding(.vertical, 12)
             .contentShape(Rectangle())
+            .padding(.vertical, -12)
         }
         .accessibilityLabel(title)
     }

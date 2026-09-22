@@ -22,20 +22,22 @@ struct TodayFadeTests {
     @Test func anUndatedThreadFadesSixWeeksAfterItWasLastWrittenAbout() {
         let end = LooseEndFacts(id: UUID(), text: "t", sourceEntryDate: date(8, 1), lastMentionedAt: date(9, 1))
         #expect(end.fadeDate == date(10, 13))
-        #expect(fade(end, at: date(9, 22)) == "Fades October 13 if it doesn't come up again")
+        #expect(fade(end, at: date(9, 22)) == "fades Oct 13")
+        #expect(TodayCopy.threadLine(.stillOpen(end), now: date(9, 22), calendar: utc, locale: english) == "Since Aug 1 \u{00B7} fades Oct 13")
     }
 
-    @Test func aDatedThreadFadesAWeekAfterItsDayAndSaysNothingAboutWriting() {
+    @Test func aDatedThreadFadesAWeekAfterItsDay() {
         let end = LooseEndFacts(id: UUID(), text: "t", sourceEntryDate: date(9, 2), dueDate: date(9, 30))
         #expect(end.fadeDate == date(10, 7))
-        #expect(fade(end, at: date(9, 22)) == "Fades October 7")
+        #expect(fade(end, at: date(9, 22)) == "fades Oct 7")
+        #expect(TodayCopy.threadLine(.stillOpen(end), now: date(9, 22), calendar: utc, locale: english) == "Due Sep 30 \u{00B7} fades Oct 7", "a due date is the date that matters")
     }
 
     @Test func closeToItsDayItCountsDown() {
         let end = LooseEndFacts(id: UUID(), text: "t", sourceEntryDate: date(9, 1), dueDate: date(9, 20))
-        #expect(fade(end, at: date(9, 23)) == "Fades in 4 days")
-        #expect(fade(end, at: date(9, 26)) == "Fades tomorrow")
-        #expect(fade(end, at: date(9, 27, hour: 8)) == "Fades today")
+        #expect(fade(end, at: date(9, 23)) == "fades in 4 days")
+        #expect(fade(end, at: date(9, 26)) == "fades tomorrow")
+        #expect(fade(end, at: date(9, 27, hour: 8)) == "fades today")
     }
 
     @Test func aDayCardHasNoFadeLine() {

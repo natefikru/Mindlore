@@ -44,11 +44,9 @@ nonisolated enum TodayCopy {
         switch card {
         case .closed(let end):
             "Open since \(day(end.sourceEntryDate, locale: locale))"
-        case .stillOpen(let end):
-            ["Since \(day(end.sourceEntryDate, locale: locale))", end.dueDate.map { "due \(day($0, locale: locale))" }]
-                .compactMap { $0 }.joined(separator: " \u{00B7} ")
-        case .dueToday(let end):
-            "Since \(day(end.sourceEntryDate, locale: locale))"
+        // A thread card's one line is threadLine, which carries its dates and when it fades.
+        case .stillOpen, .dueToday:
+            nil
         case .onThisDay(let entry, _):
             day(entry.entryDate, locale: locale)
         case .beenAWhile(let entity):
@@ -58,19 +56,29 @@ nonisolated enum TodayCopy {
         }
     }
 
-    // When a thread card's loose end fades if nothing touches it. Close to the day it counts
-    // down; further out it names the date. An undated one says that writing about it moves the
-    // date, since that is the one thing on the card the user can't otherwise guess.
+    // A thread card's single line of dates: when it was raised, or its due date when it has one,
+    // then when it fades. "Fades October 13 if it doesn't come up again" on a line of its own
+    // under "Since August 31" took two lines to say what this says in one (owner, 2026-09-22).
+    static func threadLine(_ card: TodayCard, now: Date, calendar: Calendar = .current, locale: Locale = .current) -> String? {
+        guard let end = card.thread, let fade = fade(card, now: now, calendar: calendar, locale: locale) else { return nil }
+        let lead: String = switch card {
+        case .dueToday: "Since \(shortDay(end.sourceEntryDate, locale: locale))"
+        default: end.dueDate.map { "Due \(shortDay($0, locale: locale))" } ?? "Since \(shortDay(end.sourceEntryDate, locale: locale))"
+        }
+        return lead + " \u{00B7} " + fade
+    }
+
+    // When a thread card's loose end fades if nothing touches it, by the rule the fade sweep reads.
+    // Close to the day it counts down; further out it names the date.
     static func fade(_ card: TodayCard, now: Date, calendar: Calendar = .current, locale: Locale = .current) -> String? {
         guard let end = card.thread else { return nil }
         let days = calendar.dateComponents([.day], from: calendar.startOfDay(for: now), to: calendar.startOfDay(for: end.fadeDate)).day ?? 0
-        let when = switch days {
-        case ..<1: "Fades today"
-        case 1: "Fades tomorrow"
-        case 2..<7: "Fades in \(days) days"
-        default: "Fades \(day(end.fadeDate, locale: locale))"
+        return switch days {
+        case ..<1: "fades today"
+        case 1: "fades tomorrow"
+        case 2..<7: "fades in \(days) days"
+        default: "fades \(shortDay(end.fadeDate, locale: locale))"
         }
-        return end.dueDate == nil ? "\(when) if it doesn't come up again" : when
     }
 
     private static func heading(_ span: TodaySpan) -> String {
@@ -84,6 +92,10 @@ nonisolated enum TodayCopy {
 
     private static func day(_ date: Date, locale: Locale) -> String {
         date.formatted(.dateTime.day().month(.wide).locale(locale))
+    }
+
+    private static func shortDay(_ date: Date, locale: Locale) -> String {
+        date.formatted(.dateTime.day().month(.abbreviated).locale(locale))
     }
 
     // Counts and fixed kind strings. Never a name, a quote, a title, or a date.
