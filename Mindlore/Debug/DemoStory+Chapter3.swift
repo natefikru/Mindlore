@@ -34,8 +34,7 @@ extension DemoStory {
       {
         "id": "c3-cobra",
         "text": "Call COBRA about the lapsed payment",
-        "about": [],
-        "due": "2026-02-24"
+        "about": []
       }
     ]
   },
@@ -956,8 +955,7 @@ extension DemoStory {
         "text": "Give Maya an answer about moving in",
         "about": [
           "Maya"
-        ],
-        "due": "2026-04-30"
+        ]
       }
     ]
   },

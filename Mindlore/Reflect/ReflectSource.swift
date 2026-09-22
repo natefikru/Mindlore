@@ -90,7 +90,7 @@ enum ReflectSource {
     // items free; every other eligible entry in the month gets a digest line. Never a whole
     // month of raw entry text. The entry count is the month's own "anything here at all" check,
     // separate from whether any week was individually visited.
-    static func monthPrompt(interval: DateInterval, calendar: Calendar = .current, context: ModelContext) -> (prompt: String, entryCount: Int) {
+    static func monthPrompt(interval: DateInterval, characterLimit: Int? = nil, calendar: Calendar = .current, context: ModelContext) -> (prompt: String, entryCount: Int) {
         var cachedItems: [[ReflectQueueItem]] = []
         var covered: [DateInterval] = []
         for week in weeksStarting(in: interval, calendar: calendar) {
@@ -110,7 +110,7 @@ enum ReflectSource {
         let digestLines = uncovered.enumerated().map { index, entry in
             AskDigests.line(handle: "D\(index + 1)", date: entry.entryDate, title: entry.title, text: entry.text)
         }
-        return (ReflectFidelity.monthPrompt(cachedWeekItems: cachedItems, digestLines: digestLines), monthEntries.count)
+        return (ReflectFidelity.monthPrompt(cachedWeekItems: cachedItems, digestLines: digestLines, characterLimit: characterLimit), monthEntries.count)
     }
 
     private static func aggregate(

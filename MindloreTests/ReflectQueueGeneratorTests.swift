@@ -57,15 +57,52 @@ struct ReflectQueueGeneratorTests {
         #expect(items == [])
     }
 
-    // Malformed JSON degrades to "nothing to say," not a crash: the same tolerant-parsing rule
-    // Insights follows.
-    @Test func malformedJSONYieldsAnEmptyList() async {
+    // An answer that can't be read is a failed generation, not "nothing to say": caching it as
+    // all caught up is how every period on the phone ended up permanently blank.
+    @Test func malformedJSONIsRetriedNotCached() async {
         let fake = FakeTextGenerator()
         fake.results = [.success("not json at all")]
 
         let items = await ReflectQueueGenerator.generate(kind: .week, title: "t", prompt: "p", provider: provider(fake), voice: .default)
 
-        #expect(items == [])
+        #expect(items == nil)
+    }
+
+    // The on-device model ignores the schema, so it's asked for the paragraph and a "Question:"
+    // line, and that's what gets read back.
+    @Test func theOnDeviceModelsProseIsReadAsASummaryAndAQuestion() async throws {
+        let fake = FakeTextGenerator()
+        fake.results = [.success("**Summary:** Danny opened El Primo and I worked the window.\n\nQuestion: What did the first customer order?")]
+        let onDevice = AskProvider(generator: fake, model: "", label: "apple", kind: .onDevice)
+
+        let items = await ReflectQueueGenerator.generate(kind: .week, title: "t", prompt: "p", provider: onDevice, voice: .default)
+
+        let item = try #require(items?.first)
+        #expect(item.body == "Danny opened El Primo and I worked the window.")
+        #expect(item.prompt == "What did the first customer order?")
+        #expect(fake.requests.first?.schema == nil)
+    }
+
+    @Test func aQuestionRunOnTheEndOfTheParagraphStillCounts() {
+        let plain = ReflectQueueGenerator.plainText("Rosa got married and I saw Maya. Question: What did I want to say to her?")
+        #expect(plain?.summary == "Rosa got married and I saw Maya.")
+        #expect(plain?.prompt == "What did I want to say to her?")
+    }
+
+    @Test func onDeviceProseWithNoQuestionIsRetried() async {
+        let fake = FakeTextGenerator()
+        fake.results = [.success("A long week at work.")]
+        let onDevice = AskProvider(generator: fake, model: "", label: "apple", kind: .onDevice)
+
+        let items = await ReflectQueueGenerator.generate(kind: .week, title: "t", prompt: "p", provider: onDevice, voice: .default)
+
+        #expect(items == nil)
+    }
+
+    @Test func onlyTheOnDeviceModelGetsAPromptLimit() {
+        let fake = FakeTextGenerator()
+        #expect(ReflectQueueGenerator.promptLimit(for: provider(fake)) == nil)
+        #expect(ReflectQueueGenerator.promptLimit(for: AskProvider(generator: fake, model: "", label: "apple", kind: .onDevice)) == ReflectQueueGenerator.onDevicePromptLimit)
     }
 
     // A failed request is a failed generation, not an empty one: the caller must be able to tell

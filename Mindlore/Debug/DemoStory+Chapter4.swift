@@ -104,8 +104,7 @@ extension DemoStory {
         "about": [
           "Maya",
           "Lauren"
-        ],
-        "due": "2026-05-20"
+        ]
       }
     ]
   },

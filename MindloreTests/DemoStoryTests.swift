@@ -85,4 +85,21 @@ struct DemoStoryTests {
         #expect(looseEnds.contains { $0.isOpen })
         #expect(try DemoStory.seedIfEmpty(in: context, now: now) == 0)
     }
+
+    // Fading runs between entries the way daily launches would, so a thread the story settles
+    // late has to still be open by then: resolved, not quietly faded first.
+    @Test func everyThreadTheStorySettlesIsResolvedNotFaded() throws {
+        let context = container.mainContext
+        try DemoStory.seedIfEmpty(in: context, now: now)
+        let story = try DemoStory.entries()
+        let settled = Set(story.flatMap(\.resolves))
+        let texts = Dictionary(uniqueKeysWithValues: story.flatMap(\.opens).map { ($0.id, $0.text) })
+        let looseEnds = LooseEnd.all(in: context)
+        #expect(looseEnds.count == texts.count)
+        for id in settled {
+            #expect(looseEnds.first { $0.text == texts[id] }?.status == .resolved, "\(id)")
+        }
+        // Nothing still open has gone quiet long enough that the next launch would fade it.
+        #expect(looseEnds.filter(\.isOpen).allSatisfy { !LooseEnd.shouldFade($0, now: now) })
+    }
 }

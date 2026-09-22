@@ -122,11 +122,14 @@ enum DemoStory {
         try context.save()
         GraphIndexer().sweep(in: context)
 
-        // In date order and dated as each entry, as if written that day, so a resolve always finds
-        // the loose end an earlier entry opened still open. Then the launch sweep's fade, once, for
-        // whatever has gone quiet since.
+        // In date order and dated as each entry, as if the journal had been written a day at a
+        // time with the app opened in between: the launch sweep's fade runs before each entry, so
+        // a thread the story leaves alone for six weeks fades then, not only at the end.
+        // DemoStoryTests holds the data to it, so every thread the story settles is still open
+        // when it does.
         var looseEnds: [String: UUID] = [:]
         for (entry, record) in zip(story, inserted) {
+            LooseEnd.fade(in: context, now: record.createdAt, diagnostics: .disabled)
             var result = LooseEndResult()
             result.new = entry.opens.map { opened in
                 .init(text: opened.text, about: opened.about, due: opened.due.flatMap { written(from: $0, calendar: calendar) }?.addingTimeInterval(shift))

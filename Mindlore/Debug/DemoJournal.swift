@@ -18,6 +18,9 @@ enum DemoJournal {
     static let argument = "-seedDemoJournal"
     static let storyArgument = "-seedStoryJournal"
     static let resetSettingsArgument = "-resetDemoSettings"
+    // With -seedStoryJournal: throw the story's store away first and seed it fresh, for when
+    // what's been cached against it (summaries, Ask conversations, edits) should go too.
+    static let resetStoryArgument = "-resetStoryJournal"
     static let settingsSuiteName = "demo-journal"
 
     enum Request: Equatable {
@@ -31,6 +34,13 @@ enum DemoJournal {
             case .story: "demo-story.store"
             case .generated: "demo-journal.store"
             }
+        }
+    }
+
+    // The store and SQLite's two side files; a missing one is fine.
+    static func removeStore(at url: URL) {
+        for suffix in ["", "-shm", "-wal"] {
+            try? FileManager.default.removeItem(at: URL(fileURLWithPath: url.path + suffix))
         }
     }
 

@@ -34,27 +34,30 @@ struct MindloreApp: App {
         let testStoreName = uiTesting ? ProcessInfo.processInfo.environment[StoreLocation.uiTestStoreNameKey] : nil
         #if DEBUG
         let demo = uiTesting ? nil : DemoJournal.request(in: arguments)
-        let isDemo = demo != nil
+        // The generated journal keeps its own settings and Keychain entry, so AI starts off there
+        // and a test run never sends made-up entries with the real key. The story journal is the
+        // one the owner looks at, so it runs on the real settings and key: Reflect and Ask answer
+        // it the way they would the real journal. Its entries are past the automatic pass, so
+        // nothing runs AI on them unasked.
+        let isolatesSettings = demo != nil && demo != .story
         #else
-        let isDemo = false
+        let isolatesSettings = false
         #endif
-        // The demo journal keeps its own settings and Keychain entry, so AI starts off there and
-        // nothing made up is ever sent with the real key.
         #if DEBUG
         // A UI test that dismisses something needs to start from the same place every run, and the
         // demo suite otherwise outlives the run that wrote it.
-        if isDemo, arguments.contains(DemoJournal.resetSettingsArgument) {
+        if isolatesSettings, arguments.contains(DemoJournal.resetSettingsArgument) {
             UserDefaults.standard.removePersistentDomain(forName: DemoJournal.settingsSuiteName)
         }
         #endif
-        let demoDefaults = !isDemo ? nil : UserDefaults(suiteName: DemoJournal.settingsSuiteName)
+        let demoDefaults = !isolatesSettings ? nil : UserDefaults(suiteName: DemoJournal.settingsSuiteName)
         let defaults = testStoreName.flatMap { UserDefaults(suiteName: "uitest-\($0)") } ?? demoDefaults ?? .standard
         // A real key handed to a UI test run stays in memory so it never touches the Keychain; test
         // runs with the stub's key use a Keychain service named for the run, so saving a key and
         // finding it after a relaunch still works.
         let liveTestKey = ProcessInfo.processInfo.environment["MINDLORE_OPENAI_KEY"].flatMap { $0.isEmpty ? nil : $0 }
         let secrets: any SecretStore = switch (testStoreName, liveTestKey) {
-        case (nil, _) where isDemo: KeychainSecretStore(service: "\(KeychainSecretStore.productionService).demo")
+        case (nil, _) where isolatesSettings: KeychainSecretStore(service: "\(KeychainSecretStore.productionService).demo")
         case (nil, _): KeychainSecretStore()
         case (_, .some): InMemorySecretStore()
         case (.some(let name), nil): KeychainSecretStore(service: "\(KeychainSecretStore.productionService).uitest.\(name)")
@@ -85,6 +88,11 @@ struct MindloreApp: App {
             arguments: ProcessInfo.processInfo.arguments,
             environment: ProcessInfo.processInfo.environment
         )
+        #if DEBUG
+        if demo == .story, arguments.contains(DemoJournal.resetStoryArgument), case .file(let url) = location {
+            DemoJournal.removeStore(at: url)
+        }
+        #endif
         container = Result { try ModelContainerFactory.make(location) }
         switch container {
         case .success(let opened):
