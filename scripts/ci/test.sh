@@ -1,7 +1,8 @@
 #!/bin/bash
 # Run tests against products built by build-for-testing.sh (building first if they are missing).
 #
-#   scripts/ci/test.sh unit                       every MindloreTests suite
+#   scripts/ci/test.sh unit                       every MindloreTests suite (on CI, less the live ones)
+#   scripts/ci/test.sh live                       the suites that call real OpenAI
 #   scripts/ci/test.sh ui GraphUITests AskUITests  the named MindloreUITests classes
 #
 # Both modes run serially (-parallel-testing-enabled NO, so no cloned simulators) with a per-test
@@ -15,11 +16,25 @@ source "$(dirname "${BASH_SOURCE[0]}")/env.sh"
 mode="${1:-}"
 shift || true
 
+# The suites that call real OpenAI. Their assertions judge a live model's answers, which vary
+# from call to call: each has failed a CI run with no code change. On CI the unit run leaves them
+# out and the "live" mode runs them in an advisory job. Locally, unit runs them as before.
+live_suites=(OpenAILiveTests CreativeOpenAIQualityTests)
+
 case "$mode" in
   unit)
     only=(-only-testing:MindloreTests)
+    if [ -n "${GITHUB_ACTIONS:-}" ]; then
+      for suite in "${live_suites[@]}"; do only+=("-skip-testing:MindloreTests/$suite"); done
+    fi
     allowance=60
     name="unit"
+    ;;
+  live)
+    only=()
+    for suite in "${live_suites[@]}"; do only+=("-only-testing:MindloreTests/$suite"); done
+    allowance=300
+    name="live"
     ;;
   ui)
     if [ $# -eq 0 ]; then
@@ -42,7 +57,7 @@ case "$mode" in
     fi
     ;;
   *)
-    echo "usage: test.sh unit | test.sh ui <UITestClass> ..." >&2
+    echo "usage: test.sh unit | test.sh live | test.sh ui <UITestClass> ..." >&2
     exit 2
     ;;
 esac

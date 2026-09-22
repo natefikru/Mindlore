@@ -3,7 +3,9 @@
 #
 #   build  compiles the app and both test bundles for the simulator (about four minutes) and
 #          hands the products to the test jobs.
-#   unit   every pull request and push to main. The only required check.
+#   unit   every pull request and push to main. The only required check. Leaves out the suites
+#          that call real OpenAI.
+#   live   those suites, with the key: after unit, on its runner. Advisory.
 #   ui     every push to main, a pull request labeled "ui", and manual runs. Advisory: a failed
 #          shard is red on its own job, and continue-on-error keeps it out of the run's result.
 #          Each shard asks scripts/ci/ui-shards.sh for its classes, balanced by test count.
@@ -93,12 +95,8 @@ jobs:
       - name: Unpack test products
         run: mkdir -p "$MINDLORE_DERIVED_DATA" && tar -xzf test-products.tgz -C "$MINDLORE_DERIVED_DATA"
 
-      # With the secret set, OpenAILiveTests and CreativeClassificationQualityTests call real
-      # OpenAI (about 30 small requests); without it (a fork's PR) they skip. xcodebuild hands
-      # TEST_RUNNER_-prefixed variables to the test process with the prefix removed.
+      # No OpenAI key here: the suites that call it run in the live job below.
       - name: Run unit tests
-        env:
-          TEST_RUNNER_MINDLORE_OPENAI_KEY: ${{ secrets.MINDLORE_OPENAI_KEY }}
         run: scripts/ci/test.sh unit
 
       - name: Keep the result bundle
@@ -107,6 +105,42 @@ jobs:
         with:
           name: unit-xcresult
           path: build/results/unit.xcresult
+          retention-days: 7
+
+  # The suites that call real OpenAI, left out of the unit job because they judge a live model's
+  # answers, which vary from call to call (each has failed a run with no code change). Advisory,
+  # like ui, and started after unit so it takes unit's runner instead of queuing for a sixth.
+  live:
+    name: Live OpenAI tests
+    needs: [build, unit]
+    if: ${{ !cancelled() && needs.build.result == 'success' && inputs.only == '' }}
+    continue-on-error: true
+    runs-on: macos-26
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select Xcode ${{ env.XCODE_VERSION }}
+        run: sudo xcode-select -s "/Applications/Xcode_${XCODE_VERSION}.app"
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: test-products
+
+      - name: Unpack test products
+        run: mkdir -p "$MINDLORE_DERIVED_DATA" && tar -xzf test-products.tgz -C "$MINDLORE_DERIVED_DATA"
+
+      - name: Run live OpenAI tests
+        env:
+          TEST_RUNNER_MINDLORE_OPENAI_KEY: ${{ secrets.MINDLORE_OPENAI_KEY }}
+        run: scripts/ci/test.sh live
+
+      - name: Keep the result bundle
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: live-xcresult
+          path: build/results/live.xcresult
           retention-days: 7
 
   ui:
