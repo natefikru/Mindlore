@@ -13,7 +13,17 @@ enum ReflectQueueGenerator {
         let prompt: String
     }
 
-    // nil means the request failed and nothing should be cached. An empty list means the model
+    // The on-device model has about 4,096 tokens for everything: instructions, the period, and
+    // the answer. Ask measured its room at about 3,300 characters of journal; Reflect's shorter
+    // on-device instructions leave a little more. The caller fits the period's text to this.
+    static let onDevicePromptLimit = 3_600
+
+    static func promptLimit(for provider: AskProvider) -> Int? {
+        provider.kind == .onDevice ? onDevicePromptLimit : nil
+    }
+
+    // nil means the request failed, or came back as something that can't be read, and nothing
+    // should be cached, so the period is asked again next time. An empty list means the model
     // read the period and had nothing to say, which is cached as "all caught up" rather than
     // retried every time the period is viewed.
     static func generate(
@@ -28,7 +38,10 @@ enum ReflectQueueGenerator {
         let started = Date.now
         do {
             let result = try await provider.generator.generate(request)
-            let items = parsed(result.text, kind: kind)
+            guard let items = parsed(result.text, kind: kind, provider: provider.kind) else {
+                record(kind: kind, itemCount: 0, started: started, success: false, unreadable: true, diagnostics: diagnostics)
+                return nil
+            }
             record(kind: kind, itemCount: items.count, started: started, success: true, diagnostics: diagnostics)
             return items
         } catch {
@@ -45,6 +58,26 @@ enum ReflectQueueGenerator {
         voice: PromptVoice
     ) -> TextRequest {
         let grain = kind == .week ? "week" : "month"
+        if provider.kind == .onDevice {
+            // Foundation Models ignores a schema and answers in prose, so it's asked for a shape
+            // prose can hold: the paragraph, then the question on its own line. Kept short,
+            // because every character here is one the period can't use.
+            let system = """
+            You read one \(grain) of a personal journal and summarize it in two to four plain \
+            sentences: what actually happened, naming the people, places, and events the text \
+            names. Cover more than the loudest entry. \(voice.instruction) Never invent anything \
+            the text doesn't say. No advice, no judgement.
+
+            Then, on its own last line, write "Question:" followed by one short question, about \
+            the same people or events, that the author could write about next.
+            """
+            return TextRequest(
+                model: provider.model,
+                system: system,
+                user: "Period: \(title)\n\n\(prompt)",
+                maxOutputTokens: 400
+            )
+        }
         let system = """
         You read one \(grain) of a personal journal and write a short summary of it: two to five \
         plain sentences, what actually happened. \(voice.instruction)
@@ -86,13 +119,41 @@ enum ReflectQueueGenerator {
         )
     }
 
-    private static func parsed(_ text: String, kind: ReflectSummaryKind) -> [ReflectQueueItem] {
-        guard let payload = try? StructuredOutputParser.decode(Payload.self, from: text) else { return [] }
-        let summary = payload.summary.trimmingCharacters(in: .whitespacesAndNewlines)
-        let prompt = payload.prompt.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !summary.isEmpty, !prompt.isEmpty else { return [] }
+    // nil when the answer can't be read at all. OpenAI's is JSON held to the schema; the
+    // on-device model's is the paragraph and a "Question:" line it was asked for.
+    private static func parsed(_ text: String, kind: ReflectSummaryKind, provider: AskProviderKind) -> [ReflectQueueItem]? {
+        let summary: String
+        let prompt: String
+        if let payload = try? StructuredOutputParser.decode(Payload.self, from: text) {
+            summary = payload.summary
+            prompt = payload.prompt
+        } else if provider == .onDevice, let plain = plainText(text) {
+            (summary, prompt) = plain
+        } else {
+            return nil
+        }
+        let trimmedSummary = summary.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedPrompt = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedSummary.isEmpty, !trimmedPrompt.isEmpty else { return [] }
         let title = kind == .week ? "This week" : "This month"
-        return [ReflectQueueItem(id: "generated:0", source: .generated, title: title, body: summary, prompt: prompt)]
+        return [ReflectQueueItem(id: "generated:0", source: .generated, title: title, body: trimmedSummary, prompt: trimmedPrompt)]
+    }
+
+    // Everything after the last "Question:" is the prompt and everything before it the summary,
+    // whether the model put it on its own line as asked or ran it on the end of the paragraph, with
+    // markdown bold and a "Summary:" label dropped. An empty answer is nothing to say; prose with
+    // no question is unreadable, since a card without its question is half a card.
+    static func plainText(_ text: String) -> (summary: String, prompt: String)? {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty { return ("", "") }
+        guard let marker = trimmed.range(of: "question:", options: [.caseInsensitive, .backwards]) else { return nil }
+        let clean = CharacterSet.whitespacesAndNewlines.union(CharacterSet(charactersIn: "*"))
+        let prompt = trimmed[marker.upperBound...].trimmingCharacters(in: clean)
+        var summary = trimmed[..<marker.lowerBound].trimmingCharacters(in: clean)
+        if let label = summary.range(of: "summary:", options: [.caseInsensitive, .anchored]) {
+            summary = summary[label.upperBound...].trimmingCharacters(in: clean)
+        }
+        return (summary, prompt)
     }
 
     private static func record(
@@ -101,6 +162,7 @@ enum ReflectQueueGenerator {
         started: Date,
         success: Bool,
         error: (any Error)? = nil,
+        unreadable: Bool = false,
         diagnostics: DiagnosticsLog
     ) {
         var fields: [String: DiagnosticValue] = [
@@ -110,6 +172,7 @@ enum ReflectQueueGenerator {
             "success": .bool(success),
         ]
         if let error { fields["error"] = .errorCode(error) }
+        if unreadable { fields["unreadable"] = .bool(true) }
         diagnostics.record("reflect.queueGenerated", fields)
     }
 }

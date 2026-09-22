@@ -72,17 +72,19 @@ enum ReflectSummaryStore {
                 items = await ReflectQueueGenerator.generate(
                     kind: .week,
                     title: ReflectFidelity.title(kind: .week, interval: interval, calendar: calendar),
-                    prompt: ReflectFidelity.weekPrompt(entries),
+                    prompt: ReflectFidelity.weekPrompt(entries, characterLimit: ReflectQueueGenerator.promptLimit(for: provider)),
                     provider: provider,
                     voice: voice
                 )
             }
         case .month:
-            let (prompt, entryCount) = ReflectSource.monthPrompt(interval: interval, calendar: calendar, context: context)
+            let entryCount = ReflectSource.monthPrompt(interval: interval, calendar: calendar, context: context).entryCount
             if entryCount == 0 {
                 items = []
             } else {
                 guard case .success(let provider) = resolve() else { return nil }
+                let limit = ReflectQueueGenerator.promptLimit(for: provider)
+                let prompt = ReflectSource.monthPrompt(interval: interval, characterLimit: limit, calendar: calendar, context: context).prompt
                 items = await ReflectQueueGenerator.generate(
                     kind: .month,
                     title: ReflectFidelity.title(kind: .month, interval: interval, calendar: calendar),

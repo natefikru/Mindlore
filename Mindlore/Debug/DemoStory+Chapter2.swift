@@ -116,8 +116,7 @@ extension DemoStory {
         "text": "Get Mr. Kowalski to fix the radiator",
         "about": [
           "Mr. Kowalski"
-        ],
-        "due": "2025-12-15"
+        ]
       }
     ]
   },
