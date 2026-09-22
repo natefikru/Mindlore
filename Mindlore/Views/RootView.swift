@@ -26,6 +26,7 @@ struct RootView: View {
     @Environment(SettingsStore.self) private var settings
     @Environment(ProviderAccountStore.self) private var accounts
     @State private var confirmingDiscard = false
+    @State private var showingWelcome = false
     private let context: ModelContext
 
     init(container: ModelContainer, settings: SettingsStore, accounts: ProviderAccountStore) {
@@ -244,7 +245,25 @@ struct RootView: View {
             await titles.processQueue(context: context)
             await insights.processQueue(context: context)
         }
-        .onAppear { lock.lockAtLaunch() }
+        .overlay {
+            if showingWelcome {
+                WelcomeView(
+                    onStart: { closeWelcome() },
+                    onAddKey: {
+                        closeWelcome()
+                        router.showSettings()
+                    }
+                )
+                .transition(.opacity)
+            }
+        }
+        .onAppear {
+            lock.lockAtLaunch()
+            showingWelcome = Self.showsWelcome(seen: settings.welcomeSeen, arguments: ProcessInfo.processInfo.arguments, entries: (try? context.fetchCount(FetchDescriptor<Entry>())) ?? 0)
+            // A journal that already has entries never needs it, so it's marked seen rather than
+            // asked about again on every launch.
+            if !showingWelcome { settings.welcomeSeen = true }
+        }
         .onChange(of: scenePhase) { _, phase in
             DiagnosticsLog.shared.record("app.scenePhase", ["phase": .string(String(describing: phase))])
             lock.sceneChanged(to: phase)
@@ -302,5 +321,19 @@ struct RootView: View {
         if outcome == .notAllowed {
             settings.reminderEnabled = false
         }
+    }
+}
+
+extension RootView {
+    // Only a new install sees the welcome: not a journal with entries in it, and never a UI test
+    // unless it asks with -showWelcome.
+    static func showsWelcome(seen: Bool, arguments: [String], entries: Int) -> Bool {
+        if arguments.contains("-showWelcome") { return true }
+        return !seen && entries == 0 && !arguments.contains(StoreLocation.uiTestingArgument)
+    }
+
+    fileprivate func closeWelcome() {
+        settings.welcomeSeen = true
+        withAnimation(Motion.resolve(Motion.settle, reduceMotion: false)) { showingWelcome = false }
     }
 }
