@@ -17,6 +17,7 @@ struct MindView: View {
     @State private var areaOf: [UUID: LifeArea] = [:]
     @State private var entryAreas: [UUID: [LifeArea]] = [:]
     @State private var regionLabels: [GraphRegion] = []
+    @State private var haloed: Set<UUID> = []
     @State private var highlightedArea: LifeArea?
     @State private var trail = FocusTrail()
     @State private var panelStop: SearchPanel.Stop = .half
@@ -139,6 +140,9 @@ struct MindView: View {
                 highlightGroup: highlightedArea?.rawValue,
                 paint: paint,
                 regions: regionLabels,
+                // The recency lens already colours by how lately a name came up, over thirty days
+                // rather than seven. Two answers to the same question on one map is one too many.
+                haloedIDs: lens == .recency ? [] : haloed,
                 lens: lens,
                 animating: player.isRunning,
                 clearsMissingFocus: false,
@@ -369,6 +373,9 @@ struct MindView: View {
         if frame.entryAreas != entryAreas { entryAreas = frame.entryAreas }
         let labels = regionLabels(snapshot)
         if labels != regionLabels { regionLabels = labels }
+        // Taken at the frame's own date, so a replay's rings follow the replay.
+        let rings = MindMap.haloed(snapshot, asOf: asOf)
+        if rings != haloed { haloed = rings }
 
         if let simulation {
             simulation.update(nodes: frame.nodes, edges: frame.edges, regions: frame.regions)

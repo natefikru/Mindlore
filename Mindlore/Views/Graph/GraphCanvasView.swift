@@ -30,6 +30,10 @@ struct GraphCanvasView: View {
     var paint: GraphPaint?
     // Life-area names drawn faintly at their spots while the map groups by area.
     var regions: [GraphRegion] = []
+    // Entities a recent entry named. They breathe: a ring outside the node, rising and falling on
+    // one shared sine. Empty turns the halo off, which is what the recency lens does, since that
+    // lens is already saying this and saying it better.
+    var haloedIDs: Set<UUID> = []
     var lens: MindLens = .kind
     // A replay is moving the map: keep drawing, and measure it.
     var animating = false
@@ -54,6 +58,7 @@ struct GraphCanvasView: View {
         case region(String)
     }
 
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var camera = GraphCamera()
     @State private var cache = GraphDrawCache()
     @State private var sampler = FrameTimeSampler()
@@ -82,18 +87,25 @@ struct GraphCanvasView: View {
     private static let regionOpacity = 0.8
 
     var body: some View {
-        let plan = cache.plan(for: simulation, focusedID: focusedID, highlighted: highlightedIDs, paint: paint)
+        let plan = cache.plan(for: simulation, focusedID: focusedID, highlighted: highlightedIDs, paint: paint, haloed: haloedIDs)
         let labelIDs = labelSymbolIDs(plan)
+        // The canvas stops ticking once the simulation settles, which is why a map that has stopped
+        // moving costs nothing. A halo has to keep breathing through exactly that, so an idle map
+        // with rings on it slows down instead of stopping: a 2.4 s breath at 12 fps is smooth, and
+        // the frame's work is one sine plus a stroke per colour bucket. `graph.rendered` carries the
+        // measurement. Nothing to breathe, or Reduce Motion, and it pauses as before.
+        let breathing = !plan.haloNodes.isEmpty && !reduceMotion
+        let idleInterval: Double? = isIdle && breathing ? 1.0 / 12.0 : nil
 
         GeometryReader { geometry in
             let center = SIMD2(Double(geometry.size.width) / 2, Double(geometry.size.height) / 2)
 
-            TimelineView(.animation(paused: isIdle)) { _ in
+            TimelineView(.animation(minimumInterval: idleInterval, paused: isIdle && !breathing)) { _ in
                 Canvas { context, _ in
                     let frameStart = CACurrentMediaTime()
                     simulation.tick()
                     camera.advance(now: frameStart)
-                    draw(in: &context, center: center, plan: cache.plan(for: simulation, focusedID: focusedID, highlighted: highlightedIDs, paint: paint))
+                    draw(in: &context, center: center, plan: cache.plan(for: simulation, focusedID: focusedID, highlighted: highlightedIDs, paint: paint, haloed: haloedIDs))
                     sampler.record(
                         frameStart: frameStart,
                         workSeconds: CACurrentMediaTime() - frameStart,
@@ -273,6 +285,26 @@ struct GraphCanvasView: View {
         for (width, path) in litPaths.enumerated() where !path.isEmpty {
             let style = GraphEdgeStyle(widthBucket: width, opacityBucket: 0)
             context.stroke(path, with: .color(.primary.opacity(0.9)), lineWidth: style.lineWidth + 1)
+        }
+
+        // The Breathe halo, under everything else so the node itself stays crisp on top. One sine
+        // for the whole frame, one path per colour bucket: a week that touched forty names costs a
+        // handful of strokes, not forty gradients. Under Reduce Motion the phase is fixed and the
+        // ring simply sits there, which is what `Motion.resolve` means by returning nil for a
+        // repeating animation.
+        if !plan.haloNodes.isEmpty {
+            let phase = reduceMotion ? 0 : sin(CACurrentMediaTime() * 2 * .pi / Motion.breatheSeconds)
+            var rings: [GraphFill: Path] = [:]
+            for index in plan.haloNodes {
+                // A node the focus or a lens has already pushed back does not breathe over the top
+                // of being pushed back.
+                if plan.fadedNodes.contains(index) { continue }
+                if dimmed && !plan.litNodes.contains(index) { continue }
+                rings[plan.fills[index], default: Path()].addEllipse(in: circle(index, scale: 1.5 + 0.18 * phase))
+            }
+            for (fill, path) in rings {
+                context.stroke(path, with: .color(color(fill).opacity(0.30 + 0.10 * phase)), lineWidth: 1.5)
+            }
         }
 
         // Glow behind the lit nodes: a gradient fill, no blur filter.
