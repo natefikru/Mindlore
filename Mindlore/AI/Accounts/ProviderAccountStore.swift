@@ -70,6 +70,10 @@ final class ProviderAccountStore {
         if settings.speechAccountID == nil { settings.speechAccountID = account.id }
         if settings.pageAccountID == nil { settings.pageAccountID = account.id }
         if settings.textAccountID == nil { settings.textAccountID = account.id }
+        // Saving a key is the consent: titles, insights, and Ask all gate on `aiEnabled` before
+        // they'll touch OpenAI, so leaving it off left a saved key inert until the user found the
+        // separate "Use AI" toggle (owner, 2026-09-22).
+        if !settings.aiEnabled { settings.aiEnabled = true }
         keyRevision += 1
         refreshKeyState()
         diagnostics.record("ai.keySaved", ["provider": .string(ProviderPreset.openAI.id)])
