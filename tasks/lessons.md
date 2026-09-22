@@ -250,3 +250,14 @@ leave the accent to the checkmark.
 The same screenshot pass found life area names in placeholder grey: the field started empty and the
 real name was only its placeholder, so every untouched area looked disabled. Neither showed in any
 test. Both showed on the first look.
+
+## `git stash && ... && git stash pop` pops someone else's stash on a clean tree
+
+To test `main` without losing branch work I ran `git stash -q`, switched, and `git stash pop` on the
+way back. The tree was already clean, so the stash saved nothing and the pop applied the newest
+entry already in the list: a stale `ReflectUITests` draft from another session, which conflicted.
+Nothing was lost (a failed pop keeps the entry) and `git restore --source=HEAD` put the file back.
+
+Check `git status --short` first and only stash when it shows something, or pop by the entry's
+name (`git stash push -m tag`, then find `tag` in `git stash list`). Better still, test another
+branch in a worktree and leave this one alone.

@@ -36,8 +36,15 @@ final class SettingsScreenshotTests: XCTestCase {
         app.navigationBars.buttons.element(boundBy: 0).tap()
     }
 
+    // A List only builds the rows on screen, so a link below the fold doesn't exist until the list
+    // scrolls to it. Once Privacy and data joined the root, the AI section fell below it and this
+    // tour failed on aiKeyLink until it learned to scroll: down first, then back up for a link
+    // that was above.
     private func open(_ identifier: String) {
         let link = app.buttons[identifier]
+        _ = link.waitForExistence(timeout: 2)
+        for _ in 0..<6 where !(link.exists && link.isHittable) { app.swipeUp() }
+        for _ in 0..<8 where !(link.exists && link.isHittable) { app.swipeDown() }
         XCTAssertTrue(link.waitForExistence(timeout: 5), "\(identifier) should exist")
         link.tap()
     }
