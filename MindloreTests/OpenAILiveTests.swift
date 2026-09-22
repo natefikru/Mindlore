@@ -230,7 +230,9 @@ struct OpenAILiveTests {
 
     // Ask, end to end against the real model: a fact seeded among filler, then a follow-up turn
     // that has to keep the same handle.
-    @Test func askFindsASeededFactAndKeepsItAcrossATurn() async throws {
+    // "What's my dog's name?" reaches "a greyhound named Pepper" only through the lemma of "named".
+    @Test(.enabled(if: LemmaAvailability.isAvailable, "NLTagger has no English lemma assets on this machine"))
+    func askFindsASeededFactAndKeepsItAcrossATurn() async throws {
         let container = try ModelContainerFactory.make(.inMemory)
         let context = container.mainContext
         let now = Date()

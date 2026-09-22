@@ -9,6 +9,7 @@ import Testing
 // of nothing but stop words into a question about "go" and "what", and iterating an unordered set
 // shuffled the term order the conversation is supposed to read in. The measurement went up in both
 // cases, which is exactly why neither is measured by it.
+@Suite(.enabled(if: LemmaAvailability.isAvailable, "NLTagger has no English lemma assets on this machine"))
 struct AskIndexLemmaTests {
     private let now = Date(timeIntervalSince1970: 1_789_394_400)
 

@@ -45,10 +45,13 @@ print(max(found)[1])
 ' "$SIM_NAME" "$SIM_OS"
 }
 
-# Booting ahead of time takes the first launch's cold start out of the first test's clock.
+# Boot if needed and wait until the simulator is ready. bootstatus -b boots a shut-down device
+# itself and waits for one that is already booting (boot-simulator.sh --background).
 boot_simulator() {
   local udid="$1"
-  xcrun simctl bootstatus "$udid" -b >/dev/null 2>&1 || xcrun simctl boot "$udid"
+  local started=$SECONDS
+  xcrun simctl bootstatus "$udid" -b >/dev/null
+  echo "Simulator $udid ready (waited $((SECONDS - started))s)"
 }
 
 # xcbeautify is on every GitHub macOS image and optional at home. pipefail (set above) keeps

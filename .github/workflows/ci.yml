@@ -1,19 +1,19 @@
-# Build once, test many.
+# Five jobs, all starting at once: unit, and the UI suite split four ways. Five is the free plan's
+# limit of concurrent macOS jobs, so nothing queues.
 #
-#   build  compiles the app and both test bundles for the simulator and uploads the products.
-#   unit   runs the 1,500-odd unit tests against those products (about a minute of test time).
-#   ui     runs the UI classes split across five runners, each launching the app 25 to 35
-#          seconds per test; the split is computed from the files by scripts/ci/ui-shards.sh.
+# Each job builds for itself instead of downloading one shared build. That looks wasteful and is
+# the faster layout: a fresh runner spends minutes booting its simulator, and a job that starts
+# the boot in the background and then compiles gets the boot for free inside the build. A shared
+# build job put its four minutes in front of every one of those boots instead. Minutes are free
+# on a public repo; wall-clock is what this optimizes.
 #
-# unit runs on every pull request and every push to main, and is the only required check. ui
-# runs on every push to main, on a pull request carrying the "ui" label, and on manual dispatch;
-# it never blocks a merge. ui waits for unit to finish, pass or fail: the free plan runs five
-# macOS jobs at once, and six starting together could leave the required check queued behind the
-# advisory ones.
+#   unit   every pull request and push to main. The only required check.
+#   ui     every push to main, a pull request labeled "ui", and manual runs. Advisory: a failed
+#          shard is red on its own job, and continue-on-error keeps it out of the run's result.
+#          The split comes from scripts/ci/ui-shards.sh, balanced by test count.
 #
 # A manual run with "only" set (for example "PageOrderUITests/testScanReorderRemoveAndConfirmPages",
-# several separated by spaces) skips unit and runs just those UI tests on one runner, for chasing
-# a single failure without paying for the suite.
+# several separated by spaces) skips unit and runs just those UI tests on one runner.
 #
 # The scripts under scripts/ci are the same ones that run in a terminal here.
 
@@ -41,90 +41,29 @@ concurrency:
 
 env:
   XCODE_VERSION: "26.6"
+  UI_SHARDS: 4
   MINDLORE_SIM_NAME: iPhone 17
   MINDLORE_SIM_OS: "26.5"
   MINDLORE_DERIVED_DATA: ${{ github.workspace }}/build/DerivedData
   MINDLORE_RESULTS: ${{ github.workspace }}/build/results
 
 jobs:
-  build:
-    name: Build for testing
-    runs-on: macos-26
-    timeout-minutes: 40
-    outputs:
-      run-ui: ${{ steps.decide.outputs.run-ui }}
-      shards: ${{ steps.shards.outputs.matrix }}
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Select Xcode ${{ env.XCODE_VERSION }}
-        run: sudo xcode-select -s "/Applications/Xcode_${XCODE_VERSION}.app" && xcodebuild -version
-
-      - name: Build
-        run: scripts/ci/build-for-testing.sh
-
-      # upload-artifact does not keep file modes, and an .app whose binary lost its execute
-      # bit will not launch, so the products travel as a tarball.
-      - name: Pack test products
-        run: tar -czf test-products.tgz -C "$MINDLORE_DERIVED_DATA" Build/Products
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: test-products
-          path: test-products.tgz
-          retention-days: 1
-          if-no-files-found: error
-
-      - name: Decide whether the UI suite runs
-        id: decide
-        env:
-          LABELS: ${{ github.event_name == 'pull_request' && join(github.event.pull_request.labels.*.name, ' ') || '' }}
-          DISPATCH_UI: ${{ inputs.ui }}
-        run: |
-          case "${{ github.event_name }}" in
-            push) run=true ;;
-            pull_request) [[ " $LABELS " == *" ui "* ]] && run=true || run=false ;;
-            workflow_dispatch) run="$DISPATCH_UI" ;;
-            *) run=false ;;
-          esac
-          echo "run-ui=$run" >> "$GITHUB_OUTPUT"
-          echo "UI suite: $run"
-
-      - name: Compute UI shards
-        id: shards
-        env:
-          ONLY: ${{ inputs.only }}
-        run: |
-          # A manual run naming tests gets one shard of exactly those. Otherwise a pull request's
-          # run skips the screenshot classes; main and manual runs keep them.
-          if [ -n "$ONLY" ]; then
-            matrix="$(jq -cn --arg c "$ONLY" '{include: [{shard: 1, tests: 0, classes: $c}]}')"
-          else
-            flag=""
-            [ "${{ github.event_name }}" = "pull_request" ] && flag="--skip-screenshots"
-            matrix="$(scripts/ci/ui-shards.sh 5 $flag)"
-          fi
-          echo "$matrix"
-          echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
-
   unit:
     name: Unit tests
-    needs: build
-    if: inputs.only == '' || inputs.only == null
+    if: inputs.only == ''
     runs-on: macos-26
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
 
       - name: Select Xcode ${{ env.XCODE_VERSION }}
-        run: sudo xcode-select -s "/Applications/Xcode_${XCODE_VERSION}.app"
+        run: sudo xcode-select -s "/Applications/Xcode_${XCODE_VERSION}.app" && xcodebuild -version
 
-      - uses: actions/download-artifact@v4
-        with:
-          name: test-products
+      - name: Start booting the simulator
+        run: scripts/ci/boot-simulator.sh --background
 
-      - name: Unpack test products
-        run: mkdir -p "$MINDLORE_DERIVED_DATA" && tar -xzf test-products.tgz -C "$MINDLORE_DERIVED_DATA"
+      - name: Build
+        run: scripts/ci/build-for-testing.sh
 
       # With the secret set, OpenAILiveTests and CreativeClassificationQualityTests call real
       # OpenAI (about 30 small requests); without it (a fork's PR) they skip. xcodebuild hands
@@ -144,33 +83,56 @@ jobs:
 
   ui:
     name: UI tests (shard ${{ matrix.shard }})
-    # After unit, whatever its result (or skipped, on an "only" run), so the required check
-    # always gets a runner first. Stops only if the run was cancelled or the build failed.
-    needs: [build, unit]
-    if: ${{ !cancelled() && needs.build.result == 'success' && needs.build.outputs.run-ui == 'true' }}
+    if: >-
+      github.event_name == 'push' ||
+      (github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'ui')) ||
+      (github.event_name == 'workflow_dispatch' && (inputs.ui || inputs.only != ''))
+    continue-on-error: true
     runs-on: macos-26
     timeout-minutes: 45
     strategy:
       fail-fast: false
-      matrix: ${{ fromJSON(needs.build.outputs.shards) }}
+      matrix:
+        # One runner for a manual "only" run, otherwise one per shard.
+        shard: ${{ fromJSON(inputs.only != '' && '[1]' || '[1, 2, 3, 4]') }}
     steps:
       - uses: actions/checkout@v4
 
+      - name: Pick this shard's tests
+        id: pick
+        env:
+          ONLY: ${{ inputs.only }}
+          SHARD: ${{ matrix.shard }}
+        run: |
+          # A pull request's run leaves out the screenshot classes; main and manual runs keep them.
+          if [ -n "$ONLY" ]; then
+            classes="$ONLY"
+          else
+            flag=""
+            [ "${{ github.event_name }}" = "pull_request" ] && flag="--skip-screenshots"
+            classes="$(scripts/ci/ui-shards.sh "$UI_SHARDS" $flag --shard "$SHARD")"
+          fi
+          echo "Shard $SHARD: ${classes:-nothing}"
+          echo "classes=$classes" >> "$GITHUB_OUTPUT"
+
       - name: Select Xcode ${{ env.XCODE_VERSION }}
-        run: sudo xcode-select -s "/Applications/Xcode_${XCODE_VERSION}.app"
+        if: steps.pick.outputs.classes != ''
+        run: sudo xcode-select -s "/Applications/Xcode_${XCODE_VERSION}.app" && xcodebuild -version
 
-      - uses: actions/download-artifact@v4
-        with:
-          name: test-products
+      - name: Start booting the simulator
+        if: steps.pick.outputs.classes != ''
+        run: scripts/ci/boot-simulator.sh --background
 
-      - name: Unpack test products
-        run: mkdir -p "$MINDLORE_DERIVED_DATA" && tar -xzf test-products.tgz -C "$MINDLORE_DERIVED_DATA"
+      - name: Build
+        if: steps.pick.outputs.classes != ''
+        run: scripts/ci/build-for-testing.sh
 
       # The AI UI classes use real OpenAI when the key is present and the app's stub otherwise.
-      - name: Run ${{ matrix.classes }}
+      - name: Run UI tests
+        if: steps.pick.outputs.classes != ''
         env:
           TEST_RUNNER_MINDLORE_OPENAI_KEY: ${{ secrets.MINDLORE_OPENAI_KEY }}
-        run: scripts/ci/test.sh ui ${{ matrix.classes }}
+        run: scripts/ci/test.sh ui ${{ steps.pick.outputs.classes }}
 
       - name: Keep the result bundle
         if: failure()

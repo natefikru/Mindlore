@@ -210,6 +210,13 @@ reading the diff. And the same cold start can happen on a phone: until the asset
 loses "run finds ran" with no error. The A10 device pass should ask a morphology question on a
 fresh install and check `ask.indexed`.
 
+On a GitHub runner the assets never arrive. Every lemma was empty on the first hosted run, and a
+warm-up test that awaited `NLTagger.requestAssets(for: .english, tagScheme: .lemma)` hung the
+unit job for over seven minutes with no output. A brand-new simulator on this Mac passes on its
+first run, because the assets live on the host, so none of this reproduces locally. The fix is a
+capability check, not a retry: lemma-dependent tests are `.enabled(if: LemmaAvailability.isAvailable)`
+and show as skipped on CI.
+
 ## XCUIDevice.shared.appearance does not reach the simulator
 
 Setting it before `app.launch()` produced ten light screenshots, five of them named "dark". Set the

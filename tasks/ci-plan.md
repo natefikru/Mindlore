@@ -100,6 +100,13 @@ build (macos-26, ~5 min)
   one retry on CI. The fourth was `PageOrderUITests`' reorder drag, which lifted before the list
   committed the move; now a slow drag with a hold, 3/3 locally. The unit job queued behind the
   shards (six jobs, five runners), so `ui` now needs `unit`.
+- Second hosted run hung in the unit job's warm-up: `NLTagger.requestAssets` never returns on a
+  runner. Replaced with `LemmaAvailability`, a capability check the lemma tests are enabled on.
+- The shared build job is gone. Each of the five jobs builds for itself after starting its
+  simulator's boot in the background, so the boot (minutes on a fresh runner) hides inside the
+  compile instead of queuing after a four-minute build. UI went from five shards to four so unit
+  plus UI is exactly the five concurrent runners, all starting together; UI shards are
+  `continue-on-error` so they never set the run's result.
 - `OnDeviceInsightsLiveTests` failed once locally (Apple's model returned no summary) and passed the
   run before. It is gated on `FoundationModelsAvailability`, so it skips on hosted runners; it is a
   flaky live test on a Mac with Apple Intelligence, not a CI concern.

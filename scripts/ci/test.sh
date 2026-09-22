@@ -56,19 +56,6 @@ boot_simulator "$udid"
 mkdir -p "$RESULTS"
 rm -rf "$RESULTS/$name.xcresult"
 
-# A fresh simulator has no NLTagger lemma assets until something asks for them, and the lemma
-# suites fail until they arrive. Request them first, in a run of their own, and stop here if they
-# can't be had: that is one clear failure instead of a dozen empty-lemma ones.
-if [ "$mode" = unit ]; then
-  echo "Loading language assets on simulator $udid"
-  run_xcodebuild \
-    test-without-building \
-    -xctestrun "$xctestrun" \
-    -destination "platform=iOS Simulator,id=$udid" \
-    -parallel-testing-enabled NO \
-    -only-testing:MindloreTests/LanguageAssetsWarmUp
-fi
-
 echo "Running $mode tests on simulator $udid from $(basename "$xctestrun")"
 run_xcodebuild \
   test-without-building \

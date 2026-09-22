@@ -12,17 +12,28 @@
 # The class name is the file name; that is a convention in this repo, and test.sh passes each
 # one as -only-testing:MindloreUITests/<Class>.
 
-#   scripts/ci/ui-shards.sh 5 --skip-screenshots
+#   scripts/ci/ui-shards.sh 4 --skip-screenshots
+#   scripts/ci/ui-shards.sh 4 --skip-screenshots --shard 2
 #
 # --skip-screenshots leaves out the *ScreenshotTests classes, which exist to produce pictures
 # for a person to look at. CI passes it for a pull request's label-triggered run; pushes to
-# main and manual runs keep them.
+# main and manual runs keep them. --shard N prints only shard N's classes, space-separated
+# (nothing if that shard is empty), which is what each CI job asks for.
 
 set -euo pipefail
 
 count="${1:-5}"
+shift || true
 skip_screenshots=false
-[ "${2:-}" = "--skip-screenshots" ] && skip_screenshots=true
+only_shard=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --skip-screenshots) skip_screenshots=true ;;
+    --shard) only_shard="$2"; shift ;;
+    *) echo "unknown option $1" >&2; exit 2 ;;
+  esac
+  shift
+done
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 
 # "weight class" per line, heaviest first.
@@ -50,6 +61,11 @@ while read -r tests class; do
   loads[lightest]=$(( loads[lightest] + tests ))
   members[lightest]="${members[lightest]:+${members[lightest]} }$class"
 done < <(printf '%s\n' "${weighted[@]}" | sort -rn -k1,1 -k2,2)
+
+if [ -n "$only_shard" ]; then
+  echo "${members[only_shard - 1]:-}"
+  exit 0
+fi
 
 json='{"include":['
 for ((i = 0; i < count; i++)); do
