@@ -9,26 +9,6 @@ enum ReflectSource {
         aggregate(interval, looseEnds: looseEndFacts(in: context), context: context)
     }
 
-    // The trailing periods ending at `selection`, oldest first, for the mood-over-time chart.
-    // Loose ends are fetched once and reused across every period, rather than once per period: the
-    // set is the same unfiltered table read each time, so fetching it `trailingCount` times over
-    // would cost that many full-table reads for identical rows.
-    static func trend(
-        for selection: ReflectPeriodSelection,
-        trailingCount: Int = 6,
-        now: Date = .now,
-        calendar: Calendar = .current,
-        in context: ModelContext
-    ) -> [(selection: ReflectPeriodSelection, period: ReflectAggregator.Period)] {
-        let looseEnds = looseEndFacts(in: context)
-        return stride(from: trailingCount - 1, through: 0, by: -1).map { stepsBack in
-            var point = selection
-            point.offset = selection.offset - stepsBack
-            let interval = point.interval(now: now, calendar: calendar)
-            return (point, aggregate(interval, looseEnds: looseEnds, context: context))
-        }
-    }
-
     // MARK: - Reused signals
 
     // Mirrors TodaySource.looseEnds and .entities exactly: the same hidden/muted filtering and the
@@ -74,6 +54,21 @@ enum ReflectSource {
             entities: queueEntities(in: context, directory: directory),
             weekEnd: weekEnd
         )
+    }
+
+    // MARK: - Feed bounds
+
+    static func earliestEntryDate(in context: ModelContext) -> Date? {
+        var descriptor = FetchDescriptor<Entry>(sortBy: [SortDescriptor(\Entry.entryDate, order: .forward)])
+        descriptor.fetchLimit = 1
+        return (try? context.fetch(descriptor))?.first?.entryDate
+    }
+
+    static func hasEntries(in interval: DateInterval, context: ModelContext) -> Bool {
+        let start = interval.start
+        let end = interval.end
+        let count = (try? context.fetchCount(FetchDescriptor<Entry>(predicate: #Predicate { $0.entryDate >= start && $0.entryDate < end }))) ?? 0
+        return count > 0
     }
 
     // MARK: - Tiered fidelity

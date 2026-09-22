@@ -41,6 +41,7 @@ final class SettingsStore {
         static let reminderEnabled = "reminderEnabled"
         static let reminderMinutes = "reminderMinutes"
         static let todayDismissed = "todayDismissed"
+        static let reflectDismissed = "reflectDismissed"
     }
 
     @ObservationIgnored private let store: any KeyValueStore
@@ -243,6 +244,23 @@ final class SettingsStore {
         todayDismissal = updated
     }
 
+    // Which Reflect items were dismissed, keyed by period rather than day, and never thrown away:
+    // a week you looked back on stays looked back on.
+    private(set) var reflectDismissal: ReflectDismissal {
+        didSet { writeJSON(reflectDismissal, Key.reflectDismissed) }
+    }
+
+    func dismissedReflectItems(for periodKey: String) -> Set<String> {
+        reflectDismissal.itemIDs(for: periodKey)
+    }
+
+    func dismissReflectItem(_ itemID: String, for periodKey: String) {
+        var updated = reflectDismissal
+        updated.dismiss(itemID, for: periodKey)
+        guard updated != reflectDismissal else { return }
+        reflectDismissal = updated
+    }
+
     var promptVoice: PromptVoice {
         PromptVoice(voice: journalVoice, name: userName)
     }
@@ -329,6 +347,7 @@ final class SettingsStore {
         reminderEnabled = bool(Key.reminderEnabled, false)
         reminderMinutes = store.object(forKey: Key.reminderMinutes) as? Int ?? ReminderPlan.defaultMinutes
         todayDismissal = json(Key.todayDismissed, TodayDismissal())
+        reflectDismissal = json(Key.reflectDismissed, ReflectDismissal())
     }
 
     // Called once per launch. Entries created before this moment never get an automatic AI pass.
