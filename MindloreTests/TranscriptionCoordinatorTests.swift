@@ -514,6 +514,49 @@ struct TranscriptionRoutingTests {
         #expect(entry.awaitingText)
     }
 
+    // A failure on chunk 2 of 3 used to resend chunk 1 on the next attempt, paying for it twice.
+    @Test func aRetryResendsOnlyTheChunksStillMissing() async throws {
+        let harness = try TranscriptionHarness()
+        let caf = harness.temporaryDirectory.appendingPathComponent("long.caf")
+        _ = try AudioFixtures.writePCM(to: caf, seconds: 9)
+        let entry = try harness.voiceEntry(audio: try AudioConverter.convertToAAC(caf).data)
+        let cloud = FakeTranscriber()
+        let prompts = PromptLog()
+        let running = TranscriptionCoordinator(
+            route: { _, _ in
+                TranscriptionRoute(
+                    cloud: .init(label: "openai:test", makeTranscriber: { prompt in prompts.prompts.append(prompt); return cloud }, chunkTargetSeconds: 4, maxUploadBytes: 25_000_000),
+                    onDevice: harness.transcriber, onDeviceLabel: "apple", fallBackToOnDevice: false
+                )
+            },
+            locale: Locale(identifier: "en_US"),
+            temporaryDirectory: harness.temporaryDirectory,
+            diagnostics: .disabled,
+            chunkSearchSeconds: 1,
+            beginBackgroundTask: { _ in {} }
+        )
+
+        let first = Task { await running.processQueue(context: harness.context) }
+        await cloud.waitForCall(number: 1)
+        cloud.answer(.success("first part"))
+        await cloud.waitForCall(number: 2)
+        cloud.answer(.failure(AIError.serverError(status: 502)))
+        await first.value
+        #expect(entry.textChunkTexts == ["first part"])
+
+        let retry = Task { await running.retry(entry.persistentModelID, context: harness.context) }
+        await cloud.waitForCall(number: 3)
+        cloud.answer(.success("second part"))
+        await cloud.waitForCall(number: 4)
+        cloud.answer(.success("third part"))
+        await retry.value
+
+        #expect(cloud.calls.count == 4)
+        #expect(prompts.prompts == [nil, "first part", "first part", "second part"])
+        #expect(entry.text == "first part second part third part")
+        #expect(entry.textChunkPlan == nil && entry.textChunkTexts.isEmpty)
+    }
+
     @Test func retryWhileOfflineStillSends() async throws {
         let harness = try TranscriptionHarness()
         let entry = try harness.voiceEntry()

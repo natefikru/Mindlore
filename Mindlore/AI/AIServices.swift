@@ -14,7 +14,11 @@ enum AIServices {
             return .success(.init(generator: FoundationModelsTextGenerator(), model: "", label: FoundationModelsTextGenerator.label))
         case .openAI:
             guard settings.aiEnabled else { return .failure(AIJobFailure(raw: "settings.aiOff")) }
-            guard let provider = accounts.resolve(.text) else { return .failure(AIJobFailure(.missingKey)) }
+            let provider: ResolvedProvider
+            switch accounts.resolve(.text) {
+            case .success(let resolved): provider = resolved
+            case .failure(let error): return .failure(AIJobFailure(error))
+            }
             let generator = OpenAICompatibleTextGenerator(baseURL: provider.account.baseURL, apiKey: provider.apiKey, http: http)
             return .success(.init(generator: generator, model: provider.model, label: "openai:\(provider.model)"))
         }
@@ -24,7 +28,11 @@ enum AIServices {
 extension AIServices {
     static func pageTranscriber(settings: SettingsStore, accounts: ProviderAccountStore) -> Result<PageTranscriptionCoordinator.Transcription, AIJobFailure> {
         guard settings.aiEnabled else { return .failure(AIJobFailure(raw: "settings.aiOff")) }
-        guard let provider = accounts.resolve(.pages) else { return .failure(AIJobFailure(.missingKey)) }
+        let provider: ResolvedProvider
+        switch accounts.resolve(.pages) {
+        case .success(let resolved): provider = resolved
+        case .failure(let error): return .failure(AIJobFailure(error))
+        }
         let generator = OpenAICompatibleTextGenerator(baseURL: provider.account.baseURL, apiKey: provider.apiKey, http: accounts.http)
         return .success(.init(transcriber: OpenAICompatiblePageTranscriber(generator: generator, model: provider.model), label: "openai:\(provider.model)"))
     }
@@ -45,7 +53,11 @@ extension AIServices {
     // Reads the key from the Keychain. Call when a request is about to go out.
     static func textGenerator(settings: SettingsStore, accounts: ProviderAccountStore) -> Result<ResolvedTextGenerator, AIJobFailure> {
         guard settings.aiEnabled else { return .failure(AIJobFailure(raw: "settings.aiOff")) }
-        guard let provider = accounts.resolve(.text) else { return .failure(AIJobFailure(.missingKey)) }
+        let provider: ResolvedProvider
+        switch accounts.resolve(.text) {
+        case .success(let resolved): provider = resolved
+        case .failure(let error): return .failure(AIJobFailure(error))
+        }
         let generator = OpenAICompatibleTextGenerator(baseURL: provider.account.baseURL, apiKey: provider.apiKey, http: accounts.http)
         return .success(.init(generator: generator, model: provider.model, label: "openai:\(provider.model)"))
     }

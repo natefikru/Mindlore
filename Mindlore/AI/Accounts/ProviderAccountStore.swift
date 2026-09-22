@@ -32,8 +32,25 @@ final class ProviderAccountStore {
     }
 
     private func refreshKeyState() {
-        hasUsableKey = settings.providerAccounts.contains { account in
-            ((try? secrets.read(account: account.id.uuidString)) ?? nil)?.isEmpty == false
+        hasUsableKey = settings.providerAccounts.contains(where: keyIsPresent)
+    }
+
+    // An account is only added once its key has been written, so a Keychain error means the key is
+    // there and locked, not missing. Reading it as missing told the user their key had vanished.
+    private func keyIsPresent(_ account: ProviderAccount) -> Bool {
+        switch readKey(account) {
+        case .success(let key): key?.isEmpty == false
+        case .failure: true
+        }
+    }
+
+    private func readKey(_ account: ProviderAccount) -> Result<String?, AIError> {
+        do {
+            return .success(try secrets.read(account: account.id.uuidString))
+        } catch {
+            let status = (error as? SecretStoreError).map { Int($0.status) } ?? 0
+            diagnostics.record("ai.keyUnreadable", ["status": .int(status)])
+            return .failure(.keyUnavailable)
         }
     }
 
@@ -73,7 +90,7 @@ final class ProviderAccountStore {
 
     func hasKey(for account: ProviderAccount) -> Bool {
         _ = keyRevision
-        return ((try? secrets.read(account: account.id.uuidString)) ?? nil)?.isEmpty == false
+        return keyIsPresent(account)
     }
 
     // The account chosen for a capability, without touching the Keychain.
@@ -81,17 +98,23 @@ final class ProviderAccountStore {
         settings.account(for: capability)
     }
 
-    // Nil when the capability has no account or its account has no key. AI being on is checked by callers.
-    func resolve(_ capability: AICapability) -> ResolvedProvider? {
-        guard let account = settings.account(for: capability),
-              let key = (try? secrets.read(account: account.id.uuidString)) ?? nil,
-              !key.isEmpty else { return nil }
-        return ResolvedProvider(account: account, apiKey: key, model: settings.model(for: capability))
+    // Fails with `missingKey` when the capability has no account or its account has no key, and
+    // `keyUnavailable` when the Keychain refused the read. AI being on is checked by callers.
+    func resolve(_ capability: AICapability) -> Result<ResolvedProvider, AIError> {
+        guard let account = settings.account(for: capability) else { return .failure(.missingKey) }
+        return readKey(account).flatMap { key in
+            guard let key, !key.isEmpty else { return .failure(.missingKey) }
+            return .success(ResolvedProvider(account: account, apiKey: key, model: settings.model(for: capability)))
+        }
     }
 
     func testConnection() async -> Result<[String], AIError> {
-        guard let account = openAIAccount, let key = (try? secrets.read(account: account.id.uuidString)) ?? nil else {
-            return .failure(.missingKey)
+        guard let account = openAIAccount else { return .failure(.missingKey) }
+        let key: String
+        switch readKey(account) {
+        case .success(let read?) where !read.isEmpty: key = read
+        case .success: return .failure(.missingKey)
+        case .failure(let error): return .failure(error)
         }
         do {
             let models = try await OpenAICompatibleModelList(baseURL: account.baseURL, apiKey: key, http: http).fetch()
