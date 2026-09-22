@@ -70,6 +70,20 @@ struct ProviderAccountStoreTests {
         #expect((try? accounts.resolve(.pages).get())?.model == ProviderDefaults.pageModel)
     }
 
+    // Saving a key is the consent: titles, insights, and Ask all gate on `aiEnabled` before they
+    // touch OpenAI, so a key alone used to sit inert behind a second, separate switch nobody knew
+    // to go find (owner, 2026-09-22).
+    @Test func savingAKeyTurnsAIOnSoTitlesAndInsightsMoveToOpenAI() throws {
+        let (settings, accounts, _) = makeStores()
+        #expect(!settings.aiEnabled)
+
+        try accounts.saveOpenAIKey("sk-live")
+
+        #expect(settings.aiEnabled)
+        #expect(settings.titleGenerator == .openAI)
+        #expect(settings.insightsGenerator == .openAI)
+    }
+
     @Test func replacingAKeyKeepsTheSameAccount() throws {
         let (settings, accounts, _) = makeStores()
         let first = try accounts.saveOpenAIKey("sk-1")

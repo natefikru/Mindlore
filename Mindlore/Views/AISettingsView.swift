@@ -97,7 +97,7 @@ struct AIKeyView: View {
             } header: {
                 Text("OpenAI")
             } footer: {
-                Text("Your key is stored in this iPhone's Keychain.")
+                Text("Your key is stored in this iPhone's Keychain. Saving it turns AI on.")
             }
         }
         .animation(Motion.resolve(Motion.settle, reduceMotion: reduceMotion), value: replacingKey)
