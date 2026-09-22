@@ -5,8 +5,13 @@ import Testing
 
 nonisolated final class FakeSecretStore: SecretStore {
     private let secrets = Mutex<[String: String]>([:])
+    // A Keychain status to throw from every read, standing in for a locked or broken keychain.
+    let readFailure = Mutex<OSStatus?>(nil)
 
-    func read(account: String) throws -> String? { secrets.withLock { $0[account] } }
+    func read(account: String) throws -> String? {
+        if let status = readFailure.withLock({ $0 }) { throw SecretStoreError(status: status) }
+        return secrets.withLock { $0[account] }
+    }
     func write(_ secret: String, account: String) throws { secrets.withLock { $0[account] = secret } }
     func delete(account: String) throws { _ = secrets.withLock { $0.removeValue(forKey: account) } }
 }
@@ -60,9 +65,9 @@ struct ProviderAccountStoreTests {
         #expect(settings.pageAccountID == account.id)
         #expect(settings.textAccountID == account.id)
         #expect(accounts.hasKey(for: account))
-        #expect(accounts.resolve(.text) == ResolvedProvider(account: account, apiKey: "sk-live", model: ProviderDefaults.textModel))
-        #expect(accounts.resolve(.speech)?.model == ProviderDefaults.speechModel)
-        #expect(accounts.resolve(.pages)?.model == ProviderDefaults.pageModel)
+        #expect(accounts.resolve(.text) == .success(ResolvedProvider(account: account, apiKey: "sk-live", model: ProviderDefaults.textModel)))
+        #expect((try? accounts.resolve(.speech).get())?.model == ProviderDefaults.speechModel)
+        #expect((try? accounts.resolve(.pages).get())?.model == ProviderDefaults.pageModel)
     }
 
     @Test func replacingAKeyKeepsTheSameAccount() throws {
@@ -72,7 +77,7 @@ struct ProviderAccountStoreTests {
 
         #expect(first.id == second.id)
         #expect(settings.providerAccounts.count == 1)
-        #expect(accounts.resolve(.text)?.apiKey == "sk-2")
+        #expect((try? accounts.resolve(.text).get())?.apiKey == "sk-2")
     }
 
     @Test func removingAnAccountDeletesItsKeyAndClearsSelections() throws {
@@ -84,7 +89,7 @@ struct ProviderAccountStoreTests {
         #expect(try secrets.read(account: account.id.uuidString) == nil)
         #expect(settings.providerAccounts.isEmpty)
         #expect(settings.speechAccountID == nil && settings.pageAccountID == nil && settings.textAccountID == nil)
-        #expect(accounts.resolve(.text) == nil)
+        #expect(accounts.resolve(.text) == .failure(.missingKey))
     }
 
     @Test func theCachedKeyStateFollowsSavingAndRemoving() throws {
@@ -104,8 +109,24 @@ struct ProviderAccountStoreTests {
         settings.providerAccounts = [account]
         settings.textAccountID = account.id
 
-        #expect(accounts.resolve(.text) == nil)
+        #expect(accounts.resolve(.text) == .failure(.missingKey))
         #expect(!accounts.hasKey(for: account))
+    }
+
+    // A locked Keychain used to read as "no key": Settings said Not set and every job failed as
+    // missingKey, a permanent failure. Now the key counts as present and the job waits.
+    @Test func anUnreadableKeyIsLockedNotMissing() throws {
+        let (settings, accounts, secrets) = makeStores()
+        let account = try accounts.saveOpenAIKey("sk-1")
+        secrets.readFailure.withLock { $0 = errSecInteractionNotAllowed }
+
+        #expect(accounts.hasKey(for: account))
+        #expect(accounts.resolve(.text) == .failure(.keyUnavailable))
+        #expect(AIError.keyUnavailable.isRetryable && AIError.keyUnavailable.wasAbandoned)
+
+        // A launch before the first unlock still knows the key is there.
+        let relaunched = ProviderAccountStore(settings: settings, secrets: secrets, diagnostics: .disabled)
+        #expect(relaunched.hasUsableKey)
     }
 
     @Test func testConnectionReportsModelsOrTheMappedError() async throws {

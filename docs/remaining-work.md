@@ -207,15 +207,8 @@ spike was built and rejected on 2026-09-21; 2D ships).
 
 Real, deferred on purpose, each with why it can wait.
 
-- [ ] **Voice chunks aren't saved as they finish.** A failure on chunk 9 of 10 re-uploads all nine,
-      up to the 3-attempt cap. Pages already save per page. Costs money only on long recordings
-      that fail part-way.
 - [ ] **`retryAfter` from a 429 is parsed and ignored.** The next attempt waits for a scene change or
       launch instead of the provider's delay.
-- [ ] **A Keychain error reads as "no key".** `ProviderAccountStore` swallows the status, so a locked
-      or broken keychain looks like an unconfigured account.
-- [ ] **Cancelling "Edit pages" discards pages added during that edit** without asking. Pages already
-      on the entry are safe.
 - [ ] **`JournalSaves.revision` isn't observable.** A screen keyed on it alone misses a background
       save, which is why Settings' About counts can lag while you're looking at them. Today gets away
       with it because the journal list's query redraws it. Making it observable also changes how often

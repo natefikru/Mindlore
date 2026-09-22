@@ -23,6 +23,7 @@ struct PageOrderView: View {
     @State private var notice: String?
     @State private var removalIndex: Int?
     @State private var confirmingRestart = false
+    @State private var confirmingDiscard = false
     @State private var previewingPage: Int?
     private let onConfirmed: (Entry) -> Void
 
@@ -171,6 +172,11 @@ struct PageOrderView: View {
             }
         }
         .interactiveDismissDisabled()
+        .alert("Discard your changes to these pages?", isPresented: $confirmingDiscard) {
+            Button("Keep Editing", role: .cancel) {}
+            Button("Discard Changes", role: .destructive) { cancelEdit() }
+                .accessibilityIdentifier("confirmDiscardPageEditsButton")
+        }
     }
 
     private var emptyState: some View {
@@ -364,9 +370,13 @@ struct PageOrderView: View {
 
     // Nothing is deleted when the view disappears; an unconfirmed entry with no pages is removed only here.
     private func close() {
-        if draft != nil {
-            DiagnosticsLog.shared.record("pages.editCancelled", ["id": entry.map { .id($0.id) } ?? "none"])
-            return finish()
+        if let draft {
+            // Pages added during an edit exist only in the draft, so leaving without asking lost them.
+            if let entry, PageDraftItem.differs(draft, from: entry) {
+                confirmingDiscard = true
+                return
+            }
+            return cancelEdit()
         }
         if let entry {
             presence.close(entry.id)
@@ -377,6 +387,11 @@ struct PageOrderView: View {
             saver.flush()
         }
         dismiss()
+    }
+
+    private func cancelEdit() {
+        DiagnosticsLog.shared.record("pages.editCancelled", ["id": entry.map { .id($0.id) } ?? "none"])
+        finish()
     }
 
     static func notice(leftOut: Int, failed: Int) -> String? {

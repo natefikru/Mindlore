@@ -30,7 +30,7 @@ struct AIErrorTests {
     }
 
     @Test func caseNamesRoundTrip() {
-        let all: [AIError] = [.missingKey, .invalidKey, .permissionDenied, .rateLimited(retryAfter: 3), .quotaExceeded, .requestTooLarge, .contextTooLong, .badRequest(code: "x"), .serverError(status: 503), .offline(.cannotFindHost), .network(.timedOut), .outputTruncated, .invalidResponse, .cancelled]
+        let all: [AIError] = [.missingKey, .keyUnavailable, .invalidKey, .permissionDenied, .rateLimited(retryAfter: 3), .quotaExceeded, .requestTooLarge, .contextTooLong, .badRequest(code: "x"), .serverError(status: 503), .offline(.cannotFindHost), .network(.timedOut), .outputTruncated, .invalidResponse, .cancelled]
         for error in all {
             #expect(AIError(caseName: error.caseName)?.caseName == error.caseName)
         }

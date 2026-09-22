@@ -73,6 +73,21 @@ final class PageTranscriptionUITests: XCTestCase {
         app.buttons["pageOrderCloseButton"].tap()
         XCTAssertTrue(waitForText(["fixture page 1", "fixture page 2", "fixture page 3"], timeout: 5))
 
+        // Cancelling after adding pages asks first, since the new pages exist only in the draft.
+        app.buttons["editPagesButton"].tap()
+        XCTAssertTrue(app.buttons["addFromPhotosButton"].waitForExistence(timeout: 5))
+        app.buttons["addFromPhotosButton"].tap()
+        XCTAssertTrue(app.buttons["Remove page 5"].waitForExistence(timeout: 5))
+        app.buttons["pageOrderCloseButton"].tap()
+        let discard = app.buttons["confirmDiscardPageEditsButton"].firstMatch
+        XCTAssertTrue(discard.waitForExistence(timeout: 5))
+        app.buttons["Keep Editing"].firstMatch.tap()
+        XCTAssertTrue(app.buttons["Remove page 5"].exists, "keeping editing keeps the added pages")
+        app.buttons["pageOrderCloseButton"].tap()
+        XCTAssertTrue(discard.waitForExistence(timeout: 5))
+        discard.tap()
+        XCTAssertTrue(waitForText(["fixture page 1", "fixture page 2", "fixture page 3"], timeout: 5))
+
         // Removing a page warns, then erases and transcribes the remaining pages again.
         app.buttons["entryMoreButton"].tap()
         app.buttons["editPagesButton"].tap()

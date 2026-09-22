@@ -49,8 +49,10 @@ struct MindloreApp: App {
         if isolatesSettings, arguments.contains(DemoJournal.resetSettingsArgument) {
             UserDefaults.standard.removePersistentDomain(forName: DemoJournal.settingsSuiteName)
         }
-        #endif
         let demoDefaults = !isolatesSettings ? nil : UserDefaults(suiteName: DemoJournal.settingsSuiteName)
+        #else
+        let demoDefaults: UserDefaults? = nil
+        #endif
         let defaults = testStoreName.flatMap { UserDefaults(suiteName: "uitest-\($0)") } ?? demoDefaults ?? .standard
         // A real key handed to a UI test run stays in memory so it never touches the Keychain; test
         // runs with the stub's key use a Keychain service named for the run, so saving a key and
