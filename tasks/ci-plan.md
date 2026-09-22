@@ -23,8 +23,8 @@ nothing to overlap it with. Unit tests themselves are under 4 minutes; each UI s
 Building in every job and booting during the compile was tried and was slower (the boot fought
 the compiler: 6.5 to 11.5 minute builds).
 
-- **Triggers.** `ui` runs on every push to `main`, on a PR carrying the `ui` label, and on manual
-  dispatch; a manual run with `only` runs named tests (`Class` or `Class/testMethod`) on one
+- **Triggers.** `ui` runs on every push to `main`, on a PR carrying the `ui` label (dispatched by
+  `ui-label.yml` as its own run), and on manual dispatch; a manual run with `only` runs named tests (`Class` or `Class/testMethod`) on one
   runner and skips unit. A PR's UI run leaves out the `*ScreenshotTests` classes.
 - **Concurrency.** One run per branch; a new push cancels the one in flight.
 - **Shards are computed, not maintained.** `ui-shards.sh` deals test methods, heaviest first, by
@@ -117,6 +117,10 @@ the compiler: 6.5 to 11.5 minute builds).
   `OpenAILiveTests.looseEndsAreCommitmentsNotPassingRemarks` (two commitments where one is allowed),
   a second live-model judgment varying with no code change. Both OpenAI suites moved out of the
   required unit job into an advisory `live` job that runs after unit on its runner.
+- Dependabot's first PRs showed that a `labeled` trigger starts a run for every label, and that
+  run cancelled the real one in flight. Making it skip instead would record a skipped "Unit tests",
+  which counts as passed. `ci.yml` dropped `labeled`; `ui-label.yml` dispatches the UI suite for a
+  labeled PR instead.
 - `OnDeviceInsightsLiveTests` failed once locally (Apple's model returned no summary) and passed the
   run before. It is gated on `FoundationModelsAvailability`, so it skips on hosted runners; it is a
   flaky live test on a Mac with Apple Intelligence, not a CI concern.

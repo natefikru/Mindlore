@@ -1,0 +1,35 @@
+# Runs the UI suite for a pull request carrying the "ui" label: when the label is added, and on
+# every push to a labeled PR after that.
+#
+# It dispatches CI on the PR's branch with ui=true and skip_unit=true, so the UI shards run as a
+# run of their own (their checks still land on the PR's head commit) while the PR's own run keeps
+# build, unit, and live. Why not a "labeled" trigger on ci.yml itself: a run for any other label
+# would skip its jobs, a skipped job counts as a passed required check, and Dependabot labels
+# every PR it opens. This job runs on Ubuntu, outside the five-job macOS limit, and does nothing
+# for other labels or for a PR from a fork (whose branch can't be dispatched here).
+
+name: UI on label
+
+on:
+  pull_request:
+    types: [labeled, synchronize, opened, reopened]
+
+permissions:
+  actions: write
+
+jobs:
+  dispatch:
+    if: >-
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      ((github.event.action == 'labeled' && github.event.label.name == 'ui') ||
+       (github.event.action != 'labeled' && contains(github.event.pull_request.labels.*.name, 'ui')))
+    runs-on: ubuntu-latest
+    steps:
+      - name: Dispatch the UI suite on ${{ github.head_ref }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BRANCH: ${{ github.head_ref }}
+        run: |
+          gh workflow run ci.yml --repo "$GITHUB_REPOSITORY" --ref "$BRANCH" \
+            -f ui=true -f skip_unit=true -f skip_screenshots=true
+          echo "UI suite dispatched on $BRANCH; it shows in the PR's checks as its own run."

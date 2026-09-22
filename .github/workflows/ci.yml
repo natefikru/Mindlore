@@ -1,14 +1,15 @@
 # Build once, then five test jobs at once: unit, and the UI suite split four ways. Five is the free
 # plan's limit of concurrent macOS jobs, so none of them queues.
 #
-#   build  compiles the app and both test bundles for the simulator (about four minutes) and
+#   build  compiles the app and both test bundles for the simulator (about two minutes) and
 #          hands the products to the test jobs.
 #   unit   every pull request and push to main. The only required check. Leaves out the suites
 #          that call real OpenAI.
 #   live   those suites, with the key: after unit, on its runner. Advisory.
-#   ui     every push to main, a pull request labeled "ui", and manual runs. Advisory: a failed
+#   ui     every push to main, a pull request labeled "ui" (dispatched by ui-label.yml as a run of
+#          its own, with skip_unit), and manual runs. Advisory: a failed
 #          shard is red on its own job, and continue-on-error keeps it out of the run's result.
-#          Each shard asks scripts/ci/ui-shards.sh for its classes, balanced by test count.
+#          Each shard asks scripts/ci/ui-shards.sh for its tests, balanced by measured time.
 #
 # Why one build and not one per job: each job building for itself while its simulator booted in
 # the background was tried, and the boot fought the compiler for the runner's three cores, so
@@ -23,8 +24,9 @@
 name: CI
 
 on:
+  # No "labeled": a label-only run would skip its jobs, a skipped job counts as a passed required
+  # check, and Dependabot labels every PR it opens. The "ui" label works through ui-label.yml.
   pull_request:
-    types: [opened, synchronize, reopened, labeled]
   push:
     branches: [main]
   workflow_dispatch:
@@ -33,11 +35,22 @@ on:
         description: Run the UI suite
         type: boolean
         default: true
+      skip_unit:
+        description: Skip the unit and live jobs (ui-label.yml sets this; the PR's own run has them)
+        type: boolean
+        default: false
+      skip_screenshots:
+        description: Leave out the *ScreenshotTests classes (ui-label.yml sets this for a PR)
+        type: boolean
+        default: false
       only:
         description: "Run only these UI tests (Class or Class/testMethod, space-separated); skips unit"
         type: string
         default: ""
 
+# A new push cancels the run in flight. A pull request's own run and the UI run ui-label.yml
+# dispatches for it have different refs (the PR's merge ref, the branch), so neither cancels the
+# other.
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
@@ -79,7 +92,7 @@ jobs:
   unit:
     name: Unit tests
     needs: build
-    if: inputs.only == ''
+    if: inputs.only == '' && inputs.skip_unit != true
     runs-on: macos-26
     timeout-minutes: 30
     steps:
@@ -113,7 +126,7 @@ jobs:
   live:
     name: Live OpenAI tests
     needs: [build, unit]
-    if: ${{ !cancelled() && needs.build.result == 'success' && inputs.only == '' }}
+    if: ${{ !cancelled() && needs.build.result == 'success' && inputs.only == '' && inputs.skip_unit != true }}
     continue-on-error: true
     runs-on: macos-26
     timeout-minutes: 30
@@ -146,9 +159,9 @@ jobs:
   ui:
     name: UI tests (shard ${{ matrix.shard }})
     needs: build
+    # A pull request's UI run is dispatched by ui-label.yml, never part of the PR's own run.
     if: >-
       github.event_name == 'push' ||
-      (github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'ui')) ||
       (github.event_name == 'workflow_dispatch' && (inputs.ui || inputs.only != ''))
     continue-on-error: true
     runs-on: macos-26
@@ -166,13 +179,14 @@ jobs:
         env:
           ONLY: ${{ inputs.only }}
           SHARD: ${{ matrix.shard }}
+          SKIP_SCREENSHOTS: ${{ inputs.skip_screenshots }}
         run: |
-          # A pull request's run leaves out the screenshot classes; main and manual runs keep them.
+          # A pull request's UI run leaves out the screenshot classes; main and manual runs keep them.
           if [ -n "$ONLY" ]; then
             classes="$ONLY"
           else
             flag=""
-            [ "${{ github.event_name }}" = "pull_request" ] && flag="--skip-screenshots"
+            [ "$SKIP_SCREENSHOTS" = "true" ] && flag="--skip-screenshots"
             classes="$(scripts/ci/ui-shards.sh "$UI_SHARDS" $flag --shard "$SHARD")"
           fi
           echo "Shard $SHARD: ${classes:-nothing}"
