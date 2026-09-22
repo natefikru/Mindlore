@@ -8,12 +8,16 @@ import SwiftUI
 struct ReflectView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
-    @Environment(AppRouter.self) private var router
+    @Environment(SettingsStore.self) private var settings
+    @Environment(ProviderAccountStore.self) private var accounts
     @State private var earliestEntryDate: Date?
     @State private var months: [ReflectFeed.MonthRow] = []
     @State private var hasLoaded = false
 
     var recentWeekCount = ReflectFeed.defaultRecentWeekCount
+    // The presenter's chance to remember it should reopen Reflect once the seeded entry closes,
+    // rather than leaving the user on the Journal list with no way back to where they were.
+    var onOpenEntry: (String) -> Void = { _ in }
 
     var body: some View {
         NavigationStack {
@@ -57,6 +61,14 @@ struct ReflectView: View {
     // reaches, and the month list is filtered here (not per-row) so a zero-entry month never
     // renders even for a frame.
     private func load() async {
+        // The same check AskView runs on its own open (Checked on every open, so adding a key
+        // moves questions without a trip to Settings): otherwise a key saved just now sits unused
+        // until the user happens to visit Ask first, and Reflect looked broken for no reason a
+        // relaunch could fix either, since nothing here depended on app state.
+        settings.refreshAskGeneratorDefault(
+            textUsable: AIServices.textUsable(settings: settings, accounts: accounts),
+            onDeviceAvailable: FoundationModelsAvailability.isAvailable
+        )
         guard let earliest = ReflectSource.earliestEntryDate(in: modelContext) else {
             hasLoaded = true
             return
@@ -72,8 +84,7 @@ struct ReflectView: View {
     }
 
     private func openEntry(_ item: ReflectQueueItem) {
-        dismiss()
-        router.showNewEntry(startingText: item.prompt)
+        onOpenEntry(item.prompt)
     }
 }
 

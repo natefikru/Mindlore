@@ -25,10 +25,12 @@ struct ReflectQueueRow: View {
                         .foregroundStyle(.tertiary)
                         .accessibilityIdentifier("reflectDismiss-\(item.id)")
                 }
+                // No line limit: a "Still open" line is one sentence, and a generated summary is
+                // deliberately short (two to four sentences), so there's nothing here worth
+                // truncating with no way to see the rest.
                 Text(item.body)
                     .journalText(.callout)
                     .foregroundStyle(Palette.ink)
-                    .lineLimit(6)
                     .multilineTextAlignment(.leading)
             }
             .frame(maxWidth: .infinity, alignment: .leading)

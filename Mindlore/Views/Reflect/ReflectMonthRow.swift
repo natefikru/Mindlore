@@ -42,11 +42,13 @@ struct ReflectMonthRow: View {
                             .foregroundStyle(.secondary)
                     }
                     ReflectMoodChipStrip(moodCounts: moodCounts)
+                    // No line limit: the generated line is a short paragraph on purpose (two to
+                    // four sentences), and cutting it at two lines with no way to see the rest
+                    // hid most of it.
                     if let line, !line.isEmpty {
                         Text(line)
                             .font(.caption)
                             .foregroundStyle(.secondary)
-                            .lineLimit(2)
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)

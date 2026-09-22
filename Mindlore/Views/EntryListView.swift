@@ -15,6 +15,9 @@ struct EntryListView: View {
     @State private var pickedAreas: Set<LifeArea> = []
     @State private var today = Today()
     @State private var showingReflect = false
+    // Set right before a Reflect card jumps to a new entry, so leaving that entry (back or Done)
+    // returns to Reflect instead of dumping the user on the Journal list they never asked for.
+    @State private var returnToReflectAfterEntry = false
     @Environment(RecordingSession.self) private var recording
     @Environment(InsightsCoordinator.self) private var insightsCoordinator
 
@@ -101,7 +104,10 @@ struct EntryListView: View {
                 EntryInsightsView(entry: entry)
             }
             .sheet(isPresented: $showingReflect) {
-                ReflectView()
+                ReflectView(onOpenEntry: { prompt in
+                    returnToReflectAfterEntry = true
+                    router.showNewEntry(startingText: prompt)
+                })
             }
             .fullScreenCover(item: $pageOrder) { target in
                 switch target {
@@ -120,6 +126,13 @@ struct EntryListView: View {
             .onChange(of: router.dismissPresentationsToken) {
                 insightsEntry = nil
                 showingReflect = false
+            }
+            // The entry a Reflect card opened has closed (back or Done): return to Reflect rather
+            // than leaving the user on the plain Journal list.
+            .onChange(of: router.journalPath) { _, path in
+                guard path.isEmpty, returnToReflectAfterEntry else { return }
+                returnToReflectAfterEntry = false
+                showingReflect = true
             }
         }
     }

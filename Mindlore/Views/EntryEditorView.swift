@@ -69,14 +69,28 @@ struct EntryEditorView: View {
                     } else {
                         // The text view grows with its text and never ends shorter than the screen, so the
                         // whole entry scrolls as one and a tap below short text still lands in the text.
-                        GrowingTextEditor(
-                            text: textBinding,
-                            isFocused: editorFocused,
-                            focusAtEndToken: focusAtEndToken,
-                            onFocusChange: { editorFocused = $0 }
-                        )
+                        ZStack(alignment: .topLeading) {
+                            // A Reflect card's prompt shows as a hint, not real content: entry stays nil
+                            // (and nothing is saved) until the user actually types, the same rule any
+                            // other new entry follows. Seeding real text here once did create a
+                            // permanent draft from a card the user only glanced at and left.
+                            if entry == nil, let startingText, !startingText.isEmpty {
+                                Text(startingText)
+                                    .journalText(.body)
+                                    .foregroundStyle(.tertiary)
+                                    .padding(.top, 8)
+                                    .allowsHitTesting(false)
+                                    .accessibilityHidden(true)
+                            }
+                            GrowingTextEditor(
+                                text: textBinding,
+                                isFocused: editorFocused,
+                                focusAtEndToken: focusAtEndToken,
+                                onFocusChange: { editorFocused = $0 }
+                            )
+                            .accessibilityIdentifier("entryEditor")
+                        }
                         .padding(.horizontal)
-                        .accessibilityIdentifier("entryEditor")
                         .onAppear {
                             guard focusWhenEditorAppears else { return }
                             focusWhenEditorAppears = false
@@ -196,10 +210,7 @@ struct EntryEditorView: View {
         // Opening and closing (presence, delete-if-blank, the AI pass) belong to the route, in
         // EditorLifecycle, so a tab switch or a cover over the editor never closes the entry.
         .onAppear {
-            if entry == nil {
-                focusAtEndToken += 1
-                createIfStartingTextPending()
-            }
+            if entry == nil { focusAtEndToken += 1 }
         }
         // One way only: an entry that needs the editor again (new pages, text to review) stops
         // being read, and never flips back by itself.
@@ -500,18 +511,6 @@ struct EntryEditorView: View {
         saver.flush()
         DiagnosticsLog.shared.record("text.approved", ["id": .id(entry.id)])
         aiPass.onFlagged?()
-    }
-
-    // A route with starting text is real on appear, not on the first keystroke: there's already
-    // something to save, and leaving a card-seeded editor untouched shouldn't discard what it was
-    // opened to ask about the way an empty typed entry does.
-    private func createIfStartingTextPending() {
-        guard let newEntryID, let startingText, !startingText.isEmpty else { return }
-        let created = Entry.makeStarted(id: newEntryID, text: startingText)
-        modelContext.insert(created)
-        currentEntry = created
-        DiagnosticsLog.shared.record("entry.created", ["id": .id(created.id), "source": .string(created.source.rawValue)])
-        saver.noteChange()
     }
 
     // The entry is created on the first non-empty change, so opening and leaving a new entry leaves nothing behind.

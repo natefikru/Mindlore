@@ -14,8 +14,9 @@ nonisolated struct JournalRoute: Hashable, Sendable {
     // Decided when the route is made (a list row knows its entry; a finished recording or page set
     // lands for typing), so the editor never re-decides while the entry changes under it.
     var opensForReading = false
-    // A Reflect card's prompt, seeded into the entry the moment it's created rather than on the
-    // first keystroke (Entry.makeStarted). Equality stays on entryID alone, like every other field.
+    // A Reflect card's prompt, shown as a placeholder hint in the empty editor rather than real
+    // content: nothing is created or saved unless the user actually types. Equality stays on
+    // entryID alone, like every other field.
     var startingText: String? = nil
 
     static func new(startingText: String? = nil) -> JournalRoute {
