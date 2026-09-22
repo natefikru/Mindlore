@@ -18,6 +18,7 @@ final class SettingsStore {
         static let textAccountID = "textAccountID"
         static let textModel = "textModel"
         static let titleGenerator = "titleGenerator"
+        static let insightsGenerator = "insightsGenerator"
         static let askGenerator = "askGenerator"
         static let askGeneratorChosenByUser = "askGeneratorChosenByUser"
         static let insightsTrigger = "insightsTrigger"
@@ -132,6 +133,22 @@ final class SettingsStore {
         set {
             storedTitleGenerator = newValue
             write(newValue.rawValue, Key.titleGenerator, logged: .string(newValue.rawValue))
+        }
+    }
+
+    // nil until the user chooses, and resolved like titles: OpenAI once AI is set up, the free
+    // on-device model otherwise, nothing on a phone that has neither (owner, 2026-09-22).
+    private var storedInsightsGenerator: InsightsGenerator?
+
+    var insightsGenerator: InsightsGenerator {
+        get {
+            if let storedInsightsGenerator { return storedInsightsGenerator }
+            if aiEnabled && !providerAccounts.isEmpty { return .openAI }
+            return onDeviceTitlesAvailable() ? .onDevice : .off
+        }
+        set {
+            storedInsightsGenerator = newValue
+            write(newValue.rawValue, Key.insightsGenerator, logged: .string(newValue.rawValue))
         }
     }
 
@@ -331,6 +348,7 @@ final class SettingsStore {
         textAccountID = uuid(Key.textAccountID)
         textModel = string(Key.textModel) ?? ProviderDefaults.textModel
         storedTitleGenerator = string(Key.titleGenerator).flatMap(TitleGenerator.init(rawValue:))
+        storedInsightsGenerator = string(Key.insightsGenerator).flatMap(InsightsGenerator.init(rawValue:))
         storedAskGenerator = string(Key.askGenerator).flatMap(AskGenerator.init(rawValue:))
         askGeneratorChosenByUser = bool(Key.askGeneratorChosenByUser, false)
         insightsTrigger = string(Key.insightsTrigger).flatMap(InsightsTrigger.init(rawValue:)) ?? .automatic

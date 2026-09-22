@@ -28,6 +28,14 @@ nonisolated enum TitleGenerator: String, Codable, Sendable, CaseIterable {
     case openAI
 }
 
+// Who reads an entry for its insights (summary, mood, areas, tags, names, loose ends). Built like
+// TitleGenerator. On device is what lets the map, Today, and Reflect fill in with no key at all.
+nonisolated enum InsightsGenerator: String, Codable, Sendable, CaseIterable {
+    case off
+    case onDevice
+    case openAI
+}
+
 // Who answers a question in Ask. Built like TitleGenerator: the user's choice, not a rule with
 // an exception, and picked once the first time Ask opens.
 nonisolated enum AskGenerator: String, Codable, Sendable, CaseIterable {

@@ -47,6 +47,8 @@ struct ResolvedTextGenerator {
     let generator: any TextGenerator
     let model: String
     let label: String
+    // Apple's model, with its small context: insights send it the on-device prompt budget.
+    var onDevice = false
 }
 
 extension AIServices {
@@ -91,8 +93,29 @@ extension AIServices {
         }
     }
 
+    // Insights from the setting, the same shape as titles. On device nothing leaves the phone, so
+    // it needs no "use AI" switch, exactly as on-device titles don't.
     static func insightsGenerator(settings: SettingsStore, accounts: ProviderAccountStore) -> Result<InsightsCoordinator.Generator, AIJobFailure> {
-        textGenerator(settings: settings, accounts: accounts)
+        switch settings.insightsGenerator {
+        case .off:
+            return .failure(AIJobFailure(raw: "settings.off"))
+        case .onDevice:
+            guard FoundationModelsAvailability.isAvailable else {
+                return .failure(AIJobFailure(FoundationModelsAvailability.unavailableReason))
+            }
+            return .success(.init(generator: FoundationModelsTextGenerator(), model: "", label: FoundationModelsTextGenerator.label, onDevice: true))
+        case .openAI:
+            return textGenerator(settings: settings, accounts: accounts)
+        }
+    }
+
+    // Whether insightsGenerator would succeed, without touching the Keychain, for views to ask.
+    static func insightsUsable(settings: SettingsStore, accounts: ProviderAccountStore) -> Bool {
+        switch settings.insightsGenerator {
+        case .off: false
+        case .onDevice: FoundationModelsAvailability.isAvailable
+        case .openAI: textUsable(settings: settings, accounts: accounts)
+        }
     }
 
     static func insightSections(_ settings: SettingsStore) -> InsightSections {
@@ -110,9 +133,25 @@ extension AIServices {
     }
 
     // Whether the automatic pass should flag insights for an entry right now.
+    // The two facts the insights sheet reads, per engine: whether insights are switched on, and
+    // whether the engine can run. On device the second one means Apple Intelligence is ready.
+    static func insightsReadiness(settings: SettingsStore, accounts: ProviderAccountStore) -> (enabled: Bool, ready: Bool) {
+        switch settings.insightsGenerator {
+        case .off: (false, false)
+        case .onDevice: (true, FoundationModelsAvailability.isAvailable)
+        case .openAI: (settings.aiEnabled, accounts.hasUsableKey && accounts.settingsAccount(for: .text) != nil)
+        }
+    }
+
+    // Bios are drafted by OpenAI only, so they keep the old rule: automatic work, a usable key.
+    static func automaticBiosUsable(settings: SettingsStore, accounts: ProviderAccountStore) -> Bool {
+        settings.insightsTrigger == .automatic && textUsable(settings: settings, accounts: accounts)
+            && !insightSections(settings).isEmpty
+    }
+
     static func automaticInsightsUsable(settings: SettingsStore, accounts: ProviderAccountStore) -> Bool {
-        settings.aiEnabled && settings.insightsTrigger == .automatic && accounts.hasUsableKey
-            && accounts.settingsAccount(for: .text) != nil && !insightSections(settings).isEmpty
+        settings.insightsTrigger == .automatic && insightsUsable(settings: settings, accounts: accounts)
+            && !insightSections(settings).isEmpty
     }
 }
 

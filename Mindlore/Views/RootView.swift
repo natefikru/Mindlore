@@ -47,7 +47,7 @@ struct RootView: View {
 
         let graph = GraphServices(
             resolveText: { AIServices.textGenerator(settings: settings, accounts: accounts) },
-            automaticBiosUsable: { AIServices.automaticInsightsUsable(settings: settings, accounts: accounts) },
+            automaticBiosUsable: { AIServices.automaticBiosUsable(settings: settings, accounts: accounts) },
             promptVoice: { settings.promptVoice }
         )
         _graph = State(initialValue: graph)

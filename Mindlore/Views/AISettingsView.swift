@@ -29,7 +29,7 @@ struct AISettingsSection: View {
             .accessibilityIdentifier("aiFeaturesLink")
             // Unchanged from the old AI screen: on-device titles keep this live with AI off,
             // because they need no key and send nothing anywhere.
-            .disabled(!settings.aiEnabled && settings.titleGenerator != .onDevice)
+            .disabled(!settings.aiEnabled && settings.titleGenerator != .onDevice && settings.insightsGenerator != .onDevice)
         } header: {
             Text("AI")
         } footer: {
@@ -188,6 +188,21 @@ struct AIFeaturesView: View {
             }
 
             Section {
+                Picker("Read entries with", selection: $settings.insightsGenerator) {
+                    Text("Nothing").tag(InsightsGenerator.off)
+                    if onDeviceAvailable || settings.insightsGenerator == .onDevice {
+                        Text("This iPhone").tag(InsightsGenerator.onDevice)
+                    }
+                    Text("OpenAI").tag(InsightsGenerator.openAI)
+                }
+                .accessibilityIdentifier("insightsGeneratorPicker")
+            } header: {
+                Text("Insights")
+            } footer: {
+                Text(insightsFooter)
+            }
+
+            Section {
                 Picker("Answer with", selection: $settings.askGenerator) {
                     Text("Nothing").tag(AskGenerator.off)
                     if onDeviceAvailable || settings.askGenerator == .onDevice {
@@ -228,6 +243,21 @@ struct AIFeaturesView: View {
             settings.aiEnabled && accounts.openAIAccount != nil
                 ? "Titles are written by OpenAI, using your key."
                 : "Turn on AI and save a key to write titles with OpenAI."
+        }
+    }
+
+    private var insightsFooter: String {
+        switch settings.insightsGenerator {
+        case .off:
+            "Entries aren't read for moods, areas, tags, names, or loose ends, so the map and Today stay empty."
+        case .onDevice:
+            onDeviceAvailable
+                ? "Entries are read by Apple's on-device model, so nothing leaves this iPhone. It reads the first few thousand characters of a long entry and doesn't clean up transcriptions or run your own prompts; OpenAI does both."
+                : "This iPhone can't run Apple's on-device model. Turn on Apple Intelligence in Settings, or choose OpenAI."
+        case .openAI:
+            settings.aiEnabled && accounts.openAIAccount != nil
+                ? "Entries are read by OpenAI, using your key."
+                : "Turn on AI and save a key to read entries with OpenAI."
         }
     }
 

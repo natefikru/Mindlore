@@ -50,8 +50,8 @@ struct EntryInsightsView: View {
             insightsAreCurrent: insights?.isCurrent(for: entry) ?? false,
             running: insightsCoordinator.isRunning(entry),
             failure: AIJobPolicy.failure(.insights, entry),
-            aiEnabled: settings.aiEnabled,
-            hasKey: accounts.hasUsableKey && accounts.settingsAccount(for: .text) != nil
+            aiEnabled: AIServices.insightsReadiness(settings: settings, accounts: accounts).enabled,
+            hasKey: AIServices.insightsReadiness(settings: settings, accounts: accounts).ready
         )
     }
 
@@ -256,11 +256,19 @@ struct EntryInsightsView: View {
                 Text(result.content)
             }
         }
-        if insights.cleanedTextSkippedReasonRaw == "tooLong" {
-            Text("This entry was too long to clean up.")
+        if let note = cleanupNote(insights.cleanedTextSkippedReasonRaw) {
+            Text(note)
                 .font(.footnote)
                 .foregroundStyle(.secondary)
                 .padding(.horizontal, 4)
+        }
+    }
+
+    private func cleanupNote(_ reason: String?) -> String? {
+        switch reason {
+        case "tooLong": "This entry was too long to clean up."
+        case "onDevice": "Clean-up needs OpenAI. The on-device model can't rewrite a whole entry."
+        default: nil
         }
     }
 
