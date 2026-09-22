@@ -159,6 +159,13 @@ struct AIFeaturesView: View {
     @Environment(ProviderAccountStore.self) private var accounts
     private let onDeviceAvailable = FoundationModelsAvailability.isAvailable
 
+    // nil when the model can run. Distinguishes hardware that can't run it at all from Apple
+    // Intelligence just being switched off, which "This iPhone can't run it" wrongly implied.
+    private var onDeviceUnavailableReason: OnDeviceModelError.Reason? {
+        guard !onDeviceAvailable, case .unavailable(let reason) = FoundationModelsAvailability.unavailableReason else { return nil }
+        return reason
+    }
+
     var body: some View {
         @Bindable var settings = settings
 
@@ -236,9 +243,16 @@ struct AIFeaturesView: View {
         case .off:
             "Entries show the first words of their text until you type a title."
         case .onDevice:
-            onDeviceAvailable
-                ? "Titles are written by Apple's on-device model. No key needed, and it works offline."
-                : "This iPhone can't run Apple's on-device model, so titles won't be written. Turn on Apple Intelligence in Settings, choose OpenAI, or type your own titles."
+            switch onDeviceUnavailableReason {
+            case nil:
+                "Titles are written by Apple's on-device model. No key needed, and it works offline."
+            case .appleIntelligenceNotEnabled:
+                "Turn on Apple Intelligence in Settings to write titles on this iPhone, or choose OpenAI."
+            case .modelNotReady:
+                "Apple's on-device model is still downloading, so titles won't be written yet. Choose OpenAI, or type your own titles until it's ready."
+            case .deviceNotEligible, .unknown:
+                "This iPhone can't run Apple's on-device model, so titles won't be written. Choose OpenAI, or type your own titles."
+            }
         case .openAI:
             settings.aiEnabled && accounts.openAIAccount != nil
                 ? "Titles are written by OpenAI, using your key."
@@ -251,9 +265,16 @@ struct AIFeaturesView: View {
         case .off:
             "Entries aren't read for moods, areas, tags, names, or loose ends, so the map and Today stay empty."
         case .onDevice:
-            onDeviceAvailable
-                ? "Entries are read by Apple's on-device model, so nothing leaves this iPhone. It reads the first few thousand characters of a long entry and doesn't clean up transcriptions or run your own prompts; OpenAI does both."
-                : "This iPhone can't run Apple's on-device model. Turn on Apple Intelligence in Settings, or choose OpenAI."
+            switch onDeviceUnavailableReason {
+            case nil:
+                "Entries are read by Apple's on-device model, so nothing leaves this iPhone. It reads the first few thousand characters of a long entry and doesn't clean up transcriptions or run your own prompts; OpenAI does both."
+            case .appleIntelligenceNotEnabled:
+                "Turn on Apple Intelligence in Settings to read entries on this iPhone, or choose OpenAI."
+            case .modelNotReady:
+                "Apple's on-device model is still downloading. Choose OpenAI, or wait for it to finish."
+            case .deviceNotEligible, .unknown:
+                "This iPhone can't run Apple's on-device model. Choose OpenAI."
+            }
         case .openAI:
             settings.aiEnabled && accounts.openAIAccount != nil
                 ? "Entries are read by OpenAI, using your key."
@@ -266,9 +287,16 @@ struct AIFeaturesView: View {
         case .off:
             "Searching your journal still works. Nothing is sent anywhere."
         case .onDevice:
-            onDeviceAvailable
-                ? "Questions are answered by Apple's on-device model, so nothing leaves this iPhone. It reads less of your journal at once than OpenAI can, and once you save a key Mindlore moves questions to OpenAI unless you pick here yourself."
-                : "This iPhone can't run Apple's on-device model. Choose OpenAI, or turn Ask off and keep searching."
+            switch onDeviceUnavailableReason {
+            case nil:
+                "Questions are answered by Apple's on-device model, so nothing leaves this iPhone. It reads less of your journal at once than OpenAI can, and once you save a key Mindlore moves questions to OpenAI unless you pick here yourself."
+            case .appleIntelligenceNotEnabled:
+                "Turn on Apple Intelligence in Settings to answer questions on this iPhone, or choose OpenAI."
+            case .modelNotReady:
+                "Apple's on-device model is still downloading. Choose OpenAI, or turn Ask off until it's ready."
+            case .deviceNotEligible, .unknown:
+                "This iPhone can't run Apple's on-device model. Choose OpenAI, or turn Ask off and keep searching."
+            }
         case .openAI:
             settings.aiEnabled && accounts.openAIAccount != nil
                 ? "The entries a question needs are sent to OpenAI with the question, and every answer says what went out."
