@@ -1,0 +1,195 @@
+# Demo story: a year of Teo's journal
+
+The story behind `-seedStoryJournal`, the demo journal to look at. (`-seedDemoJournal <count>` is the generated one the tests use.) 200 entries from 23 September 2025 to 22 September
+2026, written by one person, Mateo "Teo" Reyes. The seed shifts every date by however long it has
+been since 22 September 2026, so the seasons stay roughly where they belong.
+
+Teo is 31, a product manager at a payments startup, living alone with his cat Pickles in a
+one-bedroom in Logan Square, Chicago. His family is Mexican-American and lives out in Naperville.
+Over the year he meets someone, loses his job, starts therapy, cheats, gets found out by his own
+conscience, loses her, finds a better job, and ends up in September running a half marathon and
+mostly all right. He is funny when he is fine and terse when he is not. He avoids things. He is
+closer to his cousin Danny than to his own brother.
+
+## The cast
+
+Mention names are exact. An entry that names one of these people writes that string in its text
+and lists it in `mentions` with that spelling. "Mom" is always "Mom", never "my mother" in a
+mention.
+
+**Family**
+
+| Mention | Kind | Who |
+|---|---|---|
+| Mom | person | Elena, 60. Calls every Sunday. Feeds everyone. Worries out loud. |
+| Dad | person | Frank, 63, retired electrician. Proud, quiet, never asks for help, hates owing anyone. |
+| Nina | person | Older sister, 35, nurse practitioner, blunt, the one who says the thing. |
+| Marcus | person | Nina's husband, easygoing, grills. |
+| Leo | person | Nina's son, 6, soccer, dinosaurs. |
+| Ava | person | Nina's daughter, 3. |
+| Tommy | person | Younger brother, 22, senior at UIUC, graduates 16 May 2026, crashes on Teo's couch June and July. |
+| Abuela | person | Grandma Lucia, 84, lives with Mom and Dad. Tamales at Christmas. Falls in March, hip surgery. |
+| Danny | person | Cousin, 33, bartender who wants to open a taco truck. Teo's closest person. |
+| Rosa | person | Danny's sister, 29, engaged to Luis, wedding 22 August 2026. |
+| Luis | person | Rosa's fiance, a nurse at Lakeshore Children's, which is how he knows Maya. |
+| Tía Carmen | person | Danny and Rosa's mom, Mom's sister. |
+| Tío Ray | person | Danny and Rosa's dad. |
+
+**Friends**
+
+| Mention | Kind | Who |
+|---|---|---|
+| Kev | person | College roommate, best friend. Married to Jess. Trivia partner. |
+| Jess | person | Kev's wife. Their daughter June is born 9 April 2026. |
+| June | person | Kev and Jess's baby, from April on. |
+| Omar | person | Old Ledgerline coworker who left in 2024. Running buddy from March on. |
+| Sophie | person | Friend from grad school, works at Fieldnote, refers Teo there in April. |
+
+**Love**
+
+| Mention | Kind | Who |
+|---|---|---|
+| Maya | person | 30, pediatric nurse at Lakeshore Children's, night shifts. Warm, direct, loves plants and shakshuka. |
+| Hannah | person | Maya's younger sister. |
+| Lauren | person | Teo's college girlfriend, lives in Denver. In town 17 to 19 April 2026. |
+
+**Work**
+
+| Mention | Kind | Who |
+|---|---|---|
+| Ledgerline | organization | The payments startup Teo works at until 14 January 2026. |
+| Greg | person | New VP of Product at Ledgerline from late September 2025. Slick, metrics-first. Fires Teo. |
+| Priya | person | Engineering lead at Ledgerline. Teo's ally. Stays in touch after. |
+| Ben | person | Junior PM Teo mentors at Ledgerline. |
+| Denise | person | Ledgerline HR, in the room on 14 January. |
+| Payouts v2 | project | The project that goes wrong. Launches 9 December 2025, double-pays merchants. |
+| Brightwell | organization | Fintech, Teo's best shot in March. Final round 12 March, rejection 20 March. |
+| Marcy | person | Brightwell's recruiter. |
+| Canopy Health | organization | Two rounds in February, then ghosts him. |
+| Tandem | organization | Interviews in April, Teo withdraws, bad vibe. |
+| Fieldnote | organization | Health-records startup. Offer 22 May, starts 1 June 2026. |
+| Alicia | person | Teo's manager at Fieldnote. Direct, generous. |
+| Jonah | person | Engineer at Fieldnote, becomes a work friend. |
+
+**Mind, home, money, health**
+
+| Mention | Kind | Who |
+|---|---|---|
+| Dr. Adler | person | Therapist, Thursdays at 6. Starts 29 January 2026. $180 a session, partly out of pocket. |
+| Mr. Kowalski | person | Landlord. Slow. |
+| El Primo | project | Danny's taco truck. Planning in the fall, loan trouble in winter, opens 4 July 2026. |
+| Chicago Half Marathon | event | 20 September 2026. Teo signs up in April. |
+| Rosa's wedding | event | 22 August 2026. |
+| Tommy's graduation | event | 16 May 2026, Champaign. |
+
+**Places** (kind `place`)
+
+| Mention | What |
+|---|---|
+| Taqueria Lupita | Sunday tacos with Danny. Al pastor, the green salsa. |
+| Nonna Pia's | Italian place, first date with Maya. Cacio e pepe. |
+| The Brass Tap | Bar. Wednesday trivia with Kev and Omar, team name "Quizteama Aguilera". Rosa's engagement party. |
+| Café Olmo | Coffee shop around the corner. Teo's office while unemployed. |
+| Sunny's Diner | Breakfast with Dad. |
+| Little Saigon Pho | Maya's favorite. Pho when someone is sick or sad. |
+| Lakefront Trail | Where he runs. |
+| Naperville | Where Mom, Dad, and Abuela live. |
+| Lakeshore Children's | Maya's hospital (kind `organization`). |
+| St. Anne's Hospital | Where Abuela has her hip surgery in March. |
+
+Minor one-off people and places are fine (a barber, a recruiter, a restaurant tried once). Give them a
+name that sounds like a real person, and don't reuse a cast name for someone else.
+
+## The year, month by month
+
+**Late September 2025.** Greg arrives as VP of Product and starts rewriting the roadmap. Payouts v2,
+Teo's project, gets pulled forward to December. Teo is irritated but still likes the job. Sunday
+tacos with Danny, who is serious about El Primo. Wednesday trivia. Tommy calls about senior-year
+stress.
+
+**October.** 11 October: Rosa and Luis's engagement party at The Brass Tap. Luis's friend Maya is
+there; they talk for two hours about plants and bad roommates. 18 October: first date at Nonna Pia's.
+More dates. Greg's metrics reviews get sharper; Teo feels watched. Priya warns the December date is
+unrealistic. Halloween with Nina's kids (Leo is a stegosaurus).
+
+**November.** Maya's night shifts make scheduling a puzzle; he likes her more than he expected to.
+She meets Kev and Jess. Jess tells Teo they're pregnant (due April). Thanksgiving in Naperville
+without Maya (she works); Abuela asks about "la enfermera". Work gets heavier: late nights on Payouts
+v2, Greg overrides Priya on the launch date.
+
+**December.** 9 December: Payouts v2 launches, a reconciliation bug double-pays around 400 merchants.
+Three brutal days. Teo writes the postmortem, which is honest and names the rushed date; Greg is
+cold about it. The radiator dies and Mr. Kowalski is slow. 20 December: Teo and Maya make it
+official. Christmas Eve in Naperville with Maya: Abuela teaches her tamales, Mom adores her, Dad
+likes her quietly. New Year's Eve at Kev and Jess's: Maya says she loves him. He doesn't say it back
+yet.
+
+**January 2026.** 3 January: he says it back. Performance plan conversation with Greg on 7 January.
+14 January: fired, with Denise from HR in the room, six weeks severance. Maya comes over with pho
+from Little Saigon Pho. Shame, telling family (Dad takes it hard, quietly). Nina pushes therapy; so
+does Maya. 29 January: first session with Dr. Adler. Starts working from Café Olmo, applying for jobs.
+
+**February.** Canopy Health rounds, then silence. Money anxiety: COBRA, budgeting, severance running
+out. Drinking too much with Danny some nights. Helps Danny write the business plan for El Primo,
+which gives him something to do well. Sleep is bad. Withdraws from Maya: cancels plans, stays in.
+Valentine's Day he tries hard and it is sweet but she can tell he's somewhere else.
+
+**March.** Brightwell: recruiter Marcy, rounds, final round 12 March, rejected 20 March. Borrows
+$3,000 from Dad, which costs him more than the money. 7 March: real fight with Maya about him
+shutting her out. 15 March: Abuela falls, hip surgery at St. Anne's Hospital; the family gathers,
+Maya is wonderful with her, they reconnect. Starts running with Omar on the Lakefront Trail. Doubts
+therapy ("I talk for fifty minutes and drive home the same person").
+
+**April.** 9 April: June is born, Teo visits Kev and Jess. Signs up for the Chicago Half Marathon.
+Maya asks about moving in together when her lease ends 31 July; he stalls. Tandem interviews, he
+withdraws. 17 to 19 April: Lauren is in town for a conference. Drinks on the 17th, harmless.
+18 April: he sleeps with her. 19 April morning: sick with guilt, tells no one, writes around it at
+first and then writes it plainly. Lauren texts after; he goes quiet. 28 April: Sophie refers him to
+Fieldnote.
+
+**May.** Guilt everywhere. 7 May: tells Dr. Adler, who asks what he wants to do, not what he should.
+Fieldnote interviews with Alicia; he is good in them, which feels strange. Tommy's graduation 16
+May in Champaign, Maya comes, he watches her with his family and hates himself. 22 May: Fieldnote
+offer. 30 May: he tells Maya. She leaves without shouting, which is worse.
+
+**June.** 2 June: Maya calls and ends it. 1 June: first day at Fieldnote (the day before, numb).
+Drops a box of her things at her place on 8 June; Hannah answers the door. Tommy moves onto the
+couch after graduation, which turns out to be a mercy. Nina is sharp about it ("what were you
+thinking"), Mom is disappointed, Danny just shows up with beer. New job is good; Alicia and Jonah
+are easy to work with. Runs a lot, too much.
+
+**Early July.** 4 July: El Primo opens at a brewery lot, Teo works the window with Danny, a great
+day. Lease renewal: rent up $90 a month, he signs anyway. Knee pain from overtraining, IT band;
+physical therapy. Mid-July: questions whether therapy is working, and whether it's worth the money.
+
+**Late July and August.** Keeps going to Dr. Adler. August: a session about Dad (never asking for
+help, the loan) lands; Teo realises he does the same thing with everyone. Fishing trip with Dad on
+the Fox River, 9 August, where they talk more than they ever have. Tommy gets a job and moves out.
+Writes the toast for Rosa's wedding. 22 August: Rosa's wedding. Maya is there as Luis's friend.
+They talk for five minutes by the coat check. It is civil and it wrecks him for two days. 30
+August: pays Dad back the last of the $3,000.
+
+**September.** Fieldnote feels like his now; Alicia hints at a bigger role. Maya texts about a book
+of hers he still has. 13 September: coffee at Café Olmo to return it, a real conversation, some
+closure. Visits Abuela, who is walking with a cane. 20 September: Chicago Half Marathon, 2:04,
+knee holds, Danny and Tommy at mile 11 with a stupid sign. 21 and 22 September: quiet, grateful,
+not fixed, but different from a year ago.
+
+## Loose ends that cross chapters
+
+An entry opens one with an id; a later entry resolves it by id. Ids are shared across chapters, so
+only these ids may be resolved in a chapter other than the one that opens them. A chapter may open
+and resolve its own short-lived ones, and leave a few to fade.
+
+| id | Opened | Text | About | Resolved |
+|---|---|---|---|---|
+| fix-radiator | 2025-12-08 | Get Mr. Kowalski to fix the radiator | Mr. Kowalski | 2026-01-06 |
+| danny-business-plan | 2026-02-08 | Finish the business plan for El Primo | Danny, El Primo | 2026-03-01 |
+| repay-dad | 2026-03-10 | Pay Dad back the $3,000 | Dad | 2026-08-30 |
+| answer-maya-move-in | 2026-04-12 | Give Maya an answer about moving in | Maya | never (fades) |
+| tell-maya | 2026-05-07 | Tell Maya the truth about Lauren | Maya, Lauren | 2026-05-30 |
+| lease-renewal | 2026-06-20 | Decide on the lease renewal | Mr. Kowalski | 2026-07-08 |
+| keep-therapy | 2026-07-14 | Decide whether to keep seeing Dr. Adler | Dr. Adler | 2026-08-13 |
+
+Dates may move a day or two to fit an entry, but each must open in the chapter that owns its opening
+date and resolve in the chapter that owns its resolution date.
