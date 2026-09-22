@@ -159,9 +159,9 @@ struct MindView: View {
                 visibleInsets: visibleInsets(available: available, safeArea: safeArea),
                 onNavigate: { router.mindPath.append(EntityRoute(id: $0)) },
                 onOpenEntry: { openEntry($0) },
-                onRendered: { graph.recordGraphRendered($0) }
+                onRendered: { graph.recordGraphRendered($0) },
+                accessibilityIdentifier: "mindGraphCanvas"
             )
-            .accessibilityIdentifier("mindGraphCanvas")
             .overlay {
                 if simulation.nodeCount == 0 {
                     emptyState

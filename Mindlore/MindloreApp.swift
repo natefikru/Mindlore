@@ -91,7 +91,8 @@ struct MindloreApp: App {
             environment: ProcessInfo.processInfo.environment
         )
         #if DEBUG
-        if demo == .story, arguments.contains(DemoJournal.resetStoryArgument), case .file(let url) = location {
+        if let demo, case .file(let url) = location,
+           arguments.contains(demo == .story ? DemoJournal.resetStoryArgument : DemoJournal.resetGeneratedArgument) {
             DemoJournal.removeStore(at: url)
         }
         #endif

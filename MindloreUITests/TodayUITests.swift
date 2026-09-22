@@ -6,7 +6,8 @@ import XCTest
 // TodayComposerTests, on plain values.
 //
 // -resetDemoSettings clears the demo suite on launch, so a run starts from no dismissals however
-// many times it has run today.
+// many times it has run today, and -resetDemoJournal reseeds the store dated from today, so the
+// threads an earlier run marked done, or that have faded since it seeded, are open again.
 final class TodayUITests: XCTestCase {
     override func setUpWithError() throws {
         continueAfterFailure = false
@@ -14,7 +15,7 @@ final class TodayUITests: XCTestCase {
 
     private func launch(reset: Bool) -> XCUIApplication {
         let app = XCUIApplication()
-        app.launchArguments = ["-seedDemoJournal", "300"] + (reset ? ["-resetDemoSettings"] : [])
+        app.launchArguments = ["-seedDemoJournal", "300"] + (reset ? ["-resetDemoSettings", "-resetDemoJournal"] : [])
         app.launch()
         return app
     }

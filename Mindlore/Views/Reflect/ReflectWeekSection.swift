@@ -79,7 +79,7 @@ struct ReflectWeekSection: View {
             } else {
                 VStack(alignment: .leading, spacing: 12) {
                     ForEach(visibleItems) { item in
-                        ReflectQueueRow(item: item, onTap: { onTapItem(item) }, onDismiss: { dismiss(item) })
+                        ReflectQueueRow(item: item, periodKey: periodKey, onTap: { onTapItem(item) }, onDismiss: { dismiss(item) })
                     }
                 }
             }
