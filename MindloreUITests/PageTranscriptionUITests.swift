@@ -74,6 +74,7 @@ final class PageTranscriptionUITests: XCTestCase {
         XCTAssertTrue(waitForText(["fixture page 1", "fixture page 2", "fixture page 3"], timeout: 5))
 
         // Cancelling after adding pages asks first, since the new pages exist only in the draft.
+        app.buttons["entryMoreButton"].tap()
         app.buttons["editPagesButton"].tap()
         XCTAssertTrue(app.buttons["addFromPhotosButton"].waitForExistence(timeout: 5))
         app.buttons["addFromPhotosButton"].tap()
