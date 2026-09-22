@@ -81,9 +81,11 @@ struct SearchPanel: View {
         }
         .frame(maxWidth: .infinity)
         .frame(height: height, alignment: .top)
-        .background(.regularMaterial, in: UnevenRoundedRectangle(topLeadingRadius: 16, topTrailingRadius: 16, style: .continuous))
-        .clipShape(UnevenRoundedRectangle(topLeadingRadius: 16, topTrailingRadius: 16, style: .continuous))
-        .shadow(color: .black.opacity(0.12), radius: 8, y: -2)
+        // The panel floats over the map, which is what the house rule reserves glass for. Its own
+        // search field stays `.fill.tertiary`: inside the glass, giving it glass too is the
+        // glass-on-glass case.
+        .glassEffect(.regular, in: UnevenRoundedRectangle(topLeadingRadius: 24, topTrailingRadius: 24, style: .continuous))
+        .clipShape(UnevenRoundedRectangle(topLeadingRadius: 24, topTrailingRadius: 24, style: .continuous))
         .onGeometryChange(for: CGFloat.self) { $0.frame(in: .global).maxY } action: { panelBottom = $0 }
         .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillChangeFrameNotification)) { note in
             guard let frame = note.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect else { return }

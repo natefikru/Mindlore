@@ -27,6 +27,10 @@ struct MindView: View {
     @State private var player = MindReplayPlayer()
     @State private var replayTask: Task<Void, Never>?
     @State private var replayAvailable = false
+    // The top bar's controls share one glass container, so three lenses a few points apart sample
+    // once and blend instead of stacking. The namespace is what lets the replay control morph
+    // between its round button and its wider date chip rather than being replaced by it.
+    @Namespace private var glass
 
     static let cardHeight: CGFloat = 200
     private static let topBarHeight: CGFloat = 52
@@ -175,37 +179,43 @@ struct MindView: View {
                 }
             }
             Spacer(minLength: 0)
-            MindReplayControls(
-                player: player,
-                available: replayAvailable,
-                play: startReplay,
-                stop: { endReplay(finished: false) }
-            )
-            Menu {
-                Picker("Colour by", selection: $lens) {
-                    ForEach(MindLens.allCases, id: \.self) { lens in
-                        Label(lens.title, systemImage: lens.symbol)
-                            .accessibilityIdentifier("mindLens-\(lens.rawValue)")
+            GlassEffectContainer(spacing: 8) {
+                HStack(spacing: 8) {
+                    MindReplayControls(
+                        player: player,
+                        available: replayAvailable,
+                        play: startReplay,
+                        stop: { endReplay(finished: false) },
+                        glass: glass
+                    )
+                    Menu {
+                        Picker("Colour by", selection: $lens) {
+                            ForEach(MindLens.allCases, id: \.self) { lens in
+                                Label(lens.title, systemImage: lens.symbol)
+                                    .accessibilityIdentifier("mindLens-\(lens.rawValue)")
+                            }
+                        }
+                    } label: {
+                        Image(systemName: "paintpalette")
+                            .font(.body.weight(.semibold))
+                            .frame(width: 40, height: 40)
+                            .glassEffect(.regular.interactive(), in: Circle())
                     }
+                    .accessibilityLabel("Colour by")
+                    .accessibilityIdentifier("mindLens")
+                    Button {
+                        showingFilters = true
+                    } label: {
+                        Image(systemName: "line.3.horizontal.decrease")
+                            .font(.body.weight(.semibold))
+                            .symbolEffect(.bounce, value: filters)
+                            .frame(width: 40, height: 40)
+                            .glassEffect(.regular.interactive(), in: Circle())
+                    }
+                    .accessibilityLabel("Filters")
+                    .accessibilityIdentifier("mindFilters")
                 }
-            } label: {
-                Image(systemName: "paintpalette")
-                    .font(.body.weight(.semibold))
-                    .frame(width: 40, height: 40)
-                    .background(.regularMaterial, in: Circle())
             }
-            .accessibilityLabel("Colour by")
-            .accessibilityIdentifier("mindLens")
-            Button {
-                showingFilters = true
-            } label: {
-                Image(systemName: "line.3.horizontal.decrease")
-                    .font(.body.weight(.semibold))
-                    .frame(width: 40, height: 40)
-                    .background(.regularMaterial, in: Circle())
-            }
-            .accessibilityLabel("Filters")
-            .accessibilityIdentifier("mindFilters")
             .padding(.trailing, 12)
         }
         .frame(height: Self.topBarHeight)
@@ -458,11 +468,15 @@ private struct MindPeekOverlay: View {
     let dismiss: () -> Void
 
     var body: some View {
+        // Glass goes here, on the overlay, never inside `EntityPeekCard`. The same card is also
+        // presented as a partial-height sheet (AskView, the editor), which iOS 26 already draws as
+        // glass; giving the card itself glass would double it there. Over the map it is a plain
+        // floating child with nothing under it but the canvas, which is what glass is for.
         EntityPeekCard(route: EntityRoute(id: entityID), showsMapHint: !onMap, open: open)
             .id(entityID)
             .frame(height: MindView.cardHeight)
-            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
-            .contentShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+            .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
+            .contentShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
             .gesture(
                 DragGesture(minimumDistance: 20)
                     .onEnded { value in
