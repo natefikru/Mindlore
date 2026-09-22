@@ -1,0 +1,94 @@
+import Foundation
+import SwiftData
+
+// Generate once, cache, read back. Both the launch sweep and a lazy view-triggered generation call
+// generateIfMissing; "only run once" is the cache check here, not a rule two callers have to agree
+// on separately (tasks/reflect-queue-spec.md). A failed generation writes nothing and is retried
+// next launch or next view, whichever comes first.
+@MainActor
+enum ReflectSummaryStore {
+    // The newest row for a period. There is deliberately no uniqueness constraint (the CloudKit
+    // rule every model here follows), so a caller that somehow finds two rows for the same period
+    // reads the newest by generatedAt; generateIfMissing's own cache check is what keeps a second
+    // one from being written in the first place.
+    static func summary(kind: ReflectSummaryKind, periodStart: Date, in context: ModelContext) -> ReflectSummary? {
+        let kindRaw = kind.rawValue
+        let descriptor = FetchDescriptor<ReflectSummary>(
+            predicate: #Predicate { $0.periodKindRaw == kindRaw && $0.periodStart == periodStart }
+        )
+        return ((try? context.fetch(descriptor)) ?? []).max { $0.generatedAt < $1.generatedAt }
+    }
+
+    @discardableResult
+    static func generateIfMissing(
+        kind: ReflectSummaryKind,
+        interval: DateInterval,
+        settings: SettingsStore,
+        accounts: ProviderAccountStore,
+        calendar: Calendar = .current,
+        in context: ModelContext
+    ) async -> ReflectSummary? {
+        if let existing = summary(kind: kind, periodStart: interval.start, in: context) { return existing }
+
+        let items: [ReflectQueueItem]?
+        switch kind {
+        case .week:
+            let entries = ReflectSource.weekEntries(in: interval, context: context)
+            if entries.isEmpty {
+                items = []
+            } else {
+                guard case .success(let provider) = AIServices.askGenerator(settings: settings, accounts: accounts) else { return nil }
+                items = await ReflectQueueGenerator.generate(
+                    kind: .week,
+                    title: ReflectFidelity.title(kind: .week, interval: interval, calendar: calendar),
+                    prompt: ReflectFidelity.weekPrompt(entries),
+                    provider: provider,
+                    voice: settings.promptVoice
+                )
+            }
+        case .month:
+            let (prompt, entryCount) = ReflectSource.monthPrompt(interval: interval, calendar: calendar, context: context)
+            if entryCount == 0 {
+                items = []
+            } else {
+                guard case .success(let provider) = AIServices.askGenerator(settings: settings, accounts: accounts) else { return nil }
+                items = await ReflectQueueGenerator.generate(
+                    kind: .month,
+                    title: ReflectFidelity.title(kind: .month, interval: interval, calendar: calendar),
+                    prompt: prompt,
+                    provider: provider,
+                    voice: settings.promptVoice
+                )
+            }
+        }
+
+        guard let items else { return nil }
+        let created = ReflectSummary(kind: kind, periodStart: interval.start, generatedAt: .now, items: items)
+        context.insert(created)
+        try? context.saveStampingEntries()
+        return created
+    }
+
+    // The launch sweep's own scope: only the week and the month that most recently closed.
+    // Nothing older is swept here (a launch isn't the place to backfill a year of history); the
+    // lazy path in the feed covers everything else.
+    static func sweepMostRecentlyCompleted(
+        settings: SettingsStore,
+        accounts: ProviderAccountStore,
+        now: Date = .now,
+        calendar: Calendar = .current,
+        in context: ModelContext
+    ) async {
+        if let week = mostRecentlyCompleted(.weekOfYear, now: now, calendar: calendar) {
+            await generateIfMissing(kind: .week, interval: week, settings: settings, accounts: accounts, calendar: calendar, in: context)
+        }
+        if let month = mostRecentlyCompleted(.month, now: now, calendar: calendar) {
+            await generateIfMissing(kind: .month, interval: month, settings: settings, accounts: accounts, calendar: calendar, in: context)
+        }
+    }
+
+    private static func mostRecentlyCompleted(_ component: Calendar.Component, now: Date, calendar: Calendar) -> DateInterval? {
+        guard let anchor = calendar.date(byAdding: component, value: -1, to: now) else { return nil }
+        return calendar.dateInterval(of: component, for: anchor)
+    }
+}

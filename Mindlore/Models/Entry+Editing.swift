@@ -2,6 +2,18 @@ import Foundation
 import SwiftData
 
 extension Entry {
+    // A Reflect card already knows what it wants to ask, so the entry is real the moment the
+    // editor opens rather than after the first keystroke, the one place starting text is seeded
+    // on creation instead of lazily.
+    static func makeStarted(id: UUID, text: String) -> Entry {
+        let entry = Entry(text: text)
+        entry.id = id
+        entry.isDraft = true
+        return entry
+    }
+}
+
+extension Entry {
     var isBlank: Bool {
         title.isEmpty && text.isEmpty && audioData == nil && (pages ?? []).isEmpty
     }

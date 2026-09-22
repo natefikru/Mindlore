@@ -294,7 +294,12 @@ private struct JournalEntryDestination: View {
         // hand this view either form of the same route, and the editor's identity must not flip.
         let entry = EditorLifecycle.entry(route.entryID, in: modelContext)
         if route.isNew || entry != nil {
-            EntryEditorView(entry: entry, newEntryID: route.entryID, opensForReading: route.opensForReading && entry != nil)
+            EntryEditorView(
+                entry: entry,
+                newEntryID: route.entryID,
+                opensForReading: route.opensForReading && entry != nil,
+                startingText: route.startingText
+            )
         } else {
             ContentUnavailableView("This entry was deleted", systemImage: "trash")
         }

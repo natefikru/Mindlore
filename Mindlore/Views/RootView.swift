@@ -23,6 +23,7 @@ struct RootView: View {
     @State private var intents = IntentRequests.shared
     @State private var reminder = DailyReminder()
     @Environment(SettingsStore.self) private var settings
+    @Environment(ProviderAccountStore.self) private var accounts
     @State private var confirmingDiscard = false
     private let context: ModelContext
 
@@ -216,6 +217,12 @@ struct RootView: View {
             graph.sweepFinished()
             if LooseEnd.fade(in: context) > 0 {
                 try? context.saveStampingEntries()
+            }
+            // Non-blocking: the most recent week and month either already have a cached summary
+            // (an instant return) or are worth one request each, neither of which titles and
+            // insights below should wait on.
+            Task {
+                await ReflectSummaryStore.sweepMostRecentlyCompleted(settings: settings, accounts: accounts, in: context)
             }
             await titles.processQueue(context: context)
             await insights.processQueue(context: context)

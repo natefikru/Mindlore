@@ -15,6 +15,8 @@ struct EntryEditorView: View {
     @State private var currentEntry: Entry?
     // The id a new entry is created with, so the close rules find it when its route leaves the path.
     private let newEntryID: UUID?
+    // A Reflect card's prompt, seeded into the entry on appear rather than the first keystroke.
+    private let startingText: String?
     @State private var editingDate = false
     @State private var editingPages = false
     @State private var viewingPage: Int?
@@ -42,9 +44,10 @@ struct EntryEditorView: View {
 
     static let fallbackNoticeSeconds = 8.0
 
-    init(entry: Entry?, newEntryID: UUID? = nil, opensForReading: Bool = false) {
+    init(entry: Entry?, newEntryID: UUID? = nil, opensForReading: Bool = false, startingText: String? = nil) {
         _currentEntry = State(initialValue: entry)
         self.newEntryID = newEntryID
+        self.startingText = startingText
         _isReading = State(initialValue: opensForReading)
         _openedForReading = State(initialValue: opensForReading)
     }
@@ -193,7 +196,10 @@ struct EntryEditorView: View {
         // Opening and closing (presence, delete-if-blank, the AI pass) belong to the route, in
         // EditorLifecycle, so a tab switch or a cover over the editor never closes the entry.
         .onAppear {
-            if entry == nil { focusAtEndToken += 1 }
+            if entry == nil {
+                focusAtEndToken += 1
+                createIfStartingTextPending()
+            }
         }
         // One way only: an entry that needs the editor again (new pages, text to review) stops
         // being read, and never flips back by itself.
@@ -494,6 +500,18 @@ struct EntryEditorView: View {
         saver.flush()
         DiagnosticsLog.shared.record("text.approved", ["id": .id(entry.id)])
         aiPass.onFlagged?()
+    }
+
+    // A route with starting text is real on appear, not on the first keystroke: there's already
+    // something to save, and leaving a card-seeded editor untouched shouldn't discard what it was
+    // opened to ask about the way an empty typed entry does.
+    private func createIfStartingTextPending() {
+        guard let newEntryID, let startingText, !startingText.isEmpty else { return }
+        let created = Entry.makeStarted(id: newEntryID, text: startingText)
+        modelContext.insert(created)
+        currentEntry = created
+        DiagnosticsLog.shared.record("entry.created", ["id": .id(created.id), "source": .string(created.source.rawValue)])
+        saver.noteChange()
     }
 
     // The entry is created on the first non-empty change, so opening and leaving a new entry leaves nothing behind.

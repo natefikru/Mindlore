@@ -14,9 +14,12 @@ nonisolated struct JournalRoute: Hashable, Sendable {
     // Decided when the route is made (a list row knows its entry; a finished recording or page set
     // lands for typing), so the editor never re-decides while the entry changes under it.
     var opensForReading = false
+    // A Reflect card's prompt, seeded into the entry the moment it's created rather than on the
+    // first keystroke (Entry.makeStarted). Equality stays on entryID alone, like every other field.
+    var startingText: String? = nil
 
-    static func new() -> JournalRoute {
-        JournalRoute(entryID: UUID(), isNew: true)
+    static func new(startingText: String? = nil) -> JournalRoute {
+        JournalRoute(entryID: UUID(), isNew: true, startingText: startingText)
     }
 
     // An entry that started as a new route is the same entry once it exists, so showing it again
@@ -65,7 +68,7 @@ final class AppRouter {
 
     enum PendingJump: Equatable {
         case entry(JournalRoute)
-        case newEntry
+        case newEntry(String?)
         case mind(UUID)
         case ask(String?)
         case settings
@@ -115,7 +118,7 @@ final class AppRouter {
         pendingJump = nil
         switch pending {
         case .entry(let route): showEntry(route.entryID, forReading: route.opensForReading)
-        case .newEntry: showNewEntry()
+        case .newEntry(let startingText): showNewEntry(startingText: startingText)
         case .mind(let id): showInMind(id)
         case .ask(let question): showAsk(question: question)
         case .settings: showSettings()
@@ -124,15 +127,15 @@ final class AppRouter {
 
     // A new written entry from outside the app (Shortcuts, Siri). Replaces Journal's path like
     // showEntry, so it never lands on top of another open entry, whose close rules run as it goes.
-    func showNewEntry() {
+    func showNewEntry(startingText: String? = nil) {
         guard openCovers.isEmpty else {
-            pendingJump = .newEntry
+            pendingJump = .newEntry(startingText)
             return
         }
         keptEntryID = nil
         dismissPresentationsToken += 1
         tab = .journal
-        journalPath = [.new()]
+        journalPath = [.new(startingText: startingText)]
     }
 
     // Switches to Ask and asks it to take the field. Journal's path is left alone, like Mind.
