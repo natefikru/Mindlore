@@ -107,6 +107,15 @@ build (macos-26, ~5 min)
   compile instead of queuing after a four-minute build. UI went from five shards to four so unit
   plus UI is exactly the five concurrent runners, all starting together; UI shards are
   `continue-on-error` so they never set the run's result.
+- Third hosted run (35773044814), jobs building for themselves: the background boot fought the
+  compiler and builds took 6.5 to 11.5 minutes, so the shared build job is back. Unit failed on
+  the on-device model quality tests (the model reports itself available in a runner's simulator;
+  7 of 12 creative pieces misfiled, generation failing outright), now gated on
+  `TestHost.canMeasureOnDeviceModel`, and on a race in `AskStreamingTests` (the fake's delta sent
+  but not yet applied), now awaited. UI: the result bundles, not the log, showed the real cause.
+  `testMindSearchOpenMergeAndUnmerge` (134 s) and `testKeySetupConnectionAndRemoval` exceeded the
+  two-minute allowance, and the forced kill surfaced on the next launch as "Failed to terminate".
+  CI now allows five minutes a UI test, and test.sh prints the bundle's failures and retries.
 - `OnDeviceInsightsLiveTests` failed once locally (Apple's model returned no summary) and passed the
   run before. It is gated on `FoundationModelsAvailability`, so it skips on hosted runners; it is a
   flaky live test on a Mac with Apple Intelligence, not a CI concern.

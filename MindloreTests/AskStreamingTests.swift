@@ -116,6 +116,15 @@ struct AskStreamingTests {
         generator.pauseAfter = pauseAfter
     }
 
+    // waitForDeltas returns once the fake has sent a delta, not once AskService, which reads the
+    // stream in a task of its own, has applied it. On a slow CI runner the assertion won that race
+    // and read an empty turn. Bounded, and it sleeps rather than spinning on Task.yield().
+    private func waitForText(_ ask: AskService, _ text: String) async {
+        for _ in 0..<500 where ask.turns.last?.text != text {
+            try? await Task.sleep(for: .milliseconds(10))
+        }
+    }
+
     @Test func theAnswerIsOnScreenBeforeTheObjectCloses() async throws {
         entry("Paddled the river with Sarah.")
         let ask = service()
@@ -123,6 +132,7 @@ struct AskStreamingTests {
 
         let asking = Task { await ask.send("What did I do on the river?", in: context) }
         await generator.waitForDeltas(1)
+        await waitForText(ask, "You paddl")
 
         // Half an object, and a whole readable sentence out of it.
         #expect(ask.turns.last?.text == "You paddl")
@@ -162,6 +172,7 @@ struct AskStreamingTests {
 
         let asking = Task { await ask.send("river?", in: context) }
         await generator.waitForDeltas(1)
+        await waitForText(ask, "You paddl")
         ask.stop()
         generator.release()
         await asking.value

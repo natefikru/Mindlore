@@ -46,7 +46,7 @@ print(max(found)[1])
 }
 
 # Boot if needed and wait until the simulator is ready. bootstatus -b boots a shut-down device
-# itself and waits for one that is already booting (boot-simulator.sh --background).
+# itself and waits for one that is already booting.
 boot_simulator() {
   local udid="$1"
   local started=$SECONDS

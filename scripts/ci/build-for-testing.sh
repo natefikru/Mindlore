@@ -18,4 +18,5 @@ run_xcodebuild \
   -scheme "$SCHEME" \
   -destination "platform=iOS Simulator,id=$udid" \
   -derivedDataPath "$DERIVED_DATA" \
+  COMPILER_INDEX_STORE_ENABLE=NO \
   build-for-testing

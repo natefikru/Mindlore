@@ -30,11 +30,14 @@ case "$mode" in
     for cls in "$@"; do only+=("-only-testing:MindloreUITests/$cls"); done
     allowance=120
     name="ui-$(echo "$1" | tr -c 'A-Za-z0-9\n' '-')"
-    # On CI a failed UI test gets one more try. Shared runners occasionally fail to terminate the
-    # previous app instance ("Failed to terminate com.natefikru.mindlore") before a relaunch,
-    # which is the simulator, not the app. A retried test still shows in the log and the
-    # result bundle. Locally a failure stays a failure.
+    # On CI, five minutes a test instead of two, and one retry. A hosted runner is two to three
+    # times slower than a Mac here, and a test that relaunches the app took 134 seconds there:
+    # killed at the two-minute allowance, it failed, and the forced kill left the next launch
+    # reporting "Failed to terminate com.natefikru.mindlore", which read like simulator trouble
+    # until the result bundle showed the allowance. The retry is for the occasional real launch
+    # hiccup; a retried test still shows in the result bundle. Locally nothing changes.
     if [ -n "${GITHUB_ACTIONS:-}" ]; then
+      allowance=300
       only+=(-retry-tests-on-failure -test-iterations 2)
     fi
     ;;
@@ -51,12 +54,18 @@ if [ -z "$xctestrun" ]; then
   xctestrun="$(ls "$DERIVED_DATA"/Build/Products/*iphonesimulator*.xctestrun | head -1)"
 fi
 
+# Tells the tests they are on CI (TestHost.isCI), for the few measurements a runner can't make.
+if [ -n "${GITHUB_ACTIONS:-}" ]; then
+  export TEST_RUNNER_MINDLORE_CI=1
+fi
+
 udid="$(simulator_udid)"
 boot_simulator "$udid"
 mkdir -p "$RESULTS"
 rm -rf "$RESULTS/$name.xcresult"
 
 echo "Running $mode tests on simulator $udid from $(basename "$xctestrun")"
+status=0
 run_xcodebuild \
   test-without-building \
   -xctestrun "$xctestrun" \
@@ -65,4 +74,16 @@ run_xcodebuild \
   -parallel-testing-enabled NO \
   -test-timeouts-enabled YES \
   -default-test-execution-time-allowance "$allowance" \
-  "${only[@]}"
+  "${only[@]}" || status=$?
+
+# The formatted log can mislead: xcbeautify printed a green check for a test the allowance had
+# killed. The result bundle is the record, so end with what it says failed and what needed a retry.
+if [ -d "$RESULTS/$name.xcresult" ] && command -v jq >/dev/null 2>&1; then
+  echo "Result bundle: $(xcrun xcresulttool get test-results summary --path "$RESULTS/$name.xcresult" \
+    | jq -r '"\(.result), \(.passedTests) passed, \(.failedTests) failed, \(.skippedTests) skipped"')"
+  xcrun xcresulttool get test-results summary --path "$RESULTS/$name.xcresult" \
+    | jq -r '.testFailures[] | "  FAILED \(.testIdentifierString // .testName): \(.failureText)"'
+  xcrun xcresulttool get test-results tests --path "$RESULTS/$name.xcresult" \
+    | jq -r '.. | objects | select(.nodeType? == "Test Case" and .result == "Passed" and ([.children[]? | select(.nodeType == "Repetition")] | length) > 1) | "  RETRIED, then passed: \(.nodeIdentifier // .name)"'
+fi
+exit "$status"

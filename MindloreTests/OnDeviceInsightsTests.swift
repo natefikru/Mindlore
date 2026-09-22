@@ -97,7 +97,7 @@ struct InsightsGeneratorSettingTests {
 // The whole path against Apple's real model, when this machine has it: the on-device prompt, the
 // schema through guided generation, and the ordinary parser. Skipped where the model isn't there.
 struct OnDeviceInsightsLiveTests {
-    @Test(.enabled(if: FoundationModelsAvailability.isAvailable), .timeLimit(.minutes(1)))
+    @Test(.enabled(if: TestHost.canMeasureOnDeviceModel), .timeLimit(.minutes(1)))
     func aRealEntryComesBackAsInsights() async throws {
         let text = """
         Coffee with Maya at Blue Door this morning. She's moving to Denver in March and I still \

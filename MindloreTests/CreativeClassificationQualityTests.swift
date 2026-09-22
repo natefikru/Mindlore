@@ -155,7 +155,7 @@ struct CreativeSignalsTests {
 // Apple's model, the whole on-device path: the insights request for its verdict, then the
 // focused question for verse-shaped text, then the rule.
 struct CreativeOnDeviceQualityTests {
-    @Test(.enabled(if: FoundationModelsAvailability.isAvailable), .timeLimit(.minutes(8)))
+    @Test(.enabled(if: TestHost.canMeasureOnDeviceModel), .timeLimit(.minutes(8)))
     func theOnDevicePathNeverFilesLifeAsCreative() async throws {
         let generator = FoundationModelsTextGenerator()
         var wrongCreative: [String] = []
