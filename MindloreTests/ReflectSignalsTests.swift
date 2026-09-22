@@ -37,6 +37,15 @@ struct ReflectSignalsTests {
         #expect(result.map(\.id) == [end.id])
     }
 
+    // The bug this guards against: returning every qualifying loose end flooded a week with the
+    // journal's whole backlog instead of the one thread most worth surfacing.
+    @Test func onlyTheOldestStillOpenLooseEndSurfaces() {
+        let older = LooseEndFacts(id: UUID(), text: "renew the lease", sourceEntryDate: date(2026, 8, 1))
+        let newer = LooseEndFacts(id: UUID(), text: "call the landlord", sourceEntryDate: date(2026, 9, 1))
+        let result = ReflectSignals.stillOpen([newer, older], asOf: date(2026, 9, 6))
+        #expect(result.map(\.id) == [older.id])
+    }
+
     @Test func aResolvedLooseEndIsNeverStillOpen() {
         var end = LooseEndFacts(id: UUID(), text: "call the landlord", sourceEntryDate: date(2026, 9, 1))
         end = LooseEndFacts(id: end.id, text: end.text, status: .resolved, sourceEntryDate: end.sourceEntryDate)
@@ -58,6 +67,16 @@ struct ReflectSignalsTests {
         let entity = EntityFacts(id: UUID(), name: "Maya", linkCount: 4, lastLinkedAt: date(2026, 9, 5))
         let result = ReflectSignals.quiet([entity], asOf: date(2026, 9, 6))
         #expect(result.isEmpty, "linked five days before this week's end, nowhere near the 30-day threshold")
+    }
+
+    // The bug this guards against: most of a journal's cast goes 30 days unmentioned in any given
+    // week, so returning everyone who qualified used to flood a week with dozens of cards instead
+    // of the one name most worth surfacing.
+    @Test func onlyTheBestQuietNameSurfacesRankedByLinkCountThenStaleness() {
+        let minor = EntityFacts(id: UUID(), name: "Harbor Cafe", linkCount: 1, lastLinkedAt: date(2026, 1, 1))
+        let major = EntityFacts(id: UUID(), name: "Maya", linkCount: 12, lastLinkedAt: date(2026, 7, 1))
+        let result = ReflectSignals.quiet([minor, major], asOf: date(2026, 9, 6))
+        #expect(result.map(\.id) == [major.id], "the most-linked name wins over a barely-mentioned place")
     }
 
     @Test func anEntityWithNoLinksIsNeverQuiet() {
