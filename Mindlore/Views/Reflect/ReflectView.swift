@@ -19,15 +19,18 @@ struct ReflectView: View {
         NavigationStack {
             Group {
                 if hasLoaded {
-                    List {
-                        ForEach(recentWeeks) { week in
-                            ReflectWeekSection(week: week, onTapItem: openEntry)
-                        }
-                        ForEach(months) { month in
-                            ReflectMonthRow(month: month, onTapItem: openEntry)
+                    ScrollView {
+                        LazyVStack(alignment: .leading, spacing: 4) {
+                            ForEach(recentWeeks) { week in
+                                ReflectWeekSection(week: week, onTapItem: openEntry)
+                                Divider().padding(.leading, 16)
+                            }
+                            ForEach(months) { month in
+                                ReflectMonthRow(month: month, onTapItem: openEntry)
+                                Divider().padding(.leading, 16)
+                            }
                         }
                     }
-                    .listStyle(.plain)
                     .paperBackground()
                 } else {
                     ProgressView()

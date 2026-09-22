@@ -44,7 +44,7 @@ struct ReflectSummaryStoreTests {
         try context.save()
 
         let fake = FakeTextGenerator()
-        fake.results = [.success(#"{"items":[{"body":"A new job came up.","prompt":"How's the new job going?"}]}"#)]
+        fake.results = [.success(#"{"summary":"A new job came up.","prompt":"How's the new job going?"}"#)]
 
         let first = await ReflectSummaryStore.generateIfMissing(
             kind: .week, interval: week, resolve: resolve(fake), voice: .default, calendar: utc, in: context
@@ -88,7 +88,7 @@ struct ReflectSummaryStoreTests {
         #expect(ReflectSummaryStore.summary(kind: .week, periodStart: week.start, in: context) == nil, "a failure writes nothing")
 
         let succeeding = FakeTextGenerator()
-        succeeding.results = [.success(#"{"items":[{"body":"noticed","prompt":"ask?"}]}"#)]
+        succeeding.results = [.success(#"{"summary":"noticed","prompt":"ask?"}"#)]
         let retried = await ReflectSummaryStore.generateIfMissing(
             kind: .week, interval: week, resolve: resolve(succeeding), voice: .default, calendar: utc, in: context
         )
@@ -100,7 +100,7 @@ struct ReflectSummaryStoreTests {
     @Test func sweepOnlyTouchesTheMostRecentlyCompletedWeekAndMonth() async {
         let now = date(2026, 9, 21)
         let fake = FakeTextGenerator()
-        fake.results = Array(repeating: .success(#"{"items":[]}"#), count: 10)
+        fake.results = Array(repeating: .success(#"{"summary":"","prompt":""}"#), count: 10)
 
         await ReflectSummaryStore.sweepMostRecentlyCompleted(resolve: resolve(fake), voice: .default, now: now, calendar: utc, in: context)
 
@@ -124,7 +124,7 @@ struct ReflectSummaryStoreTests {
         try? context.save()
 
         let fake = FakeTextGenerator()
-        fake.results = [.success(#"{"items":[]}"#)]
+        fake.results = [.success(#"{"summary":"","prompt":""}"#)]
         _ = await ReflectSummaryStore.generateIfMissing(
             kind: .week, interval: week, resolve: resolve(fake), voice: .default, calendar: utc, in: context
         )
@@ -143,7 +143,7 @@ struct ReflectSummaryStoreTests {
             kind: .week,
             periodStart: coveredWeek.start,
             generatedAt: .now,
-            items: [ReflectQueueItem(id: "generated:0", source: .generated, title: "Worth asking", body: "A cached week observation.", prompt: "ask?")]
+            items: [ReflectQueueItem(id: "generated:0", source: .generated, title: "This week", body: "A cached week observation.", prompt: "ask?")]
         )
         context.insert(cached)
 
@@ -155,7 +155,7 @@ struct ReflectSummaryStoreTests {
         try context.save()
 
         let fake = FakeTextGenerator()
-        fake.results = [.success(#"{"items":[]}"#)]
+        fake.results = [.success(#"{"summary":"","prompt":""}"#)]
         _ = await ReflectSummaryStore.generateIfMissing(
             kind: .month, interval: month, resolve: resolve(fake), voice: .default, calendar: utc, in: context
         )

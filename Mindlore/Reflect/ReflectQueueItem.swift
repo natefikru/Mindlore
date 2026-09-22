@@ -1,14 +1,12 @@
 import Foundation
 
-// One thing Reflect surfaces for a week: a loose end still open at its end, a name gone quiet
-// as of it, or a question the AI generated from what the week actually held. `Codable` because
-// generated items are what `ReflectSummary` persists; reused-signal items are never stored, only
-// built fresh at read time, so they never go stale between a loose end resolving and the cache
-// catching up.
+// One thing Reflect surfaces for a week: a loose end still open at its end, or the week's own
+// generated summary. `Codable` because a generated item is what `ReflectSummary` persists; a
+// loose-end item is never stored, only built fresh at read time, so it never goes stale between
+// the loose end resolving and the cache catching up.
 nonisolated struct ReflectQueueItem: Identifiable, Equatable, Codable, Sendable {
     enum Source: Equatable, Codable, Sendable {
         case looseEnd(UUID)
-        case quietName(UUID)
         case generated
     }
 

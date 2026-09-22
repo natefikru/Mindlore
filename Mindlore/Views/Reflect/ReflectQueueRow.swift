@@ -1,7 +1,10 @@
 import SwiftUI
 
-// One card in the feed: a loose end, a quiet name, or something the AI noticed. Tapping opens a
-// new entry seeded with its prompt; swiping or the X dismisses it, the same as Today's cards.
+// One card in the feed: a loose end still open, or the week's own generated summary. Tapping
+// opens a new entry seeded with its prompt; the X dismisses it. No drag-to-dismiss: a custom
+// DragGesture here fought the ScrollView's own vertical pan and made the whole feed unscrollable,
+// since a plain `.gesture()` has no way to defer to an ancestor scroll view the way List's native
+// `.swipeActions` does.
 struct ReflectQueueRow: View {
     let item: ReflectQueueItem
     let onTap: () -> Void
@@ -25,15 +28,12 @@ struct ReflectQueueRow: View {
                 Text(item.body)
                     .journalText(.callout)
                     .foregroundStyle(Palette.ink)
-                    .lineLimit(3)
+                    .lineLimit(6)
                     .multilineTextAlignment(.leading)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .buttonStyle(.plain)
-        .swipeActions(edge: .trailing) {
-            Button("Not today", role: .destructive, action: onDismiss)
-        }
         .accessibilityIdentifier("reflectQueueRow")
     }
 }

@@ -4,6 +4,13 @@ import SwiftData
 // One week, full density: a header (title and mood chips) and its queue items underneath. The
 // current week shows only its live reused signals, never a generated section, since nothing can
 // honestly summarize a week that isn't over yet.
+//
+// A plain VStack, not a List Section: List reuses and re-measures rows during its initial layout
+// pass, and a row here starts as a small ProgressView and jumps to full height once its own
+// generation request lands. That height change made List tear down and recreate several rows
+// while it settled, cancelling their in-flight AI requests mid-request (AIError.cancelled) before
+// they ever had a chance to finish. A LazyVStack inside a ScrollView creates a row once and keeps
+// it, so its task is never torn down out from under it.
 struct ReflectWeekSection: View {
     let week: ReflectFeed.WeekRow
     let onTapItem: (ReflectQueueItem) -> Void
@@ -22,7 +29,14 @@ struct ReflectWeekSection: View {
     private var visibleItems: [ReflectQueueItem] { items.filter { !dismissedIDs.contains($0.id) } }
 
     var body: some View {
-        Section {
+        VStack(alignment: .leading, spacing: 10) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(ReflectFidelity.title(kind: .week, interval: week.interval))
+                    .font(.system(.subheadline, design: .serif).weight(.medium))
+                    .foregroundStyle(Palette.ink)
+                ReflectMoodChipStrip(moodCounts: moodCounts)
+            }
+
             if !hasLoaded {
                 ProgressView()
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -31,19 +45,15 @@ struct ReflectWeekSection: View {
                     .foregroundStyle(.secondary)
                     .accessibilityIdentifier("reflectAllCaughtUp")
             } else {
-                ForEach(visibleItems) { item in
-                    ReflectQueueRow(item: item, onTap: { onTapItem(item) }, onDismiss: { dismiss(item) })
+                VStack(alignment: .leading, spacing: 12) {
+                    ForEach(visibleItems) { item in
+                        ReflectQueueRow(item: item, onTap: { onTapItem(item) }, onDismiss: { dismiss(item) })
+                    }
                 }
             }
-        } header: {
-            VStack(alignment: .leading, spacing: 4) {
-                Text(ReflectFidelity.title(kind: .week, interval: week.interval))
-                    .font(.system(.subheadline, design: .serif).weight(.medium))
-                    .foregroundStyle(Palette.ink)
-                ReflectMoodChipStrip(moodCounts: moodCounts)
-            }
-            .textCase(nil)
         }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
         .task(id: fingerprint) { await load() }
         .accessibilityIdentifier("reflectWeek-\(week.isCurrent ? "current" : "\(week.interval.start.timeIntervalSince1970)")")
     }

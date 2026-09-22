@@ -4,6 +4,10 @@ import SwiftData
 // A month collapsed to one row: a title, a mood-chip strip, and a short generated line, not a
 // chart. Tapping expands it into its constituent weeks, full density, same as the recent stretch.
 // No collapsing back: everything here is a scroll of two densities, not a set of toggled panels.
+//
+// A plain VStack, not a List Section, for the same reason ReflectWeekSection dropped Section: a
+// row whose height jumps once its own generation request lands must never be torn down and
+// recreated by a reused-row container mid-request.
 struct ReflectMonthRow: View {
     let month: ReflectFeed.MonthRow
     let onTapItem: (ReflectQueueItem) -> Void
@@ -24,32 +28,32 @@ struct ReflectMonthRow: View {
                 ReflectWeekSection(week: week, onTapItem: onTapItem)
             }
         } else {
-            Section {
-                Button {
-                    withAnimation { isExpanded = true }
-                } label: {
-                    VStack(alignment: .leading, spacing: 6) {
-                        HStack(alignment: .firstTextBaseline) {
-                            Text(ReflectFidelity.title(kind: .month, interval: month.interval))
-                                .font(.system(.subheadline, design: .serif).weight(.medium))
-                                .foregroundStyle(Palette.ink)
-                            Spacer()
-                            Image(systemName: "chevron.down")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-                        ReflectMoodChipStrip(moodCounts: moodCounts)
-                        if let line, !line.isEmpty {
-                            Text(line)
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                                .lineLimit(2)
-                        }
+            Button {
+                withAnimation { isExpanded = true }
+            } label: {
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack(alignment: .firstTextBaseline) {
+                        Text(ReflectFidelity.title(kind: .month, interval: month.interval))
+                            .font(.system(.subheadline, design: .serif).weight(.medium))
+                            .foregroundStyle(Palette.ink)
+                        Spacer()
+                        Image(systemName: "chevron.down")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
                     }
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                    ReflectMoodChipStrip(moodCounts: moodCounts)
+                    if let line, !line.isEmpty {
+                        Text(line)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(2)
+                    }
                 }
-                .buttonStyle(.plain)
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
+            .buttonStyle(.plain)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
             .task(id: fingerprint) { await load() }
             .accessibilityIdentifier("reflectMonth-\(month.interval.start.timeIntervalSince1970)")
         }

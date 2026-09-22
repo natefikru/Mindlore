@@ -11,6 +11,13 @@ import SwiftData
 // closure returning a fake provider directly, with no network or Keychain involved.
 @MainActor
 enum ReflectSummaryStore {
+    // Guards the launch sweep and a lazily-triggered row against racing to generate the same
+    // period: both check the cache before either writes, so a completed week that's both the
+    // sweep's target and already on screen at launch could otherwise fire two real requests for
+    // itself. A caller that finds a period already generating awaits that result instead of
+    // starting a second one.
+    private static var inFlight: [String: Task<ReflectSummary?, Never>] = [:]
+
     // The newest row for a period. There is deliberately no uniqueness constraint (the CloudKit
     // rule every model here follows), so a caller that somehow finds two rows for the same period
     // reads the newest by generatedAt; generateIfMissing's own cache check is what keeps a second
@@ -27,13 +34,33 @@ enum ReflectSummaryStore {
     static func generateIfMissing(
         kind: ReflectSummaryKind,
         interval: DateInterval,
-        resolve: () -> Result<AskProvider, AIJobFailure>,
+        resolve: @escaping () -> Result<AskProvider, AIJobFailure>,
         voice: PromptVoice,
         calendar: Calendar = .current,
         in context: ModelContext
     ) async -> ReflectSummary? {
         if let existing = summary(kind: kind, periodStart: interval.start, in: context) { return existing }
 
+        let key = "\(kind.rawValue):\(interval.start.timeIntervalSince1970)"
+        if let running = inFlight[key] {
+            return await running.value
+        }
+        let task = Task<ReflectSummary?, Never> {
+            await generate(kind: kind, interval: interval, resolve: resolve, voice: voice, calendar: calendar, in: context)
+        }
+        inFlight[key] = task
+        defer { inFlight[key] = nil }
+        return await task.value
+    }
+
+    private static func generate(
+        kind: ReflectSummaryKind,
+        interval: DateInterval,
+        resolve: () -> Result<AskProvider, AIJobFailure>,
+        voice: PromptVoice,
+        calendar: Calendar,
+        in context: ModelContext
+    ) async -> ReflectSummary? {
         let items: [ReflectQueueItem]?
         switch kind {
         case .week:
@@ -77,7 +104,7 @@ enum ReflectSummaryStore {
     // Nothing older is swept here (a launch isn't the place to backfill a year of history); the
     // lazy path in the feed covers everything else.
     static func sweepMostRecentlyCompleted(
-        resolve: () -> Result<AskProvider, AIJobFailure>,
+        resolve: @escaping () -> Result<AskProvider, AIJobFailure>,
         voice: PromptVoice,
         now: Date = .now,
         calendar: Calendar = .current,

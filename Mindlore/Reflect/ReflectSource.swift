@@ -11,9 +11,9 @@ enum ReflectSource {
 
     // MARK: - Reused signals
 
-    // Mirrors TodaySource.looseEnds and .entities exactly: the same hidden/muted filtering and the
-    // same fact shapes, just asked about a past week's end rather than now. ReflectSignals decides
-    // what a given end date makes of them.
+    // Mirrors TodaySource.looseEnds exactly: the same hidden/muted filtering and the same fact
+    // shape, just asked about a past week's end rather than now. ReflectSignals decides what a
+    // given end date makes of them.
     static func queueLooseEnds(in context: ModelContext, directory: EntityDirectory) -> [LooseEndFacts] {
         LooseEnd.all(in: context).compactMap { end in
             let subjects = Set(end.entityIDs.map(directory.root(of:)))
@@ -33,27 +33,9 @@ enum ReflectSource {
         }
     }
 
-    static func queueEntities(in context: ModelContext, directory: EntityDirectory) -> [EntityFacts] {
-        let all = (try? context.fetch(FetchDescriptor<Entity>())) ?? []
-        return all.compactMap { entity in
-            guard !entity.isDeleted, entity.isBrowsable, !entity.resurfacingMuted, entity.kind.isAName else { return nil }
-            return EntityFacts(
-                id: entity.id,
-                name: entity.name,
-                kind: entity.kind,
-                linkCount: entity.linkCount,
-                lastLinkedAt: entity.lastLinkedAt
-            )
-        }
-    }
-
     static func queueSignals(weekEnd: Date, in context: ModelContext) -> [ReflectQueueItem] {
         let directory = EntityDirectory(in: context)
-        return ReflectSignals.compose(
-            looseEnds: queueLooseEnds(in: context, directory: directory),
-            entities: queueEntities(in: context, directory: directory),
-            weekEnd: weekEnd
-        )
+        return ReflectSignals.compose(looseEnds: queueLooseEnds(in: context, directory: directory), weekEnd: weekEnd)
     }
 
     // MARK: - Feed bounds
