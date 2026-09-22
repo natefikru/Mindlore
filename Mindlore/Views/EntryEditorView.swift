@@ -143,6 +143,12 @@ struct EntryEditorView: View {
                     Menu {
                         Button("Entry date", systemImage: "calendar") { editingDate = true }
                             .accessibilityIdentifier("entryDateButton")
+                        // Insights decide this strictly; the user settles it when they got it wrong.
+                        Button(entry.isCreative ? "This is about my life" : "Mark as creative",
+                               systemImage: entry.isCreative ? "person" : "paintbrush.pointed") {
+                            setCreative(!entry.isCreative, on: entry)
+                        }
+                        .accessibilityIdentifier("toggleCreativeButton")
                         if entry.source == .photo && entry.pagesConfirmed {
                             Button("Edit pages", systemImage: "doc.on.doc") { editingPages = true }
                                 .disabled(pageTranscription.isRunning(entry))
@@ -447,6 +453,17 @@ struct EntryEditorView: View {
         saver.noteChange()
         saver.flush()
         DiagnosticsLog.shared.record("cleanup.applied", ["id": .id(entry.id), "trigger": "manual"])
+    }
+
+    // Marked creative, the entry loses its names, area, mood, and open loose ends at once. Marked
+    // life again, it is read again so they come back, when there is something to read it with.
+    private func setCreative(_ creative: Bool, on entry: Entry) {
+        saver.flush()
+        graph.setCreative(creative, on: entry, in: modelContext)
+        guard !creative, AIServices.insightsUsable(settings: settings, accounts: accounts) else { return }
+        let context = modelContext
+        let coordinator = insightsCoordinator
+        Task { await coordinator.runAI(for: entry, context: context) }
     }
 
     private func revert(_ entry: Entry) {

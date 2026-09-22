@@ -32,6 +32,7 @@ nonisolated enum AskContextBuilder {
         let title: String
         let text: String
         var entityIDs: [UUID] = []
+        var isCreative = false
     }
 
     nonisolated struct EntityInput: Equatable, Sendable {
@@ -223,16 +224,20 @@ nonisolated enum AskContextBuilder {
     static func blockCharacterEstimate(title: String, text: String) -> Int {
         // "[E123] ", not "[E00] ": one aggregate question mints up to a hundred and fifty handles,
         // so the next turn of that conversation is handing out four-digit ones.
-        let header = "[E1234] 2026-09-18 ".count + title.count
+        let header = "[E1234] 2026-09-18 ".count + title.count + creativeMarker.count
         let fence = openDelimiter.count + closeDelimiter.count + 3
         return header + fence + min(text.count, maxEntryCharacters)
     }
 
-    static func block(handle: String, date: Date, title: String, text: String) -> String {
+    // Said on the block itself, so a lyric about Memphis never answers "have I been to Memphis?".
+    static let creativeMarker = " (a creative piece the author wrote, not an account of events)"
+
+    static func block(handle: String, date: Date, title: String, text: String, creative: Bool = false) -> String {
         var header = "[\(handle)] \(dateFormatter.string(from: date))"
         if let title = InsightsPromptBuilder.promptSafe(sanitized(title)) {
             header += " \(title)"
         }
+        if creative { header += creativeMarker }
         return "\(header)\n\(openDelimiter)\n\(text)\n\(closeDelimiter)"
     }
 
@@ -350,7 +355,7 @@ nonisolated enum AskContextBuilder {
             guard !body.isEmpty else { return }
             let existing = context.handles.first { $0.value == entry.id }?.key
             let handle = existing ?? "E\(nextHandle)"
-            let rendered = block(handle: handle, date: entry.date, title: entry.title, text: body)
+            let rendered = block(handle: handle, date: entry.date, title: entry.title, text: body, creative: entry.isCreative)
             // A block that doesn't fit is skipped whole; a smaller one later can still go in,
             // and the handle it would have taken stays free.
             guard append(Block(text: rendered, entryID: entry.id)) else { return }

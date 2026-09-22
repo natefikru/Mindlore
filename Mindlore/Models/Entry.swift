@@ -48,6 +48,12 @@ final class Entry {
     var automaticAIPassUsed: Bool = false
     // A typed entry the user hasn't finished with Done. Drafts never get the automatic AI pass.
     var isDraft: Bool = false
+    // A piece of creative work (a poem, lyrics, a story, an abstract fragment) rather than the
+    // author's account of their life. Its names, area, and loose ends are never taken as facts:
+    // a lyric about Rosa driving to Memphis must not put Rosa on the map (owner, 2026-09-22).
+    // Insights set it, strictly, unless the user has; the user's call is never overridden.
+    var isCreative: Bool = false
+    var creativeSetByUser: Bool = false
     var titlePending: Bool = false
     var titleAttempts: Int = 0
     var titleFailureRaw: String?

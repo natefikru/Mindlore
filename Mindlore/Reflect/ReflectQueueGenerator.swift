@@ -97,6 +97,9 @@ enum ReflectQueueGenerator {
         all reflexes to avoid, not a style to fall back on. Start from whatever's actually most \
         specific instead.
 
+        An entry marked as a creative piece is a poem, a song, or a story the author wrote. Mention \
+        it as their writing ("you wrote a song about leaving"), never as something that happened.
+
         Never invent a detail, a name, or an event the text below doesn't carry. No advice, no \
         diagnosis, no verdict on a life: you are summarizing, not judging. If there is nothing to \
         summarize, leave summary empty rather than reaching for something thin.

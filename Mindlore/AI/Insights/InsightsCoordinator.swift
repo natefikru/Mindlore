@@ -187,7 +187,7 @@ final class InsightsCoordinator {
             "knownLooseEnds": .int(plan.vocabularySent.looseEnds.count),
         ])
 
-        let result: InsightsResult
+        var result: InsightsResult
         let usage: TextResult
         do {
             usage = try await generator.generator.generate(plan.request)
@@ -207,9 +207,30 @@ final class InsightsCoordinator {
             return
         }
 
+        // On device the model's own verdict is not trusted: prose is never creative, and text laid
+        // out like verse is asked about on its own. Failing that question means life.
+        var focused: Bool?
+        if generator.onDevice, CreativeSignals.looksLikeVerse(analyzedText) {
+            let answer = try? await generator.generator.generate(CreativeSignals.focusedRequest(for: analyzedText))
+            focused = answer.flatMap { CreativeSignals.parseFocused($0.text) }
+        }
+        result.creative = CreativeSignals.decide(modelSaysCreative: result.creative, text: analyzedText, onDevice: generator.onDevice, focused: focused)
+
         guard let current = Self.fetch(id, in: context), current.contentRevision == revision else {
             diagnostics.record("insights.discarded", ["id": .id(entryID), "reason": "restarted"])
             return
+        }
+
+        // Creative work keeps its title, tags, and a line saying what the piece is. Its names,
+        // area, loose ends, and mood are not facts about the author's life: a sad poem is not a
+        // sad week in Reflect (owner, 2026-09-22). The user's own call wins over the model's.
+        if !current.creativeSetByUser { current.isCreative = result.creative }
+        if current.isCreative {
+            result.primaryMood = nil
+            result.secondaryMoods = []
+            result.areas = []
+            result.mentions = []
+            result.looseEnds = LooseEndResult()
         }
 
         let insights = current.insights ?? {
