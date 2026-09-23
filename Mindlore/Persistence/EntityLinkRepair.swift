@@ -17,6 +17,8 @@ enum EntityLinkRepair {
             link.linkedEntity = entity
             repaired += 1
         }
+        // A plain save, like EntryDateRepair: this runs in MindloreApp.init before any index or
+        // screen exists, so there is no JournalSaves.revision reader to tell.
         if repaired > 0 {
             try context.save()
         }

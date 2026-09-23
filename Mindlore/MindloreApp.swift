@@ -103,9 +103,14 @@ struct MindloreApp: App {
         var syncFailed = false
         var opened = Result { try ModelContainerFactory.make(location) }
         if mirrors, case .failure(let error) = opened {
-            diagnostics.record("sync.storeFailed", ["error": .errorCode(error)])
-            syncFailed = true
-            opened = Result { try ModelContainerFactory.make(location, cloudKitContainerID: nil) }
+            // Only a store that opens without CloudKit makes this a sync failure. One that fails
+            // both ways failed for another reason (a migration, most likely), and the original
+            // error is the one worth reading, so it is what store.openFailed reports.
+            if case .success(let local) = Result(catching: { try ModelContainerFactory.make(location, cloudKitContainerID: nil) }) {
+                diagnostics.record("sync.storeFailed", ["error": .errorCode(error)])
+                syncFailed = true
+                opened = .success(local)
+            }
         }
         container = opened
         _sync = State(initialValue: SyncStatusMonitor(mirrors: mirrors, storeFailed: syncFailed))
