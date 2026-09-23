@@ -6,13 +6,22 @@ import SwiftUI
 struct AISettingsSection: View {
     @Environment(SettingsStore.self) private var settings
     @Environment(ProviderAccountStore.self) private var accounts
+    @State private var askingConsent = false
+
+    // Off goes straight through; on asks first, and only Allow turns it on.
+    private var useAI: Binding<Bool> {
+        Binding {
+            settings.aiEnabled
+        } set: { on in
+            if on { askingConsent = true } else { settings.aiEnabled = false }
+        }
+    }
 
     var body: some View {
-        @Bindable var settings = settings
-
         Section {
-            Toggle("Use AI", isOn: $settings.aiEnabled)
+            Toggle("Use AI", isOn: useAI)
                 .accessibilityIdentifier("aiEnabledToggle")
+                .aiConsent(isPresented: $askingConsent)
 
             NavigationLink {
                 AIKeyView()
@@ -33,7 +42,7 @@ struct AISettingsSection: View {
         } header: {
             Text("AI")
         } footer: {
-            Text("When AI is on, recordings, journal pages, and entry text are sent to your AI provider for transcription, titles, and insights. Opening a person, place, or project in your journal sends the sentences that mention it, to draft a short description.")
+            Text("When AI is on, recordings, journal pages, and entry text are sent to OpenAI for transcription, titles, and insights. Opening a person, place, or project in your journal sends the sentences that mention it, to draft a short description.")
         }
     }
 
@@ -51,6 +60,8 @@ struct AIKeyView: View {
     @State private var replacingKey = false
     @State private var status: ConnectionStatus = .idle
     @State private var saveError: String?
+    @State private var askingConsent = false
+    @Environment(SettingsStore.self) private var settings
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     enum ConnectionStatus: Equatable {
@@ -85,6 +96,8 @@ struct AIKeyView: View {
                         .accessibilityIdentifier("openAIKeyField")
                     Button("Save key") { saveKey() }
                         .disabled(keyDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    Link("Get a key at platform.openai.com", destination: AIConsent.keyURL)
+                        .accessibilityIdentifier("getOpenAIKeyLink")
                 }
                 if let saveError {
                     Text(saveError).foregroundStyle(.orange)
@@ -97,13 +110,14 @@ struct AIKeyView: View {
             } header: {
                 Text("OpenAI")
             } footer: {
-                Text("Your key is stored in this iPhone's Keychain. Saving it turns AI on.")
+                Text("Your key is stored in this iPhone's Keychain. OpenAI bills you for what you use. Saving it asks before turning AI on.")
             }
         }
         .animation(Motion.resolve(Motion.settle, reduceMotion: reduceMotion), value: replacingKey)
         .animation(Motion.resolve(Motion.settle, reduceMotion: reduceMotion), value: status)
         .paperBackground()
         .undoPill(undo)
+        .aiConsent(isPresented: $askingConsent)
         .navigationTitle("OpenAI Key")
         .navigationBarTitleDisplayMode(.inline)
         .task {
@@ -137,6 +151,8 @@ struct AIKeyView: View {
             keyDraft = ""
             replacingKey = false
             saveError = nil
+            // A key alone sends nothing; AI turns on only once this is answered with Allow.
+            if !settings.aiEnabled { askingConsent = true }
             Task { await test() }
         } catch {
             saveError = "Couldn't save the key to Keychain."
