@@ -43,4 +43,18 @@ final class SettingsTabUITests: XCTestCase {
             )
         }
     }
+
+    // Where the journal is kept is the first thing Settings says (owner, 2026-09-23). A UI test
+    // store never mirrors, so it reads as staying on this iPhone.
+    func testICloudIsTheFirstSection() {
+        app.tabBars.buttons["Settings"].tap()
+        let sync = app.descendants(matching: .any)["syncStatusRow"]
+        XCTAssertTrue(sync.waitForExistence(timeout: 5))
+        XCTAssertTrue(sync.label.contains("Off"), sync.label)
+        XCTAssertTrue(app.staticTexts["This journal stays on this iPhone."].exists)
+
+        let lifeAreas = app.buttons["lifeAreasSettingsLink"]
+        XCTAssertTrue(lifeAreas.waitForExistence(timeout: 5))
+        XCTAssertLessThan(sync.frame.minY, lifeAreas.frame.minY)
+    }
 }

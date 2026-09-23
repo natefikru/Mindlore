@@ -8,7 +8,7 @@ Mindlore is a voice-first journaling app for iOS, built with SwiftUI and SwiftDa
 
 Deployment target iOS 26.5, Swift 5.0 language mode. The app target sets `SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor` and approachable concurrency, so types are main-actor by default; mark work that must leave the main actor `@concurrent nonisolated`. The test targets do not default to MainActor, so test suites that touch app types are marked `@MainActor`.
 
-The app signs with team `7DZBU56KUA`, a paid Individual team since 2026-09-23 (it was the free Personal Team before, same ID). The app has no iCloud entitlement yet, so any CloudKit call fails at runtime; sync is gated by `AppConfig.cloudKitContainerID`, `nil` until `tasks/icloud-sync.md` lands.
+The app signs with team `7DZBU56KUA`, a paid Individual team since 2026-09-23 (it was the free Personal Team before, same ID). The app's own journal mirrors to `iCloud.com.natefikru.mindlore` (`AppConfig.cloudKitContainerID`) through SwiftData's CloudKit store; only `StoreLocation.default` does, so tests and demo journals never touch iCloud. A store that fails to open with CloudKit reopens on the device alone (`sync.storeFailed`). `SyncStatusMonitor` (`Mindlore/Sync/`) reports the account and the mirroring's own events to the iCloud section at the top of Settings; `SyncStatus` holds every sentence it can say. Xcode builds talk to CloudKit's Development environment and TestFlight to Production, and nothing copies data between them. The plan and its remaining phases are `tasks/icloud-sync.md`.
 
 ## Commands
 

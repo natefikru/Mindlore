@@ -61,6 +61,8 @@ struct SettingsView: View {
 
         NavigationStack {
             Form {
+                SyncSettingsSection()
+
                 Section {
                     NavigationLink {
                         LifeAreasSettingsView()
