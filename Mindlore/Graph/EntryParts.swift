@@ -34,13 +34,15 @@ nonisolated enum EntryParts {
             }
         }
 
-        // Nil means the whole entry: it has fewer than two parts, or the name couldn't be placed
-        // in any of them. A nil name keeps its old behaviour and connects to everything in the
-        // entry, so a part the model missed never costs the map an edge it used to have.
+        // Nil means the whole entry: it has fewer than two parts, so there is nothing narrower to
+        // go on and every name in it connects as it always did. An empty set means the entry has
+        // parts and this name is in none of them, and it connects to nothing from this entry
+        // (owner, 2026-09-23: the map's problem was clutter). It stays on the map all the same:
+        // a node shows for its mentions, not its edges, and other entries still link it.
         func parts(surfaces: [String], isTag: Bool) -> Set<Int>? {
             guard sections.count > 1 else { return nil }
             let names = Set(surfaces.map { $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }.filter { !$0.isEmpty })
-            guard !names.isEmpty else { return nil }
+            guard !names.isEmpty else { return [] }
             var found: Set<Int> = []
             for (index, section) in sections.enumerated() {
                 let listed = isTag ? section.tags : section.names
@@ -59,7 +61,7 @@ nonisolated enum EntryParts {
                     }
                 }
             }
-            return found.isEmpty ? nil : found
+            return found
         }
     }
 }

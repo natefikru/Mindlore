@@ -376,10 +376,13 @@ everything in an entry joining everything else because it was written at one sit
 `EntryParts.Context` places each link at snapshot time, never stored, so older entries and names
 added by hand need nothing migrated: by the part's own `names` or `tags` list, by the part's span
 of text a name is written in (only while the insights are current, since an edit moves the words
-the offsets point at), and a tag only by the lists. A name placed in no part, or an entry with
-fewer than two, is the whole entry's and connects as before, so a part the model missed never
-costs an edge. `EntityGraph.LinkInput.parts` carries it; `EntityGraph.build` unions an entity's
-parts across its links and skips a pair whose parts are disjoint. Both `mapSnapshot` and
+the offsets point at), and a tag only by the lists. A name placed in no part connects to
+nothing from that entry (owner, 2026-09-23: the map's problem was clutter) and stays on the map,
+since a node shows for its mentions, not its edges, and other entries still link it. Only an
+entry with fewer than two parts, which has nothing narrower to go on, connects everything in it
+as before. `EntityGraph.LinkInput.parts` carries it (nil for an entry with no parts, empty for
+a name placed in none); `EntityGraph.build` unions an entity's parts across its links and skips
+a pair whose parts are disjoint. Both `mapSnapshot` and
 `mentionedWith` read it. The parts' tags are also folded into the entry's own, after them and
 under the same cap. Parts are metadata for the map, not something to read: the insights sheet
 never shows them, since their tags and names are already on its own cards. Never asked of the on-device model (`Budget.sections`), and dropped for creative work.

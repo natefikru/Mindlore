@@ -415,13 +415,18 @@ struct PartAwareGraphTests {
             .init(entryID: entry, entityID: office, entryDate: now, parts: [0]),
             .init(entryID: entry, entityID: maya, entryDate: now, parts: [1]),
             .init(entryID: entry, entityID: wedding, entryDate: now, parts: [1, 2]),
-            .init(entryID: entry, entityID: unplaced, entryDate: now),
+            .init(entryID: entry, entityID: unplaced, entryDate: now, parts: []),
         ], asOf: now)
         let pairs = Set(edges.map { Set([$0.a, $0.b]) })
         #expect(pairs.contains([dana, office]) && pairs.contains([maya, wedding]))
         #expect(!pairs.contains([dana, maya]) && !pairs.contains([office, wedding]), "different parts")
-        #expect([dana, office, maya, wedding].allSatisfy { pairs.contains([unplaced, $0]) }, "a name placed nowhere is the whole entry's")
-        #expect(edges.count == 6)
+        #expect(!edges.contains { $0.a == unplaced || $0.b == unplaced }, "a name placed in no part connects to nothing from this entry")
+        #expect(edges.count == 2)
+
+        // An entry with no parts at all connects everything, as it always did.
+        let old = UUID()
+        let whole = EntityGraph.build(links: [dana, maya, unplaced].map { .init(entryID: old, entityID: $0, entryDate: now) }, asOf: now)
+        #expect(whole.count == 3)
     }
 
     @Test func aNameArrivingTwiceTakesEveryPartItsLinksCarry() {
@@ -434,12 +439,12 @@ struct PartAwareGraphTests {
             .init(entryID: entry, entityID: c, entryDate: now, parts: [2]),
         ], asOf: now)
         #expect(Set(spread.map { Set([$0.a, $0.b]) }) == [[a, b]])
-        let wholeEntry = EntityGraph.build(links: [
-            .init(entryID: entry, entityID: a, entryDate: now, parts: [0]),
-            .init(entryID: entry, entityID: a, entryDate: now),
+        let halfPlaced = EntityGraph.build(links: [
+            .init(entryID: entry, entityID: a, entryDate: now, parts: []),
+            .init(entryID: entry, entityID: a, entryDate: now, parts: [2]),
             .init(entryID: entry, entityID: c, entryDate: now, parts: [2]),
         ], asOf: now)
-        #expect(wholeEntry.count == 1, "any unplaced link makes it the whole entry's")
+        #expect(halfPlaced.count == 1, "one placed link is enough to connect within its part")
     }
 
     @Test func partsArePlacedByTheModelsListsAndByWhereTheNameIsWritten() {
@@ -452,11 +457,11 @@ struct PartAwareGraphTests {
         #expect(context.parts(surfaces: ["Dana"], isTag: false) == [0])
         #expect(context.parts(surfaces: ["maya"], isTag: false) == [1], "found in the text, though the model didn't list her")
         #expect(context.parts(surfaces: ["wedding"], isTag: true) == [1])
-        #expect(context.parts(surfaces: ["Lisbon"], isTag: false) == nil)
+        #expect(context.parts(surfaces: ["Lisbon"], isTag: false) == [], "in no part: connects to nothing from this entry")
         #expect(context.parts(surfaces: ["office"], isTag: true) == [0], "a tag only by the lists")
 
         let edited = EntryParts.Context(sections: sections, text: nil)
-        #expect(edited.parts(surfaces: ["Maya"], isTag: false) == nil, "offsets are not trusted once the text changed")
+        #expect(edited.parts(surfaces: ["Maya"], isTag: false) == [], "offsets are not trusted once the text changed")
         #expect(edited.parts(surfaces: ["Dana"], isTag: false) == [0])
         #expect(EntryParts.Context(sections: [sections[0]], text: text).parts(surfaces: ["Dana"], isTag: false) == nil, "one part is the whole entry")
     }
@@ -467,15 +472,15 @@ struct PartAwareGraphTests {
         let text = "Morning at the office with Dana went long. Then I called Maya about the wedding."
         let entry = try harness.entry(text)
         entry.entryDate = .now
-        let response = #"{"summary":"A day.","primaryMood":"calm","secondaryMoods":[],"lifeAreas":["work"],"tags":[],"mentions":[{"name":"Dana","kind":"person"},{"name":"Maya","kind":"person"}],"looseEnds":[],"sections":[{"topic":"Work","startsWith":"Morning at the office","names":["Dana"]},{"topic":"Family","startsWith":"Then I called Maya","names":["Maya"]}]}"#
+        let response = #"{"summary":"A day.","primaryMood":"calm","secondaryMoods":[],"lifeAreas":["work"],"tags":[],"mentions":[{"name":"Dana","kind":"person"},{"name":"Maya","kind":"person"},{"name":"Priya","kind":"person"}],"looseEnds":[],"sections":[{"topic":"Work","startsWith":"Morning at the office","names":["Dana"]},{"topic":"Family","startsWith":"Then I called Maya","names":["Maya"]}]}"#
         harness.generator.results = [.success(response)]
         await harness.coordinator.processQueue(context: harness.context)
         #expect(entry.insights?.sections.count == 2)
 
         let graph = GraphServices(diagnostics: .disabled)
         let split = MindMap.graph(graph.mapSnapshot(in: harness.context), kinds: nil, minimumLinkCount: 1, asOf: .now)
-        #expect(split.nodes.count == 2)
-        #expect(split.edges.isEmpty, "Dana and Maya were written about apart")
+        #expect(split.nodes.count == 3, "Priya, in no part, is still on the map")
+        #expect(split.edges.isEmpty, "Dana and Maya were written about apart, and Priya connects to neither")
         let dana = try #require(try harness.context.fetch(FetchDescriptor<Entity>()).first { $0.name == "Dana" })
         #expect(graph.mentionedWith(of: dana.id, in: harness.context).isEmpty, "a person's page reads the same rule")
 
@@ -483,7 +488,7 @@ struct PartAwareGraphTests {
         entry.insights?.sections = []
         let wholeGraph = GraphServices(diagnostics: .disabled)
         let whole = MindMap.graph(wholeGraph.mapSnapshot(in: harness.context), kinds: nil, minimumLinkCount: 1, asOf: .now)
-        #expect(whole.edges.count == 1)
-        #expect(wholeGraph.mentionedWith(of: dana.id, in: harness.context).map(\.name) == ["Maya"])
+        #expect(whole.edges.count == 3)
+        #expect(Set(wholeGraph.mentionedWith(of: dana.id, in: harness.context).map(\.name)) == ["Maya", "Priya"])
     }
 }

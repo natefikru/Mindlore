@@ -9,7 +9,9 @@ nonisolated enum EntityGraph {
         let entryID: UUID
         let entityID: UUID
         let entryDate: Date
-        // The parts of the entry this mention sits in (EntryParts), or nil for the whole entry.
+        // The parts of the entry this mention sits in (EntryParts): nil for an entry with no
+        // parts, where the mention is the whole entry's; empty for a mention placed in none of
+        // an entry's parts, which connects to nothing from that entry.
         let parts: Set<Int>?
 
         init(entryID: UUID, entityID: UUID, entryDate: Date, parts: Set<Int>? = nil) {
@@ -61,7 +63,8 @@ nonisolated enum EntityGraph {
         for (_, entryLinks) in byEntry {
             guard let entryDate = entryLinks.first?.entryDate else { continue }
             // One entity can arrive through several links (a merge, a tag and a name); its parts
-            // are all of theirs, and any link placed nowhere makes it the whole entry's.
+            // are all of theirs. Only an entry with no parts gives a nil, and then every link in
+            // it does.
             var partsByEntity: [UUID: Set<Int>?] = [:]
             for link in entryLinks {
                 switch (partsByEntity[link.entityID], link.parts) {
@@ -81,8 +84,9 @@ nonisolated enum EntityGraph {
 
             for i in 0..<distinctIDs.count {
                 for j in (i + 1)..<distinctIDs.count {
-                    // Two names in the same entry connect only when they share a part. A name
-                    // with no part is the whole entry's and connects as it always did.
+                    // Two names in the same entry connect only when they share a part. In an entry
+                    // with no parts both are nil and connect as they always did; a name placed in
+                    // no part has an empty set and shares nothing.
                     if let first = partsByEntity[distinctIDs[i]] ?? nil, let second = partsByEntity[distinctIDs[j]] ?? nil,
                        first.isDisjoint(with: second) {
                         continue
