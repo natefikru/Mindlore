@@ -305,7 +305,7 @@ struct AIFeaturesView: View {
         case .onDevice:
             switch onDeviceUnavailableReason {
             case nil:
-                "Questions are answered by Apple's on-device model, so nothing leaves this iPhone. It reads less of your journal at once than OpenAI can, and once you save a key Mindlore moves questions to OpenAI unless you pick here yourself."
+                "Questions are answered by Apple's on-device model, so nothing leaves this iPhone. It reads less of your journal at once than OpenAI can, and once you save a key and allow AI, Mindlore moves questions to OpenAI unless you pick here yourself."
             case .appleIntelligenceNotEnabled:
                 "Turn on Apple Intelligence in Settings to answer questions on this iPhone, or choose OpenAI."
             case .modelNotReady:

@@ -178,8 +178,8 @@ final class SettingsStore {
 
     var hasChosenAskGenerator: Bool { askGeneratorChosenByUser }
 
-    // Called every time Ask opens, so saving a key later moves questions to OpenAI without the
-    // user having to go and find the setting.
+    // Called every time Ask opens, so allowing AI with a key saved later moves questions to OpenAI
+    // without the user having to go and find the setting.
     @discardableResult
     func refreshAskGeneratorDefault(textUsable: Bool, onDeviceAvailable: Bool) -> AskGenerator {
         guard !askGeneratorChosenByUser else { return askGenerator }
