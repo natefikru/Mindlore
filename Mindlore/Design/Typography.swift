@@ -23,7 +23,8 @@ private struct JournalTextStyle: ViewModifier {
     let weight: Font.Weight?
 
     func body(content: Content) -> some View {
-        content.font(.system(style, design: journalFont.design, weight: weight ?? .regular))
+        // The weight stays optional so a style keeps its own: a headline is semibold unless asked.
+        content.font(.system(style, design: journalFont.design, weight: weight))
     }
 }
 

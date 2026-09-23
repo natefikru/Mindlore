@@ -71,6 +71,11 @@ enum IntentHandler {
     static func handle(_ action: IntentAction, recording: RecordingSession, router: AppRouter) -> Outcome {
         switch action {
         case .record:
+            // The recorder is already up and waiting for its button: Siri was asked to record.
+            if recording.status == .ready {
+                recording.startRecording()
+                return .recording
+            }
             guard recording.status == .idle else {
                 recording.expand()
                 return .recorderShown

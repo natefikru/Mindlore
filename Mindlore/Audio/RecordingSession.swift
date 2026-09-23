@@ -117,8 +117,14 @@ final class RecordingSession {
         startTask = Task { [weak self] in await self?.start(recorder, generation: generation) }
     }
 
+    // A recorder that is only waiting has nothing to keep going, and no accessory to come back
+    // through, so putting it away closes it.
     func minimize() {
         guard isExpanded else { return }
+        if status == .ready {
+            discard()
+            return
+        }
         isExpanded = false
         diagnostics.record("recording.minimized")
     }

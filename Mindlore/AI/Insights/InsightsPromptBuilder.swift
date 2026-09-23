@@ -394,8 +394,8 @@ nonisolated enum InsightsPromptBuilder {
 
         // Typed entries and photographed pages state their own date often enough to ask; a
         // recording never does. The page transcriber already reads a date off the page itself;
-        // asking here as well catches one it missed, and the two agree because both parse the same
-        // way and only ever fill an entry whose date the user hasn't picked.
+        // asking here as well catches one it missed. Either only applies a date on its own while
+        // the entry has no picked day; otherwise it is offered.
         let asksForWrittenDate = sections.suggestEntryDates && (source == .typed || source == .photo) && budget.writtenDate
         if asksForWrittenDate {
             properties.append(.init("writtenDate", .string(description: "The date this entry itself was written on, as yyyy-MM-dd, only if the text states it with year, month, and day" + (source == .photo ? ", usually at the top of the first page" : "") + ". Ignore other dates mentioned. Null otherwise.", nullable: true)))

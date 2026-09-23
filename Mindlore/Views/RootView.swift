@@ -203,6 +203,7 @@ struct RootView: View {
             if let kept = router.keptEntryID {
                 KeepCard(entryID: kept)
                     .id(kept)
+                    .environment(\.journalFont, settings.journalFont)
                     .environment(graph)
                     .environment(insights)
                     .environment(router)

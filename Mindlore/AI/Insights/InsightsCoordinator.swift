@@ -257,9 +257,11 @@ final class InsightsCoordinator {
         if isCurrent {
             // A suggestion only offers a date; it isn't an edit until accepted, by the user or by the
             // setting. A photographed page is the exception: the date written at its top is the day
-            // it was written, so it becomes the entry's date on its own (owner, 2026-09-23).
+            // it was written, so it becomes the entry's date on its own (owner, 2026-09-23), but
+            // only while the entry has no picked day. A day the user or the page already set is
+            // never moved by a rerun; a different reading is only offered.
             if let writtenDate = result.writtenDate, current.storeSuggestedEntryDate(writtenDate, calendar: calendar) {
-                if autoApplyEntryDate() || source == .photo {
+                if autoApplyEntryDate() || (source == .photo && !current.entryDateIsDayOnly) {
                     current.acceptSuggestedEntryDate(calendar: calendar)
                     changedEntry = true
                     diagnostics.record("entryDate.changed", ["id": .id(entryID), "reason": "auto", "source": "insights"])

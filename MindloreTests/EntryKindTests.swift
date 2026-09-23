@@ -231,6 +231,20 @@ struct InsightSectionsTests {
         #expect(EntryDates.isSameDay(page.entryDate, march3, calendar: utc))
         #expect(page.entryDateIsDayOnly && page.suggestedEntryDate == nil)
 
+        // A day already picked, by the user or an earlier pass, is never moved by a rerun: a
+        // different reading is only offered.
+        let picked = Entry(createdAt: Date(timeIntervalSince1970: 5_000), source: .photo, text: "March 3, 2025. Dear diary.")
+        picked.pagesConfirmed = true
+        picked.setEntryDay(Date(timeIntervalSince1970: 1_000_000_000), calendar: utc)
+        picked.insightsPending = true
+        harness.context.insert(picked)
+        try harness.context.save()
+        let pickedDay = picked.entryDate
+        harness.generator.results = [.success(InsightsHarness.fullResponse)]
+        await harness.coordinator.processQueue(context: harness.context)
+        #expect(picked.entryDate == pickedDay)
+        #expect(picked.suggestedEntryDate.map { EntryDates.isSameDay($0, march3, calendar: utc) } == true)
+
         // A typed entry still only gets the offer, unless the setting says otherwise.
         let typed = try harness.entry("March 3, 2025. Dear diary.")
         harness.generator.results = [.success(InsightsHarness.fullResponse)]
@@ -309,6 +323,26 @@ struct ReadyRecorderTests {
         harness.session.close()
         #expect(harness.session.status == .idle && !harness.session.isExpanded && harness.session.prompt == nil)
         #expect(harness.recorders.isEmpty)
+    }
+
+    // New Written Entry and Ask put the recorder away; a waiting one has nothing to keep and no
+    // accessory to come back through, so it closes rather than hiding with Record disabled.
+    @Test func puttingAWaitingRecorderAwayClosesIt() throws {
+        let harness = try RecordingSessionHarness()
+        harness.recordOnOpen = false
+        harness.session.begin()
+        harness.session.minimize()
+        #expect(harness.session.status == .idle && !harness.session.isExpanded)
+    }
+
+    @Test func siriStartsAWaitingRecorder() async throws {
+        let harness = try RecordingSessionHarness()
+        harness.recordOnOpen = false
+        harness.session.begin()
+        let router = AppRouter(opened: { _ in }, closed: { _ in })
+        #expect(IntentHandler.handle(.record, recording: harness.session, router: router) == .recording)
+        await harness.session.startTask?.value
+        #expect(harness.session.status == .active)
     }
 
     @Test func siriStartsAtOnceWhateverTheSettingSays() async throws {

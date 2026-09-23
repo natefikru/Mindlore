@@ -296,8 +296,14 @@ struct EntryListView: View {
         return [EntryKind.note, .creative].filter { present.contains($0) }
     }
 
+    // A kind chip that went away (its last entry changed kind or was deleted) stops filtering,
+    // or the list would sit empty with nothing left to unpick.
+    private var activeKind: EntryKind? {
+        shownKind.flatMap { offeredKinds.contains($0) ? $0 : nil }
+    }
+
     private var shownEntries: [Entry] {
-        if let shownKind { return visibleEntries.filter { $0.kind == shownKind } }
+        if let activeKind { return visibleEntries.filter { $0.kind == activeKind } }
         let areas = activeAreas
         guard !areas.isEmpty else { return visibleEntries }
         return visibleEntries.filter { JournalFilter.matches(areasRaw: $0.insights?.areasRaw ?? [], areas: areas) }
@@ -335,7 +341,7 @@ struct EntryListView: View {
                     .accessibilityIdentifier("areaFilter-\(area.rawValue)")
                 }
                 ForEach(offeredKinds, id: \.self) { kind in
-                    let selected = shownKind == kind
+                    let selected = activeKind == kind
                     Button {
                         shownKind = selected ? nil : kind
                         pickedAreas = []

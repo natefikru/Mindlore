@@ -42,8 +42,10 @@ struct EntryEditorView: View {
     @State private var linked: (text: String, value: AttributedString)?
     @State private var peekTarget: PeekTarget?
     @State private var addingName = false
-    // Set by the read text's link handler so the tap that opened a name never also opens the editor.
-    @State private var linkTapClaimed = false
+    // When the read text's link handler last opened a name, so the tap that opened it never also
+    // opens the editor. A time rather than a flag: it holds whichever order SwiftUI delivers the
+    // link and the tap in, and a link tap the gesture never saw can't swallow the next plain tap.
+    @State private var lastLinkTap: Date?
 
     static let fallbackNoticeSeconds = 8.0
 
@@ -495,12 +497,13 @@ struct EntryEditorView: View {
     // tap into a note does. Names stay tappable: their link handler runs on the same tap and
     // claims it, so the switch is decided a moment later, once both have had their say.
     private func readTextTapped() {
-        linkTapClaimed = false
+        let tapped = Date.now
         Task {
             // Long enough for the link handler, which SwiftUI may deliver a beat after the gesture,
             // and far too short to feel.
-            try? await Task.sleep(for: .milliseconds(120))
-            guard !linkTapClaimed, isReading else { return }
+            try? await Task.sleep(for: .milliseconds(150))
+            if let lastLinkTap, abs(lastLinkTap.timeIntervalSince(tapped)) < 0.5 { return }
+            guard isReading else { return }
             focusWhenEditorAppears = true
             isReading = false
             DiagnosticsLog.shared.record("editor.editFromReadTap", ["id": entry.map { .id($0.id) } ?? "none"])
@@ -527,10 +530,11 @@ struct EntryEditorView: View {
             .accessibilityIdentifier("entryReadText")
             .accessibilityHint("Tap to edit")
             .contentShape(Rectangle())
-            .onTapGesture { readTextTapped() }
+            // Simultaneous, so it never takes the tap away from a name's link.
+            .simultaneousGesture(TapGesture().onEnded { readTextTapped() })
             // Only the read text opens names, so links in the editor's sheets keep their own handling.
             .environment(\.openURL, OpenURLAction { url in
-                linkTapClaimed = true
+                lastLinkTap = .now
                 guard let id = EntryNameLinks.entityID(from: url) else { return .systemAction }
                 peekTarget = PeekTarget(id: id)
                 return .handled

@@ -207,11 +207,13 @@ final class PageTranscriptionCoordinator {
             finished.textReviewPending = true
             // A date written at the top of a page is the day the page was written, so it becomes
             // the entry's date on its own, whatever the typed-entry setting says (owner,
-            // 2026-09-23). The entry keeps createdAt for automation; only its place in the
-            // journal moves. Turning suggestions off in Settings still turns this off.
+            // 2026-09-23), unless the entry already has a picked day (the user's, or an earlier
+            // pass over these pages), which is only offered a different one. The entry keeps
+            // createdAt for automation; only its place in the journal moves. Turning suggestions
+            // off in Settings still turns this off.
             if suggestEntryDates(), let written = finished.sortedPages.compactMap(\.writtenDate).first,
                finished.storeSuggestedEntryDate(written) {
-                if autoApplyEntryDate() || Self.pagesApplyTheirDate {
+                if autoApplyEntryDate() || (Self.pagesApplyTheirDate && !finished.entryDateIsDayOnly) {
                     finished.acceptSuggestedEntryDate()
                     diagnostics.record("entryDate.changed", ["id": .id(entryID), "reason": "auto", "source": "page"])
                 } else {

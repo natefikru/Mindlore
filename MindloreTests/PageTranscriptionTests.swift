@@ -218,6 +218,15 @@ struct PageTranscriptionCoordinatorTests {
         #expect(entry.suggestedEntryDate == nil, "applied, so there is nothing left to offer")
         #expect(entry.createdAt == added, "the day it reached the app still drives automation")
 
+        let picked = try PageHarness()
+        picked.transcriber.writtenDates = [1: march3]
+        let backdated = try picked.confirmedEntry(pages: 1)
+        backdated.setEntryDay(Date(timeIntervalSince1970: 1_000_000_000))
+        let day = backdated.entryDate
+        await picked.coordinator.processQueue(context: picked.context)
+        #expect(backdated.entryDate == day, "a picked day is only offered another")
+        #expect(backdated.suggestedEntryDate != nil)
+
         let off = try PageHarness()
         off.suggestDates = false
         off.transcriber.writtenDates = [1: march3]
