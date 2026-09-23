@@ -12,9 +12,15 @@ import UIKit
 // One fact shapes the coordinator: UITextView's typing attributes keep only the font, colour, and
 // paragraph style (measured in GrowingTextEditorTests), so a custom attribute never reaches typed
 // text on its own and the empty paragraph after the last newline has no character to carry one.
-// So Return is always applied by hand, the trailing paragraph's block is held here, and after
-// every edit the paragraph touched is normalised from whichever character still carries the key,
-// with inline marks read back from the font UIKit did keep.
+// So Return is always applied by hand, and after every edit the paragraph touched is normalised
+// from whichever character still carries the key, with inline marks read back from the font UIKit
+// did keep. An empty last paragraph with a list or indent holds one space marked `sentinelKey` to
+// carry its block, because TextKit draws neither a marker nor an indent for a line with no
+// characters: without it, Return at the end of a list left the caret at the margin and the "2."
+// appeared only with the first letter. A zero-width space drew the marker but TextKit lays it out
+// as nothing, so the caret still sat in front of the "2."; a space has width and puts the caret
+// where the words start. The mark, not the character, is what makes it the sentinel, so a space
+// the user typed is never taken for one. It is never reported; the text is the words.
 struct GrowingTextEditor: UIViewRepresentable {
     @Binding var text: String
     @Binding var formatting: EntryFormatting
@@ -74,6 +80,7 @@ struct GrowingTextEditor: UIViewRepresentable {
             // font change from Settings never moves a caret.
             coordinator.fonts = FormattingStyle.Fonts(journalFont: font)
             coordinator.appliedFont = font
+            if view.textStorage.length == 0 { view.font = coordinator.fonts.body }
             coordinator.restyleAll()
         }
         // Text is only ever pushed in from outside for text the view didn't type itself: a
@@ -86,7 +93,7 @@ struct GrowingTextEditor: UIViewRepresentable {
         // assigning would drop what the user is in the middle of typing.
         let outside = (text, formatting)
         let echoed = coordinator.lastReported.map { $0 == outside } ?? false
-        if !echoed, view.markedTextRange == nil, view.text != text || coordinator.currentFormatting() != formatting {
+        if !echoed, view.markedTextRange == nil, Coordinator.plain(view.textStorage) != text || coordinator.currentFormatting() != formatting {
             let wasEditing = view.isFirstResponder
             let selection = view.selectedRange
             coordinator.load(text, formatting, into: view)
@@ -114,7 +121,7 @@ struct GrowingTextEditor: UIViewRepresentable {
         }
         if focusAtEndToken != coordinator.handledFocusToken {
             coordinator.handledFocusToken = focusAtEndToken
-            let end = view.text.utf16.count
+            let end = Coordinator.plain(view.textStorage).utf16.count
             view.selectedRange = NSRange(location: min(focusOffset ?? end, end), length: 0)
             if isEditable, !view.isFirstResponder {
                 view.becomeFirstResponder()
@@ -150,9 +157,22 @@ struct GrowingTextEditor: UIViewRepresentable {
         // The keyboard went away by the user's hand (a drag on the scroll view, the Done button),
         // so a stale focus flag must not bring it straight back.
         var resignedByUser = false
-        // The block and indent of the empty paragraph after the last newline, which has no
-        // character to carry them. Applied to its first character once one is typed.
-        var trailing: EntryFormatting.Paragraph?
+        // Carries the block of an empty last paragraph; see the note at the top of the file.
+        static let sentinelKey = NSAttributedString.Key("mindlore.sentinel")
+
+        static func isSentinel(at index: Int, in storage: NSAttributedString) -> Bool {
+            index >= 0 && index < storage.length && storage.attribute(sentinelKey, at: index, effectiveRange: nil) != nil
+        }
+
+        // The words, without the sentinel.
+        static func plain(_ storage: NSAttributedString) -> String {
+            guard isSentinel(at: storage.length - 1, in: storage) else { return storage.string }
+            return (storage.string as NSString).substring(to: storage.length - 1)
+        }
+
+        static func sentinel(font: UIFont) -> NSAttributedString {
+            NSAttributedString(string: " ", attributes: [.font: font, sentinelKey: true])
+        }
         // The inline marks typed text takes: toggled by the bar, otherwise read from the text
         // before the caret whenever the caret moves.
         private var typingInline: FormattingStyle.Inline = []
@@ -174,23 +194,31 @@ struct GrowingTextEditor: UIViewRepresentable {
 
         // Text from outside, whole.
         func load(_ text: String, _ formatting: EntryFormatting, into view: UITextView) {
-            view.attributedText = styled(text, formatting)
-            trailing = nil
-            if hasTrailingParagraph(view.textStorage.string as NSString) {
+            var display = text
+            if hasTrailingParagraph(text as NSString) {
                 let index = FormattingStyle.paragraphIndex(at: text.utf16.count, in: text as NSString)
                 let paragraph = formatting.paragraph(at: index)
-                if paragraph.block != nil || paragraph.indent > 0 { trailing = paragraph }
+                if paragraph.block != nil || paragraph.indent > 0 { display += " " }
             }
+            let styledText = NSMutableAttributedString(attributedString: styled(display, formatting))
+            if display != text {
+                styledText.addAttribute(Self.sentinelKey, value: true, range: NSRange(location: styledText.length - 1, length: 1))
+            }
+            view.attributedText = styledText
             lastReported = (text, formatting)
             typingInline = []
+            // An empty text has no characters to carry a font, so without this an empty entry
+            // lays out its caret and its first line in UIKit's default font, and the first letter
+            // then jumps the text to the journal font's size. Only when empty: setting `font` on
+            // text restyles every character and would flatten headings and bold.
+            if display.isEmpty { view.font = fonts.body }
+            applyTypingAttributes(view)
         }
 
-        // What the view holds now, the trailing paragraph included.
+        // What the view holds now, the sentinel's paragraph included.
         func currentFormatting() -> EntryFormatting {
             guard let view else { return .empty }
-            var formatting = FormattingStyle.formatting(of: view.textStorage)
-            if let trailing { formatting.setParagraph(trailing) }
-            return formatting
+            return FormattingStyle.formatting(of: view.textStorage)
         }
 
         // MARK: Reporting
@@ -199,19 +227,27 @@ struct GrowingTextEditor: UIViewRepresentable {
             // Always recorded, including while text is marked: inline predictions and dictation mark
             // text as you type, and skipping those would lose what was typed.
             normaliseAfterEdit(textView)
+            syncSentinel(textView)
             report(from: textView)
         }
 
         private func report(from textView: UITextView) {
             let formatting = currentFormatting()
-            lastReported = (textView.text, formatting)
-            if parent.text != textView.text { parent.text = textView.text }
+            let text = Self.plain(textView.textStorage)
+            lastReported = (text, formatting)
+            if parent.text != text { parent.text = text }
             if parent.formatting != formatting { parent.formatting = formatting }
             refreshBar(textView)
         }
 
         func textViewDidChangeSelection(_ textView: UITextView) {
             guard textView.markedTextRange == nil else { return }
+            // Never past the sentinel: typing goes in front of it, into its paragraph.
+            let end = (Self.plain(textView.textStorage) as NSString).length
+            if textView.selectedRange.length == 0, textView.selectedRange.location > end {
+                textView.selectedRange = NSRange(location: end, length: 0)
+                return
+            }
             let caret = textView.selectedRange.location
             // Typed text takes the marks of what it follows. The bar's toggle changes this after.
             typingInline = FormattingStyle.inline(at: caret, in: textView.textStorage)
@@ -228,7 +264,8 @@ struct GrowingTextEditor: UIViewRepresentable {
             resignedByUser = true
             bar.model.mention = nil
             // A tag the text ends on has nothing typed after it; leaving the field completes it.
-            if let tag = MentionDetection.completedTag(in: textView.text, endingAt: textView.text.utf16.count) {
+            let text = Self.plain(textView.textStorage)
+            if let tag = MentionDetection.completedTag(in: text, endingAt: text.utf16.count) {
                 parent.onTag(tag.word)
             }
             parent.onFocusChange(false)
@@ -258,27 +295,38 @@ struct GrowingTextEditor: UIViewRepresentable {
             let string = textView.textStorage.string as NSString
             let index = FormattingStyle.paragraphIndex(at: location, in: string)
             if isTrailing(location, in: string) {
-                return trailing ?? EntryFormatting.Paragraph(index: index)
+                return EntryFormatting.Paragraph(index: index)
             }
             let range = FormattingStyle.paragraphRange(at: location, in: string)
             let (block, indent) = FormattingStyle.blockAndIndent(in: NSRange(location: range.location, length: min(range.length + 1, string.length - range.location)), of: textView.textStorage)
             return EntryFormatting.Paragraph(index: index, block: block, indent: indent)
         }
 
-        // Gives the paragraph under `location` a block and indent. A paragraph with characters
-        // carries them as attributes and the whole text is restyled so numbered runs recount; the
-        // empty trailing paragraph is remembered here and drawn through the typing attributes.
+        // Gives the paragraph under `location` a block and indent, carried as attributes, and
+        // restyles the whole text so numbered runs recount. The empty last paragraph gets the
+        // sentinel to carry them.
         private func set(_ paragraph: EntryFormatting.Paragraph, at location: Int, in textView: UITextView) {
             let storage = textView.textStorage
             let string = storage.string as NSString
             if isTrailing(location, in: string) {
-                trailing = paragraph.block != nil || paragraph.indent > 0 ? paragraph : nil
+                if paragraph.block != nil || paragraph.indent > 0 {
+                    let selection = textView.selectedRange
+                    // Read before the append: `storage.string` is live and grows with it.
+                    let end = string.length
+                    storage.beginEditing()
+                    storage.append(Self.sentinel(font: fonts.body))
+                    storage.endEditing()
+                    FormattingStyle.setBlock(paragraph.block, indent: paragraph.indent, in: NSRange(location: end, length: 1), of: storage)
+                    textView.selectedRange = selection
+                    restyleAll()
+                }
             } else {
                 let range = FormattingStyle.paragraphRange(at: location, in: string)
                 let withNewline = NSRange(location: range.location, length: min(range.length + 1, string.length - range.location))
                 FormattingStyle.setBlock(paragraph.block, indent: paragraph.indent, in: withNewline, of: storage)
                 restyleAll()
             }
+            syncSentinel(textView)
             applyTypingAttributes(textView)
             report(from: textView)
             parent.onFormatted()
@@ -301,12 +349,11 @@ struct GrowingTextEditor: UIViewRepresentable {
 
         // After UIKit applied an edit: the characters it inserted carry no custom keys, so the
         // paragraph they landed in is re-marked from the key on any character it still has (or
-        // from `trailing`, if it was the empty last paragraph), and the inserted characters take
+        // from the sentinel, if it was the empty last paragraph), and the inserted characters take
         // the inline marks the caret was typing with.
         private func normaliseAfterEdit(_ textView: UITextView) {
             let storage = textView.textStorage
             let string = storage.string as NSString
-            if !hasTrailingParagraph(string) { trailing = nil }
             guard let edit = pendingEdit else { return }
             pendingEdit = nil
             guard textView.markedTextRange == nil else { return }
@@ -320,13 +367,7 @@ struct GrowingTextEditor: UIViewRepresentable {
             repeat {
                 let range = FormattingStyle.paragraphRange(at: location, in: string)
                 let withNewline = NSRange(location: range.location, length: min(range.length + 1, string.length - range.location))
-                var (block, indent) = FormattingStyle.blockAndIndent(in: withNewline, of: storage)
-                if let trailing, range.length > 0, NSMaxRange(range) == string.length {
-                    // The trailing paragraph just got its first character.
-                    block = trailing.block
-                    indent = trailing.indent
-                    self.trailing = nil
-                }
+                let (block, indent) = FormattingStyle.blockAndIndent(in: withNewline, of: storage)
                 FormattingStyle.setBlock(block, indent: indent, in: withNewline, of: storage)
                 if block == .number { restyled = true }
                 location = NSMaxRange(withNewline)
@@ -341,6 +382,43 @@ struct GrowingTextEditor: UIViewRepresentable {
                 FormattingStyle.style(withNewline, paragraph: paragraph, list: list, in: storage, fonts: fonts, palette: palette)
             }
             applyTypingAttributes(textView)
+        }
+
+        // Keeps the sentinel where it belongs: the only character of a last paragraph that has a
+        // list or an indent. Anywhere else (its paragraph got words, its block was taken away, it
+        // was pasted or joined into another line) it goes, and the caret never sits after it.
+        func syncSentinel(_ view: UITextView) {
+            guard view.markedTextRange == nil else { return }
+            let storage = view.textStorage
+            var selection = view.selectedRange
+            var changed = false
+            func remove(at index: Int) {
+                storage.beginEditing()
+                storage.deleteCharacters(in: NSRange(location: index, length: 1))
+                storage.endEditing()
+                if index < selection.location {
+                    selection.location -= 1
+                } else if index < NSMaxRange(selection) {
+                    selection.length -= 1
+                }
+                changed = true
+            }
+            var index = (storage.string as NSString).length - 2
+            while index >= 0 {
+                if Self.isSentinel(at: index, in: storage) { remove(at: index) }
+                index -= 1
+            }
+            let string = storage.string as NSString
+            if Self.isSentinel(at: string.length - 1, in: storage) {
+                let last = string.length - 1
+                let range = FormattingStyle.paragraphRange(at: last, in: string)
+                let (block, indent) = FormattingStyle.blockAndIndent(in: NSRange(location: last, length: 1), of: storage)
+                if range.length > 1 || (block == nil && indent == 0) { remove(at: last) }
+            }
+            let end = (Self.plain(storage) as NSString).length
+            if selection.location > end { selection = NSRange(location: end, length: 0) }
+            if NSMaxRange(selection) > storage.length { selection.length = storage.length - selection.location }
+            if changed || view.selectedRange != selection { view.selectedRange = selection }
         }
 
         // Attributes only, never characters, so the selection stays where it is.
@@ -363,7 +441,9 @@ struct GrowingTextEditor: UIViewRepresentable {
             if text == "\n", range.length == 0 {
                 let paragraph = paragraph(at: range.location, in: textView)
                 let paragraphRange = FormattingStyle.paragraphRange(at: range.location, in: string)
-                let state = ListEditing.Paragraph(block: paragraph.block, indent: paragraph.indent, isEmpty: paragraphRange.length == 0)
+                // A paragraph holding only the sentinel is an empty item.
+                let isEmpty = paragraphRange.length == 0 || (paragraphRange.length == 1 && Self.isSentinel(at: paragraphRange.location, in: textView.textStorage))
+                let state = ListEditing.Paragraph(block: paragraph.block, indent: paragraph.indent, isEmpty: isEmpty)
                 switch ListEditing.onReturn(in: state) {
                 case .leaveList:
                     set(EntryFormatting.Paragraph(index: paragraph.index), at: range.location, in: textView)
@@ -466,7 +546,7 @@ struct GrowingTextEditor: UIViewRepresentable {
 
         private func refreshMention(_ textView: UITextView) {
             guard textView.isEditable, textView.selectedRange.length == 0, textView.markedTextRange == nil,
-                  let mention = MentionDetection.mention(in: textView.text, caret: textView.selectedRange.location) else {
+                  let mention = MentionDetection.mention(in: Self.plain(textView.textStorage), caret: textView.selectedRange.location) else {
                 if bar.model.mention != nil { bar.model.mention = nil }
                 return
             }
@@ -480,7 +560,7 @@ struct GrowingTextEditor: UIViewRepresentable {
 
         // The picked name replaces "@" and whatever was typed after it, as plain words.
         func pick(_ pick: MentionPick) {
-            guard let view, let mention = MentionDetection.mention(in: view.text, caret: view.selectedRange.location) else { return }
+            guard let view, let mention = MentionDetection.mention(in: Self.plain(view.textStorage), caret: view.selectedRange.location) else { return }
             let name: String
             let target: GraphServices.AddedNameTarget
             switch pick {
@@ -502,6 +582,7 @@ struct GrowingTextEditor: UIViewRepresentable {
             pendingEdit = (mention.range, inserted.utf16.count, false)
             view.selectedRange = NSRange(location: mention.range.location + inserted.utf16.count, length: 0)
             normaliseAfterEdit(view)
+            syncSentinel(view)
             report(from: view)
             bar.model.mention = nil
             parent.onMention(target)
@@ -510,7 +591,7 @@ struct GrowingTextEditor: UIViewRepresentable {
         // A "#word" is complete the moment something other than a letter follows it.
         private func noteCompletedTag(before location: Int, typing replacement: String, in textView: UITextView) {
             guard let first = replacement.unicodeScalars.first, !CharacterSet.alphanumerics.contains(first), first != "_",
-                  let tag = MentionDetection.completedTag(in: textView.text, endingAt: location) else { return }
+                  let tag = MentionDetection.completedTag(in: Self.plain(textView.textStorage), endingAt: location) else { return }
             parent.onTag(tag.word)
         }
 

@@ -122,7 +122,9 @@ struct EntryEditorView: View {
                             links = (entry.text, EntryNameLinks.links(in: entry.text, candidates: candidates))
                         }
                     }
-                    .padding(.horizontal)
+                    // The title and kind picker sit 21 points in; the text view has no line padding
+                    // of its own, so it takes the same margin and the words line up under the title.
+                    .padding(.horizontal, 21)
                     .onAppear {
                         // A new entry wants the caret at the end of the text as soon as the text
                         // view exists. Asked for here, from the text view's own appearance, rather
@@ -203,6 +205,7 @@ struct EntryEditorView: View {
                     .accessibilityIdentifier("entryMoreButton")
                 }
             }
+            newEntryToolbar
         }
         .fullScreenCover(isPresented: $editingPages) {
             if let entry {
@@ -278,6 +281,27 @@ struct EntryEditorView: View {
             editingDate = false
             showingInsights = false
             reviewingCleanup = false
+        }
+    }
+
+    // Before its first letter a new entry shows the controls it will have, so the bar doesn't
+    // fill in around the user as they start to type. Nothing to act on yet, so Insights and More
+    // wait, and Done only puts the keyboard away.
+    @ToolbarContentBuilder
+    private var newEntryToolbar: some ToolbarContent {
+        if entry == nil {
+            ToolbarItemGroup(placement: .topBarTrailing) {
+                Button("Done") {
+                    editorFocused = false
+                    UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+                }
+                .fontWeight(.semibold)
+                .accessibilityIdentifier("finishEntryButton")
+                Button {} label: { Label("Insights", systemImage: "sparkles") }
+                    .disabled(true)
+                Menu {} label: { Label("More", systemImage: "ellipsis.circle") }
+                    .disabled(true)
+            }
         }
     }
 
@@ -357,13 +381,14 @@ struct EntryEditorView: View {
             }
             // What the entry is, settled with a tap. Insights decide it strictly and the user
             // corrects it here; the row's badge and the map both follow.
-            if let entry {
-                EntryKindPicker(selection: entry.kind, setByUser: entry.creativeSetByUser) { kind in
-                    setKind(kind, on: entry)
-                }
-                .padding(.horizontal, 21)
-                .padding(.top, 10)
+            // Shown before the first letter too, so the entry doesn't grow a row under the
+            // title when it comes into being. A pick on a new entry makes it.
+            EntryKindPicker(selection: entry?.kind ?? .journal, setByUser: entry?.creativeSetByUser ?? false) { kind in
+                guard let target = entry ?? createEntry() else { return }
+                setKind(kind, on: target)
             }
+            .padding(.horizontal, 21)
+            .padding(.top, 10)
             if let entry, entry.awaitingText, entry.text.isEmpty {
                 Text(entry.source == .photo ? "Text from your pages will appear here. You can also start typing." : "Text from your recording will appear here. You can also start typing.")
                     .font(.subheadline)
@@ -608,28 +633,27 @@ struct EntryEditorView: View {
                     entry.text = newValue
                     entry.userDidEditText()
                 } else {
-                    guard !newValue.isEmpty, let newEntryID else { return }
-                    let created = Entry(text: newValue)
-                    created.id = newEntryID
-                    created.isDraft = true
-                    modelContext.insert(created)
-                    newEntry.entry = created
-                    currentEntry = created
-                    DiagnosticsLog.shared.record("entry.created", ["id": .id(created.id), "source": .string(created.source.rawValue)])
+                    guard !newValue.isEmpty, let created = createEntry() else { return }
+                    created.text = newValue
                 }
                 saver.noteChange()
             }
         )
     }
 
-    // The layout beside the text. Nothing to hold it until the first keystroke makes the entry;
-    // the text view reports text first, so by the time formatting arrives the entry exists.
+    // The layout beside the text. A list or heading picked before the first letter makes the
+    // entry, like the first keystroke does, so the choice is not lost when the letter arrives.
     private var formattingBinding: Binding<EntryFormatting> {
         Binding(
             get: { entry?.formatting ?? .empty },
             set: { newValue in
-                guard let entry, entry.formatting != newValue else { return }
-                entry.formatting = newValue
+                if let entry {
+                    guard entry.formatting != newValue else { return }
+                    entry.formatting = newValue
+                } else {
+                    guard !newValue.isEmpty, let created = createEntry() else { return }
+                    created.formatting = newValue
+                }
                 saver.noteChange()
             }
         )
@@ -644,19 +668,27 @@ struct EntryEditorView: View {
                     guard entry.title != newValue else { return }
                     entry.userDidEditTitle(newValue)
                 } else {
-                    guard !newValue.isEmpty, let newEntryID else { return }
-                    let created = Entry()
-                    created.id = newEntryID
-                    created.isDraft = true
+                    guard !newValue.isEmpty, let created = createEntry() else { return }
                     created.userDidEditTitle(newValue)
-                    modelContext.insert(created)
-                    newEntry.entry = created
-                    currentEntry = created
-                    DiagnosticsLog.shared.record("entry.created", ["id": .id(created.id), "source": .string(created.source.rawValue)])
                 }
                 saver.noteChange()
             }
         )
+    }
+
+    // A new entry comes into being on the first thing the user does to it: a letter, a title, a
+    // list or heading, a kind. Until then there is nothing to save, and leaving saves nothing.
+    // Something done that leaves it blank (a kind, a list with no words) is deleted on close.
+    private func createEntry() -> Entry? {
+        guard entry == nil, let newEntryID else { return entry }
+        let created = Entry()
+        created.id = newEntryID
+        created.isDraft = true
+        modelContext.insert(created)
+        newEntry.entry = created
+        currentEntry = created
+        DiagnosticsLog.shared.record("entry.created", ["id": .id(created.id), "source": .string(created.source.rawValue)])
+        return created
     }
 
     // Typing is always possible; any typing clears awaitingText, which hides this.
@@ -713,8 +745,8 @@ struct EntryEditorView: View {
     }
 
     private var title: String {
-        guard let entry else { return "New Entry" }
-        return entry.entryDate.formatted(.dateTime.month(.abbreviated).day().year())
+        // A new entry is dated today when it is made, so it shows that date before its first letter.
+        (entry?.entryDate ?? .now).formatted(.dateTime.month(.abbreviated).day().year())
     }
 
     private func dateSuggestion(for entry: Entry, suggested: Date) -> some View {
