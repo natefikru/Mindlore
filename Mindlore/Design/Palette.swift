@@ -47,14 +47,14 @@ extension EntityKind {
 }
 
 extension EntryKind {
-    // The badge on a row and the picker chip. Creative keeps the accent it has always had; the
-    // other two are quiet system colours so three badges in a list read as three kinds, not as
-    // three alerts.
+    // The badge on a row and the picker chip. The journal, which is most of the list, wears the
+    // accent; notes and creative work take quiet system colours so three badges in a list read as
+    // three kinds, not as three alerts (owner, 2026-09-23).
     var color: Color {
         switch self {
-        case .journal: .teal
-        case .note: .indigo
-        case .creative: Palette.ember
+        case .journal: Palette.ember
+        case .note: .teal
+        case .creative: .indigo
         }
     }
 }

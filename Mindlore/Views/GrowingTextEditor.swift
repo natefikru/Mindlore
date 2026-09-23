@@ -8,8 +8,10 @@ import UIKit
 struct GrowingTextEditor: UIViewRepresentable {
     @Binding var text: String
     var isFocused: Bool
-    // Bumped by the caller to ask for focus with the caret at the end of the text.
+    // Bumped by the caller to ask for focus, with the caret at `focusOffset` when there is one
+    // (a tap on the text being read) and at the end of the text otherwise.
     var focusAtEndToken: Int
+    var focusOffset: Int? = nil
     var onFocusChange: (Bool) -> Void
 
     func makeUIView(context: Context) -> UITextView {
@@ -58,7 +60,8 @@ struct GrowingTextEditor: UIViewRepresentable {
         }
         if focusAtEndToken != coordinator.handledFocusToken {
             coordinator.handledFocusToken = focusAtEndToken
-            view.selectedRange = NSRange(location: view.text.utf16.count, length: 0)
+            let end = view.text.utf16.count
+            view.selectedRange = NSRange(location: min(focusOffset ?? end, end), length: 0)
             if !view.isFirstResponder {
                 view.becomeFirstResponder()
             }

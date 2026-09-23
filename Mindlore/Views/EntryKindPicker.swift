@@ -20,9 +20,11 @@ struct EntryKindPicker: View {
                         guard !selected else { return }
                         onSelect(kind)
                     } label: {
+                        // The chosen kind wears its colour the way the list's badge does, coloured
+                        // words on a wash of it, so the entry and its row look like the same thing.
                         Label(kind.name, systemImage: kind.symbol)
                             .lineLimit(1)
-                            .chip(tint: selected ? kind.color : nil, selected: selected)
+                            .chip(tint: selected ? kind.color : nil)
                             .opacity(selected || setByUser ? 1 : 0.7)
                     }
                     .buttonStyle(.plain)
