@@ -25,13 +25,24 @@ final class AISettingsUITests: XCTestCase {
         for _ in 0..<4 where !toggle.exists || !toggle.isHittable { app.swipeUp() }
         XCTAssertTrue(toggle.waitForExistence(timeout: 5))
         XCTAssertEqual(toggle.value as? String, "0")
-        toggle.switches.firstMatch.tap()
-        XCTAssertEqual(toggle.value as? String, "1")
 
+        // Turning AI on asks first, naming OpenAI; Not now leaves it off.
+        toggle.switches.firstMatch.tap()
+        let consent = app.alerts["Send your journal to OpenAI?"]
+        XCTAssertTrue(consent.waitForExistence(timeout: 5))
+        consent.buttons["Not now"].firstMatch.tap()
+        XCTAssertTrue(consent.waitForNonExistence(timeout: 5))
+        XCTAssertEqual(toggle.value as? String, "0")
+
+        // Saving a key with AI off asks too, and Allow is what turns it on.
         openKey()
+        XCTAssertTrue(app.links["getOpenAIKeyLink"].exists || app.buttons["getOpenAIKeyLink"].exists)
 
         // A key the provider rejects is saved but reported as invalid.
         enterKey("sk-wrong")
+        XCTAssertTrue(consent.waitForExistence(timeout: 5))
+        consent.buttons["Allow"].firstMatch.tap()
+        XCTAssertTrue(consent.waitForNonExistence(timeout: 5))
         XCTAssertTrue(app.staticTexts["OpenAI didn't accept your API key. Check it in Settings."].waitForExistence(timeout: 5))
 
         app.buttons["Replace key"].tap()

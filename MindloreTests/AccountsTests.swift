@@ -70,18 +70,31 @@ struct ProviderAccountStoreTests {
         #expect((try? accounts.resolve(.pages).get())?.model == ProviderDefaults.pageModel)
     }
 
-    // Saving a key is the consent: titles, insights, and Ask all gate on `aiEnabled` before they
-    // touch OpenAI, so a key alone used to sit inert behind a second, separate switch nobody knew
-    // to go find (owner, 2026-09-22).
-    @Test func savingAKeyTurnsAIOnSoTitlesAndInsightsMoveToOpenAI() throws {
+    // A key alone turns nothing on: App Review 5.1.2(i) wants an explicit yes that names OpenAI
+    // before journal data goes there, and the key screen asks for it right after saving
+    // (AIConsent). Once allowed, titles and insights move to OpenAI on their own.
+    @Test func savingAKeyLeavesAIOffUntilAllowed() throws {
         let (settings, accounts, _) = makeStores()
-        #expect(!settings.aiEnabled)
 
         try accounts.saveOpenAIKey("sk-live")
 
-        #expect(settings.aiEnabled)
+        #expect(!settings.aiEnabled)
+        #expect(settings.titleGenerator != .openAI)
+        #expect(settings.insightsGenerator != .openAI)
+
+        settings.aiEnabled = true
+
         #expect(settings.titleGenerator == .openAI)
         #expect(settings.insightsGenerator == .openAI)
+    }
+
+    // What the alert says is the disclosure the guideline asks for, so its substance is pinned.
+    @Test func consentNamesOpenAIAndWhatIsSent() {
+        #expect(AIConsent.title.contains("OpenAI"))
+        for sent in ["recordings", "journal pages", "entries", "question"] {
+            #expect(AIConsent.message.contains(sent), "consent no longer mentions \(sent)")
+        }
+        #expect(AIConsent.keyURL.host() == "platform.openai.com")
     }
 
     @Test func replacingAKeyKeepsTheSameAccount() throws {

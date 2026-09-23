@@ -58,7 +58,7 @@ for fields derived from user data at runtime. These events have none.
 `live.dropped` (a literal, or the Swift type name of the framework error), `live.finished`,
 `live.assets`, `transcription.assets`, `transcription.authorization`.
 
-**Runs in a SwiftUI view or at app launch**, with no unit-test seam: `app.launch` (`run` is the
+**Runs in a SwiftUI view or at app launch**, with no unit-test seam: `ai.consent` (a bool), `app.launch` (`run` is the
 developer's `-diagnosticsRun` argument), `app.scenePhase`, `recovery.moved` (UUID file names),
 `store.openFailed`, `store.entryDatesRepaired`, `store.entryDateRepairFailed`, `editor.closed`,
 `entry.created`, `entry.finished`, `entry.deleted` (source is an enum),
