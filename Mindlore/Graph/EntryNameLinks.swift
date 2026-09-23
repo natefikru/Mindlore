@@ -76,15 +76,4 @@ enum EntryNameLinks {
             Link(range: NSRange(match.range, in: text), entityID: match.entityID, kind: kinds[match.entityID] ?? .other)
         }
     }
-
-    // The entry's text with each name linked and tinted in its entity's colour.
-    static func attributed(_ text: String, candidates: [EntityNameRanges.Candidate]) -> AttributedString {
-        var attributed = AttributedString(text)
-        for link in links(in: text, candidates: candidates) {
-            guard let range = Range<AttributedString.Index>(link.range, in: attributed) else { continue }
-            attributed[range].link = url(for: link.entityID)
-            attributed[range].foregroundColor = link.kind.color
-        }
-        return attributed
-    }
 }

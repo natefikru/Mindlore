@@ -47,8 +47,12 @@ struct GrowingTextEditor: UIViewRepresentable {
     var onTag: (String) -> Void = { _ in }
 
     func makeUIView(context: Context) -> UITextView {
-        let view = UITextView()
+        let view = EditorTextView()
         let coordinator = context.coordinator
+        view.backspaceAtStart = { [weak coordinator, weak view] in
+            guard let coordinator, let view else { return false }
+            return coordinator.backspaceAtStart(of: view)
+        }
         view.delegate = context.coordinator
         view.isScrollEnabled = false
         view.backgroundColor = .clear
@@ -302,10 +306,74 @@ struct GrowingTextEditor: UIViewRepresentable {
             return EntryFormatting.Paragraph(index: index, block: block, indent: indent)
         }
 
+        // MARK: Undo
+
+        // Return in a list, Backspace at an item's start, the bar, a tick, and a picked name change
+        // the storage directly, where UIKit's undo manager never sees them: undo then skipped the
+        // change and could replay an older keystroke at a range that no longer matched the text.
+        // Each one registers its own step instead, a snapshot of the text and the caret before it;
+        // undoing restores it and registers the reverse as the redo. Nested calls (a Return that
+        // sets its new paragraph's block, a bar action over several lines) make one step.
+        private var undoDepth = 0
+
+        func undoable(_ view: UITextView, _ change: () -> Void) {
+            undoDepth += 1
+            defer { undoDepth -= 1 }
+            guard undoDepth == 1, let undoManager = view.undoManager else {
+                change()
+                return
+            }
+            let before = NSAttributedString(attributedString: view.textStorage)
+            let selection = view.selectedRange
+            change()
+            undoManager.registerUndo(withTarget: self) { coordinator in
+                coordinator.restore(before, selection: selection, in: view)
+            }
+        }
+
+        private func restore(_ snapshot: NSAttributedString, selection: NSRange, in view: UITextView) {
+            let current = NSAttributedString(attributedString: view.textStorage)
+            let currentSelection = view.selectedRange
+            view.undoManager?.registerUndo(withTarget: self) { coordinator in
+                coordinator.restore(current, selection: currentSelection, in: view)
+            }
+            let storage = view.textStorage
+            storage.beginEditing()
+            storage.setAttributedString(snapshot)
+            storage.endEditing()
+            view.selectedRange = NSRange(location: min(selection.location, storage.length), length: min(selection.length, max(0, storage.length - selection.location)))
+            syncSentinel(view)
+            applyTypingAttributes(view)
+            report(from: view)
+        }
+
+        // Backspace with the caret at the very start of the text: there is no character before it,
+        // so UIKit never asks the delegate, and a first line that is a list or a heading kept its
+        // marker. Returns true when the keystroke was used here.
+        func backspaceAtStart(of view: UITextView) -> Bool {
+            guard view.isEditable, view.markedTextRange == nil, view.selectedRange == NSRange(location: 0, length: 0) else { return false }
+            let paragraph = paragraph(at: 0, in: view)
+            let state = ListEditing.Paragraph(block: paragraph.block, indent: paragraph.indent, isEmpty: false)
+            switch ListEditing.onBackspaceAtStart(in: state) {
+            case .removeBlock:
+                set(EntryFormatting.Paragraph(index: 0, block: nil, indent: paragraph.indent), at: 0, in: view)
+                return true
+            case .outdent:
+                set(EntryFormatting.Paragraph(index: 0, indent: paragraph.indent - 1), at: 0, in: view)
+                return true
+            default:
+                return false
+            }
+        }
+
         // Gives the paragraph under `location` a block and indent, carried as attributes, and
         // restyles the whole text so numbered runs recount. The empty last paragraph gets the
         // sentinel to carry them.
         private func set(_ paragraph: EntryFormatting.Paragraph, at location: Int, in textView: UITextView) {
+            undoable(textView) { apply(paragraph, at: location, in: textView) }
+        }
+
+        private func apply(_ paragraph: EntryFormatting.Paragraph, at location: Int, in textView: UITextView) {
             let storage = textView.textStorage
             let string = storage.string as NSString
             if isTrailing(location, in: string) {
@@ -452,16 +520,18 @@ struct GrowingTextEditor: UIViewRepresentable {
                     // Through the storage, never `insertText`: in a list paragraph UIKit's own
                     // list editing takes that over and writes a newline plus a space (measured
                     // in GrowingTextEditorTests' probes; the space is a real character).
-                    let storage = textView.textStorage
-                    storage.beginEditing()
-                    storage.replaceCharacters(in: range, with: NSAttributedString(string: "\n", attributes: textView.typingAttributes))
-                    storage.endEditing()
-                    textView.selectedRange = NSRange(location: range.location + 1, length: 0)
-                    let caret = textView.selectedRange.location
-                    // The text after the caret, if any, is the new paragraph; it keeps whatever
-                    // block it had until set below.
-                    let index = FormattingStyle.paragraphIndex(at: caret, in: textView.textStorage.string as NSString)
-                    set(EntryFormatting.Paragraph(index: index, block: block, indent: indent), at: caret, in: textView)
+                    undoable(textView) {
+                        let storage = textView.textStorage
+                        storage.beginEditing()
+                        storage.replaceCharacters(in: range, with: NSAttributedString(string: "\n", attributes: textView.typingAttributes))
+                        storage.endEditing()
+                        textView.selectedRange = NSRange(location: range.location + 1, length: 0)
+                        let caret = textView.selectedRange.location
+                        // The text after the caret, if any, is the new paragraph; it keeps whatever
+                        // block it had until set below.
+                        let index = FormattingStyle.paragraphIndex(at: caret, in: textView.textStorage.string as NSString)
+                        set(EntryFormatting.Paragraph(index: index, block: block, indent: indent), at: caret, in: textView)
+                    }
                     return false
                 default:
                     break
@@ -498,14 +568,18 @@ struct GrowingTextEditor: UIViewRepresentable {
             case .block(let block):
                 let paragraph = paragraph(at: view.selectedRange.location, in: view)
                 let next = ListEditing.toggled(block, on: .init(block: paragraph.block, indent: paragraph.indent, isEmpty: false))
-                forEachParagraph(in: view.selectedRange, of: view) { location, index in
-                    set(EntryFormatting.Paragraph(index: index, block: next.block, indent: next.indent), at: location, in: view)
+                undoable(view) {
+                    forEachParagraph(in: view.selectedRange, of: view) { location, index in
+                        set(EntryFormatting.Paragraph(index: index, block: next.block, indent: next.indent), at: location, in: view)
+                    }
                 }
             case .indent(let delta):
-                forEachParagraph(in: view.selectedRange, of: view) { location, index in
-                    let paragraph = paragraph(at: location, in: view)
-                    let next = ListEditing.indented(.init(block: paragraph.block, indent: paragraph.indent, isEmpty: false), by: delta)
-                    set(EntryFormatting.Paragraph(index: index, block: next.block, indent: next.indent), at: location, in: view)
+                undoable(view) {
+                    forEachParagraph(in: view.selectedRange, of: view) { location, index in
+                        let paragraph = paragraph(at: location, in: view)
+                        let next = ListEditing.indented(.init(block: paragraph.block, indent: paragraph.indent, isEmpty: false), by: delta)
+                        set(EntryFormatting.Paragraph(index: index, block: next.block, indent: next.indent), at: location, in: view)
+                    }
                 }
             case .inline(let mark):
                 toggle(mark, in: view)
@@ -529,7 +603,9 @@ struct GrowingTextEditor: UIViewRepresentable {
         private func toggle(_ mark: FormattingStyle.Inline, in view: UITextView) {
             let selection = view.selectedRange
             if selection.length > 0 {
-                FormattingStyle.toggle(mark, in: selection, of: view.textStorage, fonts: fonts)
+                undoable(view) {
+                    FormattingStyle.toggle(mark, in: selection, of: view.textStorage, fonts: fonts)
+                }
                 typingInline = FormattingStyle.inline(at: selection.location + 1, in: view.textStorage)
                 report(from: view)
             } else if typingInline.contains(mark) {
@@ -576,13 +652,15 @@ struct GrowingTextEditor: UIViewRepresentable {
             let inserted = follows == 32 || follows == 10 ? name : name + " "
             var attributes = view.typingAttributes
             attributes[.link] = nil
-            storage.beginEditing()
-            storage.replaceCharacters(in: mention.range, with: NSAttributedString(string: inserted, attributes: attributes))
-            storage.endEditing()
-            pendingEdit = (mention.range, inserted.utf16.count, false)
-            view.selectedRange = NSRange(location: mention.range.location + inserted.utf16.count, length: 0)
-            normaliseAfterEdit(view)
-            syncSentinel(view)
+            undoable(view) {
+                storage.beginEditing()
+                storage.replaceCharacters(in: mention.range, with: NSAttributedString(string: inserted, attributes: attributes))
+                storage.endEditing()
+                pendingEdit = (mention.range, inserted.utf16.count, false)
+                view.selectedRange = NSRange(location: mention.range.location + inserted.utf16.count, length: 0)
+                normaliseAfterEdit(view)
+                syncSentinel(view)
+            }
             report(from: view)
             bar.model.mention = nil
             parent.onMention(target)
@@ -651,5 +729,16 @@ struct GrowingTextEditor: UIViewRepresentable {
             if offset < view.textStorage.length, view.textStorage.attribute(.link, at: offset, effectiveRange: nil) != nil { return }
             parent.onReadTap(offset)
         }
+    }
+}
+
+// UIKit asks the delegate about a Backspace only when there is a character to delete, so one at the
+// very start of the text never reaches it. This hands that keystroke to the coordinator first.
+final class EditorTextView: UITextView {
+    var backspaceAtStart: () -> Bool = { false }
+
+    override func deleteBackward() {
+        if backspaceAtStart() { return }
+        super.deleteBackward()
     }
 }

@@ -27,7 +27,8 @@ struct GrowingTextEditorTests {
             isFocused: false, focusAtEndToken: 0, accessibilityIdentifier: "t", onFocusChange: { _ in }
         )
         let coordinator = editor.makeCoordinator()
-        let view = UITextView()
+        let view = EditorTextView()
+        view.backspaceAtStart = { [unowned coordinator, unowned view] in coordinator.backspaceAtStart(of: view) }
         view.delegate = coordinator
         coordinator.view = view
         coordinator.load(text, formatting, into: view)
@@ -173,5 +174,59 @@ struct GrowingTextEditorTests {
         #expect(holder.text == "Milk\n ")
         #expect(view.text == "Milk\n ")
         #expect(holder.formatting.paragraphs == [.init(index: 0, block: .bullet), .init(index: 1, block: .bullet)])
+    }
+
+    // UIKit never asks the delegate about a Backspace with nothing before the caret, so the text
+    // view hands it over: the first line's bullet goes, then its indent, then nothing happens.
+    @Test func backspaceAtTheVeryStartTakesTheFirstLinesMarker() {
+        let (view, coordinator, holder) = makeReporting("Milk", EntryFormatting(paragraphs: [.init(index: 0, block: .bullet, indent: 1)]))
+        view.selectedRange = NSRange(location: 0, length: 0)
+        view.deleteBackward()
+        #expect(holder.formatting.paragraphs == [.init(index: 0, indent: 1)])
+        view.deleteBackward()
+        #expect(holder.formatting.paragraphs.isEmpty)
+        #expect(coordinator.backspaceAtStart(of: view) == false, "plain text at the start: nothing to take")
+        #expect(holder.text == "Milk")
+    }
+
+    @Test func backspaceOnAListPickedBeforeTypingTakesItBack() {
+        let (view, coordinator, holder) = makeReporting("")
+        coordinator.perform(.block(.bullet))
+        view.deleteBackward()
+        #expect(holder.formatting.isEmpty)
+        #expect(view.text.isEmpty, "the hidden space went with the bullet")
+    }
+
+    // A list Return goes around UIKit's own editing, so it registers its own undo step.
+    @Test func undoAndRedoAListReturn() throws {
+        let (view, coordinator, holder) = makeReporting("Milk", EntryFormatting(paragraphs: [.init(index: 0, block: .number)]))
+        let undo = try #require(view.undoManager)
+        undo.removeAllActions()
+        view.selectedRange = NSRange(location: 4, length: 0)
+        type("\n", into: view, coordinator)
+        #expect(holder.text == "Milk\n")
+        #expect(undo.canUndo)
+
+        undo.undo()
+        #expect(holder.text == "Milk")
+        #expect(view.text == "Milk")
+        #expect(holder.formatting.paragraphs == [.init(index: 0, block: .number)])
+        #expect(view.selectedRange == NSRange(location: 4, length: 0))
+
+        undo.redo()
+        #expect(holder.text == "Milk\n")
+        #expect(holder.formatting.paragraphs == [.init(index: 0, block: .number), .init(index: 1, block: .number)])
+    }
+
+    @Test func aBarActionOverSeveralLinesIsOneUndoStep() throws {
+        let (view, coordinator, holder) = makeReporting("a\nb\nc")
+        let undo = try #require(view.undoManager)
+        undo.removeAllActions()
+        view.selectedRange = NSRange(location: 0, length: 5)
+        coordinator.perform(.block(.bullet))
+        #expect(holder.formatting.paragraphs.count == 3)
+        undo.undo()
+        #expect(holder.formatting.isEmpty)
+        #expect(!undo.canUndo)
     }
 }
