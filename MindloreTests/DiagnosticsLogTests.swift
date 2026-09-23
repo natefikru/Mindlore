@@ -302,6 +302,9 @@ struct AIDiagnosticsPrivacyTests {
         editor.merge(second, into: first, in: context)
         editor.unmerge(second, in: context)
         editor.repoint(named, to: second, addingAlias: true, in: context)
+        // A name added by hand, typed with the sentinel, then taken off again.
+        let added = try #require(editor.addName("Added \(sentinel)", kind: .person, to: entry, in: context))
+        editor.removeAddedName(added.id, from: entry.id, in: context)
         // The phone's own world: a contact identifier is not a name, but it identifies a person,
         // so only our own entity id is ever logged.
         let personForContact = Entity(name: "Contact \(sentinel)", key: "contact", kind: .person)
@@ -367,7 +370,8 @@ struct AIDiagnosticsPrivacyTests {
                       "mind.reviewAnswered", "mind.focused", "mind.filtersChanged",
                       "mind.lensChanged", "mind.replayed", "mind.entryOpened",
                       "graph.renameRewrote", "graph.contactLinked", "graph.contactUnlinked",
-                      "graph.placeLinked", "graph.placeUnlinked", "graph.contactAccess"] {
+                      "graph.placeLinked", "graph.placeUnlinked", "graph.contactAccess",
+                      "graph.nameAdded", "graph.nameRemoved"] {
             #expect(contents.contains(event), "\(event) was never exercised")
         }
         #expect(contents.contains("title.failed"))

@@ -361,6 +361,67 @@ struct GraphEditor {
         return outcome
     }
 
+    // MARK: - Names added by hand
+
+    // A name the insights missed, added to one entry. The link is the user's, so a rerun keeps
+    // it and an AI mention of the same name is claimed by it instead of doubling. A name
+    // something already answers to lands there; otherwise it is a new entity, left unclaimed so
+    // it lives exactly as long as something mentions it, and taking the name off the entry
+    // again leaves nothing behind. Returns the entity the entry now mentions.
+    @discardableResult
+    func addName(_ name: String, kind: EntityKind, to entry: Entry, in context: ModelContext) -> Entity? {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        if let existing = entity(answering: trimmed, kind: kind, in: context) {
+            return addLink(to: existing, surface: trimmed, entry: entry, created: false, in: context)
+        }
+        let entity = Entity(name: trimmed, key: EntityNormalizer.key(for: trimmed, kind: kind), kind: kind)
+        guard !entity.key.isEmpty else { return nil }
+        return addLink(to: entity, surface: trimmed, entry: entry, created: true, in: context)
+    }
+
+    // An existing entity picked from the list, by id.
+    @discardableResult
+    func addLink(to entity: Entity, entry: Entry, in context: ModelContext) -> Entity {
+        addLink(to: entity, surface: entity.name, entry: entry, created: false, in: context)
+    }
+
+    private func addLink(to entity: Entity, surface: String, entry: Entry, created: Bool, in context: ModelContext) -> Entity {
+        let target = root(of: entity, in: context)
+        // Picked by name, a hidden entity is who the user means, the same rule repoint follows.
+        if target.hidden { setHidden(false, on: target) }
+        let entryID = entry.id
+        if indexer.allLinks(in: context).contains(where: { $0.entryID == entryID && $0.entityID == target.id }) {
+            save(context, exempting: [entryID])
+            return target
+        }
+        register(target, in: context)
+        let link = EntityLink(surface: surface, kind: target.kind, source: .user)
+        context.insert(link)
+        link.attach(to: entry, entity: target)
+        save(context, exempting: [entryID])
+        indexer.recount(in: context)
+        save(context, exempting: [entryID])
+        diagnostics.record("graph.nameAdded", ["id": .id(target.id), "entry": .id(entryID), "created": .bool(created)])
+        return target
+    }
+
+    // Takes a hand-added name off one entry. Only the user's own links go: a name the insights
+    // found is corrected with "This is someone else", not removed.
+    func removeAddedName(_ entityID: UUID, from entryID: UUID, in context: ModelContext) {
+        // By what the link stands for now, since a merge may have moved the entity it was made on.
+        let doomed = indexer.allLinks(in: context).filter { link in
+            guard link.entryID == entryID, link.source == .user, let linked = link.entityID else { return false }
+            return linked == entityID || entity(withID: linked, in: context).map { root(of: $0, in: context).id } == entityID
+        }
+        guard !doomed.isEmpty else { return }
+        doomed.forEach(context.delete)
+        save(context, exempting: [entryID])
+        indexer.recount(in: context)
+        save(context, exempting: [entryID])
+        diagnostics.record("graph.nameRemoved", ["id": .id(entityID), "entry": .id(entryID)])
+    }
+
     // MARK: - Lookups
 
     // What a merged entity stands for now. Pointers are flattened on merge, so this is one
@@ -415,7 +476,10 @@ struct GraphEditor {
     // Moving a link marks its entry as changed, but moving a link is not an edit to the entry.
     // Every save here exempts the entries whose links moved, the same rule the sweep follows.
     private func save(_ context: ModelContext, touchedBy links: [EntityLink]) {
-        let ids = Set(links.compactMap(\.entryID))
+        save(context, exempting: Set(links.compactMap(\.entryID)))
+    }
+
+    private func save(_ context: ModelContext, exempting ids: Set<UUID>) {
         let touched = ids.isEmpty ? [] : Set(
             ((try? context.fetch(FetchDescriptor<Entry>())) ?? [])
                 .filter { ids.contains($0.id) }

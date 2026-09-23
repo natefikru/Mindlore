@@ -32,7 +32,7 @@ struct EditorLifecycleTests {
             keepAudio: { true },
             diagnostics: .disabled
         )
-        router = AppRouter(opened: lifecycle.opened, closed: lifecycle.closed)
+        router = AppRouter(opened: lifecycle.opened, closed: lifecycle.closed, closedForDeletion: lifecycle.closedForDeletion)
     }
 
     private func entries() throws -> [Entry] {
@@ -107,5 +107,22 @@ struct EditorLifecycleTests {
         #expect(saved.isDraft)
         #expect(!saved.automaticAIPassUsed)
         #expect(saved.text == "half written")
+    }
+
+    // Deleted from the editor's menu: the delete waits behind Undo, so no pass should send an
+    // entry that is on its way out.
+    @Test func closingForDeletionStartsNoPass() throws {
+        let entry = Entry(createdAt: Date(timeIntervalSince1970: 5_000), text: "A walk by the river.")
+        context.insert(entry)
+        try context.save()
+        router.journalPath = [JournalRoute(entryID: entry.id)]
+
+        router.deleteEntry(entry.id)
+
+        #expect(!presence.isOpen(entry.id))
+        #expect(!entry.automaticAIPassUsed)
+        #expect(!entry.titlePending)
+        #expect(flagged.count == 0)
+        #expect(try entries().count == 1)
     }
 }

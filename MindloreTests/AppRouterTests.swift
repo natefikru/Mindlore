@@ -222,4 +222,33 @@ struct AppRouterMindTests {
         router.replaceInMind(tom, with: sarah)
         #expect(router.mindPath == [EntityRoute(id: tom), EntityRoute(id: other), EntityRoute(id: sarah)])
     }
+
+    @Test func deletingFromTheEditorClosesItForDeletionAndAsksTheListOnce() {
+        var closed: [UUID] = [], deleted: [UUID] = []
+        let router = AppRouter(opened: { _ in }, closed: { closed.append($0) }, closedForDeletion: { deleted.append($0) })
+        let below = UUID(), id = UUID()
+        router.journalPath = [JournalRoute(entryID: below), JournalRoute(entryID: id)]
+
+        router.deleteEntry(id)
+
+        #expect(router.journalPath == [JournalRoute(entryID: below)])
+        #expect(deleted == [id])
+        #expect(closed.isEmpty)
+        #expect(router.consumeEntryDeletion() == id)
+        #expect(router.consumeEntryDeletion() == nil)
+
+        // An ordinary pop afterwards is an ordinary close again.
+        router.journalPath = []
+        #expect(closed == [below])
+    }
+
+    @Test func withoutADeletionCloseTheOrdinaryCloseRuns() {
+        var closed: [UUID] = []
+        let router = AppRouter(opened: { _ in }, closed: { closed.append($0) })
+        let id = UUID()
+        router.journalPath = [JournalRoute(entryID: id)]
+
+        router.deleteEntry(id)
+        #expect(closed == [id])
+    }
 }

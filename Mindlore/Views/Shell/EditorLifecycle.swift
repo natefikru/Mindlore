@@ -32,6 +32,16 @@ final class EditorLifecycle {
     }
 
     func closed(_ id: UUID) {
+        closed(id, firesAIPass: true)
+    }
+
+    // Deleted from the editor's menu. The delete waits behind Undo, so everything else a close
+    // does still happens, but no AI pass starts for an entry that is on its way out.
+    func closedForDeletion(_ id: UUID) {
+        closed(id, firesAIPass: false)
+    }
+
+    private func closed(_ id: UUID, firesAIPass: Bool) {
         presence.close(id)
         // A new route the user never typed into has no entry.
         if let entry = Self.entry(id, in: context) {
@@ -43,12 +53,12 @@ final class EditorLifecycle {
                 "audioDiscarded": .bool(hadAudio && (deleted || entry.audioData == nil)),
                 "characters": .int(deleted ? 0 : entry.text.count),
             ])
-            if !deleted {
+            if !deleted && firesAIPass {
                 aiPass.fire(for: entry, at: .editorClosed)
             }
         }
         saver.flush()
-        aiPass.onFlagged?()
+        if firesAIPass { aiPass.onFlagged?() }
     }
 
     // Includes unsaved inserts, so an entry created moments ago is found.
