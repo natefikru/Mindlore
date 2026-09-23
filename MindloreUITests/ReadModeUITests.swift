@@ -14,7 +14,8 @@ final class ReadModeUITests: XCTestCase {
     }
 
     private var editor: XCUIElement { app.textViews["entryEditor"] }
-    private var readText: XCUIElement { app.staticTexts["entryReadText"] }
+    // Read mode is the same text view made non-editable, so it is queried by identifier alone.
+    private var readText: XCUIElement { app.descendants(matching: .any)["entryReadText"] }
 
     private func goBack() {
         app.navigationBars.buttons.element(boundBy: 0).tap()
@@ -53,7 +54,7 @@ final class ReadModeUITests: XCTestCase {
         app.buttons["doneEditingButton"].tap()
 
         XCTAssertTrue(readText.waitForExistence(timeout: 5))
-        XCTAssertTrue(readText.label.hasSuffix("Later it rained."), readText.label)
+        XCTAssertTrue((readText.value as? String)?.hasSuffix("Later it rained.") == true, readText.value as? String ?? "")
         XCTAssertFalse(editor.exists)
 
         goBack()

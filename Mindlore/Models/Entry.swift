@@ -10,6 +10,9 @@ final class Entry {
     var updatedAt: Date = Date.now
     var sourceRaw: String = EntrySource.typed.rawValue
     var text: String = ""
+    // The text's layout (headings, lists, bold), as EntryFormatting JSON; nil when plain. See that
+    // type for why it lives beside the text and not inside it.
+    var formattingRaw: String?
     var textWasGenerated: Bool = false
     var textEditedByUser: Bool = false
     var awaitingText: Bool = false
@@ -26,6 +29,7 @@ final class Entry {
     var titleWasGenerated: Bool = false
     // The text before the first applied cleanup, so a revert always has the original.
     var originalText: String?
+    var originalFormattingRaw: String?
     // The text as it was right after a cleanup was applied, so "changed since" and revert survive
     // insights being regenerated or deleted.
     var cleanupAppliedHash: String?

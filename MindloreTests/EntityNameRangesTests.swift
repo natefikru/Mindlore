@@ -117,15 +117,12 @@ struct EntryNameLinksTests {
         #expect(candidates.isEmpty)
     }
 
-    @Test func linkedTextCarriesEntityURLsAndLeavesTheRestPlain() throws {
+    @Test func linksCoverTheNameAndOpenItsEntity() throws {
         let tom = UUID()
         let text = "Met Tom's dog."
-        let attributed = EntryNameLinks.attributed(text, candidates: [.init(entityID: tom, kind: .person, names: ["Tom"])])
-        let runs = attributed.runs.map { (String(attributed[$0.range].characters), $0.link) }
-        #expect(runs.map(\.0) == ["Met ", "Tom", "'s dog."])
-        #expect(runs[1].1 == EntryNameLinks.url(for: tom))
-        #expect(runs[0].1 == nil && runs[2].1 == nil)
-        #expect(EntryNameLinks.entityID(from: try #require(runs[1].1)) == tom)
+        let links = EntryNameLinks.links(in: text, candidates: [.init(entityID: tom, kind: .person, names: ["Tom"])])
+        #expect(links == [.init(range: NSRange(location: 4, length: 3), entityID: tom, kind: .person)])
+        #expect(EntryNameLinks.entityID(from: EntryNameLinks.url(for: tom)) == tom)
         #expect(EntryNameLinks.entityID(from: URL(string: "https://example.com")!) == nil)
     }
 }

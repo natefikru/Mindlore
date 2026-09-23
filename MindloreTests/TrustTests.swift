@@ -162,6 +162,27 @@ struct JournalExportTests {
         #expect(!markdown.contains("# "))
     }
 
+    // The Markdown file shows the layout; the JSON keeps the plain words and the formatting apart.
+    @Test func exportWritesFormattingAsMarkdownAndKeepsItInTheJSON() throws {
+        let entry = Entry(createdAt: date(2), text: "Plan\nCall mum\nBuy milk")
+        entry.formatting = EntryFormatting(
+            paragraphs: [.init(index: 0, block: .heading2), .init(index: 1, block: .check), .init(index: 2, block: .checked)],
+            spans: [.init(location: 5, length: 4, bold: true)]
+        )
+        context.insert(entry)
+        try context.save()
+
+        let summary = try JournalExport.write(from: context, into: folder, now: date(4), calendar: utc)
+        let entries = summary.folder.appendingPathComponent("entries")
+        let file = try #require(FileManager.default.contentsOfDirectory(atPath: entries.path).first)
+        let markdown = try String(contentsOf: entries.appendingPathComponent(file), encoding: .utf8)
+        #expect(markdown.contains("## Plan\n- [ ] **Call** mum\n- [x] Buy milk"))
+
+        let json = try String(contentsOf: summary.folder.appendingPathComponent("journal.json"), encoding: .utf8)
+        #expect(json.contains("Plan\\nCall mum\\nBuy milk"))
+        #expect(json.contains("\"formatting\""))
+    }
+
     @Test func slashesInATitleStayInOneFile() throws {
         let entry = Entry(createdAt: date(3), text: "x")
         entry.title = "../../etc/passwd"

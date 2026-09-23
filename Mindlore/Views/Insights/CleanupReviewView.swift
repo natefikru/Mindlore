@@ -8,12 +8,15 @@ struct CleanupReviewView: View {
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
-        let runs = TextDiff.runs(original: entry.text, cleaned: cleaned)
+        // The words, not the Markdown the model wrote them in: a list it added shows as the
+        // same words, and the entry draws the list once it is applied.
+        let cleanedWords = Entry.parseCleanup(cleaned).text
+        let runs = TextDiff.runs(original: entry.text, cleaned: cleanedWords)
 
         NavigationStack {
             Form {
                 Section {
-                    Text(TextDiff.summary(original: entry.text, cleaned: cleaned))
+                    Text(TextDiff.summary(original: entry.text, cleaned: cleanedWords))
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                 }
