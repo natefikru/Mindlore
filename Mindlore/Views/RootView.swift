@@ -149,7 +149,7 @@ struct RootView: View {
             Tab("Mind", systemImage: "circle.hexagongrid", value: AppTab.mind) {
                 MindView()
             }
-            Tab("Ask", systemImage: "bubble.left.and.text.bubble.right", value: AppTab.ask) {
+            Tab("Chat", systemImage: "bubble.left.and.bubble.right", value: AppTab.ask) {
                 AskView()
             }
             Tab("Settings", systemImage: "gearshape", value: AppTab.settings) {

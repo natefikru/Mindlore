@@ -34,7 +34,7 @@ struct NewEntryIntent: AppIntent {
 
 struct AskJournalIntent: AppIntent {
     static let title: LocalizedStringResource = "Ask Your Journal"
-    static let description = IntentDescription("Opens Ask, with a question in the field if you give one. You send it.")
+    static let description = IntentDescription("Opens Chat, with a question in the field if you give one. You send it.")
     static let openAppWhenRun = true
 
     @Parameter(title: "Question")
@@ -75,8 +75,8 @@ struct MindloreShortcuts: AppShortcutsProvider {
                 "Ask \(.applicationName)",
                 "Ask my \(.applicationName) journal",
             ],
-            shortTitle: "Ask",
-            systemImageName: "bubble.left.and.text.bubble.right"
+            shortTitle: "Chat",
+            systemImageName: "bubble.left.and.bubble.right"
         )
     }
 }

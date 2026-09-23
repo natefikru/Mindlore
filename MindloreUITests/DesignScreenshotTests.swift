@@ -82,7 +82,7 @@ final class DesignScreenshotTests: XCTestCase {
             app.swipeDown(velocity: .fast)
         }
 
-        app.tabBars.buttons["Ask"].tap()
+        app.tabBars.buttons["Chat"].tap()
         attach("\(tag)-ask")
     }
 

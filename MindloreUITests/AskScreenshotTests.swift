@@ -27,7 +27,7 @@ final class AskScreenshotTests: XCTestCase {
         app.launchArguments = ["-seedDemoJournal", "300"]
         app.launch()
 
-        let ask = app.tabBars.buttons["Ask"]
+        let ask = app.tabBars.buttons["Chat"]
         XCTAssertTrue(ask.waitForExistence(timeout: 60))
         ask.tap()
         XCTAssertTrue(field.waitForExistence(timeout: 10))
@@ -62,7 +62,7 @@ final class AskScreenshotTests: XCTestCase {
         XCTAssertTrue(app.buttons["insightsReadyButton"].waitForExistence(timeout: 90))
         app.navigationBars.buttons.element(boundBy: 0).tap()
 
-        app.tabBars.buttons["Ask"].tap()
+        app.tabBars.buttons["Chat"].tap()
         XCTAssertTrue(field.waitForExistence(timeout: 10))
         field.tap()
         field.typeText("What did I do by the river?")

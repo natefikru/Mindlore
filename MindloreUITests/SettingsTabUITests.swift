@@ -31,7 +31,7 @@ final class SettingsTabUITests: XCTestCase {
     // The point of the tab over the gear: settings is reachable from wherever you noticed you
     // needed it, not only from Journal.
     func testSettingsIsReachableFromEveryTab() {
-        for origin in ["Mind", "Ask", "Journal"] {
+        for origin in ["Mind", "Chat", "Journal"] {
             let tab = app.tabBars.buttons[origin]
             XCTAssertTrue(tab.waitForExistence(timeout: 5), "\(origin) tab should exist")
             tab.tap()

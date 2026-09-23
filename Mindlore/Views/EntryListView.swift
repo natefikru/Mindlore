@@ -439,8 +439,10 @@ private struct EntryRow: View {
                         .foregroundStyle(.secondary)
                         .accessibilityLabel("Journal pages")
                 }
+                // A step below headline, keeping its weight, so more of a long title fits beside
+                // the badges (owner, 2026-09-23).
                 Text(entry.text.isEmpty && entry.title.isEmpty ? "No text yet" : entry.displayTitle)
-                    .journalText(.headline)
+                    .journalText(.subheadline, weight: .semibold)
                     .lineLimit(1)
                     .foregroundStyle(entry.text.isEmpty && entry.title.isEmpty ? .secondary : .primary)
                 Spacer(minLength: 4)
