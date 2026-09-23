@@ -25,7 +25,7 @@ harder. Section 1 is first for that reason.
 3. **Reflect**: weekly and monthly recaps, mood and area over time. Specced and built (R0-R3) on
    `feature/reflect`; the device pass and doc updates (R4) are what's left before it merges.
 4. **Later**: text import, embeddings for Ask, typed relationships.
-5. **Blocked**: iCloud sync and a paid tier, both on the paid Apple Developer Program.
+5. **iCloud sync, the rest** (section 6), and **blocked**: a paid tier.
 
 Reflect after Phase B is the owner's call from 2026-09-19 ("so it's built on the new cards"). It
 can be pulled forward; nothing in B3 to B9 is a hard prerequisite for it.
@@ -195,12 +195,59 @@ spike was built and rejected on 2026-09-21; 2D ships).
 
 ## 5. Blocked
 
-- **iCloud sync** is unblocked: the paid program went live on 2026-09-23 on the same team ID. The
-  plan is `tasks/icloud-sync.md`, awaiting approval.
 - **A paid tier** (build plan Phase 6: a thin proxy backend, metering, RevenueCat). Not started, and
   a business decision before it's an engineering one.
 - **B8** until its signing spike runs.
 
+
+## 6. iCloud sync, what's left
+
+In `main` since 2026-09-23 (#49, #52): sync on for the journal's own store, its status first in
+Settings, the welcome line and the second-device "your journal is here", the export crash fix
+(`EntityLink.linkedEntity`), and the safety copy with restore. The owner's phone syncs to CloudKit's
+**Development** environment. Nothing below is needed while one phone runs Xcode builds; all of it is
+needed before a second device, and phase 7 before moving the phone to TestFlight. Design and
+reasoning: `tasks/icloud-sync.md`.
+
+- [ ] **Phase 3, AI runs where the entry was made.** A device-local `LocalOrigin` set of entry ids
+      this phone created. Transcription, the launch AI pass, titles, and insights skip an entry not
+      in it; the manual buttons work anywhere and add it. A synced entry still waiting for text says
+      "Waiting for text from your other device" with Transcribe here. Every entry that exists when
+      it lands joins the set once. Without it, two phones each run AI on the same entry: two OpenAI
+      bills, duplicate loose ends.
+- [ ] **Phase 4, duplicates two phones make.** Deterministic merges after a remote change and at
+      launch, winner by `createdAt` then `id`: `Entity` with the same key and kind (untouched ones
+      through `GraphEditor.merge`, the rest to Mind's "same person?"), `EntityLink` with the same
+      entity, entry, and source, `ReflectSummary` by period, `EntryInsights` pointing at one entry,
+      and `AskMessage` indexes a conversation continued offline on both. `Entry` by id is done
+      (`EntryDuplicates`). Also a test that each launch sweep changes nothing on a second run.
+- [ ] **Phase 5, settings that follow the journal.** `NSUbiquitousKeyValueStore` mirroring for an
+      allow-list: life area names and hidden areas, your name, how you're written about, the
+      journal font, insight section toggles, custom prompts, resurfacing. Never the key, provider
+      accounts or pickers, Use AI, app lock, the reminder, or the sync switch.
+- [ ] **Phase 2b, a sync switch.** Device-local, on by default. Mirroring can't be toggled on a live
+      container, so `MindloreApp` has to hold the container as state and rebuild `RootView` under it;
+      "takes effect next launch" is the fallback if that fights the coordinators.
+- [ ] **Phase 7, before TestFlight on the phone.** Register every record type in Development (a
+      DEBUG-only `initializeCloudKitSchema` pass over the SwiftData model; a type with no records yet,
+      such as a page, is otherwise missing), then CloudKit Console, Deploy Schema Changes to
+      Production. Redo the deploy before any build that adds a model or property. The App Store
+      profile already carries iCloud. Then install TestFlight over the dev build: same bundle ID, so
+      the journal on the phone stays, and the TestFlight build uploads it to Production. Export a
+      backup first.
+- [ ] **Smoke on two devices** (the v1 gates, `tasks/icloud-sync.md`): an entry and an edit cross
+      both ways; a recording is transcribed only where it was made; a device with no iCloud account
+      works fully and says so, then uploads after sign-in; airplane mode, three entries, sign out,
+      relaunch, the restore banner brings all three back, and signing back in leaves no duplicates;
+      the same new name written on both offline ends as one entity.
+- [ ] **Docs.** `CLAUDE.md`'s sync paragraph once the phases land, and the smoke steps in
+      `tasks/smoke-test.md`.
+
+Known on the way: `#Predicate` with `relationship == nil` matched every row on the phone
+(`EntityLinkRepair` now checks in Swift); a store CloudKit has touched refuses property renames
+(add a new property and backfill instead); a synced store opened under a different or no iCloud
+account is purged with reason `AccountLogout`, including in the simulator. All three are in
+`tasks/lessons.md`. Phone store backups are in `~/Library/Mindlore-backups/`.
 
 ## TestFlight
 
@@ -222,8 +269,9 @@ setup below, all of it outside the repo:
 
 A TestFlight build is Release, so `DiagnosticsLog` is silent and the device smoke loop still uses
 `scripts/device/deploy.sh`. Regenerate the profile and rerun step 5 when a capability is added
-(iCloud will be) and before the profile's yearly expiry. Once sync ships, deploy the CloudKit
-schema to production before the build that changes it, since TestFlight talks to production.
+and before the profile's yearly expiry (2027-09-22). Sync is on in `main`, so every TestFlight
+build since #49 syncs to CloudKit's **Production** environment, which has no schema yet: sync in a
+TestFlight build shows "Paused" until phase 7 in section 6 deploys it.
 
 **For App Store review:** guideline 5.1.2(i) (November 2025) asks for explicit permission, naming
 the third-party AI, before personal data goes to it. `AIConsent` is that ask: the Use AI switch and
