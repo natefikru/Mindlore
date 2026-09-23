@@ -373,9 +373,11 @@ final class GraphServices {
 
         let links = indexer.allLinks(in: context)
         let entryIDs = Set(links.compactMap(\.entryID))
+        let fetched = ((try? context.fetch(FetchDescriptor<Entry>(predicate: #Predicate { entryIDs.contains($0.id) }))) ?? [])
+            .filter { !$0.isDeleted }
+        let partContexts = Self.partContexts(for: fetched)
         let entries = Dictionary(
-            (((try? context.fetch(FetchDescriptor<Entry>(predicate: #Predicate { entryIDs.contains($0.id) }))) ?? [])
-                .filter { !$0.isDeleted }
+            fetched
                 .map { entry in
                     (entry.id, MindMapSnapshot.EntryInfo(
                         id: entry.id,
@@ -383,7 +385,7 @@ final class GraphServices {
                         areas: entry.insights?.areas ?? [],
                         mood: entry.insights?.primaryMood?.category
                     ))
-                }),
+                },
             uniquingKeysWith: { first, _ in first }
         )
 
@@ -392,13 +394,35 @@ final class GraphServices {
                   let entry = entries[entryID],
                   let root = root(of: linkEntityID), root.isBrowsable
             else { return nil }
-            return .init(entryID: entryID, entityID: root.id, entryDate: entry.date)
+            return .init(entryID: entryID, entityID: root.id, entryDate: entry.date, parts: Self.parts(of: link, root: root, in: partContexts))
         }
 
         let browsable = Dictionary(uniqueKeysWithValues: entities.filter(\.isBrowsable).map {
             ($0.id, MindMapSnapshot.EntityInfo(id: $0.id, name: $0.name, kind: $0.kind))
         })
         return MindMapSnapshot(entities: browsable, links: inputs, entries: entries)
+    }
+
+    // Entries the insights divided into two or more parts. The text goes with them only while
+    // the insights still describe it, since an edit moves the words the offsets point at.
+    static func partContexts(for entries: [Entry]) -> [UUID: EntryParts.Context] {
+        var contexts: [UUID: EntryParts.Context] = [:]
+        for entry in entries {
+            guard let insights = entry.insights else { continue }
+            let sections = insights.sections
+            guard sections.count > 1 else { continue }
+            contexts[entry.id] = EntryParts.Context(sections: sections, text: insights.isCurrent(for: entry) ? entry.text : nil)
+        }
+        return contexts
+    }
+
+    // A link's parts, by what the entry wrote and what the name is now called: a merge or a
+    // rename since the run still finds the part the model listed it under.
+    static func parts(of link: EntityLink, root: Entity, in contexts: [UUID: EntryParts.Context]) -> Set<Int>? {
+        guard let entryID = link.entryID, let context = contexts[entryID] else { return nil }
+        var surfaces = [link.surface, root.name] + root.aliases
+        if let written = link.writtenSurface { surfaces.append(written) }
+        return context.parts(surfaces: surfaces, isTag: link.kind == .tag)
     }
 
     // Kept per revision: the map asks on every refresh, and what it draws only moves when
@@ -567,17 +591,17 @@ final class GraphServices {
         let links = indexer.allLinks(in: context)
         let entryIDs = Set(links.compactMap(\.entryID))
         guard !entryIDs.isEmpty else { return [] }
-        let entryDates = Dictionary(uniqueKeysWithValues:
-            (((try? context.fetch(FetchDescriptor<Entry>(predicate: #Predicate { entryIDs.contains($0.id) }))) ?? [])
-                .filter { !$0.isDeleted }
-                .map { ($0.id, $0.entryDate) }))
+        let fetched = ((try? context.fetch(FetchDescriptor<Entry>(predicate: #Predicate { entryIDs.contains($0.id) }))) ?? [])
+            .filter { !$0.isDeleted }
+        let entryDates = Dictionary(fetched.map { ($0.id, $0.entryDate) }, uniquingKeysWith: { first, _ in first })
+        let partContexts = Self.partContexts(for: fetched)
 
         let inputs: [EntityGraph.LinkInput] = links.compactMap { link in
             guard let linkEntityID = link.entityID, let entryID = link.entryID,
                   let entryDate = entryDates[entryID],
                   let root = root(of: linkEntityID), root.isBrowsable
             else { return nil }
-            return .init(entryID: entryID, entityID: root.id, entryDate: entryDate)
+            return .init(entryID: entryID, entityID: root.id, entryDate: entryDate, parts: Self.parts(of: link, root: root, in: partContexts))
         }
 
         let edges = EntityGraph.build(links: inputs)

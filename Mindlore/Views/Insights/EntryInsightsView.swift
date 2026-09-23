@@ -10,6 +10,7 @@ struct EntryInsightsView: View {
     var runsWhenOpened = false
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(EntrySaver.self) private var saver
     @Environment(GraphServices.self) private var graph
     @Environment(SettingsStore.self) private var settings
@@ -28,6 +29,8 @@ struct EntryInsightsView: View {
     @State private var addingName = false
     @State private var repointing: Repointing?
     @State private var startedOnOpen = false
+    // Parts start folded: the sheet is for the entry, and the parts mostly serve the map.
+    @State private var partsExpanded = false
 
     private struct Repointing: Identifiable {
         let mention: MentionRef
@@ -303,11 +306,34 @@ struct EntryInsightsView: View {
         Task { await insightsCoordinator.runAI(for: entry, context: context) }
     }
 
-    // The entry's parts by topic, for a long entry that covered several things. Read-only: the
-    // parts are the run's reading, and the tags and names they carry are already on the cards above.
+    // The entry's parts by topic. Their real job is the map, where two names connect only when
+    // they share a part; here they are a footnote, so the card starts folded to one line.
     private func sectionsCard(_ sections: [EntrySection]) -> some View {
-        InsightCard(title: "Parts", caption: "Where the entry moved from one thing to another.") {
-            VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: 10) {
+            Button {
+                withAnimation(Motion.resolve(Motion.settle, reduceMotion: reduceMotion)) { partsExpanded.toggle() }
+            } label: {
+                HStack {
+                    Text("Parts")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                    Text(sections.map(\.topic).joined(separator: " · "))
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
+                        .lineLimit(1)
+                    Spacer(minLength: 4)
+                    Image(systemName: "chevron.down")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                        .rotationEffect(.degrees(partsExpanded ? 0 : -90))
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Parts, \(sections.count)")
+            .accessibilityValue(partsExpanded ? "Expanded" : "Collapsed")
+            .accessibilityIdentifier("insightsPartsToggle")
+            if partsExpanded {
                 ForEach(Array(sections.enumerated()), id: \.offset) { index, section in
                     VStack(alignment: .leading, spacing: 3) {
                         Text(section.topic)
@@ -331,8 +357,13 @@ struct EntryInsightsView: View {
                         Divider()
                     }
                 }
+                Text("Names connect on your map only when they're in the same part.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .card()
     }
 
     // Names the user added by hand. Each opens its page; the menu takes it off this entry.

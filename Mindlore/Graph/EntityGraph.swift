@@ -9,11 +9,14 @@ nonisolated enum EntityGraph {
         let entryID: UUID
         let entityID: UUID
         let entryDate: Date
+        // The parts of the entry this mention sits in (EntryParts), or nil for the whole entry.
+        let parts: Set<Int>?
 
-        init(entryID: UUID, entityID: UUID, entryDate: Date) {
+        init(entryID: UUID, entityID: UUID, entryDate: Date, parts: Set<Int>? = nil) {
             self.entryID = entryID
             self.entityID = entityID
             self.entryDate = entryDate
+            self.parts = parts
         }
     }
 
@@ -57,7 +60,20 @@ nonisolated enum EntityGraph {
         var latest: [Edge.Key: Double] = [:]
         for (_, entryLinks) in byEntry {
             guard let entryDate = entryLinks.first?.entryDate else { continue }
-            let distinctIDs = Array(Set(entryLinks.map(\.entityID)))
+            // One entity can arrive through several links (a merge, a tag and a name); its parts
+            // are all of theirs, and any link placed nowhere makes it the whole entry's.
+            var partsByEntity: [UUID: Set<Int>?] = [:]
+            for link in entryLinks {
+                switch (partsByEntity[link.entityID], link.parts) {
+                case (nil, let parts):
+                    partsByEntity[link.entityID] = .some(parts)
+                case (.some(.some(let existing)), .some(let parts)):
+                    partsByEntity[link.entityID] = .some(existing.union(parts))
+                default:
+                    partsByEntity[link.entityID] = .some(nil)
+                }
+            }
+            let distinctIDs = Array(partsByEntity.keys)
             guard distinctIDs.count >= 2 else { continue }
 
             let age = asOf.timeIntervalSince(entryDate)
@@ -65,6 +81,12 @@ nonisolated enum EntityGraph {
 
             for i in 0..<distinctIDs.count {
                 for j in (i + 1)..<distinctIDs.count {
+                    // Two names in the same entry connect only when they share a part. A name
+                    // with no part is the whole entry's and connects as it always did.
+                    if let first = partsByEntity[distinctIDs[i]] ?? nil, let second = partsByEntity[distinctIDs[j]] ?? nil,
+                       first.isDisjoint(with: second) {
+                        continue
+                    }
                     let edge = Edge(distinctIDs[i], distinctIDs[j], weight: 0)
                     totals[edge.key, default: 0] += weight
                     latest[edge.key] = max(latest[edge.key] ?? 0, weight)

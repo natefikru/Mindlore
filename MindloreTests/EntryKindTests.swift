@@ -401,3 +401,85 @@ struct ReadyRecorderTests {
         #expect(JournalFont.allCases.map(\.uiDesign) == [.serif, .default, .rounded, .monospaced])
     }
 }
+
+// Two names in one entry connect on the map only when they share a part (owner, 2026-09-23).
+@MainActor
+struct PartAwareGraphTests {
+    private let now = Date(timeIntervalSinceReferenceDate: 1_000_000)
+
+    @Test func namesInDifferentPartsOfOneEntryDoNotConnect() {
+        let entry = UUID()
+        let dana = UUID(), office = UUID(), maya = UUID(), wedding = UUID(), unplaced = UUID()
+        let edges = EntityGraph.build(links: [
+            .init(entryID: entry, entityID: dana, entryDate: now, parts: [0]),
+            .init(entryID: entry, entityID: office, entryDate: now, parts: [0]),
+            .init(entryID: entry, entityID: maya, entryDate: now, parts: [1]),
+            .init(entryID: entry, entityID: wedding, entryDate: now, parts: [1, 2]),
+            .init(entryID: entry, entityID: unplaced, entryDate: now),
+        ], asOf: now)
+        let pairs = Set(edges.map { Set([$0.a, $0.b]) })
+        #expect(pairs.contains([dana, office]) && pairs.contains([maya, wedding]))
+        #expect(!pairs.contains([dana, maya]) && !pairs.contains([office, wedding]), "different parts")
+        #expect([dana, office, maya, wedding].allSatisfy { pairs.contains([unplaced, $0]) }, "a name placed nowhere is the whole entry's")
+        #expect(edges.count == 6)
+    }
+
+    @Test func aNameArrivingTwiceTakesEveryPartItsLinksCarry() {
+        let entry = UUID()
+        let a = UUID(), b = UUID(), c = UUID()
+        let spread = EntityGraph.build(links: [
+            .init(entryID: entry, entityID: a, entryDate: now, parts: [0]),
+            .init(entryID: entry, entityID: a, entryDate: now, parts: [1]),
+            .init(entryID: entry, entityID: b, entryDate: now, parts: [1]),
+            .init(entryID: entry, entityID: c, entryDate: now, parts: [2]),
+        ], asOf: now)
+        #expect(Set(spread.map { Set([$0.a, $0.b]) }) == [[a, b]])
+        let wholeEntry = EntityGraph.build(links: [
+            .init(entryID: entry, entityID: a, entryDate: now, parts: [0]),
+            .init(entryID: entry, entityID: a, entryDate: now),
+            .init(entryID: entry, entityID: c, entryDate: now, parts: [2]),
+        ], asOf: now)
+        #expect(wholeEntry.count == 1, "any unplaced link makes it the whole entry's")
+    }
+
+    @Test func partsArePlacedByTheModelsListsAndByWhereTheNameIsWritten() {
+        let text = "Morning at the office with Dana. Then I called Maya about the wedding."
+        let sections = [
+            EntrySection(topic: "Work", tags: ["office"], names: ["Dana"], offset: 0),
+            EntrySection(topic: "Family", tags: ["wedding"], names: [], offset: text.distance(from: text.startIndex, to: text.range(of: "Then")!.lowerBound)),
+        ]
+        let context = EntryParts.Context(sections: sections, text: text)
+        #expect(context.parts(surfaces: ["Dana"], isTag: false) == [0])
+        #expect(context.parts(surfaces: ["maya"], isTag: false) == [1], "found in the text, though the model didn't list her")
+        #expect(context.parts(surfaces: ["wedding"], isTag: true) == [1])
+        #expect(context.parts(surfaces: ["Lisbon"], isTag: false) == nil)
+        #expect(context.parts(surfaces: ["office"], isTag: true) == [0], "a tag only by the lists")
+
+        let edited = EntryParts.Context(sections: sections, text: nil)
+        #expect(edited.parts(surfaces: ["Maya"], isTag: false) == nil, "offsets are not trusted once the text changed")
+        #expect(edited.parts(surfaces: ["Dana"], isTag: false) == [0])
+        #expect(EntryParts.Context(sections: [sections[0]], text: text).parts(surfaces: ["Dana"], isTag: false) == nil, "one part is the whole entry")
+    }
+
+    @Test func theMapStopsJoiningNamesFromDifferentPartsOfAnEntry() async throws {
+        let harness = try InsightsHarness()
+        harness.useGraph = true
+        let text = "Morning at the office with Dana went long. Then I called Maya about the wedding."
+        let entry = try harness.entry(text)
+        entry.entryDate = .now
+        let response = #"{"summary":"A day.","primaryMood":"calm","secondaryMoods":[],"lifeAreas":["work"],"tags":[],"mentions":[{"name":"Dana","kind":"person"},{"name":"Maya","kind":"person"}],"looseEnds":[],"sections":[{"topic":"Work","startsWith":"Morning at the office","names":["Dana"]},{"topic":"Family","startsWith":"Then I called Maya","names":["Maya"]}]}"#
+        harness.generator.results = [.success(response)]
+        await harness.coordinator.processQueue(context: harness.context)
+        #expect(entry.insights?.sections.count == 2)
+
+        let graph = GraphServices(diagnostics: .disabled)
+        let split = MindMap.graph(graph.mapSnapshot(in: harness.context), kinds: nil, minimumLinkCount: 1, asOf: .now)
+        #expect(split.nodes.count == 2)
+        #expect(split.edges.isEmpty, "Dana and Maya were written about apart")
+
+        // Without parts, the same two names share the entry, as they always did.
+        entry.insights?.sections = []
+        let whole = MindMap.graph(GraphServices(diagnostics: .disabled).mapSnapshot(in: harness.context), kinds: nil, minimumLinkCount: 1, asOf: .now)
+        #expect(whole.edges.count == 1)
+    }
+}

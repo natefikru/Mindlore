@@ -279,7 +279,8 @@ every view and service resolves an entity by fetching its id, never by walking t
   `unsureLinks`/`repoint` ("Which one?"), `mentionedWith` (one entity's co-occurring
   partners), and `mapSnapshot`/`globalGraph`/`primaryAreas` (Mind, below).
 - **Co-occurrence and the picture.** `EntityGraph` (no SwiftData import, `nonisolated`) turns a
-  caller-resolved `[LinkInput]` into weighted `Edge`s: two entities sharing an entry get an edge,
+  caller-resolved `[LinkInput]` into weighted `Edge`s: two entities sharing an entry get an edge
+  (sharing a part of it, when the entry has parts; see Parts below),
   weighted by a 90-day half-life so a recent shared entry counts for more (`EntityGraph.build`),
   (`EntityGraph.build`). `GraphSimulation` (also `nonisolated`, a plain class, not `@Observable`,
   since the canvas ticks it every frame from inside its own draw closure) is the engine:
@@ -365,15 +366,24 @@ when the new kind keeps more than the old (`EntryKind.keepsMore(than:)`). Every 
 and Reflect mark a creative or a note block so neither takes a lyric or a list as something that
 happened.
 
-**Parts** (`Models/EntrySection.swift`, `EntryInsights.sections`). The cloud insights request also
-asks for the entry divided by topic, only when it clearly moves between things: each part has a
-topic, one sentence, its own areas, tags, and names, and the first words of the part, which the
-parser looks up in the text to store a character `offset` (nil when not found, never backwards).
-Nothing marks the text up. The parts' tags are folded into the entry's own, after them and under
-the same cap, so a long entry's later topics still reach the list, and the insights sheet shows a
-Parts card when there is more than one. Never asked of the on-device model
-(`Budget.sections`), and dropped for creative work. `InsightSectionsTests` covers the schema, the
-parsing, and the storage.
+**Parts** (`Models/EntrySection.swift`, `EntryInsights.sections`, `Graph/EntryParts.swift`). The
+cloud insights request also asks for the entry divided by topic, only when it clearly moves
+between things: each part has a topic, one sentence, its own areas, tags, and names, and the
+first words of the part, which the parser looks up in the text to store a character `offset`
+(nil when not found, never backwards). Nothing marks the text up. **What parts are for is the
+map** (owner, 2026-09-23): two names in one entry connect only when they share a part, instead of
+everything in an entry joining everything else because it was written at one sitting.
+`EntryParts.Context` places each link at snapshot time, never stored, so older entries and names
+added by hand need nothing migrated: by the part's own `names` or `tags` list, by the part's span
+of text a name is written in (only while the insights are current, since an edit moves the words
+the offsets point at), and a tag only by the lists. A name placed in no part, or an entry with
+fewer than two, is the whole entry's and connects as before, so a part the model missed never
+costs an edge. `EntityGraph.LinkInput.parts` carries it; `EntityGraph.build` unions an entity's
+parts across its links and skips a pair whose parts are disjoint. Both `mapSnapshot` and
+`mentionedWith` read it. The parts' tags are also folded into the entry's own, after them and
+under the same cap. On the insights sheet the Parts card starts folded to one line of topics.
+Never asked of the on-device model (`Budget.sections`), and dropped for creative work.
+`InsightSectionsTests` covers the schema, parsing, and storage; `PartAwareGraphTests` the edges.
 
 **Loose ends** (`Models/LooseEnd.swift`, `AI/Insights/LooseEndWriter.swift`). Open threads an entry
 leaves ("need to call the landlord") become `LooseEnd` records with a status (open, resolved,
