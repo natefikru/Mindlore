@@ -27,7 +27,9 @@ enum StoreLocation: Equatable {
 }
 
 enum ModelContainerFactory {
-    static let schema = Schema([Entry.self, EntryPage.self, EntryInsights.self, Entity.self, EntityLink.self, LooseEnd.self, AskConversation.self, AskMessage.self, ReflectSummary.self])
+    // Every persisted model, for the store and for the CloudKit schema initializer alike.
+    static let modelTypes: [any PersistentModel.Type] = [Entry.self, EntryPage.self, EntryInsights.self, Entity.self, EntityLink.self, LooseEnd.self, AskConversation.self, AskMessage.self, ReflectSummary.self]
+    static let schema = Schema(modelTypes)
 
     static func make(_ location: StoreLocation, cloudKitContainerID: String? = AppConfig.cloudKitContainerID) throws -> ModelContainer {
         let configuration: ModelConfiguration

@@ -88,6 +88,10 @@ struct MindloreApp: App {
         if !recovered.isEmpty {
             diagnostics.record("recovery.moved", ["count": .int(recovered.count), "files": .string(recovered.map(\.lastPathComponent).joined(separator: ","))])
         }
+        #if DEBUG
+        // Before the journal's own store opens, so the two CloudKit containers never overlap.
+        CloudKitSchemaInitializer.runIfRequested(arguments: arguments, containerID: AppConfig.cloudKitContainerID, diagnostics: diagnostics)
+        #endif
         let location = StoreLocation.resolve(
             arguments: ProcessInfo.processInfo.arguments,
             environment: ProcessInfo.processInfo.environment
