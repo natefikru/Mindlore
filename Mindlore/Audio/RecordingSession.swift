@@ -8,6 +8,8 @@ import SwiftData
 final class RecordingSession {
     enum Status: Equatable {
         case idle
+        // The recorder is up and waiting for the user to tap its button. Nothing is captured yet.
+        case ready
         case starting
         case active
         case permissionDenied
@@ -34,6 +36,8 @@ final class RecordingSession {
     @ObservationIgnored private let availability: LiveTranscriptionAvailability
     @ObservationIgnored private let locale: Locale
     @ObservationIgnored private let speechEngine: () -> SpeechEngine
+    // Whether opening the recorder starts capturing at once, or waits for a tap on its button.
+    @ObservationIgnored private let recordOnOpen: () -> Bool
     @ObservationIgnored private let afterIngest: () async -> Void
     @ObservationIgnored private let onFinished: (Entry) -> Void
     @ObservationIgnored private let takePrompt: () -> String?
@@ -57,6 +61,7 @@ final class RecordingSession {
         availability: LiveTranscriptionAvailability = .standard,
         locale: Locale = .current,
         speechEngine: @escaping () -> SpeechEngine,
+        recordOnOpen: @escaping () -> Bool = { true },
         afterIngest: @escaping () async -> Void,
         onFinished: @escaping (Entry) -> Void,
         takePrompt: @escaping () -> String? = { nil },
@@ -70,6 +75,7 @@ final class RecordingSession {
         self.availability = availability
         self.locale = locale
         self.speechEngine = speechEngine
+        self.recordOnOpen = recordOnOpen
         self.afterIngest = afterIngest
         self.onFinished = onFinished
         self.takePrompt = takePrompt
@@ -78,16 +84,35 @@ final class RecordingSession {
     }
 
     var isRecording: Bool { status == .active }
+    // The tab bar's accessory shows a recording, not a recorder that is only waiting.
+    var showsAccessory: Bool { status != .idle && status != .ready }
 
-    func begin() {
+    // Opens the recorder. With `startsNow` (Siri's Start Recording, or the setting) capture begins
+    // at once; otherwise the recorder waits, ready, for a tap on its button.
+    func begin(startsNow: Bool? = nil) {
         guard status == .idle, !isFinishing else { return }
         generation += 1
-        let recorder = makeRecorder()
-        self.recorder = recorder
         levels = Array(repeating: 0, count: Self.levelCount)
-        status = .starting
         isExpanded = true
         prompt = takePrompt()
+        if startsNow ?? recordOnOpen() {
+            startCapture()
+        } else {
+            status = .ready
+            diagnostics.record("recording.ready")
+        }
+    }
+
+    // The recorder's own button, on a recorder that opened ready.
+    func startRecording() {
+        guard status == .ready, !isFinishing else { return }
+        startCapture()
+    }
+
+    private func startCapture() {
+        let recorder = makeRecorder()
+        self.recorder = recorder
+        status = .starting
         let generation = generation
         startTask = Task { [weak self] in await self?.start(recorder, generation: generation) }
     }

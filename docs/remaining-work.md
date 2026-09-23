@@ -219,6 +219,13 @@ a PR that touches views) and run on every push to `main`.
 
 Real, deferred on purpose, each with why it can wait.
 
+- [ ] **Device check for the 2026-09-23 journal changes.** Built without a Mac: the caret fix in
+      `GrowingTextEditor` (type the first two letters of a new entry, then Edit on a long one and
+      type; the letters must land in order), the ready recorder (mic button opens the recorder
+      waiting; its button starts; Siri still starts at once), the kind picker under the title, the
+      font setting reaching the editor and read mode, and a photographed page dated at its top
+      landing on that day with a generated title after Approve.
+
 - [ ] **`retryAfter` from a 429 is parsed and ignored.** The next attempt waits for a scene change or
       launch instead of the provider's delay.
 - [ ] **`JournalSaves.revision` isn't observable.** A screen keyed on it alone misses a background

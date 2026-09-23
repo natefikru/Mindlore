@@ -46,6 +46,19 @@ extension EntityKind {
     }
 }
 
+extension EntryKind {
+    // The badge on a row and the picker chip. Creative keeps the accent it has always had; the
+    // other two are quiet system colours so three badges in a list read as three kinds, not as
+    // three alerts.
+    var color: Color {
+        switch self {
+        case .journal: .teal
+        case .note: .indigo
+        case .creative: Palette.ember
+        }
+    }
+}
+
 extension MoodCategory {
     // A dot beside the mood's word, never the only signal: the word and its meaning carry the
     // information. The hues tell categories apart and grade nothing; there is no good or bad colour.

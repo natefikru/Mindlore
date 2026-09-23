@@ -678,21 +678,30 @@ final class GraphServices {
         revision += 1
     }
 
-    // The user's call that an entry is, or isn't, creative work. Marked creative, it loses its
-    // AI names, its area, and the open loose ends it raised, at once and with no AI call; the
-    // ones the user touched stay theirs. Marked life, the caller reruns insights so they return.
-    // Callers flush EntrySaver first.
-    func setCreative(_ creative: Bool, on entry: Entry, in context: ModelContext) {
-        entry.setCreativeByUser(creative)
-        if creative {
+    // The user's call on what an entry is. Marked creative, it loses its AI names, its area, its
+    // mood, and the open loose ends it raised, at once and with no AI call; marked a note it loses
+    // only its mood; the ones the user touched stay theirs. Marked something that keeps more than
+    // before, the caller reruns insights so they return. Callers flush EntrySaver first.
+    func setKind(_ kind: EntryKind, on entry: Entry, in context: ModelContext) {
+        entry.setKindByUser(kind)
+        if !kind.keepsMoods {
             entry.insights?.setMoods(primary: nil, secondary: [], editedByUser: false)
+        }
+        if !kind.keepsAreas {
             entry.insights?.areas = []
+        }
+        if !kind.keepsSections {
+            entry.insights?.sections = []
+        }
+        if !kind.keepsMentions {
             entry.insights?.mentions = []
+            indexer.index(entry, in: context)
+        }
+        if !kind.keepsLooseEnds {
             let entryID = entry.id
             for looseEnd in LooseEnd.all(in: context) where looseEnd.sourceEntryID == entryID && looseEnd.isOpen && !looseEnd.userTouched {
                 looseEnd.setStatus(.dismissed, at: .now)
             }
-            indexer.index(entry, in: context)
         }
         indexer.recount(in: context)
         do {
@@ -700,8 +709,12 @@ final class GraphServices {
         } catch {
             diagnostics.record("graph.saveFailed", ["error": .errorCode(error)])
         }
-        diagnostics.record("entry.creativeSet", ["id": .id(entry.id), "creative": .bool(creative)])
+        diagnostics.record("entry.kindSet", ["id": .id(entry.id), "kind": .string(kind.rawValue)])
         revision += 1
+    }
+
+    func setCreative(_ creative: Bool, on entry: Entry, in context: ModelContext) {
+        setKind(creative ? .creative : .journal, on: entry, in: context)
     }
 
     // After an insights run wrote this entry. The coordinator saves afterwards, and the bump

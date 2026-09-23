@@ -207,7 +207,7 @@ struct InsightsSettingsView: View {
                 Text(settings.suggestEntryDates
                      ? (settings.autoApplySuggestedEntryDate
                         ? "A date found on a journal page or in a pasted entry becomes the entry's date on its own. You can still change it from the entry."
-                        : "When a journal page or a pasted entry states the date it was written, Mindlore offers it as the entry's date. You confirm it.")
+                        : "A date written at the top of a photographed page becomes the entry's date on its own. When a pasted entry states the date it was written, Mindlore offers it and you confirm it.")
                      : "Entries keep the date they were added.")
             }
 

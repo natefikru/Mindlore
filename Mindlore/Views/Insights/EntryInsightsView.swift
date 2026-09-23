@@ -62,6 +62,9 @@ struct EntryInsightsView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 12) {
                     statusCard
+                    // What the entry is, where its consequences show: no mood on a note, no
+                    // names on a poem. Outside the state check, like the names the user added.
+                    kindCard
                     // Outside the state check: a name the user added stands whether or not
                     // the insights are current, or there at all.
                     if !added.isEmpty {
@@ -264,6 +267,9 @@ struct EntryInsightsView: View {
             }
         }
         LooseEndsCard(entryID: entry.id)
+        if insights.sections.count > 1 {
+            sectionsCard(insights.sections)
+        }
         ForEach(insights.customResults, id: \.promptID) { result in
             InsightCard(title: result.name, copyText: result.content) {
                 Text(result.content)
@@ -274,6 +280,58 @@ struct EntryInsightsView: View {
                 .font(.footnote)
                 .foregroundStyle(.secondary)
                 .padding(.horizontal, 4)
+        }
+    }
+
+    private var kindCard: some View {
+        InsightCard(title: "This entry is") {
+            EntryKindPicker(selection: entry.kind, setByUser: entry.creativeSetByUser, showsMeaning: true) { kind in
+                setKind(kind)
+            }
+        }
+    }
+
+    // The same rule as the editor's picker: what the new kind drops goes at once, and what it
+    // brings back is read again when there is something to read it with.
+    private func setKind(_ kind: EntryKind) {
+        let previous = entry.kind
+        saver.flush()
+        graph.setKind(kind, on: entry, in: modelContext)
+        guard kind.keepsMore(than: previous), InsightsCoordinator.canRunAI(on: entry),
+              AIServices.insightsUsable(settings: settings, accounts: accounts) else { return }
+        let context = modelContext
+        Task { await insightsCoordinator.runAI(for: entry, context: context) }
+    }
+
+    // The entry's parts by topic, for a long entry that covered several things. Read-only: the
+    // parts are the run's reading, and the tags and names they carry are already on the cards above.
+    private func sectionsCard(_ sections: [EntrySection]) -> some View {
+        InsightCard(title: "Parts", caption: "Where the entry moved from one thing to another.") {
+            VStack(alignment: .leading, spacing: 10) {
+                ForEach(Array(sections.enumerated()), id: \.offset) { index, section in
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(section.topic)
+                            .font(.subheadline.weight(.semibold))
+                        if let summary = section.summary {
+                            Text(summary)
+                                .font(.subheadline)
+                                .foregroundStyle(.secondary)
+                        }
+                        let chips = section.areas.filter { !settings.isHidden($0) }.map { settings.name(of: $0) } + section.tags + section.names
+                        if !chips.isEmpty {
+                            Text(chips.joined(separator: " · "))
+                                .font(.caption)
+                                .foregroundStyle(.tertiary)
+                                .lineLimit(2)
+                        }
+                    }
+                    .accessibilityElement(children: .combine)
+                    .accessibilityIdentifier("insightsPart-\(index)")
+                    if index < sections.count - 1 {
+                        Divider()
+                    }
+                }
+            }
         }
     }
 
@@ -350,6 +408,7 @@ struct EntryInsightsView: View {
     private func approve() {
         guard entry.approveText() else { return }
         aiPass.fire(for: entry, at: .approved)
+        aiPass.requestTitle(for: entry)
         saver.noteChange()
         saver.flush()
         DiagnosticsLog.shared.record("text.approved", ["id": .id(entry.id), "from": "insights"])
@@ -414,7 +473,8 @@ struct WhatWasSentView: View {
         if settings.insightMentions { names.append("Mentioned") }
         if settings.insightLooseEnds { names.append("Loose ends") }
         if settings.insightCleanedText && (source == .voice || source == .photo) { names.append("Cleaned-up text") }
-        if settings.suggestEntryDates && source == .typed { names.append("Written date") }
+        if settings.suggestEntryDates && (source == .typed || source == .photo) { names.append("Written date") }
+        if settings.insightTags || settings.insightMentions || settings.insightLifeAreas { names.append("Parts by topic") }
         names.append(contentsOf: settings.customInsightPrompts.filter(\.enabled).map(\.name))
         return names
     }

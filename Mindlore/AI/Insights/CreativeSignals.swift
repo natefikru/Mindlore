@@ -65,4 +65,13 @@ nonisolated enum CreativeSignals {
         guard looksLikeVerse(text) else { return false }
         return focused ?? false
     }
+
+    // The same rule over all three kinds. The cloud model's note verdict is taken as it is; on
+    // device only the creative question is asked at all, and a small model that called a song
+    // diary creative is not trusted to tell a list from a day either, so it never files a note.
+    static func decideKind(modelSays kind: EntryKind, text: String, onDevice: Bool, focused: Bool?) -> EntryKind {
+        if decide(modelSaysCreative: kind == .creative, text: text, onDevice: onDevice, focused: focused) { return .creative }
+        guard !onDevice else { return .journal }
+        return kind == .note ? .note : .journal
+    }
 }

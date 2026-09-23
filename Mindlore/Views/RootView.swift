@@ -115,6 +115,7 @@ struct RootView: View {
             makeRecorder: { fakeRecorder ? UITestingRecorder() as any AudioRecording : AudioRecorder() },
             makeLiveSession: { SpeechAnalyzerLiveSession(locale: $0) },
             speechEngine: { settings.speechEngine },
+            recordOnOpen: { settings.recordOnOpen },
             afterIngest: { await transcription.processQueue(context: context) },
             // A recording ends in the Keep card, not the editor. Nothing opens, so nothing closes to
             // start the entry's automatic pass: the card's arrival is that moment.
@@ -159,7 +160,7 @@ struct RootView: View {
         // the environment below reaching their separate hosting.
         // Only while a recording runs, so it follows the user across tabs. Record itself sits in
         // Journal's toolbar.
-        .tabViewBottomAccessory(isEnabled: recording.status != .idle) {
+        .tabViewBottomAccessory(isEnabled: recording.showsAccessory) {
             RecordAccessory(session: recording) { confirmingDiscard = true }
         }
         .fullScreenCover(isPresented: Binding(get: { recording.isExpanded }, set: { if !$0 { recording.close() } })) {
@@ -197,6 +198,7 @@ struct RootView: View {
         // until the user taps a row on a person's page.
         .environment(\.contactDirectory, contacts)
         .environment(\.placeDirectory, places)
+        .environment(\.journalFont, settings.journalFont)
         .overlay {
             if let kept = router.keptEntryID {
                 KeepCard(entryID: kept)

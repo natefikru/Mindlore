@@ -18,6 +18,10 @@ final class RecordingUITests: XCTestCase {
         let record = app.buttons["newVoiceEntryButton"]
         XCTAssertTrue(record.waitForExistence(timeout: 5))
         record.tap()
+        // The recorder opens ready and waits for its own button (Settings can make it start at once).
+        let start = app.buttons["startRecordingButton"]
+        XCTAssertTrue(start.waitForExistence(timeout: 5))
+        start.tap()
         let finish = app.buttons["finishRecordingButton"]
         XCTAssertTrue(finish.waitForExistence(timeout: 5))
         wait(for: [expectation(for: NSPredicate(format: "isEnabled == true"), evaluatedWith: finish)], timeout: 5)

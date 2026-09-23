@@ -18,6 +18,8 @@ final class PageTranscriptionCoordinator {
 
     // Beyond the pages themselves, a few repeats are allowed for failures before automatic runs stop.
     nonisolated static let extraRequestsAllowed = 3
+    // A photographed page dated at its top takes that date without asking.
+    nonisolated static let pagesApplyTheirDate = true
     nonisolated static let requestCapFailure = AIJobFailure(raw: "pages.requestCap")
 
     private(set) var activity: [UUID: Activity] = [:]
@@ -203,9 +205,13 @@ final class PageTranscriptionCoordinator {
         let applied = finished.applyGeneratedText(finished.joinedPageText, generatedBy: transcription.label)
         if applied {
             finished.textReviewPending = true
+            // A date written at the top of a page is the day the page was written, so it becomes
+            // the entry's date on its own, whatever the typed-entry setting says (owner,
+            // 2026-09-23). The entry keeps createdAt for automation; only its place in the
+            // journal moves. Turning suggestions off in Settings still turns this off.
             if suggestEntryDates(), let written = finished.sortedPages.compactMap(\.writtenDate).first,
                finished.storeSuggestedEntryDate(written) {
-                if autoApplyEntryDate() {
+                if autoApplyEntryDate() || Self.pagesApplyTheirDate {
                     finished.acceptSuggestedEntryDate()
                     diagnostics.record("entryDate.changed", ["id": .id(entryID), "reason": "auto", "source": "page"])
                 } else {

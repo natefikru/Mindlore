@@ -66,6 +66,20 @@ final class AIPassTrigger {
         return true
     }
 
+    // A title for text that has just been approved, whether or not the entry's one automatic pass
+    // is spent. A photo entry's pass can go on its insights while the pages are still in review
+    // (Generate insights from the sheet), which used to leave it titled by its first line, often
+    // the date at the top of the page. Approval is the moment the text is final, so the title is
+    // asked for here regardless. The caller saves and runs the queues.
+    @discardableResult
+    func requestTitle(for entry: Entry) -> Bool {
+        guard titleUsable(), entry.title.isEmpty || entry.titleWasGenerated,
+              !entry.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, !entry.titlePending else { return false }
+        entry.titlePending = true
+        diagnostics.record("title.requested", ["id": .id(entry.id), "moment": "approved"])
+        return true
+    }
+
     // Catches entries whose editor never closed because the app was killed.
     func sweep(context: ModelContext) -> Int {
         let descriptor = FetchDescriptor<Entry>(predicate: #Predicate { !$0.automaticAIPassUsed && !$0.awaitingText })

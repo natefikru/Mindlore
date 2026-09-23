@@ -75,7 +75,8 @@ enum IntentHandler {
                 recording.expand()
                 return .recorderShown
             }
-            recording.begin()
+            // Siri was asked to start recording, so it starts, whatever the button's setting says.
+            recording.begin(startsNow: true)
             return .recording
         case .newEntry:
             putTheRecorderAway(recording)

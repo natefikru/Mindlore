@@ -29,6 +29,7 @@ nonisolated struct InsightsRequestPlan: Sendable {
     let asksForCleanedText: Bool
     let asksForWrittenDate: Bool
     var asksForLifeAreas = false
+    var asksForSections = false
     // Exactly what went into the prompt after section toggles, cleaning, and caps, so the
     // disclosure screen can say what was sent rather than what the journal holds today.
     var vocabularySent: InsightsPromptBuilder.JournalVocabulary = .empty
@@ -75,10 +76,29 @@ nonisolated struct InsightsResult: Equatable, Sendable {
     var cleanedText: String?
     var writtenDate: Date?
     var custom: [CustomInsightResult] = []
-    var creative = false
+    var kind: EntryKind = .journal
+    var sections: [EntrySection] = []
+
+    var creative: Bool {
+        get { kind == .creative }
+        set { kind = newValue ? .creative : .journal }
+    }
 
     var sectionsReturned: Int {
-        [summary != nil, primaryMood != nil, !areas.isEmpty, !tags.isEmpty, !mentions.isEmpty, !looseEnds.isEmpty, cleanedText != nil].filter { $0 }.count + custom.count
+        [summary != nil, primaryMood != nil, !areas.isEmpty, !tags.isEmpty, !mentions.isEmpty, !looseEnds.isEmpty, cleanedText != nil, !sections.isEmpty].filter { $0 }.count + custom.count
+    }
+
+    // Drops what an entry of this kind never keeps: a lyric's names never reach the map, and a
+    // list carries no mood. Applied before anything is written.
+    mutating func restrict(to kind: EntryKind) {
+        if !kind.keepsMoods {
+            primaryMood = nil
+            secondaryMoods = []
+        }
+        if !kind.keepsAreas { areas = [] }
+        if !kind.keepsMentions { mentions = [] }
+        if !kind.keepsLooseEnds { looseEnds = LooseEndResult() }
+        if !kind.keepsSections { sections = [] }
     }
 }
 
@@ -95,13 +115,31 @@ nonisolated enum InsightsPromptBuilder {
     static let maxNewLooseEnds = 2
     static let maxKnownLooseEnds = 15
     static let maxLooseEndCharacters = 200
+    static let maxSections = 6
+    static let maxSectionTopicCharacters = 60
+    static let maxSectionSummaryCharacters = 240
+    static let maxSectionTags = 5
+    static let maxSectionNames = 8
 
     static let creativeRule = """
     What this entry is. creative: the entry is itself a poem, song lyrics, or a story, which shows \
     as short lines broken like verse, rhyme, a repeated refrain, or characters in a scene, with no \
-    account of the author's own day. life: everything else, the author telling about their own \
-    day, plans, people, or feelings, including notes about a song they are working on or a dream \
-    they had.
+    account of the author's own day. note: the entry is kept for use rather than telling what \
+    happened: a list, a plan, a recipe, a draft message, a reference, notes taken from a meeting, a \
+    book, or a lecture, with no account of the author's own day or feelings. life: everything \
+    else, the author telling about their own day, plans, people, or feelings, including notes about \
+    a song they are working on or a dream they had. When unsure between note and life, say life.
+    """
+
+    // Sections are asked for whenever the request carries the fields they refine. The small model
+    // has no room for them.
+    static let sectionsRule = """
+    The entry divided by what it talks about, in the order written, only when it clearly moves \
+    between two or more different things (a morning at work, then a call with a sister, then a plan \
+    for the weekend). Each part names its topic in a few words, quotes the first four to six words \
+    of the part exactly as the entry writes them, says in one sentence what that part is about, and \
+    carries the life areas, tags, and names from the entry that belong to that part. An entry about \
+    one thing has no parts, and an empty list is the normal answer.
     """
 
     // Longer than any real name; anything past it is not a name worth steering towards.
@@ -126,15 +164,18 @@ nonisolated enum InsightsPromptBuilder {
         var examples: Bool
         // "The date the entry states it was written" came back as the entry's own date every time.
         var writtenDate: Bool
+        // The entry divided by topic. As long as the entry's own tags and names again, so only
+        // the cloud model has room for it.
+        var sections: Bool
         var maxOutputTokens: Int?
 
         static let cloud = Budget(
             inputCharacters: maxInputCharacters, existingTags: maxExistingTags, knownEntities: maxKnownEntities,
-            knownLooseEnds: maxKnownLooseEnds, cleanedText: true, customPrompts: true, moodMeanings: true, examples: true, writtenDate: true, maxOutputTokens: nil
+            knownLooseEnds: maxKnownLooseEnds, cleanedText: true, customPrompts: true, moodMeanings: true, examples: true, writtenDate: true, sections: true, maxOutputTokens: nil
         )
         static let onDevice = Budget(
             inputCharacters: 4_000, existingTags: 15, knownEntities: 15,
-            knownLooseEnds: 5, cleanedText: false, customPrompts: false, moodMeanings: false, examples: false, writtenDate: false, maxOutputTokens: 700
+            knownLooseEnds: 5, cleanedText: false, customPrompts: false, moodMeanings: false, examples: false, writtenDate: false, sections: false, maxOutputTokens: 700
         )
     }
 
@@ -189,7 +230,7 @@ nonisolated enum InsightsPromptBuilder {
         // on-device model called "worked on the Memphis song tonight" creative, the very example
         // the rule gave for false.
         if sections.lifeAreas || sections.mentions || sections.looseEnds {
-            properties.append(.init("entryKind", .enumeration(["life", "creative"], description: Self.creativeRule)))
+            properties.append(.init("entryKind", .enumeration(EntryKind.allCases.map(\.promptValue), description: Self.creativeRule)))
         }
         if sections.summary {
             // The small model answered "A personal journal entry." to the cloud wording, so it is told
@@ -316,6 +357,29 @@ nonisolated enum InsightsPromptBuilder {
             guidance.append(guide)
         }
 
+        // The entry divided by topic, so a long entry's tags and names come from every part of it
+        // rather than whichever the model read first. Grouped with the fields it refines: asked for
+        // only when at least one of tags, mentions, and areas is on, and never on device.
+        let asksForSections = budget.sections && (sections.tags || sections.mentions || sections.lifeAreas)
+        if asksForSections {
+            var fields: [JSONSchema.Property] = [
+                .init("topic", .string(description: "What this part is about, in two to six words.")),
+                .init("startsWith", .string(description: "The first four to six words of this part, exactly as the entry writes them.")),
+                .init("summary", .string(description: "One sentence on what this part says.", nullable: true)),
+            ]
+            if sections.lifeAreas {
+                fields.append(.init("lifeAreas", .array(.enumeration(LifeArea.allCases.map(\.rawValue)), description: "The one or two life areas this part is about.")))
+            }
+            if sections.tags {
+                fields.append(.init("tags", .array(.string(), description: "Short lowercase labels for this part, like the entry's tags.")))
+            }
+            if sections.mentions {
+                fields.append(.init("names", .array(.string(), description: "Names from mentions that appear in this part.")))
+            }
+            properties.append(.init("sections", .array(.object(fields), description: "The entry's parts by topic, in order. Empty when the entry is about one thing.")))
+            guidance.append(Self.sectionsRule)
+        }
+
         // Speech-to-text and handwriting both produce punctuation worth fixing; typed text is the
         // user's own keystrokes and is never rewritten.
         var skippedReason: String?
@@ -328,9 +392,13 @@ nonisolated enum InsightsPromptBuilder {
             properties.append(.init("cleanedText", .string(description: "The entry with punctuation, capitalization, paragraph breaks, and obvious transcription mistakes fixed. Keep the author's words, order, and meaning; do not summarize, shorten, or add anything. Null if it needs no changes.", nullable: true)))
         }
 
-        let asksForWrittenDate = sections.suggestEntryDates && source == .typed && budget.writtenDate
+        // Typed entries and photographed pages state their own date often enough to ask; a
+        // recording never does. The page transcriber already reads a date off the page itself;
+        // asking here as well catches one it missed, and the two agree because both parse the same
+        // way and only ever fill an entry whose date the user hasn't picked.
+        let asksForWrittenDate = sections.suggestEntryDates && (source == .typed || source == .photo) && budget.writtenDate
         if asksForWrittenDate {
-            properties.append(.init("writtenDate", .string(description: "The date this entry itself was written on, as yyyy-MM-dd, only if the text states it with year, month, and day. Ignore other dates mentioned. Null otherwise.", nullable: true)))
+            properties.append(.init("writtenDate", .string(description: "The date this entry itself was written on, as yyyy-MM-dd, only if the text states it with year, month, and day" + (source == .photo ? ", usually at the top of the first page" : "") + ". Ignore other dates mentioned. Null otherwise.", nullable: true)))
         }
 
         var customKeys: [String: CustomInsightPrompt] = [:]
@@ -365,7 +433,7 @@ nonisolated enum InsightsPromptBuilder {
             schemaName: "journal_insights",
             maxOutputTokens: budget.maxOutputTokens ?? min(16_000, 3_000 + (asksForCleanedText ? text.count / 2 : 0))
         )
-        return InsightsRequestPlan(request: request, customKeys: customKeys, customKeyOrder: customKeyOrder, cleanedTextSkippedReason: skippedReason, asksForCleanedText: asksForCleanedText, asksForWrittenDate: asksForWrittenDate, asksForLifeAreas: sections.lifeAreas, vocabularySent: sent, looseEndHandles: handles, ownLooseEndIDs: ownIDs)
+        return InsightsRequestPlan(request: request, customKeys: customKeys, customKeyOrder: customKeyOrder, cleanedTextSkippedReason: skippedReason, asksForCleanedText: asksForCleanedText, asksForWrittenDate: asksForWrittenDate, asksForLifeAreas: sections.lifeAreas, asksForSections: asksForSections, vocabularySent: sent, looseEndHandles: handles, ownLooseEndIDs: ownIDs)
     }
 
     static func day(_ date: Date, calendar: Calendar) -> String {
@@ -421,7 +489,7 @@ nonisolated enum InsightsPromptBuilder {
         }
 
         var result = InsightsResult()
-        result.creative = (json["entryKind"] as? String) == "creative"
+        result.kind = EntryKind.fromPromptValue(json["entryKind"] as? String)
         result.summary = string("summary")
         result.primaryMood = string("primaryMood").flatMap(Mood.init(rawValue:))
         var secondary: [Mood] = []
@@ -436,7 +504,13 @@ nonisolated enum InsightsPromptBuilder {
         result.areas = Array(areas.prefix(LifeArea.maxPerEntry))
         // A tag that is a life area's name duplicates the area; models write them anyway.
         let areaNames = plan.asksForLifeAreas ? Set(LifeArea.allCases.map(\.rawValue)) : []
-        result.tags = Array(unique(strings("tags").map { $0.lowercased() }).filter { !areaNames.contains($0) }.prefix(maxTags))
+        if plan.asksForSections {
+            result.sections = parseSections(in: json, text: plan.request.user, areaNames: areaNames)
+        }
+        // The entry's own tags first, then what its parts added, so a long entry's later topics
+        // still reach the list; the cap stays the entry's.
+        let sectionTags = result.sections.flatMap(\.tags)
+        result.tags = Array(unique((strings("tags") + sectionTags).map { $0.lowercased() }).filter { !areaNames.contains($0) }.prefix(maxTags))
         result.looseEnds = looseEnds(in: json, plan: plan, calendar: calendar)
 
         var mentions: [Mention] = []
@@ -490,6 +564,40 @@ nonisolated enum InsightsPromptBuilder {
             let about = unique(((item["about"] as? [Any]) ?? []).compactMap { ($0 as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty })
             let due = (item["due"] as? String).flatMap { EntryDates.parseDay($0, calendar: calendar) }
             result.new.append(.init(text: text, about: about, due: due))
+        }
+        return result
+    }
+
+    // Parts by topic, read as tolerantly as the rest: a part with no topic is dropped, its opening
+    // words are looked up in the entry (a part that can't be placed still counts, without an
+    // offset), and every list is capped. Offsets are kept in order, so a part the model put out
+    // of sequence loses its offset rather than pointing backwards.
+    static func parseSections(in json: [String: Any], text: String, areaNames: Set<String>) -> [EntrySection] {
+        var result: [EntrySection] = []
+        var searchFrom = text.startIndex
+        for item in (json["sections"] as? [[String: Any]]) ?? [] {
+            guard result.count < maxSections,
+                  let rawTopic = (item["topic"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines), !rawTopic.isEmpty else { continue }
+            var section = EntrySection(topic: String(rawTopic.prefix(maxSectionTopicCharacters)))
+            if let summary = (item["summary"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines), !summary.isEmpty {
+                section.summary = String(summary.prefix(maxSectionSummaryCharacters))
+            }
+            var areas: [String] = []
+            for area in ((item["lifeAreas"] as? [Any]) ?? []).compactMap({ ($0 as? String)?.lowercased() })
+            where LifeArea(rawValue: area) != nil && !areas.contains(area) {
+                areas.append(area)
+            }
+            section.areasRaw = Array(areas.prefix(LifeArea.maxPerEntry))
+            section.tags = Array(unique(((item["tags"] as? [Any]) ?? []).compactMap { ($0 as? String)?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
+                .filter { !$0.isEmpty && !areaNames.contains($0) }).prefix(maxSectionTags))
+            section.names = Array(unique(((item["names"] as? [Any]) ?? []).compactMap { ($0 as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .filter { !$0.isEmpty }).prefix(maxSectionNames))
+            if let opening = (item["startsWith"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines), !opening.isEmpty,
+               let range = text.range(of: opening, options: [.caseInsensitive, .diacriticInsensitive], range: searchFrom..<text.endIndex) {
+                section.offset = text.distance(from: text.startIndex, to: range.lowerBound)
+                searchFrom = range.upperBound
+            }
+            result.append(section)
         }
         return result
     }

@@ -53,6 +53,11 @@ final class Entry {
     // a lyric about Rosa driving to Memphis must not put Rosa on the map (owner, 2026-09-22).
     // Insights set it, strictly, unless the user has; the user's call is never overridden.
     var isCreative: Bool = false
+    // A note: a list, a plan, a reference, kept for use rather than telling what happened. It
+    // keeps its names, area, and loose ends and carries no mood. Never true together with
+    // isCreative; `kind` is the one way to read or set them.
+    var isNote: Bool = false
+    // The user picked the kind (journal, note, or creative). Insights never override it.
     var creativeSetByUser: Bool = false
     var titlePending: Bool = false
     var titleAttempts: Int = 0
@@ -75,6 +80,14 @@ final class Entry {
     var source: EntrySource {
         get { EntrySource(rawValue: sourceRaw) ?? .typed }
         set { sourceRaw = newValue.rawValue }
+    }
+
+    var kind: EntryKind {
+        get { isCreative ? .creative : (isNote ? .note : .journal) }
+        set {
+            isCreative = newValue == .creative
+            isNote = newValue == .note
+        }
     }
 
     var sortedPages: [EntryPage] {

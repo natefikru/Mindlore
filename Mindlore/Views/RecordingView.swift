@@ -23,7 +23,7 @@ struct RecordingView: View {
                     }
                 case .startFailed:
                     ContentUnavailableView("Couldn't start recording", systemImage: "exclamationmark.triangle", description: Text("Another app may be using the microphone. Try again in a moment."))
-                case .idle, .starting, .active:
+                case .idle, .ready, .starting, .active:
                     recordingControls
                 }
             }
@@ -86,17 +86,33 @@ struct RecordingView: View {
                 .accessibilityLabel("Still open: \(prompt)")
                 .accessibilityIdentifier("looseEndPrompt")
             }
-            Button { session.togglePause() } label: {
-                Image(systemName: isCapturing ? "pause.fill" : "record.circle")
-                    .font(.largeTitle)
-                    .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
-                    .frame(width: 96, height: 96)
-                    .background(isCapturing ? Color.secondary.opacity(0.2) : Palette.ember, in: Circle())
-                    .foregroundStyle(isCapturing ? Color.primary : Color.white)
+            // One button: Record on a recorder that opened ready, then Pause and Resume.
+            if session.status == .ready {
+                Button { session.startRecording() } label: {
+                    Image(systemName: "mic.fill")
+                        .font(.largeTitle)
+                        .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
+                        .frame(width: 96, height: 96)
+                        .background(Palette.ember, in: Circle())
+                        .foregroundStyle(Color.white)
+                }
+                .accessibilityLabel("Record")
+                .accessibilityIdentifier("startRecordingButton")
+                .padding(.bottom, 48)
+            } else {
+                Button { session.togglePause() } label: {
+                    Image(systemName: isCapturing ? "pause.fill" : "record.circle")
+                        .font(.largeTitle)
+                        .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
+                        .frame(width: 96, height: 96)
+                        .background(isCapturing ? Color.secondary.opacity(0.2) : Palette.ember, in: Circle())
+                        .foregroundStyle(isCapturing ? Color.primary : Color.white)
+                }
+                .accessibilityLabel(isCapturing ? "Pause" : "Resume")
+                .accessibilityIdentifier("pauseResumeRecordingButton")
+                .disabled(!session.isRecording || session.isFinishing || session.recorder?.isResuming == true)
+                .padding(.bottom, 48)
             }
-            .accessibilityLabel(isCapturing ? "Pause" : "Resume")
-            .disabled(!session.isRecording || session.isFinishing || session.recorder?.isResuming == true)
-            .padding(.bottom, 48)
         }
     }
 
@@ -106,6 +122,7 @@ struct RecordingView: View {
 
     private var statusText: String {
         if session.isFinishing { return "Saving…" }
+        if session.status == .ready { return "Tap to start recording" }
         guard let recorder = session.recorder, session.isRecording else { return "Starting…" }
         if recorder.isResuming {
             return "Resuming…"

@@ -58,7 +58,9 @@ for fields derived from user data at runtime. These events have none.
 **Runs in a SwiftUI view or at app launch**, with no unit-test seam: `app.launch` (`run` is the
 developer's `-diagnosticsRun` argument), `app.scenePhase`, `recovery.moved` (UUID file names),
 `store.openFailed`, `store.entryDatesRepaired`, `store.entryDateRepairFailed`, `editor.closed`,
-`entry.created`, `entry.finished`, `entry.deleted` (source is an enum), `entryDate.changed`,
+`entry.created`, `entry.finished`, `entry.deleted` (source is an enum), `entry.kindSet` (the
+kind's raw value), `editor.editFromReadTap`, `recording.ready`, `title.requested` (a literal
+moment), `entryDate.changed`,
 `entryDate.dismissed`, `cleanup.applied`, `cleanup.dismissed`, `cleanup.reverted`,
 `text.approved`, `insights.deleted`, `insights.moodsEdited`, `pages.added`, `pages.confirmed`,
 `pages.reordered`, `pages.removed`, `pages.restarted`, `pages.editCancelled`,

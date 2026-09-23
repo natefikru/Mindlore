@@ -42,7 +42,7 @@ struct InsightsPromptBuilderTests {
         let plan = InsightsPromptBuilder.plan(text: "I walked to the river.", source: .voice, sections: InsightSections(), vocabulary: .init(tags: ["work", "family"]), model: "gpt-test")
         let properties = try schemaProperties(plan)
 
-        #expect(Set(properties.keys) == ["entryKind", "summary", "primaryMood", "secondaryMoods", "lifeAreas", "tags", "mentions", "looseEnds", "cleanedText"])
+        #expect(Set(properties.keys) == ["entryKind", "summary", "primaryMood", "secondaryMoods", "lifeAreas", "tags", "mentions", "looseEnds", "sections", "cleanedText"])
         // Not nullable: every entry gets a mood, with neutral as the fallback.
         #expect((properties["primaryMood"]?["enum"] as? [Any])?.count == Mood.allCases.count)
         #expect(properties["primaryMood"]?["type"] as? String == "string")
@@ -60,11 +60,15 @@ struct InsightsPromptBuilderTests {
         #expect(typed["writtenDate"] != nil)
         #expect(typed["cleanedText"] == nil)
 
-        // Pages are transcribed too, so they get cleanup; they never get a written date, which comes
-        // from the page itself during page transcription.
+        // Pages are transcribed too, so they get cleanup, and they state their date at the top
+        // often enough to be asked as well, as a second reading behind the page transcriber's.
         let photo = try schemaProperties(InsightsPromptBuilder.plan(text: "x", source: .photo, sections: InsightSections(), vocabulary: .empty, model: "m"))
-        #expect(photo["writtenDate"] == nil)
+        #expect(photo["writtenDate"] != nil)
+        #expect((photo["writtenDate"]?["description"] as? String)?.contains("top of the first page") == true)
         #expect(photo["cleanedText"] != nil)
+        // A recording never states its own date.
+        let voice = try schemaProperties(InsightsPromptBuilder.plan(text: "x", source: .voice, sections: InsightSections(), vocabulary: .empty, model: "m"))
+        #expect(voice["writtenDate"] == nil)
 
         var noDates = InsightSections()
         noDates.suggestEntryDates = false
@@ -79,7 +83,7 @@ struct InsightsPromptBuilderTests {
         let plan = InsightsPromptBuilder.plan(text: "x", source: .voice, sections: sections, vocabulary: .init(tags: ["work"]), model: "m")
         let properties = try schemaProperties(plan)
 
-        #expect(Set(properties.keys) == ["entryKind", "summary", "lifeAreas", "mentions", "looseEnds"])
+        #expect(Set(properties.keys) == ["entryKind", "summary", "lifeAreas", "mentions", "looseEnds", "sections"])
         #expect(!plan.request.system.contains("Moods come only"))
         #expect(!plan.request.system.contains("Tags already used"))
     }

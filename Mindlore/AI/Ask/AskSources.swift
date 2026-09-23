@@ -164,7 +164,8 @@ enum AskSources {
                     title: entry.title,
                     text: entry.text,
                     entityIDs: Array(rootsByEntry[entry.id] ?? []),
-                    isCreative: entry.isCreative
+                    isCreative: entry.isCreative,
+                    isNote: entry.isNote
                 )
             },
             entities: entities
