@@ -381,8 +381,8 @@ fewer than two, is the whole entry's and connects as before, so a part the model
 costs an edge. `EntityGraph.LinkInput.parts` carries it; `EntityGraph.build` unions an entity's
 parts across its links and skips a pair whose parts are disjoint. Both `mapSnapshot` and
 `mentionedWith` read it. The parts' tags are also folded into the entry's own, after them and
-under the same cap. On the insights sheet the Parts card starts folded to one line of topics.
-Never asked of the on-device model (`Budget.sections`), and dropped for creative work.
+under the same cap. Parts are metadata for the map, not something to read: the insights sheet
+never shows them, since their tags and names are already on its own cards. Never asked of the on-device model (`Budget.sections`), and dropped for creative work.
 `InsightSectionsTests` covers the schema, parsing, and storage; `PartAwareGraphTests` the edges.
 
 **Loose ends** (`Models/LooseEnd.swift`, `AI/Insights/LooseEndWriter.swift`). Open threads an entry
