@@ -15,6 +15,7 @@ struct MindloreApp: App {
     @State private var settings: SettingsStore
     @State private var accounts: ProviderAccountStore
     @State private var sync: SyncStatusMonitor
+    @State private var recovery: JournalRecovery
 
     init() {
         let diagnostics = DiagnosticsLog.shared
@@ -100,6 +101,10 @@ struct MindloreApp: App {
         // A journal that can't open its iCloud store still opens, on this iPhone alone, rather than
         // leaving the app on an error screen; Settings says so and the next launch tries again.
         let mirrors = location == .default && AppConfig.cloudKitContainerID != nil
+        // The safety copy exists only for the journal that syncs, and hears about a sync reset
+        // from before the store opens.
+        let backups = EntryBackups(folder: EntryBackups.standardFolder)
+        let journalRecovery = JournalRecovery(backups: backups, enabled: mirrors)
         var syncFailed = false
         var opened = Result { try ModelContainerFactory.make(location) }
         if mirrors, case .failure(let error) = opened {
@@ -113,7 +118,10 @@ struct MindloreApp: App {
             }
         }
         container = opened
-        _sync = State(initialValue: SyncStatusMonitor(mirrors: mirrors, storeFailed: syncFailed))
+        let monitor = SyncStatusMonitor(mirrors: mirrors, storeFailed: syncFailed)
+        monitor.onAccountChecked = { [journalRecovery] name in journalRecovery.accountSeen(recordName: name) }
+        _sync = State(initialValue: monitor)
+        _recovery = State(initialValue: journalRecovery)
         switch container {
         case .success(let opened):
             #if DEBUG
@@ -132,6 +140,15 @@ struct MindloreApp: App {
                 }
             } catch {
                 diagnostics.record("store.entryDateRepairFailed", ["error": .errorCode(error)])
+            }
+            if mirrors {
+                EntryBackups.register(backups, for: opened)
+                do {
+                    let filled = try backups.fillIn(from: opened.mainContext)
+                    if filled > 0 { diagnostics.record("backup.filledIn", ["count": .int(filled)]) }
+                } catch {
+                    diagnostics.record("backup.fillInFailed", ["error": .errorCode(error)])
+                }
             }
             do {
                 let repaired = try EntityLinkRepair.run(in: opened.mainContext)
@@ -155,6 +172,7 @@ struct MindloreApp: App {
                     .environment(settings)
                     .environment(accounts)
                     .environment(sync)
+                    .environment(recovery)
                     .task { sync.start() }
                     .preferredColorScheme(settings.appearance.colorScheme)
             case .failure(let error):

@@ -226,4 +226,18 @@ The owner said "continue" to the three recommendations:
       sentence) and `SyncStatusMonitor` (`CKAccountChanged`, `NSPersistentCloudKitContainer`
       events); `SyncSettingsSection` first in Settings; Delete all data warns that it deletes from
       iCloud and the other devices when the journal reaches iCloud. No switch yet (2b).
-- [ ] Phases 2b to 7.
+- [x] Fix on the way (#49): `EntityLink.entity` shadowed `NSManagedObject.entity` and CloudKit's
+      exporter crashed on it (134421); it is `linkedEntity` now, added rather than renamed
+      (134110), refilled by `EntityLinkRepair`. Schema rules forbid the class of name. See
+      `tasks/lessons.md`.
+- [x] Phase 6: `EntryBackups` writes one JSON file per entry (text, title, dates, kind) to
+      `Application Support/EntryBackups/`, registered to the journal's own container only, at both
+      save choke points; a delete removes it, Delete all data removes all, launch fills in any
+      entry without one. `JournalRecovery` marks a check when the account's fingerprint changes or
+      goes away, when Core Data posts its will-reset-sync notification (observed before the store
+      opens), or when the store is empty with copies on disk; it offers only once sync has
+      settled, and otherwise drops copies of entries deleted on another device. `RestoreBanner`
+      tops the journal and the iCloud section has a row; a restore keeps each entry's id, and
+      `EntryDuplicates` keeps the most recent of two entries sharing one. No Review list: Restore
+      and Not now.
+- [ ] Phases 2b, 3, 4 (entities, links, summaries, insights, messages), 5, 7.

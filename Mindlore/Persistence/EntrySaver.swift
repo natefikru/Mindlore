@@ -60,8 +60,10 @@ final class EntrySaver {
             "changed": .int(context.changedModelsArray.count),
             "deleted": .int(context.deletedModelsArray.count),
         ]
+        let backups = EntryBackups.pending(in: context)
         do {
             try save(context)
+            EntryBackups.of(context)?.apply(backups)
             lastError = nil
             revision += 1
             diagnostics.record("save.completed", counts)

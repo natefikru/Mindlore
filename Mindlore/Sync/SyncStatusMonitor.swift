@@ -23,6 +23,10 @@ final class SyncStatusMonitor {
     private let mirrors: Bool
     private let storeFailed: Bool
     private let accountStatus: @Sendable () async throws -> CKAccountStatus
+    private let userRecordName: @Sendable () async throws -> String?
+    // Told the account's record name once it is known to be signed in, or nil once it is known to
+    // be signed out; never for an account iCloud couldn't answer about.
+    var onAccountChecked: ((String?) -> Void)?
     private let diagnostics: DiagnosticsLog
     private var account: SyncAccount?
     private var inFlight: Set<UUID> = []
@@ -35,6 +39,7 @@ final class SyncStatusMonitor {
         storeFailed: Bool = false,
         containerID: String? = AppConfig.cloudKitContainerID,
         accountStatus: (@Sendable () async throws -> CKAccountStatus)? = nil,
+        userRecordName: (@Sendable () async throws -> String?)? = nil,
         diagnostics: DiagnosticsLog = .shared
     ) {
         self.mirrors = mirrors
@@ -44,6 +49,10 @@ final class SyncStatusMonitor {
         self.accountStatus = accountStatus ?? { [containerID] in
             guard let containerID else { return .couldNotDetermine }
             return try await CKContainer(identifier: containerID).accountStatus()
+        }
+        self.userRecordName = userRecordName ?? { [containerID] in
+            guard let containerID else { return nil }
+            return try await CKContainer(identifier: containerID).userRecordID().recordName
         }
         status = SyncStatus.derive(mirrors: mirrors, storeFailed: storeFailed, account: nil, inFlight: false, lastSuccess: nil, lastProblem: nil)
     }
@@ -72,6 +81,14 @@ final class SyncStatusMonitor {
             refreshed = SyncAccount(try await accountStatus())
         } catch {
             refreshed = .unknown
+        }
+        switch refreshed {
+        case .available:
+            if let name = try? await userRecordName() { onAccountChecked?(name) }
+        case .noAccount:
+            onAccountChecked?(nil)
+        default:
+            break
         }
         account = refreshed
         // A sign-in is a fresh start; an old "signed out" failure shouldn't outlive it.

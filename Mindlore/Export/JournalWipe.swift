@@ -21,6 +21,8 @@ enum JournalWipe {
         try deleteAll(EntryPage.self, in: context)
         try deleteAll(Entry.self, in: context)
         try context.saveStampingEntries()
+        // Deleting everything means the safety copy too, or a later restore would bring it back.
+        EntryBackups.of(context)?.removeAll()
 
         // Finished recordings not yet made into entries. A recording still running is left alone:
         // the button is disabled while one is.
