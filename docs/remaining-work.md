@@ -225,6 +225,15 @@ A TestFlight build is Release, so `DiagnosticsLog` is silent and the device smok
 (iCloud will be) and before the profile's yearly expiry. Once sync ships, deploy the CloudKit
 schema to production before the build that changes it, since TestFlight talks to production.
 
+**Before App Store review, not TestFlight:** guideline 5.1.2(i) (November 2025) asks an app to
+say plainly that personal data goes to a named third-party AI and to get explicit permission
+first. Today saving a key turns AI on by itself (`AIKeyView`, "Saving it turns AI on"), and the
+only disclosure is the AI section's footer, which says "your AI provider". Wanted: a one-time
+sheet on saving a key (or on turning Use AI on) that names OpenAI, lists what goes out
+(recordings, page photos, entry text, the entries a question needs), and has Allow and Not now,
+plus a plain "Get a key at platform.openai.com" link on the key screen. In the review notes, say
+AI is optional and uses the user's own key, and give the reviewer a key.
+
 Not blocked, but done in the GitHub UI rather than the repo: under Branches, protect `main` and
 require the `Unit tests` check; the UI shards stay advisory on pull requests (add the `ui` label to
 a PR that touches views) and run on every push to `main`.

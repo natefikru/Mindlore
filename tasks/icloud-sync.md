@@ -206,9 +206,19 @@ Two devices on one Apple Account are needed for most of these; an iPad works as 
 - A paid tier, and B8 (Live Activity, widget), which are separate plans.
 - The Mac app.
 
-## Questions for the owner
+## Owner's answers (2026-09-23)
 
-1. Sync switch on by default for someone signed in to iCloud? (Recommended: yes.)
-2. AI only on the phone that made the entry, with manual buttons anywhere? (Recommended: yes; the
-   alternative is two OpenAI bills and duplicate loose ends.)
-3. Is the settings allow-list in section 6 right, in particular keeping "Use AI" per phone?
+The owner said "continue" to the three recommendations:
+
+1. Sync is on by default for anyone signed in to iCloud.
+2. Automatic AI runs only on the phone that made the entry; the manual buttons work anywhere.
+3. "Use AI" stays per phone and is never mirrored.
+
+## Progress
+
+- [x] Phase 1: `Mindlore/Mindlore.entitlements` (CloudKit container, key-value store, push) on the
+      app target's Debug and Release. A device build with `-allowProvisioningUpdates` registered
+      `iCloud.com.natefikru.mindlore` and a development profile carrying it. Schema rules now also
+      require an inverse on every relationship and no `.deny`; all nine models pass. A test pins
+      `.inMemory` and `.file` stores to no CloudKit database even when a container ID is passed.
+- [ ] Phases 2 to 7.
