@@ -365,7 +365,7 @@ final class GraphUITests: XCTestCase {
         let parts = token.dropFirst("entryDot=".count).split(separator: ",").compactMap { Double($0) }
         XCTAssertEqual(parts.count, 2)
         canvas.coordinate(withNormalizedOffset: CGVector(dx: parts[0], dy: parts[1])).tap()
-        XCTAssertTrue(app.staticTexts["entryReadText"].waitForExistence(timeout: 5), "the dot opened its entry for reading")
+        XCTAssertTrue(app.descendants(matching: .any)["entryReadText"].waitForExistence(timeout: 5), "the dot opened its entry for reading")
     }
 
     // Replay runs to the end on its own and hands back the same map.
@@ -390,7 +390,7 @@ final class GraphUITests: XCTestCase {
     func testShowInMindFromTheEditor() throws {
         finishAndLeave()
         app.staticTexts.matching(NSPredicate(format: "label CONTAINS 'Met Sarah'")).firstMatch.tap()
-        let readText = app.staticTexts["entryReadText"]
+        let readText = app.descendants(matching: .any)["entryReadText"]
         let sarah = readText.links["Sarah"]
         XCTAssertTrue(sarah.waitForExistence(timeout: 10))
         sarah.tap()

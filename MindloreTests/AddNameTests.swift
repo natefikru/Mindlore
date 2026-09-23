@@ -68,6 +68,32 @@ struct AddNameTests {
         #expect(cafe.linkCount == 2)
     }
 
+    // "#river" typed into the entry: a user link on a tag entity, remembering the "#" it was
+    // written with, so read mode can find and tint it.
+    @Test func aTypedTagBecomesAUserLinkOnATagEntity() throws {
+        let entry = try plainEntry("Walked by the #river again.")
+
+        let id = try #require(services.addName(.tag("river"), to: entry, in: harness.context))
+
+        let river = try harness.entity("river")
+        #expect(river.id == id)
+        #expect(river.kind == .tag)
+        let links = harness.links(of: entry)
+        #expect(links.count == 1)
+        #expect(links[0].source == .user)
+        #expect(links[0].kind == .tag)
+        #expect(links[0].writtenSurface == "#river")
+        // Read mode links it as written, "#river", and never the bare word.
+        let candidates = EntryNameLinks.candidates(forEntry: entry.id, links: links, entities: [river])
+        #expect(candidates.map(\.names) == [["#river"]])
+        #expect(EntryNameLinks.links(in: entry.text, candidates: candidates).map(\.range) == [NSRange(location: 14, length: 6)])
+
+        // The same tag again, from another entry, lands on the same entity.
+        let other = try plainEntry("The #River in spring.")
+        #expect(services.addName(.tag("River"), to: other, in: harness.context) == id)
+        #expect(try harness.entity("river").linkCount == 2)
+    }
+
     @Test func addingTheSameNameTwiceKeepsOneLink() throws {
         let entry = try plainEntry()
 

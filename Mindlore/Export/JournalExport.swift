@@ -34,6 +34,8 @@ enum JournalExport {
         var source: String
         var title: String
         var text: String
+        // EntryFormatting JSON, so the JSON export keeps the layout the Markdown file shows.
+        var formatting: String?
         var isDraft: Bool
         var summary: String?
         var mood: String?
@@ -120,6 +122,7 @@ enum JournalExport {
                 source: entry.sourceRaw,
                 title: entry.title,
                 text: entry.text,
+                formatting: entry.formattingRaw,
                 isDraft: entry.isDraft,
                 summary: insights?.summary,
                 mood: insights?.primaryMoodRaw,
@@ -180,7 +183,7 @@ enum JournalExport {
             lines.append("# \(entry.title)")
             lines.append("")
         }
-        lines.append(entry.text)
+        lines.append(MarkdownCodec.render(text: entry.text, formatting: EntryFormatting(raw: entry.formatting) ?? .empty))
         return lines.joined(separator: "\n") + "\n"
     }
 

@@ -19,10 +19,18 @@ enum EntryNameLinks {
         var order: [UUID] = []
         var names: [UUID: [String]] = [:]
         for link in links where link.entryID == entryID && !link.isDeleted {
-            // Tags are ordinary words ("river"); linking them would turn prose into links.
-            guard link.kind != .tag, let entityID = link.entityID,
-                  let root = root(of: entityID), root.isBrowsable, root.kind != .tag
-            else { continue }
+            guard let entityID = link.entityID, let root = root(of: entityID), root.isBrowsable else { continue }
+            // Tags are ordinary words ("river"); linking them would turn prose into links. The one
+            // exception is a tag the user typed as "#river", which is linked as written.
+            if link.kind == .tag || root.kind == .tag {
+                guard link.source == .user, let written = link.writtenSurface, written.hasPrefix("#") else { continue }
+                if names[root.id] == nil {
+                    order.append(root.id)
+                    names[root.id] = []
+                }
+                names[root.id]?.append(written)
+                continue
+            }
             if names[root.id] == nil {
                 order.append(root.id)
                 names[root.id] = []
@@ -31,7 +39,8 @@ enum EntryNameLinks {
         }
         return order.compactMap { id in
             guard let root = byID[id] else { return nil }
-            return EntityNameRanges.Candidate(entityID: id, kind: root.kind, names: (names[id] ?? []) + [root.name] + root.aliases)
+            let extra = root.kind == .tag ? [] : [root.name] + root.aliases
+            return EntityNameRanges.Candidate(entityID: id, kind: root.kind, names: (names[id] ?? []) + extra)
         }
     }
 
@@ -53,17 +62,28 @@ enum EntryNameLinks {
         return UUID(uuidString: host)
     }
 
+    // One linked name in the text: where it is (UTF-16, the text view's unit), what it opens,
+    // and the colour of its kind.
+    struct Link: Equatable {
+        let range: NSRange
+        let entityID: UUID
+        let kind: EntityKind
+    }
+
+    static func links(in text: String, candidates: [EntityNameRanges.Candidate]) -> [Link] {
+        let kinds = Dictionary(candidates.map { ($0.entityID, $0.kind) }, uniquingKeysWith: { first, _ in first })
+        return EntityNameRanges.matches(in: text, candidates: candidates).map { match in
+            Link(range: NSRange(match.range, in: text), entityID: match.entityID, kind: kinds[match.entityID] ?? .other)
+        }
+    }
+
     // The entry's text with each name linked and tinted in its entity's colour.
     static func attributed(_ text: String, candidates: [EntityNameRanges.Candidate]) -> AttributedString {
-        let kinds = Dictionary(candidates.map { ($0.entityID, $0.kind) }, uniquingKeysWith: { first, _ in first })
-        let matches = EntityNameRanges.matches(in: text, candidates: candidates)
         var attributed = AttributedString(text)
-        for match in matches {
-            guard let range = Range<AttributedString.Index>(match.range, in: attributed) else { continue }
-            attributed[range].link = url(for: match.entityID)
-            if let kind = kinds[match.entityID] {
-                attributed[range].foregroundColor = kind.color
-            }
+        for link in links(in: text, candidates: candidates) {
+            guard let range = Range<AttributedString.Index>(link.range, in: attributed) else { continue }
+            attributed[range].link = url(for: link.entityID)
+            attributed[range].foregroundColor = link.kind.color
         }
         return attributed
     }

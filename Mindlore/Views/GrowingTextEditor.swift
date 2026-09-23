@@ -1,44 +1,80 @@
 import SwiftUI
 import UIKit
 
-// A text view that grows with its text instead of scrolling on its own, so an entry's header
-// (title, player, page thumbnails) scrolls together with the writing in one scroll view.
-// The blank space below the text belongs to the view above it, which focuses this one and puts the
-// caret at the end, the way Notes behaves.
+// The entry's text, read or typed, in one UITextView that grows with its text instead of scrolling
+// on its own, so an entry's header (title, player, page thumbnails) scrolls together with the
+// writing in one scroll view. Read mode is the same view made non-editable, with the names linked:
+// a tap on a name opens it through the text view's own link action, and a tap anywhere else says
+// which character it landed on, so the editor can open with the caret there. Formatting (headings,
+// lists, bold) lives in the view's attributes while typing, drawn by TextKit 2 from
+// `FormattingStyle`, and is reported back as `EntryFormatting` beside the text.
+//
+// One fact shapes the coordinator: UITextView's typing attributes keep only the font, colour, and
+// paragraph style (measured in GrowingTextEditorTests), so a custom attribute never reaches typed
+// text on its own and the empty paragraph after the last newline has no character to carry one.
+// So Return is always applied by hand, the trailing paragraph's block is held here, and after
+// every edit the paragraph touched is normalised from whichever character still carries the key,
+// with inline marks read back from the font UIKit did keep.
 struct GrowingTextEditor: UIViewRepresentable {
     @Binding var text: String
+    @Binding var formatting: EntryFormatting
+    var isEditable = true
     var isFocused: Bool
     // Bumped by the caller to ask for focus, with the caret at `focusOffset` when there is one
     // (a tap on the text being read) and at the end of the text otherwise.
     var focusAtEndToken: Int
     var focusOffset: Int? = nil
+    // The format bar goes away while a recording sits in the accessory: the two would stack.
+    var showsFormatBar = true
+    // Names to link while reading.
+    var links: [EntryNameLinks.Link] = []
+    var accessibilityIdentifier: String
+    // Who an "@" could mean, for the bar's completion row.
+    var mentionRows: [EntitySearch.Row] = []
     var onFocusChange: (Bool) -> Void
+    var onLinkTap: (UUID) -> Void = { _ in }
+    // A tap on the text being read, at a UTF-16 offset.
+    var onReadTap: (Int) -> Void = { _ in }
+    var onFormatted: () -> Void = {}
+    // A name picked from the "@" row (the name is already in the text), and a "#word" completed.
+    var onMention: (GraphServices.AddedNameTarget) -> Void = { _ in }
+    var onTag: (String) -> Void = { _ in }
 
     func makeUIView(context: Context) -> UITextView {
         let view = UITextView()
+        let coordinator = context.coordinator
         view.delegate = context.coordinator
         view.isScrollEnabled = false
         view.backgroundColor = .clear
-        view.font = .journal(.body, design: context.environment.journalFont.uiDesign)
-        context.coordinator.appliedFont = context.environment.journalFont
-        view.textColor = UIColor(Palette.ink)
         view.adjustsFontForContentSizeCategory = true
         view.textContainerInset = UIEdgeInsets(top: 8, left: 0, bottom: 8, right: 0)
         view.textContainer.lineFragmentPadding = 0
+        // Link colours come from the text's own attributes, per kind.
+        view.linkTextAttributes = [:]
+        coordinator.fonts = FormattingStyle.Fonts(journalFont: context.environment.journalFont)
+        coordinator.appliedFont = context.environment.journalFont
+        coordinator.view = view
+        coordinator.bar.model.onAction = { [weak coordinator] action in coordinator?.perform(action) }
+        coordinator.bar.model.onPick = { [weak coordinator] pick in coordinator?.pick(pick) }
+        let tap = UITapGestureRecognizer(target: coordinator, action: #selector(Coordinator.tapped(_:)))
+        tap.cancelsTouchesInView = false
+        tap.delegate = coordinator
+        view.addGestureRecognizer(tap)
+        coordinator.load(text, formatting, into: view)
         return view
     }
 
     func updateUIView(_ view: UITextView, context: Context) {
         let coordinator = context.coordinator
         coordinator.parent = self
+        view.accessibilityIdentifier = accessibilityIdentifier
         let font = context.environment.journalFont
         if font != coordinator.appliedFont {
-            // Setting the font re-applies attributes to the whole text; the selection is kept
-            // across it so a font change from Settings never moves a caret.
-            let selection = view.selectedRange
-            view.font = .journal(.body, design: font.uiDesign)
-            view.selectedRange = selection
+            // Re-fonting the whole text is attributes only; the selection is kept across it so a
+            // font change from Settings never moves a caret.
+            coordinator.fonts = FormattingStyle.Fonts(journalFont: font)
             coordinator.appliedFont = font
+            coordinator.restyleAll()
         }
         // Text is only ever pushed in from outside for text the view didn't type itself: a
         // transcription landing, a cleanup applied, a revert. What the view just reported through
@@ -48,24 +84,42 @@ struct GrowingTextEditor: UIViewRepresentable {
         // screen redrew with a toolbar and a title, and the second keystroke went in front of the
         // first). Never while the keyboard is mid-composition (marked text, dictation) either:
         // assigning would drop what the user is in the middle of typing.
-        if text != coordinator.lastReportedText, view.text != text, view.markedTextRange == nil {
+        let outside = (text, formatting)
+        let echoed = coordinator.lastReported.map { $0 == outside } ?? false
+        if !echoed, view.markedTextRange == nil, view.text != text || coordinator.currentFormatting() != formatting {
             let wasEditing = view.isFirstResponder
             let selection = view.selectedRange
-            view.text = text
-            coordinator.lastReportedText = text
+            coordinator.load(text, formatting, into: view)
             let end = text.utf16.count
             // Text arriving under a caret keeps the caret where it was; text arriving into an
             // unfocused view leaves the caret at its end, where typing would continue.
             view.selectedRange = NSRange(location: wasEditing ? min(selection.location, end) : end, length: 0)
+            coordinator.appliedLinks = []
+        }
+        if view.isEditable != isEditable {
+            view.isEditable = isEditable
+            if !isEditable, view.isFirstResponder {
+                coordinator.resignedByUser = true
+                view.resignFirstResponder()
+            }
+        }
+        let wantedLinks = isEditable ? [] : links
+        if coordinator.appliedLinks != wantedLinks {
+            coordinator.apply(links: wantedLinks)
+        }
+        let bar: UIView? = isEditable && showsFormatBar ? coordinator.bar.view : nil
+        if view.inputAccessoryView !== bar {
+            view.inputAccessoryView = bar
+            if view.isFirstResponder { view.reloadInputViews() }
         }
         if focusAtEndToken != coordinator.handledFocusToken {
             coordinator.handledFocusToken = focusAtEndToken
             let end = view.text.utf16.count
             view.selectedRange = NSRange(location: min(focusOffset ?? end, end), length: 0)
-            if !view.isFirstResponder {
+            if isEditable, !view.isFirstResponder {
                 view.becomeFirstResponder()
             }
-        } else if isFocused && !view.isFirstResponder && !coordinator.resignedByUser {
+        } else if isEditable && isFocused && !view.isFirstResponder && !coordinator.resignedByUser {
             view.becomeFirstResponder()
         }
     }
@@ -80,28 +134,89 @@ struct GrowingTextEditor: UIViewRepresentable {
         Coordinator(self)
     }
 
-    final class Coordinator: NSObject, UITextViewDelegate {
+    @MainActor
+    final class Coordinator: NSObject, UITextViewDelegate, UIGestureRecognizerDelegate {
         // Updated on every render, so the delegate always writes through the current binding.
         var parent: GrowingTextEditor
+        weak var view: UITextView?
         var handledFocusToken: Int
         var appliedFont: JournalFont = .serif
-        // The last text this view sent out through the binding, so an update that only echoes it
-        // back is told apart from text that really changed outside the view.
-        var lastReportedText: String?
+        var fonts = FormattingStyle.Fonts(journalFont: .serif)
+        let bar = FormatBarHost()
+        // The last text and formatting this view sent out through the binding, so an update that
+        // only echoes them back is told apart from text that really changed outside the view.
+        var lastReported: (String, EntryFormatting)?
+        var appliedLinks: [EntryNameLinks.Link] = []
         // The keyboard went away by the user's hand (a drag on the scroll view, the Done button),
         // so a stale focus flag must not bring it straight back.
         var resignedByUser = false
+        // The block and indent of the empty paragraph after the last newline, which has no
+        // character to carry them. Applied to its first character once one is typed.
+        var trailing: EntryFormatting.Paragraph?
+        // The inline marks typed text takes: toggled by the bar, otherwise read from the text
+        // before the caret whenever the caret moves.
+        private var typingInline: FormattingStyle.Inline = []
+        // Set by the delegate before an edit, read after it to normalise what changed.
+        private var pendingEdit: (range: NSRange, inserted: Int, crossesParagraphs: Bool)?
 
         init(_ parent: GrowingTextEditor) {
             self.parent = parent
             handledFocusToken = parent.focusAtEndToken
         }
 
+        var palette: FormattingStyle.Palette {
+            FormattingStyle.Palette(ink: UIColor(Palette.ink), quote: UIColor(Palette.ink).withAlphaComponent(0.7), marker: UIColor(Palette.ink).withAlphaComponent(0.6))
+        }
+
+        func styled(_ text: String, _ formatting: EntryFormatting) -> NSAttributedString {
+            FormattingStyle.attributedString(text: text, formatting: formatting, fonts: fonts, palette: palette)
+        }
+
+        // Text from outside, whole.
+        func load(_ text: String, _ formatting: EntryFormatting, into view: UITextView) {
+            view.attributedText = styled(text, formatting)
+            trailing = nil
+            if hasTrailingParagraph(view.textStorage.string as NSString) {
+                let index = FormattingStyle.paragraphIndex(at: text.utf16.count, in: text as NSString)
+                let paragraph = formatting.paragraph(at: index)
+                if paragraph.block != nil || paragraph.indent > 0 { trailing = paragraph }
+            }
+            lastReported = (text, formatting)
+            typingInline = []
+        }
+
+        // What the view holds now, the trailing paragraph included.
+        func currentFormatting() -> EntryFormatting {
+            guard let view else { return .empty }
+            var formatting = FormattingStyle.formatting(of: view.textStorage)
+            if let trailing { formatting.setParagraph(trailing) }
+            return formatting
+        }
+
+        // MARK: Reporting
+
         func textViewDidChange(_ textView: UITextView) {
             // Always recorded, including while text is marked: inline predictions and dictation mark
             // text as you type, and skipping those would lose what was typed.
-            lastReportedText = textView.text
-            parent.text = textView.text
+            normaliseAfterEdit(textView)
+            report(from: textView)
+        }
+
+        private func report(from textView: UITextView) {
+            let formatting = currentFormatting()
+            lastReported = (textView.text, formatting)
+            if parent.text != textView.text { parent.text = textView.text }
+            if parent.formatting != formatting { parent.formatting = formatting }
+            refreshBar(textView)
+        }
+
+        func textViewDidChangeSelection(_ textView: UITextView) {
+            guard textView.markedTextRange == nil else { return }
+            let caret = textView.selectedRange.location
+            // Typed text takes the marks of what it follows. The bar's toggle changes this after.
+            typingInline = FormattingStyle.inline(at: caret, in: textView.textStorage)
+            applyTypingAttributes(textView)
+            refreshBar(textView)
         }
 
         func textViewDidBeginEditing(_ textView: UITextView) {
@@ -111,7 +226,349 @@ struct GrowingTextEditor: UIViewRepresentable {
 
         func textViewDidEndEditing(_ textView: UITextView) {
             resignedByUser = true
+            bar.model.mention = nil
+            // A tag the text ends on has nothing typed after it; leaving the field completes it.
+            if let tag = MentionDetection.completedTag(in: textView.text, endingAt: textView.text.utf16.count) {
+                parent.onTag(tag.word)
+            }
             parent.onFocusChange(false)
+        }
+
+        private func refreshBar(_ textView: UITextView) {
+            let paragraph = paragraph(at: textView.selectedRange.location, in: textView)
+            bar.model.block = paragraph.block
+            bar.model.indent = paragraph.indent
+            bar.model.inline = textView.selectedRange.length == 0
+                ? typingInline
+                : FormattingStyle.inline(at: textView.selectedRange.location + 1, in: textView.textStorage)
+            refreshMention(textView)
+        }
+
+        // MARK: Paragraphs
+
+        private func hasTrailingParagraph(_ string: NSString) -> Bool {
+            string.length == 0 || string.character(at: string.length - 1) == 10
+        }
+
+        private func isTrailing(_ location: Int, in string: NSString) -> Bool {
+            location >= string.length && hasTrailingParagraph(string)
+        }
+
+        func paragraph(at location: Int, in textView: UITextView) -> EntryFormatting.Paragraph {
+            let string = textView.textStorage.string as NSString
+            let index = FormattingStyle.paragraphIndex(at: location, in: string)
+            if isTrailing(location, in: string) {
+                return trailing ?? EntryFormatting.Paragraph(index: index)
+            }
+            let range = FormattingStyle.paragraphRange(at: location, in: string)
+            let (block, indent) = FormattingStyle.blockAndIndent(in: NSRange(location: range.location, length: min(range.length + 1, string.length - range.location)), of: textView.textStorage)
+            return EntryFormatting.Paragraph(index: index, block: block, indent: indent)
+        }
+
+        // Gives the paragraph under `location` a block and indent. A paragraph with characters
+        // carries them as attributes and the whole text is restyled so numbered runs recount; the
+        // empty trailing paragraph is remembered here and drawn through the typing attributes.
+        private func set(_ paragraph: EntryFormatting.Paragraph, at location: Int, in textView: UITextView) {
+            let storage = textView.textStorage
+            let string = storage.string as NSString
+            if isTrailing(location, in: string) {
+                trailing = paragraph.block != nil || paragraph.indent > 0 ? paragraph : nil
+            } else {
+                let range = FormattingStyle.paragraphRange(at: location, in: string)
+                let withNewline = NSRange(location: range.location, length: min(range.length + 1, string.length - range.location))
+                FormattingStyle.setBlock(paragraph.block, indent: paragraph.indent, in: withNewline, of: storage)
+                restyleAll()
+            }
+            applyTypingAttributes(textView)
+            report(from: textView)
+            parent.onFormatted()
+        }
+
+        // The caret's paragraph and inline marks, as what typed text will take; UIKit keeps the
+        // font and paragraph style of these and drops the rest, which the edit path restores.
+        private func applyTypingAttributes(_ textView: UITextView) {
+            let paragraph = paragraph(at: textView.selectedRange.location, in: textView)
+            let string = textView.textStorage.string as NSString
+            var list: NSTextList?
+            if paragraph.block == .number, !isTrailing(textView.selectedRange.location, in: string) {
+                let range = FormattingStyle.paragraphRange(at: textView.selectedRange.location, in: string)
+                if range.location < string.length {
+                    list = (textView.textStorage.attribute(.paragraphStyle, at: range.location, effectiveRange: nil) as? NSParagraphStyle)?.textLists.first
+                }
+            }
+            textView.typingAttributes = FormattingStyle.typingAttributes(paragraph: paragraph, inline: typingInline, list: list, fonts: fonts, palette: palette)
+        }
+
+        // After UIKit applied an edit: the characters it inserted carry no custom keys, so the
+        // paragraph they landed in is re-marked from the key on any character it still has (or
+        // from `trailing`, if it was the empty last paragraph), and the inserted characters take
+        // the inline marks the caret was typing with.
+        private func normaliseAfterEdit(_ textView: UITextView) {
+            let storage = textView.textStorage
+            let string = storage.string as NSString
+            if !hasTrailingParagraph(string) { trailing = nil }
+            guard let edit = pendingEdit else { return }
+            pendingEdit = nil
+            guard textView.markedTextRange == nil else { return }
+            let inserted = NSRange(location: edit.range.location, length: min(edit.inserted, max(0, string.length - edit.range.location)))
+            if inserted.length > 0 {
+                FormattingStyle.setInline(typingInline, in: inserted, of: storage, fonts: fonts, block: nil)
+            }
+            var location = inserted.location
+            let last = max(inserted.location, NSMaxRange(inserted) - 1)
+            var restyled = false
+            repeat {
+                let range = FormattingStyle.paragraphRange(at: location, in: string)
+                let withNewline = NSRange(location: range.location, length: min(range.length + 1, string.length - range.location))
+                var (block, indent) = FormattingStyle.blockAndIndent(in: withNewline, of: storage)
+                if let trailing, range.length > 0, NSMaxRange(range) == string.length {
+                    // The trailing paragraph just got its first character.
+                    block = trailing.block
+                    indent = trailing.indent
+                    self.trailing = nil
+                }
+                FormattingStyle.setBlock(block, indent: indent, in: withNewline, of: storage)
+                if block == .number { restyled = true }
+                location = NSMaxRange(withNewline)
+            } while location <= last && location < string.length
+            if restyled || edit.crossesParagraphs {
+                restyleAll()
+            } else {
+                let range = FormattingStyle.paragraphRange(at: inserted.location, in: string)
+                let withNewline = NSRange(location: range.location, length: min(range.length + 1, string.length - range.location))
+                let paragraph = paragraph(at: inserted.location, in: textView)
+                let list = (storage.attribute(.paragraphStyle, at: min(range.location, max(0, string.length - 1)), effectiveRange: nil) as? NSParagraphStyle)?.textLists.first
+                FormattingStyle.style(withNewline, paragraph: paragraph, list: list, in: storage, fonts: fonts, palette: palette)
+            }
+            applyTypingAttributes(textView)
+        }
+
+        // Attributes only, never characters, so the selection stays where it is.
+        func restyleAll() {
+            guard let view else { return }
+            let formatting = FormattingStyle.formatting(of: view.textStorage)
+            FormattingStyle.applyParagraphs(formatting, to: view.textStorage, fonts: fonts, palette: palette)
+            if !appliedLinks.isEmpty, !view.isEditable {
+                apply(links: appliedLinks)
+            }
+        }
+
+        // MARK: Return and Backspace
+
+        func textView(_ textView: UITextView, shouldChangeTextIn range: NSRange, replacementText text: String) -> Bool {
+            let string = textView.textStorage.string as NSString
+            if range.length == 0, text.count == 1 {
+                noteCompletedTag(before: range.location, typing: text, in: textView)
+            }
+            if text == "\n", range.length == 0 {
+                let paragraph = paragraph(at: range.location, in: textView)
+                let paragraphRange = FormattingStyle.paragraphRange(at: range.location, in: string)
+                let state = ListEditing.Paragraph(block: paragraph.block, indent: paragraph.indent, isEmpty: paragraphRange.length == 0)
+                switch ListEditing.onReturn(in: state) {
+                case .leaveList:
+                    set(EntryFormatting.Paragraph(index: paragraph.index), at: range.location, in: textView)
+                    return false
+                case .newParagraph(let block, let indent):
+                    // Through the storage, never `insertText`: in a list paragraph UIKit's own
+                    // list editing takes that over and writes a newline plus a space (measured
+                    // in GrowingTextEditorTests' probes; the space is a real character).
+                    let storage = textView.textStorage
+                    storage.beginEditing()
+                    storage.replaceCharacters(in: range, with: NSAttributedString(string: "\n", attributes: textView.typingAttributes))
+                    storage.endEditing()
+                    textView.selectedRange = NSRange(location: range.location + 1, length: 0)
+                    let caret = textView.selectedRange.location
+                    // The text after the caret, if any, is the new paragraph; it keeps whatever
+                    // block it had until set below.
+                    let index = FormattingStyle.paragraphIndex(at: caret, in: textView.textStorage.string as NSString)
+                    set(EntryFormatting.Paragraph(index: index, block: block, indent: indent), at: caret, in: textView)
+                    return false
+                default:
+                    break
+                }
+            }
+            if text.isEmpty, range.length == 1, range.location < string.length, string.character(at: range.location) == 10 {
+                let start = range.location + 1
+                let paragraph = paragraph(at: start, in: textView)
+                let state = ListEditing.Paragraph(block: paragraph.block, indent: paragraph.indent, isEmpty: false)
+                switch ListEditing.onBackspaceAtStart(in: state) {
+                case .removeBlock:
+                    set(EntryFormatting.Paragraph(index: paragraph.index, block: nil, indent: paragraph.indent), at: start, in: textView)
+                    return false
+                case .outdent:
+                    set(EntryFormatting.Paragraph(index: paragraph.index, indent: paragraph.indent - 1), at: start, in: textView)
+                    return false
+                default:
+                    break
+                }
+            }
+            let replaced = range.length > 0 ? string.substring(with: range) : ""
+            pendingEdit = (range, text.utf16.count, text.contains("\n") || replaced.contains("\n"))
+            return true
+        }
+
+        // MARK: The bar
+
+        func perform(_ action: FormatAction) {
+            guard let view else { return }
+            switch action {
+            case .dismissKeyboard:
+                resignedByUser = true
+                view.resignFirstResponder()
+            case .block(let block):
+                let paragraph = paragraph(at: view.selectedRange.location, in: view)
+                let next = ListEditing.toggled(block, on: .init(block: paragraph.block, indent: paragraph.indent, isEmpty: false))
+                forEachParagraph(in: view.selectedRange, of: view) { location, index in
+                    set(EntryFormatting.Paragraph(index: index, block: next.block, indent: next.indent), at: location, in: view)
+                }
+            case .indent(let delta):
+                forEachParagraph(in: view.selectedRange, of: view) { location, index in
+                    let paragraph = paragraph(at: location, in: view)
+                    let next = ListEditing.indented(.init(block: paragraph.block, indent: paragraph.indent, isEmpty: false), by: delta)
+                    set(EntryFormatting.Paragraph(index: index, block: next.block, indent: next.indent), at: location, in: view)
+                }
+            case .inline(let mark):
+                toggle(mark, in: view)
+            }
+        }
+
+        private func forEachParagraph(in selection: NSRange, of view: UITextView, _ body: (Int, Int) -> Void) {
+            let string = view.textStorage.string as NSString
+            var location = selection.location
+            var starts: [Int] = []
+            repeat {
+                let range = FormattingStyle.paragraphRange(at: location, in: string)
+                starts.append(range.location)
+                location = NSMaxRange(range) + 1
+            } while location <= NSMaxRange(selection) && location <= string.length
+            for start in starts {
+                body(start, FormattingStyle.paragraphIndex(at: start, in: string))
+            }
+        }
+
+        private func toggle(_ mark: FormattingStyle.Inline, in view: UITextView) {
+            let selection = view.selectedRange
+            if selection.length > 0 {
+                FormattingStyle.toggle(mark, in: selection, of: view.textStorage, fonts: fonts)
+                typingInline = FormattingStyle.inline(at: selection.location + 1, in: view.textStorage)
+                report(from: view)
+            } else if typingInline.contains(mark) {
+                typingInline.remove(mark)
+            } else {
+                typingInline.insert(mark)
+            }
+            applyTypingAttributes(view)
+            refreshBar(view)
+            parent.onFormatted()
+        }
+
+        // MARK: "@" names and "#" tags
+
+        private func refreshMention(_ textView: UITextView) {
+            guard textView.isEditable, textView.selectedRange.length == 0, textView.markedTextRange == nil,
+                  let mention = MentionDetection.mention(in: textView.text, caret: textView.selectedRange.location) else {
+                if bar.model.mention != nil { bar.model.mention = nil }
+                return
+            }
+            let rows = parent.mentionRows
+            let matches = mention.query.isEmpty
+                ? Array(rows.sorted { ($0.lastMentioned ?? .distantPast) > ($1.lastMentioned ?? .distantPast) }.prefix(6))
+                : Array(EntitySearch.rank(EntitySearch.filter(rows, segment: .all, query: mention.query), query: mention.query).prefix(6))
+            let state = MentionState(query: mention.query, matches: matches)
+            if bar.model.mention != state { bar.model.mention = state }
+        }
+
+        // The picked name replaces "@" and whatever was typed after it, as plain words.
+        func pick(_ pick: MentionPick) {
+            guard let view, let mention = MentionDetection.mention(in: view.text, caret: view.selectedRange.location) else { return }
+            let name: String
+            let target: GraphServices.AddedNameTarget
+            switch pick {
+            case .existing(let row):
+                name = row.name
+                target = .existing(row.id)
+            case .new(let typed):
+                name = typed
+                target = .new(name: typed, kind: .person)
+            }
+            let storage = view.textStorage
+            let follows = NSMaxRange(mention.range) < storage.length ? (storage.string as NSString).character(at: NSMaxRange(mention.range)) : 32
+            let inserted = follows == 32 || follows == 10 ? name : name + " "
+            var attributes = view.typingAttributes
+            attributes[.link] = nil
+            storage.beginEditing()
+            storage.replaceCharacters(in: mention.range, with: NSAttributedString(string: inserted, attributes: attributes))
+            storage.endEditing()
+            pendingEdit = (mention.range, inserted.utf16.count, false)
+            view.selectedRange = NSRange(location: mention.range.location + inserted.utf16.count, length: 0)
+            normaliseAfterEdit(view)
+            report(from: view)
+            bar.model.mention = nil
+            parent.onMention(target)
+        }
+
+        // A "#word" is complete the moment something other than a letter follows it.
+        private func noteCompletedTag(before location: Int, typing replacement: String, in textView: UITextView) {
+            guard let first = replacement.unicodeScalars.first, !CharacterSet.alphanumerics.contains(first), first != "_",
+                  let tag = MentionDetection.completedTag(in: textView.text, endingAt: location) else { return }
+            parent.onTag(tag.word)
+        }
+
+        // MARK: Links (read mode)
+
+        func apply(links: [EntryNameLinks.Link]) {
+            guard let view else { return }
+            let storage = view.textStorage
+            let whole = NSRange(location: 0, length: storage.length)
+            storage.beginEditing()
+            storage.removeAttribute(.link, range: whole)
+            storage.endEditing()
+            // Colour goes back to what the paragraph gives it.
+            FormattingStyle.applyParagraphs(FormattingStyle.formatting(of: storage), to: storage, fonts: fonts, palette: palette)
+            storage.beginEditing()
+            for link in links where NSMaxRange(link.range) <= storage.length {
+                storage.addAttribute(.link, value: EntryNameLinks.url(for: link.entityID), range: link.range)
+                storage.addAttribute(.foregroundColor, value: UIColor(link.kind.color), range: link.range)
+            }
+            storage.endEditing()
+            appliedLinks = links
+        }
+
+        func textView(_ textView: UITextView, primaryActionFor textItem: UITextItem, defaultAction: UIAction) -> UIAction? {
+            guard case .link(let url) = textItem.content, let id = EntryNameLinks.entityID(from: url) else { return defaultAction }
+            return UIAction { [weak self] _ in self?.parent.onLinkTap(id) }
+        }
+
+        func textView(_ textView: UITextView, menuConfigurationFor textItem: UITextItem, defaultMenu: UIMenu) -> UITextItem.MenuConfiguration? {
+            nil
+        }
+
+        // MARK: Taps
+
+        func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer) -> Bool {
+            true
+        }
+
+        @objc func tapped(_ gesture: UITapGestureRecognizer) {
+            guard let view, gesture.state == .ended else { return }
+            let point = gesture.location(in: view)
+            guard let position = view.closestPosition(to: point) else { return }
+            let offset = view.offset(from: view.beginningOfDocument, to: position)
+            let paragraph = paragraph(at: offset, in: view)
+            // A tap in the gutter of a checklist item ticks it, reading or writing.
+            if paragraph.block == .check || paragraph.block == .checked {
+                let textStart = view.textContainerInset.left + CGFloat(paragraph.indent) * FormattingStyle.indentStep + FormattingStyle.markerGap
+                if point.x < textStart {
+                    let ticked = ListEditing.ticked(.init(block: paragraph.block, indent: paragraph.indent, isEmpty: false))
+                    set(EntryFormatting.Paragraph(index: paragraph.index, block: ticked.block, indent: ticked.indent), at: offset, in: view)
+                    DiagnosticsLog.shared.record("editor.checkboxTicked", ["checked": .bool(ticked.block == .checked), "reading": .bool(!view.isEditable)])
+                    return
+                }
+            }
+            guard !view.isEditable else { return }
+            // A name's own action already ran for a tap on a link.
+            if offset < view.textStorage.length, view.textStorage.attribute(.link, at: offset, effectiveRange: nil) != nil { return }
+            parent.onReadTap(offset)
         }
     }
 }

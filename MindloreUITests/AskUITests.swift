@@ -59,8 +59,8 @@ final class AskUITests: XCTestCase {
         entryRow.tap()
 
         // Journal opens the entry for reading, since it is finished.
-        XCTAssertTrue(app.staticTexts["entryReadText"].waitForExistence(timeout: 10))
-        XCTAssertTrue(app.staticTexts["entryReadText"].label.contains("river"))
+        XCTAssertTrue(app.descendants(matching: .any)["entryReadText"].waitForExistence(timeout: 10))
+        XCTAssertTrue((app.descendants(matching: .any)["entryReadText"].value as? String)?.contains("river") == true)
     }
 
     // The cost line is gone (owner, 2026-09-19): the chat no longer tells you what it is about to
@@ -80,7 +80,7 @@ final class AskUITests: XCTestCase {
         XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5))
         citation.tap()
 
-        XCTAssertTrue(app.staticTexts["entryReadText"].waitForExistence(timeout: 10), "the chip opened its entry")
+        XCTAssertTrue(app.descendants(matching: .any)["entryReadText"].waitForExistence(timeout: 10), "the chip opened its entry")
     }
 
     // The keyboard covers the tab bar, so it has to go away without sending anything: a tap on

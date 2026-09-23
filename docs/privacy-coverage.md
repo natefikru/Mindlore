@@ -4,7 +4,9 @@ Checked on 2026-09-21 against `feature/phase-a` (132 distinct event names in `Mi
 extended by `feature/phase-b5` with three more (135): `intent.invoked`, `reminder.permission`, and
 `reminder.scheduled`, covered by the last two rows of the table below. On 2026-09-23 four more
 (139): `entry.kindSet`, `title.requested`, and `recording.ready` in the table, and
-`editor.editFromReadTap` under view events.
+`editor.editFromReadTap` under view events. The formatting editor (`claude/editor-formatting`)
+added three more (142) under view events: `editor.formatted`, `editor.checkboxTicked`, and
+`editor.nameTyped`.
 Those two tests assert that the event was written as well as that the sentinel wasn't, which is
 what the instrumented run below establishes for the rest.
 
@@ -62,7 +64,9 @@ for fields derived from user data at runtime. These events have none.
 developer's `-diagnosticsRun` argument), `app.scenePhase`, `recovery.moved` (UUID file names),
 `store.openFailed`, `store.entryDatesRepaired`, `store.entryDateRepairFailed`, `store.linksRepaired`, `store.linkRepairFailed`, `editor.closed`,
 `entry.created`, `entry.finished`, `entry.deleted` (source is an enum),
-`editor.editFromReadTap` (an id), `entryDate.changed`,
+`editor.editFromReadTap` (an id), `editor.formatted` (an id), `editor.checkboxTicked` (two
+bools), `editor.nameTyped` (an id, a literal for the kind of link, a bool; never the name or the
+tag), `entryDate.changed`,
 `entryDate.dismissed`, `cleanup.applied`, `cleanup.dismissed`, `cleanup.reverted`,
 `text.approved`, `insights.deleted`, `insights.moodsEdited`, `pages.added`, `pages.confirmed`,
 `pages.reordered`, `pages.removed`, `pages.restarted`, `pages.editCancelled`,

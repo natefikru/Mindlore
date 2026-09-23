@@ -389,7 +389,7 @@ nonisolated enum InsightsPromptBuilder {
             skippedReason = budget.cleanedText ? "tooLong" : "onDevice"
         }
         if asksForCleanedText {
-            properties.append(.init("cleanedText", .string(description: "The entry with punctuation, capitalization, paragraph breaks, and obvious transcription mistakes fixed. Keep the author's words, order, and meaning; do not summarize, shorten, or add anything. Null if it needs no changes.", nullable: true)))
+            properties.append(.init("cleanedText", .string(description: "The entry with punctuation, capitalization, paragraph breaks, and obvious transcription mistakes fixed. Keep the author's words, order, and meaning; do not summarize, shorten, or add anything. Where the author clearly spoke or wrote a list (\"first... second... third\", or items one after another), lay it out as a Markdown list: \"- \" items, \"1. \" for a counted sequence, \"- [ ] \" for things to do. Use \"## \" only for a heading the author actually said. No other Markdown. Null if it needs no changes.", nullable: true)))
         }
 
         // Typed entries and photographed pages state their own date often enough to ask; a

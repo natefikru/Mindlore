@@ -1,280 +1,149 @@
-# Editor formatting: a plan
+# Editor formatting
 
 Branch `claude/editor-formatting`, off `claude/journal-app-improvements-o5kfzx` at `766c69c` (the
 commit with `JournalFont`, parts offsets, and the first-keystroke fix; `main` at `ead7a53` has none
-of them). Status: proposal, nothing built. Research on 2026-09-23 against Apple Notes (iOS 18 and
-26), the iOS 26.5 SDK, Obsidian and its plugin download counts, Day One, Bear, and Apple Journal.
+of them). Revision 2: the owner's answers folded in (2026-09-23) and phase 1 built. Revision 1's
+research (Apple Notes, iOS 26 text APIs, Obsidian and its plugin counts, Day One, Bear, Apple
+Journal) is summarised under Findings; the rest of the document is what was decided and built.
 
-## What the editor has today
+## What the editor had
 
-`Entry.text` is a plain `String`. `GrowingTextEditor` is a `UITextView` that grows with its text,
-set in one font (`UIFont.journal(.body, design:)`), with no attributes, no toolbar above the
-keyboard, and no typing shortcuts: "- " and "1. " are just characters. Read mode
-(`EntryEditorView.readBody`) shows the same string in a SwiftUI `Text` built with
-`AttributedString(entry.text)`, a literal init that parses nothing; the only attributes it carries
-are the entity links `EntryNameLinks.attributed` lays over name ranges. A tap on the read text is
-turned into a caret position by `ReadTapCaret`, which lays the raw string out again with TextKit
-and returns a UTF-16 offset. Everything downstream (insights, cleanup, parts, Ask, search, export,
-previews, titles) reads the raw string as prose.
+`Entry.text` was a plain `String` in a `UITextView` (`GrowingTextEditor`) set in one font, with no
+attributes, no bar above the keyboard, and no typing shortcuts. Read mode was a SwiftUI `Text`
+over the same string with name links laid on top, and a tap on it was turned into a caret
+position by `ReadTapCaret` re-laying the string out with TextKit. Every reader downstream
+(insights, cleanup, parts offsets, Ask, search, export, previews, titles) took the string as prose.
 
-## Findings
+## Findings, in short
 
-**Apple Notes** is the benchmark on the phone. The Aa panel has five paragraph styles (Title,
-Heading, Subheading, Body, Monospaced), bold/italic/underline/strikethrough, three list kinds
-plus checklists, block quote, indent, tables, five highlight colours (iOS 18), and collapsible
-headings (iOS 18). Typing "* ", "- ", or "1. " starts a list; "#" does not make a heading, it
-makes a tag. Return on an empty list item leaves the list. Checked items sort to the bottom only
-if a setting says so. iOS 26 added Markdown import and export (never shown while editing) and a
-swipeable format toolbar. Notes stores rich text; Markdown is a border format.
+Notes has five paragraph styles, four inline marks, three list kinds plus checklists, quotes,
+indent, tables, highlights, and collapsible headings, and stores rich text; Markdown is only its
+import/export format as of iOS 26. Obsidian, Bear, and Day One store Markdown and render it in
+place, and Obsidian's popular plugins (Tasks 4.3M downloads, Templater 5.7M, Editing Toolbar
+1.9M, Outliner 1.4M, Various Complements 0.6M, Natural Language Dates 0.5M) add checkbox
+metadata, a toolbar, subtree indenting, `[[` autocomplete, and `@today`. Apple's own Journal app
+shipped with four inline marks and added flat lists and quotes a year later, no headings. The iOS
+26 SwiftUI `TextEditor` over `AttributedString` exists (typechecked against the 26.5 SDK) but its
+attribute scope has no paragraph intents: no headings, lists, or checklists to edit or draw.
 
-**Obsidian** stores Markdown and renders it in place (Live Preview: syntax shown on the line the
-cursor is on, hidden elsewhere; users report the reveal shifting line height and jumping the
-cursor mid-typing, which matters for dictation landing mid-line). Its mobile toolbar is a
-configurable row above the keyboard, defaulting to link and tag. The plugin counts say what
-people bolt on: Excalidraw 8.1M, Templater 5.7M, Dataview 5.0M, Tasks 4.3M, Advanced Tables
-3.2M, Calendar 3.1M, Outliner 1.4M, Editing Toolbar 1.9M, Highlightr 0.7M, Periodic Notes 0.8M,
-Various Complements 0.6M, Natural Language Dates 0.5M. The ones that shape the editor: Tasks
-(due dates and recurrence on a checkbox), Editing Toolbar (heading levels, indent, colours),
-Outliner (Tab moves a subtree, fold, drag), Various Complements (`[[` autocomplete), Natural
-Language Dates (`@today` inserts a dated link), Highlightr (writes `<mark>` because `==` can't
-carry a colour).
+## Owner decisions (2026-09-23)
 
-**Day One and Bear** are the closest cousins. Both keep Markdown underneath and render it live in
-one editor with no separate raw mode. Day One's iOS keyboard bar is an Aa button (headers, bold,
-italic, highlight, numbered, bullets, checklist, quote, rule, indent, outdent) and a paperclip;
-selecting text floats link/highlight/bold/italic. Bear hides the syntax once you leave the line
-and shows it when you tap back in ("Hide Markdown", a setting), links notes with `[[ ]]`, and
-tags with `#tag`. Apple Journal, Apple's own journal, shipped with bold/italic/underline/strike
-only and added flat lists and quotes in iOS 18, still no headings: a signal that a journal needs
-far less than a notes app.
+1. The user never sees or has to know Markdown. Formatting comes from the keyboard bar and Notes'
+   Return and Backspace behaviour. Markers hidden, not dimmed, if that stays simple; typing
+   shortcuts only if nearly free.
+2. Two heading levels. The entry title uses heading 1's style so the title and headings are one
+   type scale.
+3. Checklists are visual only. No link to loose ends; the AI keeps finding those in the text. A
+   ten-box checklist must not become ten loose ends.
+4. `@` picks a name and writes a `.user` link through `GraphEditor.addName`, the same path as Add a
+   name.
+5. `#word` becomes a user-created tag (a `.user` link to a tag entity), not literal text.
+6. The formatting bar hides while a recording shows in the accessory.
+7. Cleanup may turn dictation into structure ("first, second" as a numbered list), within the
+   cleanup rules: transcribed entries only, only the exact text it was made from, revert still
+   works.
 
-**What fits Mindlore.** Headings, bold, italic, strikethrough, bullets, numbers, checklists, a
-block quote, and a bar above the keyboard, with the Notes typing shortcuts and Return
-behaviour, rendered in place like Bear. Checklists tie to loose ends, and names typed with an
-`@` tie to the graph, which is Obsidian's `[[` and Tasks ideas landing on systems that already
-exist. **What is notes-app scope creep**: tables, per-character colours and fonts, code blocks,
-embeds, callouts, footnotes, frontmatter (insights already are the metadata), collapsible
-sections, drawing, kanban, Dataview-style queries (Reflect and Ask are the queries).
+## Storage: plain text plus a formatting record, not Markdown
 
-## The storage decision
+Revision 1 recommended Markdown inside `Entry.text`, on the grounds that the syntax was the
+feature. Decision 1 removed that ground, and with it the reason to put syntax in the string. The
+built design keeps **`Entry.text` exactly the words the user sees** and stores the layout beside
+it: `Entry.formattingRaw` holds `EntryFormatting` as JSON (`Models/EntryFormatting.swift`), a
+list of paragraphs by ordinal (block: heading1, heading2, bullet, number, check, checked, quote;
+indent 0 to 3) and inline spans by UTF-16 range (bold, italic, strike). `nil` when plain. Both
+new columns (`formattingRaw`, `originalFormattingRaw`) are optional, so
+`CloudKitSchemaRulesTests` passes unchanged.
 
-Three options were weighed.
+Why this beats hidden Markdown markers: with markers in the string, every offset (parts,
+name ranges, the caret) is an offset in a string the user cannot see, the caret can land inside
+a hidden `**`, and Backspace has to know that deleting one asterisk unbalances a pair. That is
+the hairy case the owner named. With attributes, bold is an attribute UITextView already knows
+how to type into and delete across, and the string is the plain string. It also means every
+downstream consumer is untouched, which the map in revision 1 was mostly about:
 
-1. **Markdown in `Entry.text`** (recommended). One canonical string, a small CommonMark subset,
-   rendered live in the editor and in read mode.
-2. **An `AttributedString` persisted beside `text`** (an `NSAttributedString` archive or a JSON
-   run list), with `text` kept as a plain projection.
-3. **A block model** (an array of typed paragraphs), like Notes internally.
+- **Insights, title, Ask, search, index, sanitizer, digests, snippets, `previewText`,
+  `displayTitle`, `CreativeSignals`, `NameMatching`, `TextHash`, Reflect's fingerprint**: read
+  `text`, which has no markers. Nothing to strip anywhere. Formatting-only edits (bolding a word)
+  change no hash, so they never make insights stale or rewrite a week's summary.
+- **Parts offsets** (`EntrySection.offset`, `GraphServices.analyzedText`): counted in `text`,
+  which is what the view shows and what the model read. Unchanged.
+- **Transcription** (`applyGeneratedText`, `replaceWithPageTranscription`, `restartPages`): sets
+  plain text and clears the formatting.
+- **Cleanup** (decision 7): the prompt now asks for Markdown lists where the author spoke one
+  (`- `, `1. `, `- [ ] `, `## ` only for a heading the author said, nothing else).
+  `Entry.parseCleanup` reads it through `MarkdownCodec.parse` into words plus formatting;
+  `applyCleanedText` compares the words against the entry (the same hash rule as before) and
+  writes both, keeping `originalText` and `originalFormattingRaw` for revert. The review sheet
+  diffs the words, so an added list shows as the same words; the entry draws the list once
+  applied. Plain cleanups parse to themselves, so the old tests hold.
+- **Export**: `JournalExport.markdown(for:)` renders through `MarkdownCodec.render`, so the `.md`
+  file shows the layout; `journal.json` carries `text` and `formatting` separately.
+- **Loose ends** (decision 3): the insights prompt reads plain lines and asks for at most
+  `maxNewLooseEnds` (2) new threads per run, "usually empty", so a checklist of ten cannot fan
+  out. No guard added; noted here.
 
-Option 1 is what Bear, Day One, and Obsidian do and it is the one that leaves every existing
-consumer working. Option 2 keeps two truths for one entry: every write path (transcription,
-cleanup, revert, page replace, the first-keystroke create) has to update both, and the hash and
-offset rules that assume `text` is the entry would need a second set for the styled twin. Option 3
-is a rewrite of the model, the editor, and every reader for no gain a phone journal can feel.
+Markdown exists only in `MarkdownCodec` (render for export, parse for cleanup), a subset that
+round-trips: `#`/`##`, `- `, `1. `, `- [ ]`/`- [x]`, `> `, two spaces per indent, `**`, `*`,
+`~~`. `[illegible]` from the page transcriber is not a checkbox.
 
-The subset: `#`/`##` headings, `**bold**`, `*italic*`, `~~strike~~`, `- ` and `1. ` lists with
-two-space nesting, `- [ ]`/`- [x]` checklists, `> ` quotes, and later `==highlight==`. Nothing
-else parses; a stray `#` mid-line or an underscore in a word stays literal.
+## Editor: one UITextView, attributes and text lists
 
-**The one rule that keeps offsets true: nothing ever mutates the string to render it.** Markers
-are hidden or dimmed with attributes (a zero-width or clear font on the marker range), never
-removed, so a character offset in the styled text is the same offset in `Entry.text`. That is
-what keeps `EntrySection.offset`, `ReadTapCaret`, `EntityNameRanges`, and the UITextView
-selection rule untouched.
+Phase 0 (hosted spike, deleted): TextKit 2 in `UITextView` draws `NSTextList` markers in the
+gutter with no characters in the string (120 marker pixels measured), continues decimal
+numbering across paragraphs that share one `NSTextList` object, and renders a custom marker
+string (a checkbox glyph). A custom `NSTextLayoutFragment` through the layout manager delegate
+was called but painted nothing in the gutter, so text lists it is.
 
-Consequences for each consumer (the file map is in the Explore pass, summarised here):
+`FormattingStyle` (`Views/Editor/`) is the codec: a character carries the paragraph's block and
+indent and its own inline mask as custom attributes, and `formatting(of:)` reads them back to
+store. Paragraph styles hold the text list (disc, `{decimal}.`, a box or ticked box, a bar for
+quotes) and indents (`indentStep` 22 pt per level, `markerGap` 26 pt). Consecutive numbered
+items at one indent share one list object; a bar action re-applies paragraph styles over the
+whole text so runs recount, which is attributes only and never moves the selection.
 
-- **Insights prompt** (`InsightsPromptBuilder.plan`, raw `prefix(inputCharacters)`): sends
-  the markdown as is. Models read it well, and a list is a better hint about a Note than prose
-  would be. Cost: a few tokens per marker. `grounded(_:in:)` matches names with `NameMatching`,
-  whose regex treats `*` as a non-letter, so `**Sarah** Kim` fails the full-name match and
-  falls back to "Sarah"; the parser strips inline markers from its match text before grounding.
-- **Hashing and staleness** (`TextHash`, `sourceTextHash`, `cleanupAppliedHash`,
-  `ReflectSummaryStore.fingerprint`): unchanged. Making a line a heading is an edit like any
-  other and makes insights stale, which is right.
-- **Cleanup** (`applyCleanedText`, voice and photo only): the cleanup prompt says nothing about
-  formatting, so a model could drop markers; add one sentence ("keep any Markdown marks as they
-  are") and reject a cleanup that changed the line count of a formatted entry. Transcribed text
-  arrives as plain paragraphs, so this only bites an entry the user formatted after transcription
-  and before applying cleanup, which the hash check already refuses.
-- **Parts offsets** (`parseSections`, `EntrySection.offset`, `GraphServices.analyzedText`,
-  `EntryParts.Context`): offsets are counted in the raw string and the raw string stays
-  canonical, so spans survive. The model's "first words of the part" may omit a leading `- ` or
-  `## `; the lookup falls back to the same words after skipping line-leading markers. The
-  prompt's instruction "exactly as the entry writes them" already tells it to keep them.
-- **Ask** (`AskSources`, `AskContextBuilder.sanitized`, `AskDigests`, `AskIndex`): the index
-  tokenises `.byWords` and drops punctuation, so markers never become terms. Blocks go raw
-  inside the `<<<entry` fence; the sanitizer strips only the fence and `[E12]` handles, and `[ ]`,
-  `[x]`, `==` survive (they are harmless; `[[E3]]` would already reduce to `[]`). The 90-character
-  digest line and `JournalSearch.snippet` go through a plain-text projection so a line reads
-  "milk, eggs" and not "- milk - eggs".
-- **`displayTitle`, `previewText`, `JournalSearch.displayTitle`,
-  `EntityPagePresentation.heading`, `KeepCard`, Today's `EntryFacts.title`**: all show markers
-  today. One `MarkdownText.plain(_:)` (markers removed, a checkbox as a glyph or nothing, lists
-  joined with ", ") behind every one of them. `displayTitle` from a `# ` first line drops the `#`.
-- **Export** (`JournalExport.markdown(for:)`): already writes `.md` with the text verbatim under
-  YAML front matter, so a formatted entry exports right for the first time; `journal.json`
-  carries the raw string.
-- **Transcription** (`applyGeneratedText`, `joinedPageText`): unchanged; nothing formats what a
-  model transcribed. The page transcriber writes `[illegible]`, which the parser must not read as
-  a checkbox (`- [ ]` is line-leading and has a space or x; `[illegible]` matches neither).
-- **`contentRevision`**: unchanged; only page restarts bump it, and text edits are caught by hash.
-- **`CreativeSignals`** (on-device kind heuristics over lines): strip markers first. Today a `#`
-  counts as a word and a poem written as a bulleted list can never be verse; both go away.
-- **Entity name links in read mode**: `EntityNameRanges.matches` runs on the raw string and the
-  ranges map straight onto the styled text, since no character moved.
-- **CloudKit rule**: no new stored property. If a format version is ever wanted it is
-  `var textFormatRaw: String?`, optional, passing `CloudKitSchemaRulesTests` as is.
-- **Diagnostics**: new events carry counts and kinds only (`editor.formatted` with the mark's
-  kind and a bool for toolbar versus typed), never a run of text; one more case in
-  `DiagnosticsPrivacyTests`.
+One measurement changed the coordinator's shape (`GrowingTextEditorTests`, a hosted test on a
+real `UITextView`): typing attributes keep only `NSFont`, `NSColor`, and `NSParagraphStyle`. A
+custom key never reaches typed text on its own, and the empty paragraph after the last newline
+has no character to carry one, so a first draft that leaned on UIKit propagating the keys lost
+the bullet on the line after Return. The coordinator now applies Return by hand, holds the
+trailing paragraph's block itself, and after each edit re-marks the touched paragraph from any
+character that still carries the key and gives the inserted characters the caret's inline marks.
 
-## Editor implementation
+`ListEditing` is the pure rule set: Return continues a list (a ticked box continues as an empty
+one, a heading gives body), Return on an empty item leaves the list, Backspace at the start of
+an item takes the marker before it takes a character, then one indent level. The text view
+applies it in `shouldChangeTextIn`. `FormatBar` is the `inputAccessoryView`: Title, Heading,
+Bold, Italic, Strikethrough, Bulleted, Numbered, Checklist, Quote, Outdent, Indent, and hide
+keyboard, with the paragraph under the caret highlighted. It is dropped while
+`RecordingSession.showsAccessory` is true (decision 6).
 
-**Stay on `GrowingTextEditor` (UITextView) and add a TextKit styler. Do not move to the iOS 26
-SwiftUI `TextEditor`.**
+The same view now reads: non-editable, with the names linked as `.link` attributes and their
+kind's colour, opened through `textView(_:primaryActionFor:)`, and a tap anywhere else reported
+as a UTF-16 offset from `closestPosition(to:)`, so the editor opens with the caret on that
+character. That retires `ReadTapCaret` and the 150 ms link-versus-tap wait, and gives read mode
+hanging indents and native selection. A tap in a checklist item's gutter ticks it in either mode.
 
-What the SDK says (typechecked against iOS 26.5 on 2026-09-23, spike deleted):
-`TextEditor(text: Binding<AttributedString>, selection:)`, `AttributedTextSelection.indices(in:)`,
-`AttributedTextFormattingDefinition`, `AttributedTextValueConstraint`, and
-`textInputFormattingControlVisibility` all exist and compile. But `AttributeScopes.SwiftUIAttributes`
-holds only inline attributes (font, colours, kern, strike, underline, alignment, line height); no
-`presentationIntent`, so headings, lists, and checklists have no editing affordance and no
-renderer in SwiftUI, in `Text` or `TextEditor`, and Apple's WWDC25 sample builds them by hand.
-Selection is `AttributedString.Index`-based, so `ReadTapCaret`'s UTF-16 offsets and the whole
-first-keystroke fix (the echo rule in `updateUIView`, `lastReportedText`, `markedTextRange`)
-would have to be re-proven on a view we cannot reach into. There is no `inputAccessoryView`, no
-container inset control, and no evidence it grows without scrolling. Whether it keeps its
-selection when a binding pushes text in was not measured; it does not need to be, because the
-block-level gap decides it.
-
-The UIKit route: `UITextView` has run TextKit 2 since iOS 16, the app can add a keyboard bar
-through `inputAccessoryView`, and the styler works entirely in attributes:
-
-- `MarkdownStyler` (nonisolated, no UIKit types in its output, testable): given the string and
-  the journal font, returns runs of attributes (heading font at `title2`/`title3` in the journal
-  design, bold and italic traits, strikethrough, a `NSParagraphStyle` with `headIndent` and
-  `firstLineHeadIndent` so a wrapped list item aligns under its text, a dimmed colour on marker
-  ranges, `.link` on a checkbox so a tap toggles it). Applied in `NSTextStorageDelegate
-  .textStorage(_:didProcessEditing:...)` to the edited paragraphs only, by `setAttributes`,
-  which never touches the string or the selection. Marker hiding is an attribute too (a
-  near-zero font on the marker range in read mode, dimmed in edit mode), never a deletion.
-- `ListEditing` (pure): what Return, Backspace, and Tab do on a list line. Return on
-  "- item" inserts "\n- "; on "1. item" inserts the next number and renumbers the run; on an
-  empty "- " removes the marker (Notes' leave-the-list); Backspace at a marker's end removes
-  it; Tab and the bar's indent buttons add and remove two spaces. Applied through
-  `textView(_:shouldChangeTextIn:replacementText:)` so the change goes through the text view's
-  own undo and `textViewDidChange` still reports it once.
-- Typing shortcuts fall out for free: in Markdown "- " already is a list. "[] " at a line start
-  becomes "- [ ] " so Notes users get their checklist.
-- The keyboard bar (`FormatBar`, SwiftUI hosted in a `UIInputView`): Heading, Bold, Italic,
-  List, Numbered, Checklist, Quote, Indent, Outdent, and a keyboard-down button; the current
-  line's state highlighted from the styler's parse of the paragraph under the caret. Toggling
-  bold on a selection wraps it; on a caret it inserts `****` with the caret inside. The system
-  `UITextFormattingViewController` (iOS 18) was looked at: it offers styles and lists in its UI
-  but only reports the choice, and applying attributes, list continuation, and renumbering stay
-  the app's, so it buys a panel we would then have to constrain to our subset; a five-button bar
-  is smaller and matches Day One's.
-- Read mode: keep the SwiftUI `Text`, now built by `MarkdownStyler` too (the same runs as
-  `AttributedString` attributes, markers hidden) with `EntryNameLinks` laid over it, and
-  `ReadTapCaret` given the same attributed runs so its layout matches what is drawn. Because
-  no character moves, the offset it returns is still a `Entry.text` offset. If SwiftUI `Text`
-  proves unable to draw a hanging indent (it cannot take `NSParagraphStyle`), read mode becomes
-  a non-editable `UITextView` sharing the styler, which also makes the tap-to-caret native and
-  retires the 150 ms link-versus-tap wait. That is measured in phase 0, not decided here.
-- The font-change branch in `updateUIView` (`view.font = ...`) goes away: the styler owns every
-  attribute and re-styles on a `journalFont` change, keeping the selection as it does now.
+The title field and read title use `.title2` semibold, the same as a heading 1 paragraph
+(decision 2); heading 2 is `.title3` semibold. Typing shortcuts ("- " starting a list) were left
+out: with attributes rather than syntax they are a small recogniser of their own, not free.
 
 ## Phases
 
-**Phase 0, measure (half a day).** A styler over the story journal's longest entries and a
-40,000-character one, typed into on the phone: keystroke-to-paint under 16 ms with per-paragraph
-restyling, or the styler needs to be lazier. Whether SwiftUI `Text` honours a hanging indent.
-Both results go in this file.
-
-**Phase 1, the journal's formatting.** `#`/`##` headings (Title and Heading; Notes' third level
-and Monospaced are not offered), bold, italic, strikethrough, bullets, numbers, checklists,
-quotes, nesting by two spaces, the keyboard bar, Notes' Return and Backspace rules, read mode
-rendering with markers hidden, `MarkdownText.plain` behind every preview and title, the cleanup
-prompt line, the `CreativeSignals` strip, the parts fallback lookup. Undo through the text
-view's own manager. `EntryKindPicker` unchanged: a checklist entry is still whatever kind the
-user or insights say.
-
-**Phase 2, ties to what exists.**
-- **Checklists and loose ends.** A `- [ ]` line in a finished entry is offered to
-  `LooseEndWriter.candidates` as a user-written thread (the entry's own first, as today), and
-  ticking it in the editor resolves the loose end through the same path Today's Done uses;
-  resolving on Today ticks the box. Never automatic in the other direction for AI-found threads,
-  which have no line to tick.
-- **`@` names.** Typing `@` opens a small completion over `EntityDirectory` (Various Complements'
-  idea); picking inserts the plain name and writes a `.user` link through `GraphEditor.addName`,
-  so the text stays prose, the map gets the name, and read mode links it. No `[[ ]]` syntax: the
-  graph already links names without one, and brackets in the text would reach Ask and export.
-- **Highlight** `==text==`, one colour (`Palette` accent), no picker; Highlightr's five-colour
-  `<mark>` is HTML in the journal and gets no.
-- **Prompts as templates.** Reflect cards already seed `startingText`; add a Settings list of the
-  user's own prompts (three by default) offered on a new typed entry, in the Templater spirit
-  without its language. Daily notes are what the journal is.
-
-**Phase 3, maybe.** A horizontal rule `---` as a visual break between parts of a day. Links to
-another entry (`>>` in Notes) via the search panel. Collapsible headings only if entries grow
-long enough to need them, which the story journal does not suggest. Tables, colours, fonts,
-code, embeds: no.
+- **Phase 1 (built).** Everything above, plus `EntryFormattingTests`, `ListEditingTests`,
+  `MarkdownCodecTests`, `FormattingStyleTests`, export and cleanup coverage in the existing
+  suites, and `FormattingUITests`.
+- **Phase 2 (built, second commit).** `@` name completion writing a `.user` link, `#word` tags.
+- **Later.** Highlight (one colour). The user's own prompts as templates. A horizontal rule.
+  Collapsible headings only if entries grow long enough to need them. Tables, colours, fonts,
+  code, embeds: no.
 
 ## Risks
 
-- **Restyling on every keystroke.** A 40,000-character entry restyled whole per key would drop
-  frames; per-paragraph restyling in `didProcessEditing` is the design, and phase 0 measures it.
-- **The first-keystroke bug's family.** Any attribute write that goes through `attributedText =`
-  resets the selection the way `text =` does. Only `textStorage.setAttributes` inside the
-  editing transaction is allowed; `GrowingTextEditorTests` gets a test that types, styles, and
-  asserts the selection never moved.
-- **Dictation and marked text.** The styler must not run while `markedTextRange` is set, the
-  same rule the push-in path keeps, or a dictated list marker restyles mid-composition.
-- **Cleanup dropping markers** on an entry formatted after transcription: the line-count guard
-  and the prompt line; if a model still strips, the hash check leaves the user's text alone.
-- **Old entries with accidental syntax.** A past entry that began a line with "- " now renders
-  as a bullet. The story journal has none (checked); a real journal may. Acceptable, since it
-  is what the user typed and Obsidian and Bear would show it the same way.
-- **Read-mode caret drift** if the read text's layout diverges from the styler's: guarded by
-  building both from one set of runs, and by `ReadTapCaretTests` over formatted fixtures.
-
-## Test plan
-
-Unit (`MindloreTests`, Swift Testing):
-- `MarkdownStylerTests`: a fixture set of entries to expected runs (heading, nested list,
-  checklist, quote, inline marks, a mid-line `#`, `[illegible]`, an underscore in a word); every
-  run's range is a valid range of the raw string and the string is unchanged.
-- `ListEditingTests`: Return, Backspace, Tab on every list kind, renumbering, leaving a list.
-- `MarkdownTextTests`: `plain` for previews, titles, digest lines, search snippets, headings.
-- Existing suites extended with formatted fixtures: `TitleTests` (`# ` first line),
-  `EntryKindTests` (preview), `AskDigestsTests`, `JournalSearchTests`, `InsightsTests` (a
-  section whose opening words omit the marker still gets an offset), `EntityNameRangesTests`
-  (`**Sarah Kim**`), `ReadTapCaretTests` (formatted layout), `CreativeClassificationQualityTests`
-  (a bulleted poem is still verse on device), `TrustTests` (export round trip).
-- `GrowingTextEditorTests` (hosted): selection survives a restyle; no restyle under marked text.
-- `DiagnosticsPrivacyTests`: the sentinel typed as a heading, a list, and a checkbox never
-  reaches the log.
-
-UI (`MindloreUITests`, XCTest, `FormattingUITests` to match the class-name rule):
-- Type "- " then words then Return: the next line starts with a bullet; Return again leaves the
-  list. Relaunch against the named store: the text is `- ...` verbatim.
-- Bar: Heading on the first line, Bold on a selection, Checklist, tick it in read mode.
-- Read mode: a heading renders larger, markers absent from `entryReadText.label`, a name inside
-  a list item still a link, a tap on the second list item opens the editor with the caret there.
-- The list row's `entryPreview` shows no markers.
-Registered in `scripts/ci/ui-test-seconds.txt` after the first CI run.
-
-## Open questions for the owner
-
-1. Bear or Obsidian on markers while editing: dimmed and always visible (simpler, no cursor
-   jumps, what phase 1 proposes), or hidden except on the current line?
-2. Two heading levels (Title, Heading) or one?
-3. Should a ticked checklist item resolve a loose end, and an open one create a candidate, or
-   do checklists stay purely visual?
-4. Does `@` name completion write a graph link, or only insert the name and let insights link it?
-5. `#tag` in the text: Notes and Bear both read it as a tag. Tags in Mindlore are the AI's;
-   leave `#word` literal (proposed), or make it a user tag?
-6. Should the format bar hide while a recording is up in the accessory, since the two stack?
-7. Any appetite for the cleanup pass adding structure to a dictated entry (a spoken "first,
-   second, third" becoming a list)? Proposed no: cleanup fixes punctuation and paragraphs only.
+- **Attribute writes that reset the selection.** Only `textStorage` attribute edits and
+  `typingAttributes` are used for formatting; `attributedText =` is reserved for text pushed in
+  from outside, under the same echo rule as before.
+- **Dictation and marked text.** Nothing restyles while `markedTextRange` is set.
+- **Old test element types.** Read mode is now a text view, not a static text, so UI tests
+  that queried `staticTexts["entryReadText"]` moved to a type-agnostic query.
+- **The custom checkbox marker's font.** Drawn in the paragraph's font; the glyph exists in
+  every system design.

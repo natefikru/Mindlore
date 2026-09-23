@@ -466,6 +466,48 @@ struct CleanupTests {
         typed.source = .photo
         #expect(typed.applyCleanedText("Raw words."))
     }
+
+    // A spoken list comes back as Markdown; the entry keeps the words as plain text and draws the
+    // list from its formatting, and revert brings back the layout it had before.
+    @Test func aCleanupListBecomesFormattingAndRevertRestoresTheOldLayout() throws {
+        let container = try ModelContainerFactory.make(.inMemory)
+        let entry = voiceEntry(with: "Today:\n1. Call mum\n2. Buy milk", in: container.mainContext)
+        entry.formatting = EntryFormatting(paragraphs: [.init(index: 0, block: .heading2)])
+        let before = entry.formattingRaw
+
+        #expect(entry.pendingCleanedText != nil)
+        #expect(entry.applyCleanedText("Today:\n1. Call mum\n2. Buy milk"))
+        #expect(entry.text == "Today:\nCall mum\nBuy milk")
+        #expect(entry.formatting.paragraph(at: 1).block == .number)
+        #expect(entry.formatting.paragraph(at: 2).block == .number)
+        #expect(entry.formatting.paragraph(at: 0).block == nil)
+        #expect(!entry.textChangedSinceCleanup)
+
+        #expect(entry.revertToOriginalText())
+        #expect(entry.text == "raw words")
+        #expect(entry.formattingRaw == before)
+        #expect(entry.originalFormattingRaw == nil)
+    }
+
+    // The words match but the model added a list: still a cleanup worth offering.
+    @Test func aCleanupThatOnlyAddsStructureIsStillOffered() throws {
+        let container = try ModelContainerFactory.make(.inMemory)
+        let entry = voiceEntry(with: "- raw words", in: container.mainContext)
+        #expect(entry.pendingCleanedText == "- raw words")
+        #expect(entry.applyCleanedText("- raw words"))
+        #expect(entry.text == "raw words")
+        #expect(entry.formatting.paragraph(at: 0).block == .bullet)
+        // Applied, nothing is left pending.
+        #expect(entry.pendingCleanedText == nil)
+    }
+
+    @Test func generatedTextClearsFormatting() {
+        let entry = Entry(source: .voice, text: "")
+        entry.awaitingText = true
+        entry.formatting = EntryFormatting(paragraphs: [.init(index: 0, block: .bullet)])
+        #expect(entry.applyGeneratedText("fresh words"))
+        #expect(entry.formattingRaw == nil)
+    }
 }
 
 @MainActor

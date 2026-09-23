@@ -101,6 +101,7 @@ extension Entry {
     func replaceWithPageTranscription() -> Bool {
         guard canReplaceWithPageTranscription else { return false }
         text = joinedPageText
+        formattingRaw = nil
         textWasGenerated = true
         textEditedByUser = false
         textReviewPending = true
@@ -128,6 +129,8 @@ extension Entry {
 
         contentRevision += 1
         text = ""
+        formattingRaw = nil
+        originalFormattingRaw = nil
         title = ""
         titleWasGenerated = false
         textWasGenerated = false

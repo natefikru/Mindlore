@@ -266,6 +266,8 @@ final class GraphServices {
     enum AddedNameTarget: Equatable {
         case existing(UUID)
         case new(name: String, kind: EntityKind)
+        // Typed as "#word" in the entry.
+        case tag(String)
     }
 
     // A name the insights missed, added to an entry from its menu. Returns the entity it landed
@@ -278,6 +280,8 @@ final class GraphServices {
             entity = editor.entity(withID: id, in: context).map { editor.addLink(to: $0, entry: entry, in: context) }
         case .new(let name, let kind):
             entity = editor.addName(name, kind: kind, to: entry, in: context)
+        case .tag(let word):
+            entity = editor.addTag(word, to: entry, in: context)
         }
         guard let entity else { return nil }
         revision += 1

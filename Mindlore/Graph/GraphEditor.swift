@@ -380,13 +380,25 @@ struct GraphEditor {
         return addLink(to: entity, surface: trimmed, entry: entry, created: true, in: context)
     }
 
+    // A tag the user typed as "#word": the same user link a hand-added name gets, on a tag entity,
+    // remembering it was written with the "#" so read mode can find and tint it.
+    @discardableResult
+    func addTag(_ word: String, to entry: Entry, in context: ModelContext) -> Entity? {
+        let trimmed = word.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        let entity = self.entity(answering: trimmed, kind: .tag, in: context)
+            ?? Entity(name: trimmed, key: EntityNormalizer.key(for: trimmed, kind: .tag), kind: .tag)
+        guard !entity.key.isEmpty else { return nil }
+        return addLink(to: entity, surface: trimmed, written: "#" + trimmed, entry: entry, created: entity.modelContext == nil, in: context)
+    }
+
     // An existing entity picked from the list, by id.
     @discardableResult
     func addLink(to entity: Entity, entry: Entry, in context: ModelContext) -> Entity {
         addLink(to: entity, surface: entity.name, entry: entry, created: false, in: context)
     }
 
-    private func addLink(to entity: Entity, surface: String, entry: Entry, created: Bool, in context: ModelContext) -> Entity {
+    private func addLink(to entity: Entity, surface: String, written: String? = nil, entry: Entry, created: Bool, in context: ModelContext) -> Entity {
         let target = root(of: entity, in: context)
         // Picked by name, a hidden entity is who the user means, the same rule repoint follows.
         if target.hidden { setHidden(false, on: target) }
@@ -397,6 +409,7 @@ struct GraphEditor {
         }
         register(target, in: context)
         let link = EntityLink(surface: surface, kind: target.kind, source: .user)
+        link.writtenSurface = written
         context.insert(link)
         link.attach(to: entry, entity: target)
         save(context, exempting: [entryID])

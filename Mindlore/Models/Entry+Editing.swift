@@ -24,6 +24,7 @@ extension Entry {
     func applyGeneratedText(_ generated: String, generatedBy: String? = nil) -> Bool {
         guard awaitingText else { return false }
         text = generated
+        formattingRaw = nil
         textWasGenerated = true
         textGeneratedBy = generatedBy
         awaitingText = false
@@ -177,17 +178,29 @@ extension Entry {
 // MARK: - Cleaned-up text (transcribed entries: voice and pages)
 
 extension Entry {
+    // A cleanup comes back as Markdown, the one place the model may add structure (a spoken
+    // "first, second, third" as a numbered list); it is read into plain text and formatting here,
+    // and the plain text is what every rule below compares.
+    static func parseCleanup(_ cleaned: String) -> MarkdownCodec.Parsed {
+        MarkdownCodec.parse(cleaned)
+    }
+
     // Cleanup only replaces the exact text it was made from, so it can never overwrite newer edits.
-    // The first pre-cleanup text is kept for "Revert to original", however many cleanups follow.
+    // The first pre-cleanup text (and its layout) is kept for "Use original text", however many
+    // cleanups follow.
     @discardableResult
     func applyCleanedText(_ cleaned: String) -> Bool {
-        guard source == .voice || source == .photo, let insights, !cleaned.isEmpty, cleaned != text,
+        let parsed = Self.parseCleanup(cleaned)
+        guard source == .voice || source == .photo, let insights, !parsed.text.isEmpty,
+              parsed.text != text || parsed.formatting != formatting,
               TextHash.of(text) == insights.sourceTextHash else { return false }
         if originalText == nil {
             originalText = text
+            originalFormattingRaw = formattingRaw
         }
-        text = cleaned
-        cleanupAppliedHash = TextHash.of(cleaned)
+        text = parsed.text
+        formatting = parsed.formatting
+        cleanupAppliedHash = TextHash.of(parsed.text)
         return true
     }
 
@@ -197,10 +210,13 @@ extension Entry {
         return TextHash.of(text) != applied
     }
 
-    // A cleanup is waiting when the insights hold one for exactly this text and it isn't applied yet.
+    // A cleanup is waiting when the insights hold one for exactly this text and it isn't applied
+    // yet. The Markdown as the model wrote it; `parseCleanup` gives the words for a diff.
     var pendingCleanedText: String? {
-        guard source == .voice || source == .photo, let cleaned = insights?.cleanedText, !cleaned.isEmpty, cleaned != text,
+        guard source == .voice || source == .photo, let cleaned = insights?.cleanedText, !cleaned.isEmpty,
               TextHash.of(text) == insights?.sourceTextHash else { return nil }
+        let parsed = Self.parseCleanup(cleaned)
+        guard !parsed.text.isEmpty, parsed.text != text || parsed.formatting != formatting else { return nil }
         return cleaned
     }
 
@@ -208,7 +224,9 @@ extension Entry {
     func revertToOriginalText() -> Bool {
         guard let originalText else { return false }
         text = originalText
+        formattingRaw = originalFormattingRaw
         self.originalText = nil
+        originalFormattingRaw = nil
         cleanupAppliedHash = nil
         return true
     }
