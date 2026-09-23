@@ -102,7 +102,7 @@ struct DemoJournalTests {
         #expect(!orgsByPerson.isEmpty)
         #expect(orgsByPerson.values.allSatisfy { $0.count == 1 }, "a coworker works in one place")
         let topicMoods = Set(DemoJournal.Scene.weighted.flatMap(\.topics).map(\.mood))
-        #expect(drafts.allSatisfy { topicMoods.contains($0.primaryMood) })
+        #expect(drafts.allSatisfy { $0.primaryMood.map(topicMoods.contains) == true })
     }
 
     // Loose ends are sentences in the entry, and a settled one is settled in a later entry's words.

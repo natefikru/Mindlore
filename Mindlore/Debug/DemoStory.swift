@@ -16,6 +16,8 @@ enum DemoStory {
         struct StoryMention: Decodable, Equatable {
             let name: String
             let kind: MentionKind
+            // What the text actually says, when the name was corrected away from it.
+            var writtenSurface: String?
         }
 
         struct Opened: Decodable, Equatable {
@@ -39,17 +41,19 @@ enum DemoStory {
         let title: String
         let text: String
         let summary: String
-        let mood: Mood
+        let mood: Mood?
         let secondaryMood: Mood?
         let areas: [LifeArea]
         let tags: [String]
         let mentions: [StoryMention]
+        let kind: EntryKind
+        let sections: [EntrySection]
         let opens: [Opened]
         let resolves: [String]
         let touches: [String]
 
         private enum CodingKeys: String, CodingKey {
-            case date, title, text, summary, mood, secondaryMood, areas, tags, mentions, opens, resolves, touches
+            case date, title, text, summary, mood, secondaryMood, areas, tags, mentions, kind, sections, opens, resolves, touches
         }
 
         init(from decoder: Decoder) throws {
@@ -58,11 +62,13 @@ enum DemoStory {
             title = try container.decode(String.self, forKey: .title)
             text = try container.decode(String.self, forKey: .text)
             summary = try container.decode(String.self, forKey: .summary)
-            mood = try container.decode(Mood.self, forKey: .mood)
+            mood = try container.decodeIfPresent(Mood.self, forKey: .mood)
             secondaryMood = try container.decodeIfPresent(Mood.self, forKey: .secondaryMood)
             areas = try container.decode([LifeArea].self, forKey: .areas)
             tags = try container.decode([String].self, forKey: .tags)
             mentions = try container.decode([StoryMention].self, forKey: .mentions)
+            kind = try container.decodeIfPresent(EntryKind.self, forKey: .kind) ?? .journal
+            sections = try container.decodeIfPresent([EntrySection].self, forKey: .sections) ?? []
             opens = try container.decodeIfPresent([Opened].self, forKey: .opens) ?? []
             resolves = try container.decodeIfPresent([String].self, forKey: .resolves) ?? []
             touches = try container.decodeIfPresent([String].self, forKey: .touches) ?? []
@@ -101,8 +107,13 @@ enum DemoStory {
     @discardableResult
     static func seedIfEmpty(in context: ModelContext, now: Date = .now, calendar: Calendar = .current) throws -> Int {
         guard try context.fetchCount(FetchDescriptor<Entry>()) == 0 else { return 0 }
+        return try seed(entries(), in: context, now: now, calendar: calendar)
+    }
+
+    // Writes `story` as the journal, whatever is already there. Tests seed small fixtures through it.
+    @discardableResult
+    static func seed(_ story: [StoryEntry], in context: ModelContext, now: Date = .now, calendar: Calendar = .current) throws -> Int {
         let started = Date.now
-        let story = try entries()
         let dates = Self.dates(for: story, now: now, calendar: calendar)
         let shift = dates.last.flatMap { last in story.last.flatMap { written(from: $0.date, calendar: calendar) }.map { last.timeIntervalSince($0) } } ?? 0
 
@@ -116,7 +127,9 @@ enum DemoStory {
                 secondaryMood: entry.secondaryMood,
                 areas: entry.areas,
                 tags: entry.tags,
-                mentions: entry.mentions.map { Mention(name: $0.name, kindRaw: $0.kind.rawValue) }
+                mentions: entry.mentions.map { Mention(name: $0.name, kindRaw: $0.kind.rawValue, writtenSurface: $0.writtenSurface) },
+                kind: entry.kind,
+                sections: entry.sections
             ), in: context)
         }
         try context.save()
