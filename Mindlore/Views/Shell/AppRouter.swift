@@ -36,6 +36,11 @@ nonisolated struct MindFocusRequest: Equatable, Sendable {
     let token: Int
 }
 
+nonisolated struct EntryDeletionRequest: Equatable, Sendable {
+    let id: UUID
+    let token: Int
+}
+
 // A request for Ask to take the field, with a question to put in it or none. Ask fills the field
 // and focuses it; the user sends. The token makes asking twice count.
 nonisolated struct AskFieldRequest: Equatable, Sendable {
@@ -77,10 +82,37 @@ final class AppRouter {
 
     @ObservationIgnored private let opened: (UUID) -> Void
     @ObservationIgnored private let closed: (UUID) -> Void
+    @ObservationIgnored private let closedForDeletion: (UUID) -> Void
+    // Entries leaving the path because the user deleted them from the editor, for the moment
+    // their close rules run.
+    @ObservationIgnored private var deleting: Set<UUID> = []
 
-    init(opened: @escaping (UUID) -> Void, closed: @escaping (UUID) -> Void) {
+    // An entry the editor asked to delete. Journal's list owns the undo pill, so it takes this
+    // and schedules the delete there. The token makes asking twice count.
+    private(set) var entryDeletionRequest: EntryDeletionRequest?
+    @ObservationIgnored private var entryDeletionToken = 0
+
+    init(opened: @escaping (UUID) -> Void, closed: @escaping (UUID) -> Void, closedForDeletion: ((UUID) -> Void)? = nil) {
         self.opened = opened
         self.closed = closed
+        self.closedForDeletion = closedForDeletion ?? closed
+    }
+
+    // Delete from the editor's own menu: the editor leaves the path first, with close rules that
+    // start no AI pass for an entry about to go, and the list then schedules the delete behind Undo.
+    func deleteEntry(_ id: UUID) {
+        deleting.insert(id)
+        journalPath.removeAll { $0.entryID == id }
+        deleting.remove(id)
+        entryDeletionToken += 1
+        entryDeletionRequest = EntryDeletionRequest(id: id, token: entryDeletionToken)
+    }
+
+    // The list takes the request once.
+    func consumeEntryDeletion() -> UUID? {
+        guard let request = entryDeletionRequest else { return nil }
+        entryDeletionRequest = nil
+        return request.id
     }
 
     // The entry the Keep card is showing, right after a recording. An overlay rather than a sheet: it
@@ -213,7 +245,11 @@ final class AppRouter {
         for route in old.reversed() {
             guard let count = remaining[route.entryID], count > 0 else { continue }
             remaining[route.entryID] = count - 1
-            closed(route.entryID)
+            if deleting.contains(route.entryID) {
+                closedForDeletion(route.entryID)
+            } else {
+                closed(route.entryID)
+            }
         }
         arrived.forEach(opened)
     }

@@ -261,6 +261,62 @@ final class GraphServices {
         }
     }
 
+    // MARK: - Names added by hand
+
+    enum AddedNameTarget: Equatable {
+        case existing(UUID)
+        case new(name: String, kind: EntityKind)
+    }
+
+    // A name the insights missed, added to an entry from its menu. Returns the entity it landed
+    // on. Callers flush EntrySaver first.
+    @discardableResult
+    func addName(_ target: AddedNameTarget, to entry: Entry, in context: ModelContext) -> UUID? {
+        let entity: Entity?
+        switch target {
+        case .existing(let id):
+            entity = editor.entity(withID: id, in: context).map { editor.addLink(to: $0, entry: entry, in: context) }
+        case .new(let name, let kind):
+            entity = editor.addName(name, kind: kind, to: entry, in: context)
+        }
+        guard let entity else { return nil }
+        revision += 1
+        return entity.id
+    }
+
+    func removeAddedName(_ entityID: UUID, from entry: Entry, in context: ModelContext) {
+        editor.removeAddedName(entityID, from: entry.id, in: context)
+        revision += 1
+    }
+
+    struct AddedName: Identifiable, Equatable {
+        let id: UUID
+        let name: String
+        let kind: EntityKind
+    }
+
+    // The names the user added to this entry themselves: their own links that no mention or tag
+    // in the insights accounts for. A mention they corrected is also their link, but it still
+    // shows among the mentions, so it isn't listed twice.
+    func addedNames(for entry: Entry, in context: ModelContext) -> [AddedName] {
+        let entryID = entry.id
+        let links = indexer.allLinks(in: context).filter { $0.entryID == entryID && $0.source == .user }
+        guard !links.isEmpty else { return [] }
+        let insights = entry.insights
+        let found = Set((insights?.mentions ?? []).map { EntityNormalizer.key(for: $0.name, kind: EntityKind($0.kind)) }
+            + (insights?.tags ?? []).map { EntityNormalizer.key(for: $0, kind: .tag) })
+        var seen: Set<UUID> = []
+        return links.compactMap { link in
+            guard !found.contains(EntityNormalizer.key(for: link.surface, kind: link.kind)),
+                  let entityID = link.entityID, let entity = editor.entity(withID: entityID, in: context)
+            else { return nil }
+            let root = editor.root(of: entity, in: context)
+            guard !root.hidden, seen.insert(root.id).inserted else { return nil }
+            return AddedName(id: root.id, name: root.name, kind: root.kind)
+        }
+        .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+    }
+
     private func edit(_ entityID: UUID, in context: ModelContext, _ change: (Entity) -> GraphEditor.EditOutcome) -> GraphEditor.EditOutcome {
         guard let entity = editor.entity(withID: entityID, in: context) else { return .applied }
         let outcome = change(entity)

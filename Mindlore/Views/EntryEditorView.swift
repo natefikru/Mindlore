@@ -41,6 +41,7 @@ struct EntryEditorView: View {
     // The read text with names linked, and the text it was built from, so stale links never show.
     @State private var linked: (text: String, value: AttributedString)?
     @State private var peekTarget: PeekTarget?
+    @State private var addingName = false
 
     static let fallbackNoticeSeconds = 8.0
 
@@ -164,6 +165,15 @@ struct EntryEditorView: View {
                             }
                             .accessibilityIdentifier("viewOriginalTextButton")
                         }
+                        // For a name the insights missed, or an entry insights never read.
+                        Button("Add a name", systemImage: "person.badge.plus") { addingName = true }
+                            .accessibilityIdentifier("addNameButton")
+                        Divider()
+                        Button("Delete entry", systemImage: "trash", role: .destructive) {
+                            saver.flush()
+                            router.deleteEntry(entry.id)
+                        }
+                        .accessibilityIdentifier("deleteEntryButton")
                     } label: {
                         Label("More", systemImage: "ellipsis.circle")
                     }
@@ -237,8 +247,14 @@ struct EntryEditorView: View {
         .sheet(item: $peekTarget) { target in
             EntityPeekSheet(entityID: target.id)
         }
+        .sheet(isPresented: $addingName) {
+            if let entry {
+                AddNameView(entry: entry)
+            }
+        }
         .onChange(of: router.dismissPresentationsToken) {
             peekTarget = nil
+            addingName = false
             editingDate = false
             showingInsights = false
             reviewingCleanup = false

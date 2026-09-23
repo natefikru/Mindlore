@@ -149,6 +149,12 @@ struct EntryListView: View {
                 insightsEntry = nil
                 showingReflect = false
             }
+            // Deleted from the editor's menu: the editor has already left the path, and the
+            // delete waits here behind the same Undo a swipe gets.
+            .onChange(of: router.entryDeletionRequest, initial: true) {
+                guard let id = router.consumeEntryDeletion() else { return }
+                scheduleDelete([id], reason: "editor")
+            }
             // The entry a Reflect card opened has closed (back or Done): return to Reflect rather
             // than leaving the user on the plain Journal list.
             .onChange(of: router.journalPath) { _, path in
@@ -352,7 +358,10 @@ struct EntryListView: View {
     // The row goes at once and the delete waits for Undo's window. An entry takes its insights,
     // links, and loose ends with it, which is a lot for one stray swipe.
     private func delete(_ offsets: IndexSet, in sectionEntries: [Entry]) {
-        let ids = JournalGroups.ids(at: offsets, in: sectionEntries.map(\.id))
+        scheduleDelete(JournalGroups.ids(at: offsets, in: sectionEntries.map(\.id)), reason: "swipe")
+    }
+
+    private func scheduleDelete(_ ids: [UUID], reason: String) {
         guard !ids.isEmpty else { return }
         let context = modelContext
         let saver = saver
@@ -360,7 +369,7 @@ struct EntryListView: View {
         undo.schedule(Set(ids), message: ids.count == 1 ? "Entry deleted" : "\(ids.count) entries deleted") {
             let doomed = (try? context.fetch(FetchDescriptor<Entry>(predicate: #Predicate { ids.contains($0.id) }))) ?? []
             for entry in doomed {
-                DiagnosticsLog.shared.record("entry.deleted", ["id": .id(entry.id), "reason": "swipe"])
+                DiagnosticsLog.shared.record("entry.deleted", ["id": .id(entry.id), "reason": .string(reason)])
                 Entry.delete(entry, in: context)
             }
             // Flush first so the cascade is real, then recount over what is left: the entry took

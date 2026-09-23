@@ -24,6 +24,8 @@ struct EntryInsightsView: View {
     // Entity pages pushed from the chips, by value, so a page can be replaced or dropped.
     @State private var path: [EntityRoute] = []
     @State private var chips = EntityChipIndex.empty
+    @State private var added: [GraphServices.AddedName] = []
+    @State private var addingName = false
     @State private var repointing: Repointing?
     @State private var startedOnOpen = false
 
@@ -60,6 +62,11 @@ struct EntryInsightsView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 12) {
                     statusCard
+                    // Outside the state check: a name the user added stands whether or not
+                    // the insights are current, or there at all.
+                    if !added.isEmpty {
+                        addedCard
+                    }
                     if let insights, state == .current || state == .stale {
                         Group {
                             cards(for: insights)
@@ -92,6 +99,8 @@ struct EntryInsightsView: View {
                             }
                             Button("Delete insights", systemImage: "trash", role: .destructive) { confirmingDelete = true }
                         }
+                        Button("Add a name", systemImage: "person.badge.plus") { addingName = true }
+                            .accessibilityIdentifier("insightsAddNameButton")
                     } label: {
                         Label("More", systemImage: "ellipsis.circle")
                     }
@@ -100,6 +109,10 @@ struct EntryInsightsView: View {
             }
             .task(id: ChipsKey(generatedAt: insights?.generatedAt, revision: graph.revision)) {
                 chips = graph.chipIndex(for: entry.id, in: modelContext)
+                added = graph.addedNames(for: entry, in: modelContext)
+            }
+            .sheet(isPresented: $addingName) {
+                AddNameView(entry: entry)
             }
             .task {
                 guard runsWhenOpened, !startedOnOpen, InsightsPresentation.runsWhenOpened(inputs) else { return }
@@ -261,6 +274,33 @@ struct EntryInsightsView: View {
                 .font(.footnote)
                 .foregroundStyle(.secondary)
                 .padding(.horizontal, 4)
+        }
+    }
+
+    // Names the user added by hand. Each opens its page; the menu takes it off this entry.
+    private var addedCard: some View {
+        InsightCard(title: "Added by you") {
+            FlowLayout(spacing: 6) {
+                ForEach(added) { name in
+                    Button { openEntity(name.id) } label: {
+                        Label(name.name, systemImage: name.kind.symbol)
+                            .lineLimit(1)
+                            .fixedSize()
+                            .chip(tint: name.kind.color)
+                    }
+                    .buttonStyle(.borderless)
+                    .contentShape(.contextMenuPreview, Capsule())
+                    .contextMenu {
+                        Button("Open", systemImage: "arrow.right.circle") { openEntity(name.id) }
+                        Button("Remove from this entry", systemImage: "minus.circle", role: .destructive) {
+                            saver.flush()
+                            graph.removeAddedName(name.id, from: entry, in: modelContext)
+                        }
+                    }
+                    .accessibilityHint("Opens its page")
+                    .accessibilityIdentifier("addedName-\(name.name)")
+                }
+            }
         }
     }
 

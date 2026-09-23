@@ -96,7 +96,7 @@ struct RootView: View {
             aiPass: aiPass,
             keepAudio: { settings.keepAudioAfterTranscription }
         )
-        let appRouter = AppRouter(opened: lifecycle.opened, closed: lifecycle.closed)
+        let appRouter = AppRouter(opened: lifecycle.opened, closed: lifecycle.closed, closedForDeletion: lifecycle.closedForDeletion)
         _router = State(initialValue: appRouter)
         // The index is rebuilt when any of the three counters moves: the saver for the editor's own
         // writes, the graph for insights and entity edits, and JournalSaves for every other save
