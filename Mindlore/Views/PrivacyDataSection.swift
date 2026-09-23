@@ -8,6 +8,7 @@ struct PrivacyDataSection: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(SettingsStore.self) private var settings
     @Environment(AppLock.self) private var lock
+    @Environment(SyncStatusMonitor.self) private var sync
     @Environment(EntrySaver.self) private var saver
     @Environment(GraphServices.self) private var graph
     @Environment(RecordingSession.self) private var recording
@@ -80,7 +81,9 @@ struct PrivacyDataSection: View {
             Button("Delete All Data", role: .destructive) { deleteEverything() }
                 .accessibilityIdentifier("confirmDeleteAllDataButton")
         } message: {
-            Text("Every entry, recording, page photo, name, and conversation is removed from this iPhone. Settings and your API key stay. This can't be undone, so export first if you might want any of it.")
+            Text(sync.status.reachesICloud
+                 ? "Every entry, recording, page photo, name, and conversation is removed from this iPhone, from iCloud, and from your other devices. Settings and your API key stay. This can't be undone, so export first if you might want any of it."
+                 : "Every entry, recording, page photo, name, and conversation is removed from this iPhone. Settings and your API key stay. This can't be undone, so export first if you might want any of it.")
         }
     }
 

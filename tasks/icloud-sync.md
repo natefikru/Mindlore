@@ -221,4 +221,9 @@ The owner said "continue" to the three recommendations:
       `iCloud.com.natefikru.mindlore` and a development profile carrying it. Schema rules now also
       require an inverse on every relationship and no `.deny`; all nine models pass. A test pins
       `.inMemory` and `.file` stores to no CloudKit database even when a container ID is passed.
-- [ ] Phases 2 to 7.
+- [x] Phase 2 (PR after #48): container ID set; a store that fails to open with CloudKit reopens
+      locally and says so; `SyncStatus` (pure: account, events, last result to a row and a
+      sentence) and `SyncStatusMonitor` (`CKAccountChanged`, `NSPersistentCloudKitContainer`
+      events); `SyncSettingsSection` first in Settings; Delete all data warns that it deletes from
+      iCloud and the other devices when the journal reaches iCloud. No switch yet (2b).
+- [ ] Phases 2b to 7.

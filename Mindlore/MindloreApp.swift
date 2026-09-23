@@ -14,6 +14,7 @@ struct MindloreApp: App {
     private let container: Result<ModelContainer, any Error>
     @State private var settings: SettingsStore
     @State private var accounts: ProviderAccountStore
+    @State private var sync: SyncStatusMonitor
 
     init() {
         let diagnostics = DiagnosticsLog.shared
@@ -96,7 +97,23 @@ struct MindloreApp: App {
             DemoJournal.removeStore(at: url)
         }
         #endif
-        container = Result { try ModelContainerFactory.make(location) }
+        // A journal that can't open its iCloud store still opens, on this iPhone alone, rather than
+        // leaving the app on an error screen; Settings says so and the next launch tries again.
+        let mirrors = location == .default && AppConfig.cloudKitContainerID != nil
+        var syncFailed = false
+        var opened = Result { try ModelContainerFactory.make(location) }
+        if mirrors, case .failure(let error) = opened {
+            // Only a store that opens without CloudKit makes this a sync failure. One that fails
+            // both ways failed for another reason (a migration, most likely), and the original
+            // error is the one worth reading, so it is what store.openFailed reports.
+            if case .success(let local) = Result(catching: { try ModelContainerFactory.make(location, cloudKitContainerID: nil) }) {
+                diagnostics.record("sync.storeFailed", ["error": .errorCode(error)])
+                syncFailed = true
+                opened = .success(local)
+            }
+        }
+        container = opened
+        _sync = State(initialValue: SyncStatusMonitor(mirrors: mirrors, storeFailed: syncFailed))
         switch container {
         case .success(let opened):
             #if DEBUG
@@ -116,6 +133,14 @@ struct MindloreApp: App {
             } catch {
                 diagnostics.record("store.entryDateRepairFailed", ["error": .errorCode(error)])
             }
+            do {
+                let repaired = try EntityLinkRepair.run(in: opened.mainContext)
+                if repaired > 0 {
+                    diagnostics.record("store.linksRepaired", ["count": .int(repaired)])
+                }
+            } catch {
+                diagnostics.record("store.linkRepairFailed", ["error": .errorCode(error)])
+            }
         case .failure(let error):
             diagnostics.record("store.openFailed", ["error": .errorCode(error)])
         }
@@ -129,6 +154,8 @@ struct MindloreApp: App {
                     .modelContainer(container)
                     .environment(settings)
                     .environment(accounts)
+                    .environment(sync)
+                    .task { sync.start() }
                     .preferredColorScheme(settings.appearance.colorScheme)
             case .failure(let error):
                 StoreErrorView(error: error)

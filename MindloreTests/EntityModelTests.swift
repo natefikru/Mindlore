@@ -89,7 +89,7 @@ struct EntityLinkOwnershipTests {
 
         link.moveForMerge(to: winner)
 
-        #expect(link.entity === winner)
+        #expect(link.linkedEntity === winner)
         #expect(link.originalEntityID == loser.id)
     }
 
@@ -104,7 +104,7 @@ struct EntityLinkOwnershipTests {
         link.moveForMerge(to: a)
         link.moveForMerge(to: c)
 
-        #expect(link.entity === c)
+        #expect(link.linkedEntity === c)
         #expect(link.originalEntityID == b.id)
     }
 
@@ -116,7 +116,7 @@ struct EntityLinkOwnershipTests {
 
         link.moveForMerge(to: winner)
 
-        #expect(link.entity == nil)
+        #expect(link.linkedEntity == nil)
         #expect(link.originalEntityID == nil)
     }
 
@@ -128,7 +128,7 @@ struct EntityLinkOwnershipTests {
 
         link.restore(to: loser)
 
-        #expect(link.entity === loser)
+        #expect(link.linkedEntity === loser)
         #expect(link.originalEntityID == nil)
     }
 
@@ -144,7 +144,7 @@ struct EntityLinkOwnershipTests {
 
         link.repoint(to: someoneElse)
 
-        #expect(link.entity === someoneElse)
+        #expect(link.linkedEntity === someoneElse)
         #expect(link.originalEntityID == nil)
         #expect(link.source == .user)
     }
@@ -173,7 +173,7 @@ struct EntityPersistenceTests {
 
         #expect(entry.entityLinks?.count == 1)
         #expect(entity.links?.count == 1)
-        #expect(link.entry === entry && link.entity === entity)
+        #expect(link.entry === entry && link.linkedEntity === entity)
         #expect(link.surface == "Sarah")
         #expect(link.source == .ai && !link.inferred && link.originalEntityID == nil)
     }
@@ -244,7 +244,7 @@ struct EntityPersistenceTests {
         #expect(try context.fetchCount(FetchDescriptor<Entity>()) == 0)
         let links = try context.fetch(FetchDescriptor<EntityLink>())
         try #require(links.count == 1)
-        #expect(links[0].entity == nil)
+        #expect(links[0].linkedEntity == nil)
         #expect(links[0].entry != nil)
     }
 

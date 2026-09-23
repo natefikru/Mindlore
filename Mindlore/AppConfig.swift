@@ -1,7 +1,7 @@
 import Foundation
 
 enum AppConfig {
-    // Stays nil until the app signs with a paid Apple Developer team that has the iCloud capability.
-    // Any CloudKit use without that entitlement fails at runtime.
-    static let cloudKitContainerID: String? = nil
+    // The app's own journal mirrors to this container's private database. Only the default store
+    // does (ModelContainerFactory); tests and demo journals never touch it. Permanent once created.
+    static let cloudKitContainerID: String? = "iCloud.com.natefikru.mindlore"
 }

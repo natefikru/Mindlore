@@ -7,12 +7,17 @@ import SwiftData
 final class EntityLink {
     // The relationships exist for one reason: SwiftData's cascade and nullify rules, which
     // keep links from outliving the entry they belong to. Nothing reads them, not even the
-    // views. `entity` comes back nil often enough after a re-point, even once everything is
-    // saved, that it cannot be trusted to draw a screen with.
+    // views. The ids below are the truth. Resolve an entity by fetching it for its id. The two
+    // are only ever written together, by the methods at the bottom of this file.
     //
-    // The ids below are the truth. Resolve an entity by fetching it for its id. The two are
-    // only ever written together, by the methods at the bottom of this file.
-    var entity: Entity?
+    // Never name a stored property after an NSManagedObject member. This one was `entity`,
+    // which shadowed NSManagedObject.entity: saving worked, the relationship read back nil
+    // after a re-point, and CloudKit's exporter crashed on every launch with
+    // "-[NSEntityDescription objectID]: unrecognized selector" (134421). It is a new
+    // relationship rather than a rename, because Core Data refuses to rename a property in a
+    // store CloudKit has touched (134110); `EntityLinkRepair` refills it from `entityID` at
+    // launch. CloudKitSchemaRules now refuses the whole class of name.
+    var linkedEntity: Entity?
     var entry: Entry?
     var entityID: UUID?
     var entryID: UUID?
@@ -90,7 +95,7 @@ final class EntityLink {
 
     // Sets the relationship and the id together. Nothing should ever write one without the other.
     func point(at entity: Entity) {
-        self.entity = entity
+        self.linkedEntity = entity
         self.entityID = entity.id
     }
 }
