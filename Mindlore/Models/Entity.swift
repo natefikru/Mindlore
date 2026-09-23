@@ -74,7 +74,7 @@ final class Entity {
     // Orders entities that have never been linked, which have no other date to sort on.
     var createdAt: Date = Date.now
 
-    @Relationship(deleteRule: .nullify, inverse: \EntityLink.entity)
+    @Relationship(deleteRule: .nullify, inverse: \EntityLink.linkedEntity)
     var links: [EntityLink]? = []
 
     var kind: EntityKind {

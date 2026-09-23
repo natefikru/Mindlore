@@ -1,3 +1,4 @@
+import CoreData
 import Foundation
 import SwiftData
 import Testing
@@ -11,6 +12,13 @@ enum CloudKitSchemaRules {
         for entity in schema.entities {
             if !entity.uniquenessConstraints.isEmpty {
                 problems.append("\(entity.name) has uniqueness constraints")
+            }
+            // SwiftData models are NSManagedObjects underneath, and a stored property named after
+            // one of its members shadows it. Local saves survive that; CloudKit's exporter does
+            // not (EntityLink.entity, 134421).
+            for name in entity.attributes.map(\.name) + entity.relationships.map(\.name)
+            where NSManagedObject.instancesRespond(to: NSSelectorFromString(name)) {
+                problems.append("\(entity.name).\(name) shadows NSManagedObject.\(name)")
             }
             for attribute in entity.attributes {
                 if attribute.isUnique {
@@ -48,6 +56,14 @@ final class NonSyncableFixture {
 }
 
 @Model
+final class ShadowingFixture {
+    var entity: OneWayChildFixture?
+    var objectID: String = ""
+
+    init() {}
+}
+
+@Model
 final class OneWayOwnerFixture {
     @Relationship(deleteRule: .deny) var child: OneWayChildFixture?
 
@@ -78,6 +94,13 @@ struct CloudKitSchemaRulesTests {
 
         #expect(problems.contains("OneWayOwnerFixture.child has no inverse"))
         #expect(problems.contains("OneWayOwnerFixture.child uses the deny delete rule"))
+    }
+
+    @Test func rulesCatchNamesThatShadowTheManagedObject() {
+        let problems = CloudKitSchemaRules.violations(in: Schema([ShadowingFixture.self, OneWayChildFixture.self]))
+
+        #expect(problems.contains("ShadowingFixture.entity shadows NSManagedObject.entity"))
+        #expect(problems.contains("ShadowingFixture.objectID shadows NSManagedObject.objectID"))
     }
 
     // The app is entitled for iCloud, so only the one configuration that asks for CloudKit may

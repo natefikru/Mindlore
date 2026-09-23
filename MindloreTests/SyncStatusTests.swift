@@ -138,3 +138,29 @@ struct CloudKitStoreTests {
         #expect(container.configurations.first?.cloudKitContainerIdentifier == id)
     }
 }
+
+// A second device looks like a new install at launch, so what the welcome says about iCloud has to
+// follow the entries arriving, or someone's journal looks lost on their new phone.
+struct WelcomeSyncLineTests {
+    @Test func aJournalArrivingFromICloudSaysSo() throws {
+        let arriving = try #require(WelcomeSyncLine.line(status: .syncing, entries: 42))
+        #expect(arriving.title == "Your journal is here")
+        #expect(arriving.detail.contains("42 entries"))
+        #expect(arriving.busy)
+
+        let done = try #require(WelcomeSyncLine.line(status: .upToDate(lastSynced: .now), entries: 1))
+        #expect(done.detail == "1 entry has come in from iCloud.")
+        #expect(!done.busy)
+    }
+
+    @Test func aNewInstallIsToldWhereItsJournalWillLive() {
+        #expect(WelcomeSyncLine.line(status: .checking, entries: 0)?.title == "Checking iCloud")
+        #expect(WelcomeSyncLine.line(status: .upToDate(lastSynced: nil), entries: 0)?.title == "Kept in your iCloud")
+        #expect(WelcomeSyncLine.line(status: .deviceOnly(.noAccount), entries: 0)?.title == "On this iPhone")
+    }
+
+    @Test func aStoreThatNeverSyncsSaysNothingAboutICloud() {
+        #expect(WelcomeSyncLine.line(status: .notSynced, entries: 0) == nil)
+        #expect(WelcomeSyncLine.line(status: .notSynced, entries: 5) == nil)
+    }
+}

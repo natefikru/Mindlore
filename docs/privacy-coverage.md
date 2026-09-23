@@ -41,7 +41,7 @@ To redo it: add a one-line append to `record`, run the tests below one at a time
 Of the 32 events added since `main`, 30 are in this table. The other two are `demo.seeded` and
 `demo.seedFailed`, covered below.
 
-## Not driven: 65 events, each with a reason
+## Not driven: 67 events, each with a reason
 
 For each of these, every field at every call site was read. A field is either a typed number or
 bool, an `.id(UUID)`, `.errorCode` (domain and code), a string literal, an enum's `rawValue` or
@@ -60,7 +60,7 @@ for fields derived from user data at runtime. These events have none.
 
 **Runs in a SwiftUI view or at app launch**, with no unit-test seam: `ai.consent` (a bool), `sync.storeFailed` (an error code), `sync.status` and `sync.event` (a status name, an event kind, a bool, a duration, and a CloudKit error code; `SyncStatusMonitorTests` drives them, but they carry nothing a sentinel could reach), `app.launch` (`run` is the
 developer's `-diagnosticsRun` argument), `app.scenePhase`, `recovery.moved` (UUID file names),
-`store.openFailed`, `store.entryDatesRepaired`, `store.entryDateRepairFailed`, `editor.closed`,
+`store.openFailed`, `store.entryDatesRepaired`, `store.entryDateRepairFailed`, `store.linksRepaired`, `store.linkRepairFailed`, `editor.closed`,
 `entry.created`, `entry.finished`, `entry.deleted` (source is an enum),
 `editor.editFromReadTap` (an id), `entryDate.changed`,
 `entryDate.dismissed`, `cleanup.applied`, `cleanup.dismissed`, `cleanup.reverted`,

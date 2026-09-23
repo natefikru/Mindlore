@@ -275,3 +275,28 @@ left at 0.
 For a timing bug in UI code, put counts and positions in `DiagnosticsLog`, deploy, and read
 `launch.sh` output while the user reproduces it, before writing a fix. And don't call a keyboard
 bug fixed until it is checked on the device.
+
+## A model migration tested on the wrong store bricked the phone (2026-09-23)
+
+Turning on sync failed with 134421, "Export encountered an unhandled exception while analyzing
+history", underlying `-[NSEntityDescription objectID]: unrecognized selector`. The cause was a
+SwiftData property named `entity` (`EntityLink.entity`), which shadows `NSManagedObject.entity`.
+Local saves never noticed; CloudKit's exporter crashed on it every launch. The fix renamed it with
+`originalName`, and I checked the migration against the phone's pre-sync backup in the simulator.
+It passed there and failed on the phone with 134110: "Properties cannot be renamed in stores that
+are used with CloudKit". The one failed sync attempt had already marked the phone's store as a
+CloudKit store, and the backup predated that. The app sat on its error screen until the next build.
+
+Rules:
+- Test a model change against a copy of the store as it is on the device now, pulled right before
+  the deploy (`devicectl device copy from ... "Library/Application Support"`), never an older
+  backup. A store CloudKit has touched migrates under different rules.
+- Once a store has mirrored, properties are added, never renamed. Add the new one and backfill it
+  at launch (`EntityLinkRepair`).
+- No stored property may share a name with an `NSManagedObject` member (`entity`, `objectID`,
+  `description`, ...). `CloudKitSchemaRules` checks with `instancesRespond(to:)`.
+- A synced store opened where the iCloud account differs (the simulator has none) is purged by
+  Core Data with reason `AccountLogout`. Count rows before trusting a simulator run of a phone's
+  store, and never read one as proof the migration lost data.
+- Pull a backup of the phone's store before the first deploy of anything that touches the
+  schema or sync.

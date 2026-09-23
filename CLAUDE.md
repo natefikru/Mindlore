@@ -55,7 +55,7 @@ Device builds go to `~/Library/Developer/Xcode/DerivedData/Mindlore-device`. Bui
 
 The project uses file-system synchronized groups, so new files under `Mindlore/`, `MindloreTests/`, or `MindloreUITests/` join their target without editing `project.pbxproj`.
 
-**Models** (`Mindlore/Models/`). `Entry`, `EntryPage` (photographed journal pages), and `EntryInsights` (AI output, kept out of the entry's own text) are the persisted types. Its core field is `text`; audio is an optional attachment, and naming stays input-neutral (no voice-specific names like `transcript`). There is no status or commit step. `awaitingText` marks a voice entry whose text hasn't been generated, `textWasGenerated` and `textEditedByUser` record where the text came from. Rules that change an entry live in `Entry+Editing.swift` so every caller applies them the same way. Every stored property must be optional or have a default, and nothing may be `@Attribute(.unique)`, so CloudKit sync can be switched on later without a migration; `CloudKitSchemaRulesTests` enforces this. Store enums as raw strings with computed accessors.
+**Models** (`Mindlore/Models/`). `Entry`, `EntryPage` (photographed journal pages), and `EntryInsights` (AI output, kept out of the entry's own text) are the persisted types. Its core field is `text`; audio is an optional attachment, and naming stays input-neutral (no voice-specific names like `transcript`). There is no status or commit step. `awaitingText` marks a voice entry whose text hasn't been generated, `textWasGenerated` and `textEditedByUser` record where the text came from. Rules that change an entry live in `Entry+Editing.swift` so every caller applies them the same way. Every stored property must be optional or have a default, nothing may be `@Attribute(.unique)`, every relationship needs an inverse, and no property may share a name with an `NSManagedObject` member (`EntityLink.entity` did, and CloudKit's exporter crashed on it); `CloudKitSchemaRulesTests` enforces all of it. The store has mirrored, so a property is added, never renamed: Core Data refuses a rename in a store CloudKit has touched (see `tasks/lessons.md`). Store enums as raw strings with computed accessors.
 
 **Persistence** (`Mindlore/Persistence/`). `ModelContainerFactory` builds the store: `.default` for the app, `.inMemory` when hosted unit tests run, `.file` named by `UITEST_STORE_NAME` when launched with `-uiTesting`. `EntrySaver` is the only thing that decides when the main context writes to disk. Autosave is off. Call `noteChange()` after edits (saves within one second, even during continuous typing) and `flush()` when leaving a screen or deleting. `RootView` flushes whenever the scene leaves `.active`.
 
@@ -244,7 +244,7 @@ of. `Entity` is the persisted node (name, `kindRaw`, `aliases`, `bio*`, `hidden`
 denormalized `linkCount`/`firstLinkedAt`/`lastLinkedAt` that `GraphIndexer.recount` owns); every
 stored property is optional or defaulted and nothing is `@Attribute(.unique)`, the same CloudKit
 rule as `Entry`, and `CloudKitSchemaRulesTests` checks both models. `EntityLink` is the only stored
-edge (one entry mentions one entity); its `entity`/`entry` relationships exist solely for
+edge (one entry mentions one entity); its `linkedEntity`/`entry` relationships exist solely for
 SwiftData's cascade and nullify rules; nothing reads them; `entityID`/`entryID` are the truth, and
 every view and service resolves an entity by fetching its id, never by walking the relationship.
 

@@ -128,6 +128,14 @@ struct MindloreApp: App {
             } catch {
                 diagnostics.record("store.entryDateRepairFailed", ["error": .errorCode(error)])
             }
+            do {
+                let repaired = try EntityLinkRepair.run(in: opened.mainContext)
+                if repaired > 0 {
+                    diagnostics.record("store.linksRepaired", ["count": .int(repaired)])
+                }
+            } catch {
+                diagnostics.record("store.linkRepairFailed", ["error": .errorCode(error)])
+            }
         case .failure(let error):
             diagnostics.record("store.openFailed", ["error": .errorCode(error)])
         }
