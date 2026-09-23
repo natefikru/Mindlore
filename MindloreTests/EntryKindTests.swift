@@ -1,6 +1,8 @@
 import Foundation
 import SwiftData
+import SwiftUI
 import Testing
+import UIKit
 @testable import Mindlore
 
 // Journal, note, or creative: what each kind keeps from an insights run, how the user's pick and
@@ -250,6 +252,36 @@ struct InsightSectionsTests {
         harness.generator.results = [.success(InsightsHarness.fullResponse)]
         await harness.coordinator.processQueue(context: harness.context)
         #expect(typed.suggestedEntryDate != nil && !typed.entryDateIsDayOnly)
+    }
+}
+
+// The three events the new code writes from unit-testable places, driven with a real log and
+// the sentinel as the entry's text and the recorder's prompt (docs/privacy-coverage.md).
+@MainActor
+struct EntryKindDiagnosticsPrivacyTests {
+    @Test func kindTitleAndReadyRecorderNeverLogTheUsersWords() async throws {
+        let sentinel = DiagnosticsPrivacyTests.sentinel
+        let file = DiagnosticsFile()
+        let log = DiagnosticsLog(fileURL: file.url)
+
+        let harness = try InsightsHarness()
+        let entry = try harness.entry("Groceries for \(sentinel)")
+        GraphServices(diagnostics: log).setKind(.note, on: entry, in: harness.context)
+
+        let settings = SettingsStore(store: FakeKeyValueStore(), diagnostics: .disabled, now: { Date(timeIntervalSince1970: 1_000) })
+        let trigger = AIPassTrigger(settings: settings, presence: EditorPresence(), titleUsable: { true }, insightsUsable: { true }, diagnostics: log)
+        #expect(trigger.requestTitle(for: entry))
+
+        let recording = try RecordingSessionHarness(diagnostics: log)
+        recording.recordOnOpen = false
+        recording.prompts = ["call \(sentinel)"]
+        recording.session.begin()
+
+        let contents = file.contents()
+        #expect(contents.contains("entry.kindSet"))
+        #expect(contents.contains("title.requested"))
+        #expect(contents.contains("recording.ready"))
+        #expect(!contents.contains(sentinel))
     }
 }
 

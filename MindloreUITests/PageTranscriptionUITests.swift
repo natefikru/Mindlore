@@ -59,7 +59,10 @@ final class PageTranscriptionUITests: XCTestCase {
         XCTAssertTrue(app.textViews["entryEditor"].waitForExistence(timeout: 5))
         XCTAssertTrue(waitForText(["fixture page 1", "fixture page 2", "fixture page 3"]), "got \(editorText)")
         XCTAssertTrue(app.buttons["approveTextButton"].waitForExistence(timeout: 10))
-        XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "Written on March 3, 2025")).firstMatch.waitForExistence(timeout: 5))
+        // The date written on the first page becomes the entry's date on its own, so the title
+        // carries it and no banner asks.
+        XCTAssertTrue(app.navigationBars.staticTexts["Mar 3, 2025"].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.buttons["useSuggestedDateButton"].exists)
         XCTAssertTrue(app.descendants(matching: .any)["pageStrip"].exists)
 
         app.buttons["approveTextButton"].tap()
