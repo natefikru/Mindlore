@@ -476,10 +476,14 @@ struct PartAwareGraphTests {
         let split = MindMap.graph(graph.mapSnapshot(in: harness.context), kinds: nil, minimumLinkCount: 1, asOf: .now)
         #expect(split.nodes.count == 2)
         #expect(split.edges.isEmpty, "Dana and Maya were written about apart")
+        let dana = try #require(try harness.context.fetch(FetchDescriptor<Entity>()).first { $0.name == "Dana" })
+        #expect(graph.mentionedWith(of: dana.id, in: harness.context).isEmpty, "a person's page reads the same rule")
 
         // Without parts, the same two names share the entry, as they always did.
         entry.insights?.sections = []
-        let whole = MindMap.graph(GraphServices(diagnostics: .disabled).mapSnapshot(in: harness.context), kinds: nil, minimumLinkCount: 1, asOf: .now)
+        let wholeGraph = GraphServices(diagnostics: .disabled)
+        let whole = MindMap.graph(wholeGraph.mapSnapshot(in: harness.context), kinds: nil, minimumLinkCount: 1, asOf: .now)
         #expect(whole.edges.count == 1)
+        #expect(wholeGraph.mentionedWith(of: dana.id, in: harness.context).map(\.name) == ["Maya"])
     }
 }
