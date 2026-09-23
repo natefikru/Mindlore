@@ -128,7 +128,15 @@ struct StorySeedRegeneration {
         result.mentioned = line.touches.compactMap { threads[$0] }
         guard !result.isEmpty else { return }
         LooseEndWriter.apply(result, to: entry, in: context, now: entry.createdAt)
-        name(line.opens.map(\.id), createdBy: entry, threads: &threads, ids: &ids, in: context)
+        let entryID = entry.id
+        let created = LooseEnd.all(in: context).filter { $0.sourceEntryID == entryID }
+        // By text, as `DemoStory.seed` matches them: threads one entry opens share a creation
+        // date, so their order says nothing.
+        for open in line.opens {
+            guard let looseEnd = created.first(where: { $0.text == open.text }) else { continue }
+            threads[open.id] = looseEnd.id
+            ids[looseEnd.id] = open.id
+        }
     }
 
     // After the writer ran on a live answer: what it created, settled, and touched, as the seed
@@ -148,7 +156,10 @@ struct StorySeedRegeneration {
             if let due = looseEnd.dueDate { open["due"] = Self.day(due) }
             return open
         }
-        name(openIDs, createdBy: entry, threads: &threads, ids: &ids, in: context)
+        for (id, looseEnd) in zip(openIDs, created) {
+            threads[id] = looseEnd.id
+            ids[looseEnd.id] = id
+        }
         let resolves = all.filter { $0.resolvedByEntryID == entryID && $0.status == .resolved }.compactMap { ids[$0.id] }.sorted()
         let touches = result.looseEnds.mentioned.filter { id in !all.contains { $0.id == id && $0.resolvedByEntryID == entryID } }.compactMap { ids[$0] }.sorted()
 
@@ -158,15 +169,6 @@ struct StorySeedRegeneration {
         if !touches.isEmpty { object["touches"] = touches }
         // Round-trips through the seed's own decoder, so what lands on disk is what seeding reads.
         return try! JSONDecoder().decode(DemoStory.StoryEntry.self, from: JSONSerialization.data(withJSONObject: object))
-    }
-
-    private func name(_ openIDs: [String], createdBy entry: Entry, threads: inout [String: UUID], ids: inout [UUID: String], in context: ModelContext) {
-        let entryID = entry.id
-        let created = LooseEnd.all(in: context).filter { $0.sourceEntryID == entryID }.sorted { $0.createdAt < $1.createdAt }
-        for (id, looseEnd) in zip(openIDs, created) {
-            threads[id] = looseEnd.id
-            ids[looseEnd.id] = id
-        }
     }
 
     // MARK: - The line
@@ -230,8 +232,10 @@ struct StorySeedRegeneration {
     }
 
     private static func day(_ date: Date) -> String {
+        // The same zone `DemoStory.written` reads it back in, so a due date near midnight keeps its day.
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = Calendar.current.timeZone
         formatter.dateFormat = "yyyy-MM-dd"
         return formatter.string(from: date)
     }
