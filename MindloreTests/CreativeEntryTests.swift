@@ -22,6 +22,11 @@ struct CreativeEntryTests {
         #expect(properties.first?.name == "entryKind", "decided before the fields it changes")
         #expect(try InsightsPromptBuilder.parse(Self.creativeResponse, plan: plan).creative)
         #expect(try !InsightsPromptBuilder.parse(InsightsHarness.fullResponse, plan: plan).creative, "a missing answer means life")
+        #expect(try InsightsPromptBuilder.parse(InsightsHarness.fullResponse, plan: plan).kind == .journal)
+        let kinds = (properties.first?.schema).flatMap { schema -> [String]? in
+            if case .enumeration(let values, _, _) = schema { return values } else { return nil }
+        }
+        #expect(kinds == ["life", "note", "creative"], "every kind the app knows, in the picker's order")
     }
 
     @Test func aCreativeEntryKeepsItsTitleTagsAndSummaryAndNothingElse() async throws {

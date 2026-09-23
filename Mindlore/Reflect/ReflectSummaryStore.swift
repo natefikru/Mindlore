@@ -35,7 +35,7 @@ enum ReflectSummaryStore {
     // What a week's summary is written from, reduced to a hash: the eligible entries' ids, titles,
     // and text. Stamps and AI saves don't move it, so only a real change to the week asks again.
     nonisolated static func fingerprint(_ entries: [ReflectFidelity.WeekEntry]) -> String {
-        TextHash.of(entries.map { "\($0.id.uuidString)\u{1F}\($0.title)\u{1F}\($0.text)\u{1F}\($0.isCreative)" }.joined(separator: "\u{1E}"))
+        TextHash.of(entries.map { "\($0.id.uuidString)\u{1F}\($0.title)\u{1F}\($0.text)\u{1F}\($0.isCreative)\u{1F}\($0.isNote)" }.joined(separator: "\u{1E}"))
     }
 
     // Whether a cached summary still stands. A week's stands if nothing it was written from has

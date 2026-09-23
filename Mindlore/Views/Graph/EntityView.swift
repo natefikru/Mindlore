@@ -541,7 +541,7 @@ private struct EntityPage: View {
             } label: {
                 VStack(alignment: .leading, spacing: 4) {
                     HStack(alignment: .firstTextBaseline) {
-                        Text(row.heading).font(.system(.headline, design: .serif))
+                        Text(row.heading).journalText(.headline)
                         Spacer()
                         if row.guessed != nil {
                             Text("Guessed")

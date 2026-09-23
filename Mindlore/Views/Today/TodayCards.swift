@@ -20,7 +20,7 @@ struct TodayHeader: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             Text(today.greeting)
-                .font(.system(.title2, design: .serif).weight(.semibold))
+                .journalText(.title2, weight: .semibold)
                 .foregroundStyle(Palette.ink)
                 .padding(.horizontal, 16)
             WeekStrip(days: today.week, onTap: openReflect)

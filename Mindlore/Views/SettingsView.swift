@@ -76,12 +76,24 @@ struct SettingsView: View {
                     }
                     .accessibilityIdentifier("journalVoiceSettingsLink")
 
+                    NavigationLink {
+                        JournalFontSettingsView()
+                    } label: {
+                        LabeledContent("Font", value: settings.journalFont.settingsName)
+                    }
+                    .accessibilityIdentifier("journalFontSettingsLink")
+
                     Toggle("Keep recordings", isOn: $settings.keepAudioAfterTranscription)
                         .accessibilityIdentifier("keepRecordingsToggle")
+                    Toggle("Start recording right away", isOn: $settings.recordOnOpen)
+                        .accessibilityIdentifier("recordOnOpenToggle")
                 } header: {
                     Text("Your journal")
                 } footer: {
-                    Text("When Keep recordings is off, a recording is deleted once its text has been generated and you've closed the entry.")
+                    Text((settings.recordOnOpen
+                          ? "The microphone button starts recording the moment it's tapped. "
+                          : "The microphone button opens the recorder, and recording starts when you tap the button on it. ")
+                         + "When Keep recordings is off, a recording is deleted once its text has been generated and you've closed the entry.")
                 }
 
                 PrivacyDataSection()

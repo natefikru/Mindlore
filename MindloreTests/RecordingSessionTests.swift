@@ -104,6 +104,8 @@ final class RecordingSessionHarness {
     var makeLive: (() -> any LiveTranscriptionSession)?
     var prompts: [String?] = []
     var promptsTaken = 0
+    // The app's default is off; the harness keeps on so every older test starts capturing at once.
+    var recordOnOpen = true
     private(set) var session: RecordingSession!
 
     init(engine: SpeechEngine = .onDeviceLive, diagnostics: DiagnosticsLog = .disabled) throws {
@@ -132,6 +134,7 @@ final class RecordingSessionHarness {
             availability: availability,
             locale: Locale(identifier: "en_US"),
             speechEngine: { engine },
+            recordOnOpen: { [unowned self] in self.recordOnOpen },
             afterIngest: { [unowned self] in self.afterIngestCount += 1 },
             onFinished: { [unowned self] in self.finished.append($0) },
             takePrompt: { [unowned self] in

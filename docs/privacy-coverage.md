@@ -2,7 +2,9 @@
 
 Checked on 2026-09-21 against `feature/phase-a` (132 distinct event names in `Mindlore/`), then
 extended by `feature/phase-b5` with three more (135): `intent.invoked`, `reminder.permission`, and
-`reminder.scheduled`, covered by the last two rows of the table below.
+`reminder.scheduled`, covered by the last two rows of the table below. On 2026-09-23 four more
+(139): `entry.kindSet`, `title.requested`, and `recording.ready` in the table, and
+`editor.editFromReadTap` under view events.
 Those two tests assert that the event was written as well as that the sentinel wasn't, which is
 what the instrumented run below establishes for the rest.
 
@@ -17,7 +19,7 @@ The instrumentation was reverted and never committed.
 To redo it: add a one-line append to `record`, run the tests below one at a time with
 `test-without-building`, and diff the union against the event list.
 
-## Covered: 74 events, driven by a sentinel test
+## Covered: 77 events, driven by a sentinel test
 
 | Test | Events it drives |
 |---|---|
@@ -33,12 +35,13 @@ To redo it: add a one-line append to `record`, run the tests below one at a time
 | `RecordingSessionTests/liveTextNeverReachesTheLog` | `live.availability`, `recording.expanded`, `recording.minimized` |
 | `RecordingSessionTests/takingAPromptMarksItAndLeavesItAloneForAFewDays` | `looseEnds.prompted` |
 | `IntentTests/theLogSaysWhichIntentAndNeverWhatWasAsked` | `intent.invoked` (the question is the sentinel) |
+| `EntryKindDiagnosticsPrivacyTests/kindTitleAndReadyRecorderNeverLogTheUsersWords` | `entry.kindSet`, `title.requested`, `recording.ready` (added 2026-09-23 with entry kinds and the waiting recorder) |
 | `DailyReminderTests/theLogCarriesCountsOnly` | `reminder.permission`, `reminder.scheduled` (no user text ever reaches the reminder, so there is no sentinel to feed; the test checks both are written and that not even the fixed notification line is) |
 
 Of the 32 events added since `main`, 30 are in this table. The other two are `demo.seeded` and
 `demo.seedFailed`, covered below.
 
-## Not driven: 61 events, each with a reason
+## Not driven: 62 events, each with a reason
 
 For each of these, every field at every call site was read. A field is either a typed number or
 bool, an `.id(UUID)`, `.errorCode` (domain and code), a string literal, an enum's `rawValue` or
@@ -58,7 +61,8 @@ for fields derived from user data at runtime. These events have none.
 **Runs in a SwiftUI view or at app launch**, with no unit-test seam: `app.launch` (`run` is the
 developer's `-diagnosticsRun` argument), `app.scenePhase`, `recovery.moved` (UUID file names),
 `store.openFailed`, `store.entryDatesRepaired`, `store.entryDateRepairFailed`, `editor.closed`,
-`entry.created`, `entry.finished`, `entry.deleted` (source is an enum), `entryDate.changed`,
+`entry.created`, `entry.finished`, `entry.deleted` (source is an enum),
+`editor.editFromReadTap` (an id), `entryDate.changed`,
 `entryDate.dismissed`, `cleanup.applied`, `cleanup.dismissed`, `cleanup.reverted`,
 `text.approved`, `insights.deleted`, `insights.moodsEdited`, `pages.added`, `pages.confirmed`,
 `pages.reordered`, `pages.removed`, `pages.restarted`, `pages.editCancelled`,

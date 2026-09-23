@@ -10,6 +10,7 @@ nonisolated enum ReflectFidelity {
         let title: String
         let text: String
         var isCreative = false
+        var isNote = false
     }
 
     // One fenced block per entry, sanitized the same way Ask fences a block. The caller
@@ -24,7 +25,7 @@ nonisolated enum ReflectFidelity {
         return entries.map { entry in
             let text = AskContextBuilder.sanitized(entry.text)
             let body = share.map { opening(of: text, characters: $0) } ?? text
-            let marker = entry.isCreative ? AskContextBuilder.creativeMarker : ""
+            let marker = entry.isCreative ? AskContextBuilder.creativeMarker : (entry.isNote ? AskContextBuilder.noteMarker : "")
             return "\(AskContextBuilder.openDelimiter)\n\(AskContextBuilder.dateFormatter.string(from: entry.date)) \(entry.title)\(marker)\n\(body)\n\(AskContextBuilder.closeDelimiter)"
         }.joined(separator: "\n\n")
     }

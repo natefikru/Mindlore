@@ -13,9 +13,9 @@ struct EntryListView: View {
     @State private var pageOrder: PageOrderTarget?
     @State private var insightsEntry: Entry?
     @State private var pickedAreas: Set<LifeArea> = []
-    // Creative pieces have no areas, so this chip stands apart from them: picking it clears the
-    // areas, and picking an area clears it.
-    @State private var showingCreative = false
+    // Notes and creative pieces each get a chip of their own, apart from the areas: picking one
+    // clears the areas, and picking an area clears it. Journal is what the list is, so it has none.
+    @State private var shownKind: EntryKind?
     @State private var today = Today()
     @State private var showingReflect = false
     // Set right before a Reflect card jumps to a new entry, so leaving that entry (back or Done)
@@ -54,7 +54,7 @@ struct EntryListView: View {
                         .listRowBackground(Color.clear)
                         .listRowSeparator(.hidden)
                 }
-                if !offeredAreas.isEmpty || hasCreative {
+                if !offeredAreas.isEmpty || !offeredKinds.isEmpty {
                     areaFilterRow
                         .listRowInsets(EdgeInsets())
                         .listRowBackground(Color.clear)
@@ -290,10 +290,20 @@ struct EntryListView: View {
         return hidden.isEmpty ? entries : entries.filter { !hidden.contains($0.id) }
     }
 
-    private var hasCreative: Bool { entries.contains(where: \.isCreative) }
+    // The kinds worth a chip: the ones some entry is, journal aside.
+    private var offeredKinds: [EntryKind] {
+        let present = Set(entries.map(\.kind))
+        return [EntryKind.note, .creative].filter { present.contains($0) }
+    }
+
+    // A kind chip that went away (its last entry changed kind or was deleted) stops filtering,
+    // or the list would sit empty with nothing left to unpick.
+    private var activeKind: EntryKind? {
+        shownKind.flatMap { offeredKinds.contains($0) ? $0 : nil }
+    }
 
     private var shownEntries: [Entry] {
-        if showingCreative { return visibleEntries.filter(\.isCreative) }
+        if let activeKind { return visibleEntries.filter { $0.kind == activeKind } }
         let areas = activeAreas
         guard !areas.isEmpty else { return visibleEntries }
         return visibleEntries.filter { JournalFilter.matches(areasRaw: $0.insights?.areasRaw ?? [], areas: areas) }
@@ -320,7 +330,7 @@ struct EntryListView: View {
                     let selected = activeAreas.contains(area)
                     Button {
                         if selected { pickedAreas.remove(area) } else { pickedAreas.insert(area) }
-                        showingCreative = false
+                        shownKind = nil
                     } label: {
                         Label(settings.name(of: area), systemImage: area.symbol)
                             .lineLimit(1)
@@ -330,18 +340,19 @@ struct EntryListView: View {
                     .accessibilityAddTraits(selected ? .isSelected : [])
                     .accessibilityIdentifier("areaFilter-\(area.rawValue)")
                 }
-                if hasCreative {
+                ForEach(offeredKinds, id: \.self) { kind in
+                    let selected = activeKind == kind
                     Button {
-                        showingCreative.toggle()
+                        shownKind = selected ? nil : kind
                         pickedAreas = []
                     } label: {
-                        Label("Creative", systemImage: "paintbrush.pointed")
+                        Label(kind == .note ? "Notes" : kind.name, systemImage: kind.symbol)
                             .lineLimit(1)
-                            .chip(tint: Palette.ember, selected: showingCreative)
+                            .chip(tint: kind.color, selected: selected)
                     }
                     .buttonStyle(.plain)
-                    .accessibilityAddTraits(showingCreative ? .isSelected : [])
-                    .accessibilityIdentifier("creativeFilter")
+                    .accessibilityAddTraits(selected ? .isSelected : [])
+                    .accessibilityIdentifier(kind == .creative ? "creativeFilter" : "kindFilter-\(kind.rawValue)")
                 }
             }
             .padding(.horizontal, 16)
@@ -411,9 +422,11 @@ private struct EntryRow: View {
     var group: JournalGroup?
 
     var body: some View {
-        // Two lines, down from five: the title with its badges, then everything else in one
-        // secondary line.
-        VStack(alignment: .leading, spacing: 2) {
+        // Three lines: the title with its badges, one secondary line of what the header leaves
+        // out, then two lines of the entry's own words. The date the entry was added is not one
+        // of them: once its day has been changed, the day it belongs to is the only date that
+        // matters, and it is already in the header and the line below (owner, 2026-09-23).
+        VStack(alignment: .leading, spacing: 3) {
             HStack(spacing: 6) {
                 if entry.source == .voice {
                     Image(systemName: "mic.fill")
@@ -426,20 +439,14 @@ private struct EntryRow: View {
                         .foregroundStyle(.secondary)
                         .accessibilityLabel("Journal pages")
                 }
+                // A step below headline, keeping its weight, so more of a long title fits beside
+                // the badges (owner, 2026-09-23).
                 Text(entry.text.isEmpty && entry.title.isEmpty ? "No text yet" : entry.displayTitle)
-                    .font(.system(.headline, design: .serif))
+                    .journalText(.subheadline, weight: .semibold)
                     .lineLimit(1)
                     .foregroundStyle(entry.text.isEmpty && entry.title.isEmpty ? .secondary : .primary)
                 Spacer(minLength: 4)
-                if entry.isCreative {
-                    Text("Creative")
-                        .font(.caption)
-                        .foregroundStyle(Palette.ember)
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 2)
-                        .background(Palette.ember.opacity(0.12), in: Capsule())
-                        .accessibilityIdentifier("creativeBadge")
-                }
+                EntryKindBadge(kind: entry.kind)
                 if let status = statusBadge {
                     Text(status)
                         .font(.caption)
@@ -459,32 +466,35 @@ private struct EntryRow: View {
                     .accessibilityIdentifier("analyzingBadge")
                 }
             }
-            HStack(spacing: 6) {
-                // Dots rather than a chip row: the areas are worth a glance, not a line.
-                if let areas = entry.insights?.areas, !areas.isEmpty {
-                    HStack(spacing: 3) {
-                        ForEach(areas.prefix(2), id: \.self) { area in
-                            Circle()
-                                .fill(area.color)
-                                .frame(width: 6, height: 6)
-                                .accessibilityLabel(area.defaultName)
+            let date = EntryDateText.rowText(entry.entryDate, dayOnly: entry.entryDateIsDayOnly, group: group)
+            let areas = entry.insights?.areas ?? []
+            if !date.isEmpty || !areas.isEmpty {
+                HStack(spacing: 6) {
+                    // Dots rather than a chip row: the areas are worth a glance, not a line.
+                    if !areas.isEmpty {
+                        HStack(spacing: 3) {
+                            ForEach(areas.prefix(2), id: \.self) { area in
+                                Circle()
+                                    .fill(area.color)
+                                    .frame(width: 6, height: 6)
+                                    .accessibilityLabel(area.defaultName)
+                            }
                         }
                     }
+                    if !date.isEmpty {
+                        Text(date)
+                    }
                 }
-                let date = EntryDateText.rowText(entry.entryDate, dayOnly: entry.entryDateIsDayOnly, group: group)
-                if !date.isEmpty {
-                    Text(date)
-                }
-                if let preview, preview != entry.displayTitle {
-                    Text(preview)
-                        .lineLimit(1)
-                }
-                if entry.entryDateDiffersFromCreation() {
-                    EntryAddedText(entry: entry)
-                }
+                .font(.caption)
+                .foregroundStyle(.secondary)
             }
-            .font(.caption)
-            .foregroundStyle(.secondary)
+            if let preview = entry.previewText {
+                Text(preview)
+                    .journalText(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+                    .accessibilityIdentifier("entryPreview")
+            }
         }
         .padding(.vertical, 2)
         .accessibilityIdentifier("entryRow")
@@ -495,16 +505,6 @@ private struct EntryRow: View {
         if entry.isDraft { return "Draft" }
         guard entry.awaitingText else { return nil }
         return entry.source == .photo ? "Transcribing pages" : "Getting text"
-    }
-
-    private var preview: String? {
-        let lines = entry.text.split(whereSeparator: \.isNewline).map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
-        guard let first = lines.first else { return nil }
-        // Without a title the first line is already the headline, so preview what follows it.
-        if entry.title.isEmpty {
-            return lines.count > 1 && first.count <= Entry.derivedTitleLength ? lines[1] : (first.count > Entry.derivedTitleLength ? first : nil)
-        }
-        return first
     }
 }
 

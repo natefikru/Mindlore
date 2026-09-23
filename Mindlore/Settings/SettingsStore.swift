@@ -37,6 +37,8 @@ final class SettingsStore {
         static let hiddenLifeAreas = "hiddenLifeAreas"
         static let journalVoice = "journalVoice"
         static let appearance = "appearance"
+        static let journalFont = "journalFont"
+        static let recordOnOpen = "recordOnOpen"
         static let userName = "userName"
         static let resurfacingEnabled = "resurfacingEnabled"
         static let reminderEnabled = "reminderEnabled"
@@ -228,6 +230,18 @@ final class SettingsStore {
         didSet { write(appearance.rawValue, Key.appearance, logged: .string(appearance.rawValue)) }
     }
 
+    // The face the user's own words are set in. New York until they pick.
+    var journalFont: JournalFont {
+        didSet { write(journalFont.rawValue, Key.journalFont, logged: .string(journalFont.rawValue)) }
+    }
+
+    // Whether the microphone button starts recording at once, or opens the recorder and waits for
+    // a tap. Off by default: a button that starts capturing before the screen has settled records
+    // the fumble, and a recorder that waits costs one tap (owner, 2026-09-23).
+    var recordOnOpen: Bool {
+        didSet { write(recordOnOpen, Key.recordOnOpen, logged: .bool(recordOnOpen)) }
+    }
+
     // The user's own name, so only the change is logged, never the value. It reaches the AI
     // provider in a prompt only under the name voice; the other two have no use for it.
     private(set) var userName: String {
@@ -375,6 +389,8 @@ final class SettingsStore {
         hiddenLifeAreas = json(Key.hiddenLifeAreas, [])
         journalVoice = string(Key.journalVoice).flatMap(JournalVoice.init(rawValue:)) ?? .first
         appearance = string(Key.appearance).flatMap(AppearancePreference.init(rawValue:)) ?? .system
+        journalFont = string(Key.journalFont).flatMap(JournalFont.init(rawValue:)) ?? .serif
+        recordOnOpen = bool(Key.recordOnOpen, false)
         userName = json(Key.userName, "")
         resurfacingEnabled = bool(Key.resurfacingEnabled, true)
         reminderEnabled = bool(Key.reminderEnabled, false)

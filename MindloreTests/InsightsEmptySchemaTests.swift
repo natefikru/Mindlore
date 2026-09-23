@@ -6,7 +6,7 @@ import Testing
 // Turning every insight section off used to send a request with an empty schema, which the provider
 // rejects (docs/remaining-work.md). The guard sits on the built request rather than on
 // InsightSections, because which sections reach the schema depends on the entry: cleanup is only
-// offered for voice and photo, and the written date only for typed. A settings-level predicate is
+// offered for voice and photo, and the written date only for typed and photo. A settings-level predicate is
 // wrong in both directions, and these tests are the two directions.
 @MainActor
 struct InsightsEmptySchemaTests {
@@ -106,7 +106,7 @@ struct InsightsEmptySchemaTests {
         let typed = InsightsPromptBuilder.plan(text: "x", source: .typed, sections: sections, vocabulary: .empty, model: "m")
         #expect(!typed.asksForNothing)
 
-        // The same settings give a voice entry nothing, because the written date is typed-only.
+        // The same settings give a voice entry nothing, because a recording is never asked its date.
         let voice = InsightsPromptBuilder.plan(text: "x", source: .voice, sections: sections, vocabulary: .empty, model: "m")
         #expect(voice.asksForNothing)
     }

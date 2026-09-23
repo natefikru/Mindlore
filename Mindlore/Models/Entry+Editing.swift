@@ -213,9 +213,39 @@ extension Entry {
         return true
     }
 
-    // The user's call on whether this entry is creative work. Later insights never override it.
-    func setCreativeByUser(_ creative: Bool) {
-        isCreative = creative
+    // The user's call on what this entry is. Later insights never override it.
+    func setKindByUser(_ kind: EntryKind) {
+        self.kind = kind
         creativeSetByUser = true
+    }
+
+    func setCreativeByUser(_ creative: Bool) {
+        setKindByUser(creative ? .creative : .journal)
+    }
+}
+
+// MARK: - List preview
+
+extension Entry {
+    // What the row shows under the title: the entry's words, with the line the title was derived
+    // from left out so the row doesn't say the same thing twice. Line breaks collapse to spaces so
+    // the row's two lines hold as many words as they can.
+    static func preview(text: String, title: String) -> String? {
+        let lines = text.split(whereSeparator: \.isNewline)
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+        guard let first = lines.first else { return nil }
+        let body: [String]
+        if title.isEmpty && first.count <= derivedTitleLength {
+            body = Array(lines.dropFirst())
+        } else {
+            body = lines
+        }
+        let joined = body.joined(separator: " ")
+        return joined.isEmpty ? nil : String(joined.prefix(240))
+    }
+
+    var previewText: String? {
+        Self.preview(text: text, title: title)
     }
 }

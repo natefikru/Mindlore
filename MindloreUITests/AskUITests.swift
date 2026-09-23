@@ -33,7 +33,7 @@ final class AskUITests: XCTestCase {
     }
 
     private func openAsk() {
-        app.tabBars.buttons["Ask"].tap()
+        app.tabBars.buttons["Chat"].tap()
         XCTAssertTrue(field.waitForExistence(timeout: 5))
     }
 

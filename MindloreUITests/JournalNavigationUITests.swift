@@ -51,7 +51,7 @@ final class JournalNavigationUITests: XCTestCase {
         startNewEntry()
         editor.typeText("Before the switch.")
 
-        app.tabBars.buttons["Ask"].tap()
+        app.tabBars.buttons["Chat"].tap()
         app.tabBars.buttons["Journal"].tap()
         XCTAssertTrue(editor.waitForExistence(timeout: 5))
         editor.coordinate(withNormalizedOffset: CGVector(dx: 0.95, dy: 0.5)).tap()

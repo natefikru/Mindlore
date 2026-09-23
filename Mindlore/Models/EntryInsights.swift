@@ -20,6 +20,8 @@ final class EntryInsights {
     var cleanedText: String?
     var cleanedTextSkippedReasonRaw: String?
     var customCardsData: Data?
+    // The parts the entry was divided into by topic, when it covered more than one thing.
+    var sectionsData: Data?
     // How many of the journal's own tags, names, and loose ends went with the request, for the
     // disclosure screen. Zero for insights made before those were sent.
     var sentTagCount: Int = 0
@@ -54,6 +56,11 @@ final class EntryInsights {
     var mentions: [Mention] {
         get { mentionsData.flatMap { try? JSONDecoder().decode([Mention].self, from: $0) } ?? [] }
         set { mentionsData = newValue.isEmpty ? nil : try? JSONEncoder().encode(newValue) }
+    }
+
+    var sections: [EntrySection] {
+        get { sectionsData.flatMap { try? JSONDecoder().decode([EntrySection].self, from: $0) } ?? [] }
+        set { sectionsData = newValue.isEmpty ? nil : try? JSONEncoder().encode(newValue) }
     }
 
     var customResults: [CustomInsightResult] {

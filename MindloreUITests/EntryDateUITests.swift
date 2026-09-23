@@ -43,7 +43,8 @@ final class EntryDateUITests: XCTestCase {
         app.launch()
 
         XCTAssertTrue(app.staticTexts["Written last month"].waitForExistence(timeout: 5))
+        // The day it was added is not shown: the day it belongs to is the only date the row carries.
         let added = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "Added ")).firstMatch
-        XCTAssertTrue(added.waitForExistence(timeout: 5))
+        XCTAssertFalse(added.waitForExistence(timeout: 2))
     }
 }

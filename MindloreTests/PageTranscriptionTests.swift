@@ -202,14 +202,30 @@ struct PageTranscriptionCoordinatorTests {
         #expect(harness.transcriber.requests.count == 1)
     }
 
-    @Test func suggestsTheFirstWrittenDateOnlyWhenEnabledAndApplied() async throws {
+    // A date at the top of a page is the day the page was written, so the entry takes it without
+    // asking (owner, 2026-09-23); the typed-entry setting has no say. Turning suggestions off
+    // still turns this off.
+    @Test func aPagesWrittenDateBecomesTheEntryDateWhenEnabled() async throws {
         let harness = try PageHarness()
         let march3 = Date(timeIntervalSince1970: 1_741_003_200)
         let entry = try harness.confirmedEntry(pages: 2)
+        let added = entry.createdAt
         harness.transcriber.writtenDates = [2: march3]
 
         await harness.coordinator.processQueue(context: harness.context)
-        #expect(entry.suggestedEntryDate.map { EntryDates.isSameDay($0, march3) } == true)
+        #expect(EntryDates.isSameDay(entry.entryDate, march3))
+        #expect(entry.entryDateIsDayOnly)
+        #expect(entry.suggestedEntryDate == nil, "applied, so there is nothing left to offer")
+        #expect(entry.createdAt == added, "the day it reached the app still drives automation")
+
+        let picked = try PageHarness()
+        picked.transcriber.writtenDates = [1: march3]
+        let backdated = try picked.confirmedEntry(pages: 1)
+        backdated.setEntryDay(Date(timeIntervalSince1970: 1_000_000_000))
+        let day = backdated.entryDate
+        await picked.coordinator.processQueue(context: picked.context)
+        #expect(backdated.entryDate == day, "a picked day is only offered another")
+        #expect(backdated.suggestedEntryDate != nil)
 
         let off = try PageHarness()
         off.suggestDates = false

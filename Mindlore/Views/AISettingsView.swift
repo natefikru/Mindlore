@@ -219,7 +219,7 @@ struct AIFeaturesView: View {
                 }
                 .accessibilityIdentifier("askGeneratorPicker")
             } header: {
-                Text("Ask")
+                Text("Chat")
             } footer: {
                 Text(askFooter)
             }
@@ -293,9 +293,9 @@ struct AIFeaturesView: View {
             case .appleIntelligenceNotEnabled:
                 "Turn on Apple Intelligence in Settings to answer questions on this iPhone, or choose OpenAI."
             case .modelNotReady:
-                "Apple's on-device model is still downloading. Choose OpenAI, or turn Ask off until it's ready."
+                "Apple's on-device model is still downloading. Choose OpenAI, or turn Chat off until it's ready."
             case .deviceNotEligible, .unknown:
-                "This iPhone can't run Apple's on-device model. Choose OpenAI, or turn Ask off and keep searching."
+                "This iPhone can't run Apple's on-device model. Choose OpenAI, or turn Chat off and keep searching."
             }
         case .openAI:
             settings.aiEnabled && accounts.openAIAccount != nil

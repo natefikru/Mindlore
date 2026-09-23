@@ -8,7 +8,7 @@ struct RecordAccessory: View {
     @Environment(\.tabViewBottomAccessoryPlacement) private var placement
 
     var body: some View {
-        if session.status != .idle {
+        if session.showsAccessory {
             HStack(spacing: 12) {
                 Button {
                     session.expand()

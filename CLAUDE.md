@@ -279,7 +279,8 @@ every view and service resolves an entity by fetching its id, never by walking t
   `unsureLinks`/`repoint` ("Which one?"), `mentionedWith` (one entity's co-occurring
   partners), and `mapSnapshot`/`globalGraph`/`primaryAreas` (Mind, below).
 - **Co-occurrence and the picture.** `EntityGraph` (no SwiftData import, `nonisolated`) turns a
-  caller-resolved `[LinkInput]` into weighted `Edge`s: two entities sharing an entry get an edge,
+  caller-resolved `[LinkInput]` into weighted `Edge`s: two entities sharing an entry get an edge
+  (sharing a part of it, when the entry has parts; see Parts below),
   weighted by a 90-day half-life so a recent shared entry counts for more (`EntityGraph.build`),
   (`EntityGraph.build`). `GraphSimulation` (also `nonisolated`, a plain class, not `@Observable`,
   since the canvas ticks it every frame from inside its own draw closure) is the engine:
@@ -338,18 +339,60 @@ every view and service resolves an entity by fetching its id, never by walking t
   `docs/privacy-coverage.md` maps every event in the app to the test that drives it, or says why
   none can.
 
-**Creative entries** (`Entry.isCreative`, `AI/Insights/CreativeSignals.swift`). A poem, lyrics, or
-a story is work the author made, not an account of their life, so it keeps its title, tags, and a
-line saying what it is, and gets no names on the map, no area, no mood, and no loose ends (owner,
-2026-09-22). The insights request asks `entryKind` (life or creative) first. OpenAI's answer is
-trusted; the on-device model's is not: prose is never creative on device, a line over 15 words
-means prose, and only text laid out like verse gets a second single-question request. The error
-that matters is life filed as creative, which silently drops names and threads, so the bar is zero
-of those: `CreativeClassificationQualityTests` holds a labeled set, 0/12 wrong on device with the
-haiku and prose story as asserted misses, 19/19 on OpenAI. The user's flip (`GraphServices.setCreative`,
-the editor's More menu) is never overridden; marking creative clears names, area, mood, and open AI
-loose ends at once, marking life reruns insights. Ask and Reflect mark a creative block so neither
-takes a lyric as something that happened; the journal has a Creative filter chip.
+**Entry kinds** (`Models/EntryKind.swift`, `Entry.kind` over the stored `isCreative` and `isNote`
+flags, `AI/Insights/CreativeSignals.swift`). An entry is a journal entry, a note, or a creative
+piece, and the kind decides what an insights run is allowed to say about the author's life
+(`EntryKind.keeps*`, applied by `InsightsResult.restrict(to:)` before anything is written). A
+poem, lyrics, or a story is work the author made, not an account of their life, so it keeps its
+title, tags, and a line saying what it is, and gets no names on the map, no area, no mood, no
+loose ends, and no parts (owner, 2026-09-22). A note (a list, a plan, a recipe, notes from a
+meeting) is kept for use rather than telling what happened: it keeps its names, area, loose ends,
+and parts, and carries no mood, so a grocery list never colours Reflect's week (owner,
+2026-09-23). The insights request asks `entryKind` (life, note, or creative) first. OpenAI's
+answer is trusted; the on-device model's is not: prose is never creative on device, a line over
+15 words means prose, only text laid out like verse gets a second single-question request, and
+on device nothing is ever filed as a note (`CreativeSignals.decideKind`). The error that matters
+is life filed as something less, which silently drops names, threads, or moods, so the bar is
+zero of those: `CreativeClassificationQualityTests` holds a labeled set, 0/12 wrong on device with
+the haiku and prose story as asserted misses, and 19/19 on OpenAI measured with the two-kind
+request. The live OpenAI test now also fails an account of a day filed as a note
+(`CreativeCorpus.mayBeNote` names the four lists that may be); that has not yet been measured
+against the three-kind request. The user's pick is never
+overridden: `EntryKindPicker` sits under the title in the editor (both modes) and on the insights
+sheet, writes through `GraphServices.setKind`, which drops at once and with no AI call what the
+new kind never keeps (the user's own loose ends stay theirs), and the caller reruns insights only
+when the new kind keeps more than the old (`EntryKind.keepsMore(than:)`). Every row carries an
+`EntryKindBadge`; the journal has a Notes chip and a Creative chip beside the area filters. Ask
+and Reflect mark a creative or a note block so neither takes a lyric or a list as something that
+happened.
+
+**Parts** (`Models/EntrySection.swift`, `EntryInsights.sections`, `Graph/EntryParts.swift`). The
+cloud insights request also asks for the entry divided by topic, only when it clearly moves
+between things: each part has a topic, one sentence, its own areas, tags, and names, and the
+first words of the part, which the parser looks up in the text to store a character `offset`
+(nil when not found, never backwards). Nothing marks the text up. **What parts are for is the
+map** (owner, 2026-09-23): two names in one entry connect only when they share a part, instead of
+everything in an entry joining everything else because it was written at one sitting.
+`EntryParts.Context` places each link at snapshot time, never stored, so older entries and names
+added by hand need nothing migrated: by the part's own `names` or `tags` list, by the part's span
+of text a name is written in, and a tag only by the lists. The span is read against the text the
+offsets came from (`GraphServices.analyzedText`): the entry's own while it is still what was
+analyzed, the original after a cleanup replaced it (cleanup drops fillers, so offsets would land
+late in the cleaned text), and none after any other edit, when only the lists place names. Text
+before the first placed part belongs to the opening part. A part's `names` are stored as written
+and as grounded, like mentions, so "Sarah Kim" still places the entry's "Sarah". The map's
+snapshot is cached per graph revision, so an edit's switch to list-only placement shows on the
+map at the next graph change; `mentionedWith` reads fresh and places only the subject's entries. A name placed in no part connects to
+nothing from that entry (owner, 2026-09-23: the map's problem was clutter) and stays on the map,
+since a node shows for its mentions, not its edges, and other entries still link it. Only an
+entry with fewer than two parts, which has nothing narrower to go on, connects everything in it
+as before. `EntityGraph.LinkInput.parts` carries it (nil for an entry with no parts, empty for
+a name placed in none); `EntityGraph.build` unions an entity's parts across its links and skips
+a pair whose parts are disjoint. Both `mapSnapshot` and
+`mentionedWith` read it. The parts' tags are also folded into the entry's own, after them and
+under the same cap. Parts are metadata for the map, not something to read: the insights sheet
+never shows them, since their tags and names are already on its own cards. Never asked of the on-device model (`Budget.sections`), and dropped for creative work.
+`InsightSectionsTests` covers the schema, parsing, and storage; `PartAwareGraphTests` the edges.
 
 **Loose ends** (`Models/LooseEnd.swift`, `AI/Insights/LooseEndWriter.swift`). Open threads an entry
 leaves ("need to call the landlord") become `LooseEnd` records with a status (open, resolved,
@@ -372,11 +415,11 @@ sends; the user's renames and hidden set live in `SettingsStore` (`lifeAreaNames
 `hiddenLifeAreas`, `visibleLifeAreas`) and only change display. An entity's area on the map is
 computed, not stored: `MindMap.primaryAreas`, over the areas of the entries it appears in.
 
-**Entry dates.** `createdAt` is when the entry reached the app and drives every automation rule. `entryDate` is where it belongs in the journal, editable; a picked day is noon with `entryDateIsDayOnly`, and `EntryDateRepair` fixes any entry whose untouched date drifted.
+**Entry dates.** `createdAt` is when the entry reached the app and drives every automation rule. `entryDate` is where it belongs in the journal, editable; a picked day is noon with `entryDateIsDayOnly`, and `EntryDateRepair` fixes any entry whose untouched date drifted. A date written at the top of a photographed page is the day the page was written, so a photo entry takes it without asking while it has no picked day (`!entryDateIsDayOnly`), from the page transcriber first and from the insights run's `writtenDate` (asked for typed and photo entries) as a second reading, whatever the typed-entry "use the suggested date automatically" setting says; once a day is picked, by the user or an earlier pass, a different reading is only offered. Turning "Suggest entry dates" off turns both off. Approving page text also asks for a title through `AIPassTrigger.requestTitle`, whether or not the entry's one automatic pass is already spent, so a photo entry is never left titled by its first line.
 
-**Settings** (`Mindlore/Settings/`, `Mindlore/Views/SettingsView.swift`). `SettingsStore` reads through a `KeyValueStore` protocol using `object(forKey:)`, so a missing value means "use the default" rather than `false`. `PrivacyInfo.xcprivacy` declares the UserDefaults reason. Settings is the fourth tab, organised by what a setting touches rather than by subsystem: Your journal (life areas, how you're written about, keep recordings), Privacy and data (`PrivacyDataSection`: the `AppLock` Face ID lock, whose cover is its own window above every sheet; `JournalExport` to a folder; `JournalWipe`, the one delete with a confirmation dialog instead of Undo), Today, Reminder, AI (use AI, the key, What AI does, with an Advanced screen for model fields, cloud fallback and custom prompts), and About (`JournalTotals`, counts only). Life areas and your name sit at the top level because both work with AI off. Seven keys are internal state, not settings, and never get a control: `aiEnabledAt`, `automationStartedAt`, `askGeneratorChosenByUser`, `todayDismissed`, `lifeAreaNames`, `hiddenLifeAreas`, `providerAccounts`; find every reader before touching one. UI tests reach settings through `app.tabBars.buttons["Settings"]`, never bare `app.buttons["Settings"]`, which matches a tab item and a toolbar button alike. `tasks/archive/settings-sprint.md` has the audit.
+**Settings** (`Mindlore/Settings/`, `Mindlore/Views/SettingsView.swift`). `SettingsStore` reads through a `KeyValueStore` protocol using `object(forKey:)`, so a missing value means "use the default" rather than `false`. `PrivacyInfo.xcprivacy` declares the UserDefaults reason. Settings is the fourth tab, organised by what a setting touches rather than by subsystem: Your journal (life areas, how you're written about, the font, keep recordings, start recording right away), Privacy and data (`PrivacyDataSection`: the `AppLock` Face ID lock, whose cover is its own window above every sheet; `JournalExport` to a folder; `JournalWipe`, the one delete with a confirmation dialog instead of Undo), Today, Reminder, AI (use AI, the key, What AI does, with an Advanced screen for model fields, cloud fallback and custom prompts), and About (`JournalTotals`, counts only). Life areas and your name sit at the top level because both work with AI off. Seven keys are internal state, not settings, and never get a control: `aiEnabledAt`, `automationStartedAt`, `askGeneratorChosenByUser`, `todayDismissed`, `lifeAreaNames`, `hiddenLifeAreas`, `providerAccounts`; find every reader before touching one. UI tests reach settings through `app.tabBars.buttons["Settings"]`, never bare `app.buttons["Settings"]`, which matches a tab item and a toolbar button alike. `tasks/archive/settings-sprint.md` has the audit.
 
-**Views** (`Mindlore/Views/`). `RootView` is a four-tab `TabView` (Journal, Mind, Ask, Settings; `AppTab` in `Views/Shell/AppRouter.swift`, which also owns each tab's path and cross-tab routes). Recording lives in the bottom accessory (`RecordAccessory`) and keeps going while tabs change. `RootView` owns the saver, ingestor, `RecordingSession`, the four coordinators, `AIPassTrigger`, `EditorPresence`, `NetworkMonitor`, `GraphServices`, `AskService`, `DailyReminder`, and the router, and passes them through the environment. `EditorLifecycle` (`Views/Shell/`) is what runs when an editor opens and closes: presence, deleting a blank entry, discarding audio unless kept, and the `.editorClosed` AI pass. Past entries open in read mode (`EntryReadMode`) with tappable names. After a recording, `KeepCard` (`Views/Capture/`) shows what the journal noticed, from stored data only, no AI call. Deletes (an entry, a conversation, the key) go through `UndoQueue` (`Views/Shell/`): the item hides at once and the delete runs after five seconds, on the next delete, or when the screen or scene goes away, never deleted and rebuilt. The editor's Delete entry pops through `AppRouter.deleteEntry`, whose close rules skip the AI pass, and the list schedules it behind the same Undo a swipe gets. Colors, type, motion, and haptics come from `Mindlore/Design/`, and colors only from the asset catalog's light and dark variants. RootView runs transcription in one lane and titles plus insights in another, and resumes both when the network returns. `EntryListView` lists entries and opens `EntryEditorView` or `RecordingView`. The editor is one scroll view: header (banners, player, page strip, title) above a `GrowingTextEditor` (a UITextView that grows with its text and never ends shorter than the screen, so a tap below short text puts the cursor at the end). `EntryInsightsView` is a sheet over the editor, never a push, because the editor's `onDisappear` runs its close rules. It is a scroll of `InsightCard`s on Paper (not a `Form`), its scroll view named `insightsSheet` so UI tests scroll it rather than the editor underneath. The entity page stays a `Form` on purpose: its rows carry swipe actions, a disclosure, and links a hand-built card would lose, and an inset-grouped section already is a rounded card, so Paper behind and `Palette.card` rows are what make it match.
+**Views** (`Mindlore/Views/`). `RootView` is a four-tab `TabView` (Journal, Mind, Chat, Settings; Chat is Ask's tab and screen title, while the code keeps the Ask names; `AppTab` in `Views/Shell/AppRouter.swift`, which also owns each tab's path and cross-tab routes). Recording lives in the bottom accessory (`RecordAccessory`) and keeps going while tabs change. The microphone button opens the recorder **ready** (`RecordingSession.Status.ready`): nothing is captured until its own button is tapped, unless the `recordOnOpen` setting is on (off by default, owner 2026-09-23) or Siri asked (`begin(startsNow: true)`); the accessory shows only a real recording (`showsAccessory`), and closing or minimizing a ready recorder (the New Entry and Ask intents do the latter) discards it, since it has no accessory to come back through. Siri's Start Recording starts a ready recorder. `RootView` owns the saver, ingestor, `RecordingSession`, the four coordinators, `AIPassTrigger`, `EditorPresence`, `NetworkMonitor`, `GraphServices`, `AskService`, `DailyReminder`, and the router, and passes them through the environment. `EditorLifecycle` (`Views/Shell/`) is what runs when an editor opens and closes: presence, deleting a blank entry, discarding audio unless kept, and the `.editorClosed` AI pass. Past entries open in read mode (`EntryReadMode`) with tappable names; a tap on the text itself (a `simultaneousGesture`, so links keep their taps) switches to typing with the caret at the end, decided 150 ms after the tap and skipped when a name's link fired within half a second of it (`lastLinkTap`). After a recording, `KeepCard` (`Views/Capture/`) shows what the journal noticed, from stored data only, no AI call. Deletes (an entry, a conversation, the key) go through `UndoQueue` (`Views/Shell/`): the item hides at once and the delete runs after five seconds, on the next delete, or when the screen or scene goes away, never deleted and rebuilt. The editor's Delete entry pops through `AppRouter.deleteEntry`, whose close rules skip the AI pass, and the list schedules it behind the same Undo a swipe gets. Colors, type, motion, and haptics come from `Mindlore/Design/`, and colors only from the asset catalog's light and dark variants. The user's own words take the `JournalFont` picked in Settings (serif by default, or sans, rounded, monospaced; `Design/JournalFont.swift`), carried through the `journalFont` environment value that `.journalText(_:weight:)` and the editor's `UIFont.journal(_:design:)` read; never set `design: .serif` directly. The app's own chrome stays SF. RootView runs transcription in one lane and titles plus insights in another, and resumes both when the network returns. `EntryListView` lists entries and opens `EntryEditorView` or `RecordingView`. The editor is one scroll view: header (banners, player, page strip, title, kind picker) above a `GrowingTextEditor` (a UITextView that grows with its text and never ends shorter than the screen, so a tap below short text puts the cursor at the end). The text view only ever takes text pushed from outside (a transcription, a cleanup, a revert): what it reported itself through the binding is never assigned back, because assigning a UITextView's text, even an equal string, resets its selection to the start, which is what put the second keystroke of a new entry in front of the first. Focus with the caret at the end is asked for from the text view's own `onAppear`, for a new entry and for Edit alike. A list row shows the kind badge, the date the header leaves out, and two lines of `Entry.previewText`, never the day the entry was added: once its day is changed, the day it belongs to is the only date that matters. `EntryInsightsView` is a sheet over the editor, never a push, because the editor's `onDisappear` runs its close rules. It is a scroll of `InsightCard`s on Paper (not a `Form`), its scroll view named `insightsSheet` so UI tests scroll it rather than the editor underneath. The entity page stays a `Form` on purpose: its rows carry swipe actions, a disclosure, and links a hand-built card would lose, and an inset-grouped section already is a rounded card, so Paper behind and `Palette.card` rows are what make it match.
 
 **Today** (`Mindlore/Views/Today/`). The header above the journal list: a greeting, a seven-dot
 week strip, and one horizontal row of cards to page through each day ("2 of 9" under it).

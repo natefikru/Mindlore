@@ -47,13 +47,3 @@ struct EntryDateText: View {
         }
     }
 }
-
-struct EntryAddedText: View {
-    let entry: Entry
-
-    var body: some View {
-        if entry.entryDateDiffersFromCreation() {
-            Text("Added \(entry.createdAt.formatted(.dateTime.month(.abbreviated).day().year()))")
-        }
-    }
-}

@@ -46,6 +46,19 @@ extension EntityKind {
     }
 }
 
+extension EntryKind {
+    // The badge on a row and the picker chip. The journal, which is most of the list, wears the
+    // accent; notes and creative work take quiet system colours so three badges in a list read as
+    // three kinds, not as three alerts (owner, 2026-09-23).
+    var color: Color {
+        switch self {
+        case .journal: Palette.ember
+        case .note: .teal
+        case .creative: .indigo
+        }
+    }
+}
+
 extension MoodCategory {
     // A dot beside the mood's word, never the only signal: the word and its meaning carry the
     // information. The hues tell categories apart and grade nothing; there is no good or bad colour.

@@ -12,7 +12,13 @@ struct EntryEditorView: View {
     @Environment(ProviderAccountStore.self) private var accounts
     @Environment(InsightsCoordinator.self) private var insightsCoordinator
     @Environment(AppRouter.self) private var router
+    @Environment(\.journalFont) private var journalFont
     @State private var currentEntry: Entry?
+    // The entry the first keystroke created, held by reference as well as in `currentEntry`. A
+    // redraw already under way when that keystroke lands still reads the state from before it,
+    // with no entry, so the text read back empty: on the phone the text view was emptied and
+    // refilled, the caret was left in front of the first letter, and "new" came out "ewN".
+    @State private var newEntry = CreatedEntry()
     // The id a new entry is created with, so the close rules find it when its route leaves the path.
     private let newEntryID: UUID?
     // A Reflect card's prompt, seeded into the entry on appear rather than the first keystroke.
@@ -33,6 +39,10 @@ struct EntryEditorView: View {
     @State private var editorFocused = false
     // Bumped to put the caret at the end, for taps in the blank space under the text.
     @State private var focusAtEndToken = 0
+    // Where that caret goes instead of the end: the character a tap on the read text landed on.
+    @State private var focusOffset: Int?
+    // The read text's own width, so a tap on it can be turned into a character.
+    @State private var readTextWidth: CGFloat = 0
     // Past entries open read-only; Edit switches to typing. Decided once when the editor opens.
     @State private var isReading: Bool
     @State private var openedForReading: Bool
@@ -42,6 +52,10 @@ struct EntryEditorView: View {
     @State private var linked: (text: String, value: AttributedString)?
     @State private var peekTarget: PeekTarget?
     @State private var addingName = false
+    // When the read text's link handler last opened a name, so the tap that opened it never also
+    // opens the editor. A time rather than a flag: it holds whichever order SwiftUI delivers the
+    // link and the tap in, and a link tap the gesture never saw can't swallow the next plain tap.
+    @State private var lastLinkTap: Date?
 
     static let fallbackNoticeSeconds = 8.0
 
@@ -56,7 +70,7 @@ struct EntryEditorView: View {
     // The close rules run when the route leaves the path, while this view is still animating out,
     // and may delete a blank entry under it. A deleted entry reads as no entry.
     private var entry: Entry? {
-        guard let currentEntry, !currentEntry.isDeleted, currentEntry.modelContext != nil else { return nil }
+        guard let currentEntry = currentEntry ?? newEntry.entry, !currentEntry.isDeleted, currentEntry.modelContext != nil else { return nil }
         return currentEntry
     }
 
@@ -88,13 +102,18 @@ struct EntryEditorView: View {
                                 text: textBinding,
                                 isFocused: editorFocused,
                                 focusAtEndToken: focusAtEndToken,
+                                focusOffset: focusOffset,
                                 onFocusChange: { editorFocused = $0 }
                             )
                             .accessibilityIdentifier("entryEditor")
                         }
                         .padding(.horizontal)
                         .onAppear {
-                            guard focusWhenEditorAppears else { return }
+                            // A new entry and Edit on a read one both want the caret at the end of
+                            // the text as soon as the text view exists. Asked for here, from the text
+                            // view's own appearance, rather than from the screen's, which can run
+                            // before the text view has been made and then be treated as handled.
+                            guard focusWhenEditorAppears || entry == nil else { return }
                             focusWhenEditorAppears = false
                             focusAtEndToken += 1
                         }
@@ -103,7 +122,7 @@ struct EntryEditorView: View {
                         Color.clear
                             .frame(minHeight: max(120, proxy.size.height / 2))
                             .contentShape(Rectangle())
-                            .onTapGesture { focusAtEndToken += 1 }
+                            .onTapGesture { focusAtEnd() }
                             .accessibilityHidden(true)
                     }
                 }
@@ -118,6 +137,7 @@ struct EntryEditorView: View {
                 ToolbarItemGroup(placement: .topBarTrailing) {
                     if isReading {
                         Button("Edit") {
+                            focusOffset = nil
                             focusWhenEditorAppears = true
                             isReading = false
                         }
@@ -144,12 +164,6 @@ struct EntryEditorView: View {
                     Menu {
                         Button("Entry date", systemImage: "calendar") { editingDate = true }
                             .accessibilityIdentifier("entryDateButton")
-                        // Insights decide this strictly; the user settles it when they got it wrong.
-                        Button(entry.isCreative ? "This is about my life" : "Mark as creative",
-                               systemImage: entry.isCreative ? "person" : "paintbrush.pointed") {
-                            setCreative(!entry.isCreative, on: entry)
-                        }
-                        .accessibilityIdentifier("toggleCreativeButton")
                         if entry.source == .photo && entry.pagesConfirmed {
                             Button("Edit pages", systemImage: "doc.on.doc") { editingPages = true }
                                 .disabled(pageTranscription.isRunning(entry))
@@ -229,9 +243,6 @@ struct EntryEditorView: View {
         }
         // Opening and closing (presence, delete-if-blank, the AI pass) belong to the route, in
         // EditorLifecycle, so a tab switch or a cover over the editor never closes the entry.
-        .onAppear {
-            if entry == nil { focusAtEndToken += 1 }
-        }
         // One way only: an entry that needs the editor again (new pages, text to review) stops
         // being read, and never flips back by itself.
         .onChange(of: entry.map(EntryReadMode.mustType) ?? true) { _, mustType in
@@ -319,19 +330,28 @@ struct EntryEditorView: View {
             }
             if isReading, let entry {
                 Text(entry.displayTitle)
-                    .font(.system(.title3, design: .serif, weight: .semibold))
+                    .journalText(.title3, weight: .semibold)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.horizontal, 21)
                     .padding(.top, 8)
                     .accessibilityIdentifier("entryTitleText")
             } else {
                 TextField(entry.map(\.displayTitle) ?? "Title", text: titleBinding)
-                    .font(.system(.title3, design: .serif, weight: .semibold))
+                    .journalText(.title3, weight: .semibold)
                     .padding(.horizontal, 21)
                     .padding(.top, 8)
                     .submitLabel(.next)
-                    .onSubmit { focusAtEndToken += 1 }
+                    .onSubmit { focusAtEnd() }
                     .accessibilityIdentifier("entryTitleField")
+            }
+            // What the entry is, settled with a tap. Insights decide it strictly and the user
+            // corrects it here; the row's badge and the map both follow.
+            if let entry {
+                EntryKindPicker(selection: entry.kind, setByUser: entry.creativeSetByUser) { kind in
+                    setKind(kind, on: entry)
+                }
+                .padding(.horizontal, 21)
+                .padding(.top, 10)
             }
             if let entry, entry.awaitingText, entry.text.isEmpty {
                 Text(entry.source == .photo ? "Text from your pages will appear here. You can also start typing." : "Text from your recording will appear here. You can also start typing.")
@@ -471,15 +491,44 @@ struct EntryEditorView: View {
         DiagnosticsLog.shared.record("cleanup.applied", ["id": .id(entry.id), "trigger": "manual"])
     }
 
-    // Marked creative, the entry loses its names, area, mood, and open loose ends at once. Marked
-    // life again, it is read again so they come back, when there is something to read it with.
-    private func setCreative(_ creative: Bool, on entry: Entry) {
+    // Marked creative, the entry loses its names, area, mood, and open loose ends at once; marked
+    // a note, its mood. Marked something that keeps more than before, it is read again so what
+    // was dropped comes back, when there is something to read it with.
+    private func setKind(_ kind: EntryKind, on entry: Entry) {
+        let previous = entry.kind
         saver.flush()
-        graph.setCreative(creative, on: entry, in: modelContext)
-        guard !creative, AIServices.insightsUsable(settings: settings, accounts: accounts) else { return }
+        graph.setKind(kind, on: entry, in: modelContext)
+        guard kind.keepsMore(than: previous), InsightsCoordinator.canRunAI(on: entry),
+              AIServices.insightsUsable(settings: settings, accounts: accounts) else { return }
         let context = modelContext
         let coordinator = insightsCoordinator
         Task { await coordinator.runAI(for: entry, context: context) }
+    }
+
+    // A tap on the text of an entry being read means the user wants to write in it, the way a
+    // tap into a note does. Names stay tappable: their link handler runs on the same tap and
+    // claims it, so the switch is decided a moment later, once both have had their say.
+    private func readTextTapped(at point: CGPoint, in text: String) {
+        let tapped = Date.now
+        // The gesture's point includes the read text's padding.
+        let offset = ReadTapCaret.offset(
+            at: CGPoint(x: point.x - Self.readTextInsets.leading, y: point.y - Self.readTextInsets.top),
+            in: text,
+            width: readTextWidth,
+            font: .journal(.body, design: journalFont.uiDesign),
+            lineSpacing: Self.readLineSpacing
+        )
+        Task {
+            // Long enough for the link handler, which SwiftUI may deliver a beat after the gesture,
+            // and far too short to feel.
+            try? await Task.sleep(for: .milliseconds(150))
+            if let lastLinkTap, abs(lastLinkTap.timeIntervalSince(tapped)) < 0.5 { return }
+            guard isReading else { return }
+            focusOffset = offset
+            focusWhenEditorAppears = true
+            isReading = false
+            DiagnosticsLog.shared.record("editor.editFromReadTap", ["id": entry.map { .id($0.id) } ?? "none"])
+        }
     }
 
     private func revert(_ entry: Entry) {
@@ -492,16 +541,22 @@ struct EntryEditorView: View {
     private func readBody(for entry: Entry) -> some View {
         Text(readText(for: entry))
             .journalText()
-            .lineSpacing(6)
+            .lineSpacing(Self.readLineSpacing)
             .foregroundStyle(Palette.ink)
             .textSelection(.enabled)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, 21)
-            .padding(.top, 8)
+            .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { readTextWidth = $0 }
+            .padding(.horizontal, Self.readTextInsets.leading)
+            .padding(.top, Self.readTextInsets.top)
             .padding(.bottom, 48)
             .accessibilityIdentifier("entryReadText")
+            .accessibilityHint("Tap to edit")
+            .contentShape(Rectangle())
+            // Simultaneous, so it never takes the tap away from a name's link.
+            .simultaneousGesture(SpatialTapGesture().onEnded { readTextTapped(at: $0.location, in: entry.text) })
             // Only the read text opens names, so links in the editor's sheets keep their own handling.
             .environment(\.openURL, OpenURLAction { url in
+                lastLinkTap = .now
                 guard let id = EntryNameLinks.entityID(from: url) else { return .systemAction }
                 peekTarget = PeekTarget(id: id)
                 return .handled
@@ -510,6 +565,15 @@ struct EntryEditorView: View {
                 let candidates = EntryNameLinks.candidates(forEntry: entry.id, graph: graph, in: modelContext)
                 linked = (entry.text, EntryNameLinks.attributed(entry.text, candidates: candidates))
             }
+    }
+
+    static let readLineSpacing: CGFloat = 6
+    static let readTextInsets = EdgeInsets(top: 8, leading: 21, bottom: 48, trailing: 21)
+
+    // Asks the text view for focus with the caret at the end of the text.
+    private func focusAtEnd() {
+        focusOffset = nil
+        focusAtEndToken += 1
     }
 
     // Until links for the current text arrive, the plain text shows rather than stale links.
@@ -544,6 +608,7 @@ struct EntryEditorView: View {
     private func approve(_ entry: Entry) {
         guard entry.approveText() else { return }
         aiPass.fire(for: entry, at: .approved)
+        aiPass.requestTitle(for: entry)
         saver.noteChange()
         saver.flush()
         DiagnosticsLog.shared.record("text.approved", ["id": .id(entry.id)])
@@ -565,6 +630,7 @@ struct EntryEditorView: View {
                     created.id = newEntryID
                     created.isDraft = true
                     modelContext.insert(created)
+                    newEntry.entry = created
                     currentEntry = created
                     DiagnosticsLog.shared.record("entry.created", ["id": .id(created.id), "source": .string(created.source.rawValue)])
                 }
@@ -588,6 +654,7 @@ struct EntryEditorView: View {
                     created.isDraft = true
                     created.userDidEditTitle(newValue)
                     modelContext.insert(created)
+                    newEntry.entry = created
                     currentEntry = created
                     DiagnosticsLog.shared.record("entry.created", ["id": .id(created.id), "source": .string(created.source.rawValue)])
                 }
@@ -674,6 +741,11 @@ struct EntryEditorView: View {
         }
         .buttonStyle(.borderless)
     }
+}
+
+// A box, not a value, so every copy of the editor reads the same entry the moment it exists.
+private final class CreatedEntry {
+    var entry: Entry?
 }
 
 private struct LinksKey: Equatable {

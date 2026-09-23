@@ -261,3 +261,17 @@ Nothing was lost (a failed pop keeps the entry) and `git restore --source=HEAD` 
 Check `git status --short` first and only stash when it shows something, or pop by the entry's
 name (`git stash push -m tag`, then find `tag` in `git stash list`). Better still, test another
 branch in a worktree and leave this one alone.
+
+## A caret fix that passes every simulator test can still fail on the phone
+
+PR #47 fixed "the second keystroke of a new entry goes in front of the first" by never writing back
+text the view had just reported. CI was green and the phone still typed "ewN". Nothing in the
+simulator reproduced it, not `typeText`, not tapping the on-screen keys one at a time at typing
+speed. Numbers-only diagnostics on the phone showed the real sequence in two runs: the first key
+created the entry, and a redraw 15 ms later still read the editor's `@State` from before the write,
+saw no entry, and pushed "" into the text view, which was refilled a frame later with the caret
+left at 0.
+
+For a timing bug in UI code, put counts and positions in `DiagnosticsLog`, deploy, and read
+`launch.sh` output while the user reproduces it, before writing a fix. And don't call a keyboard
+bug fixed until it is checked on the device.

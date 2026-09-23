@@ -8,6 +8,10 @@ import Testing
 // engine can manage. Known misses are asserted as misses, so one starting to work has to be
 // promoted rather than quietly enjoyed.
 nonisolated enum CreativeCorpus {
+    // Life entries that are fair to call a note: a list or notes kept for use. Every other life
+    // item is an account of a day, and filing one as a note would drop its mood.
+    static let mayBeNote: Set<String> = ["grocery list", "to-do bullets", "gratitude list", "standup notes"]
+
     struct Item: Sendable {
         let name: String
         let text: String
@@ -188,17 +192,22 @@ struct CreativeOpenAIQualityTests {
         let key = try #require(ProcessInfo.processInfo.environment["MINDLORE_OPENAI_KEY"])
         let generator = OpenAICompatibleTextGenerator(baseURL: ProviderDefaults.openAIBaseURL, apiKey: key, http: URLSessionHTTPClient())
         var wrong: [String] = []
-        try await withThrowingTaskGroup(of: (String, Bool, Bool).self) { group in
+        try await withThrowingTaskGroup(of: (String, Bool, Bool, Bool).self) { group in
             for item in CreativeCorpus.items {
                 group.addTask {
                     let plan = InsightsPromptBuilder.plan(text: item.text, source: .typed, sections: InsightSections(), vocabulary: .empty, model: ProviderDefaults.textModel)
                     let answer = try await generator.generate(plan.request)
-                    let creative = try InsightsPromptBuilder.parse(answer.text, plan: plan).creative
-                    return (item.name, creative, item.creative)
+                    let kind = try InsightsPromptBuilder.parse(answer.text, plan: plan).kind
+                    return (item.name, kind == .creative, item.creative, kind == .note)
                 }
             }
-            for try await (name, got, expected) in group where got != expected {
-                wrong.append("\(name): got \(got ? "creative" : "life")")
+            for try await (name, got, expected, note) in group {
+                if got != expected {
+                    wrong.append("\(name): got \(got ? "creative" : "life")")
+                } else if note && !CreativeCorpus.mayBeNote.contains(name) {
+                    // A note carries no mood, so an account of a day filed as one loses it silently.
+                    wrong.append("\(name): got note")
+                }
             }
         }
         print("OPENAI CREATIVE wrong=\(wrong)")

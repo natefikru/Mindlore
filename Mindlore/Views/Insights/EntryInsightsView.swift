@@ -62,6 +62,9 @@ struct EntryInsightsView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 12) {
                     statusCard
+                    // What the entry is, where its consequences show: no mood on a note, no
+                    // names on a poem. Outside the state check, like the names the user added.
+                    kindCard
                     // Outside the state check: a name the user added stands whether or not
                     // the insights are current, or there at all.
                     if !added.isEmpty {
@@ -277,6 +280,26 @@ struct EntryInsightsView: View {
         }
     }
 
+    private var kindCard: some View {
+        InsightCard(title: "This entry is") {
+            EntryKindPicker(selection: entry.kind, setByUser: entry.creativeSetByUser, showsMeaning: true) { kind in
+                setKind(kind)
+            }
+        }
+    }
+
+    // The same rule as the editor's picker: what the new kind drops goes at once, and what it
+    // brings back is read again when there is something to read it with.
+    private func setKind(_ kind: EntryKind) {
+        let previous = entry.kind
+        saver.flush()
+        graph.setKind(kind, on: entry, in: modelContext)
+        guard kind.keepsMore(than: previous), InsightsCoordinator.canRunAI(on: entry),
+              AIServices.insightsUsable(settings: settings, accounts: accounts) else { return }
+        let context = modelContext
+        Task { await insightsCoordinator.runAI(for: entry, context: context) }
+    }
+
     // Names the user added by hand. Each opens its page; the menu takes it off this entry.
     private var addedCard: some View {
         InsightCard(title: "Added by you") {
@@ -350,6 +373,7 @@ struct EntryInsightsView: View {
     private func approve() {
         guard entry.approveText() else { return }
         aiPass.fire(for: entry, at: .approved)
+        aiPass.requestTitle(for: entry)
         saver.noteChange()
         saver.flush()
         DiagnosticsLog.shared.record("text.approved", ["id": .id(entry.id), "from": "insights"])
@@ -414,7 +438,8 @@ struct WhatWasSentView: View {
         if settings.insightMentions { names.append("Mentioned") }
         if settings.insightLooseEnds { names.append("Loose ends") }
         if settings.insightCleanedText && (source == .voice || source == .photo) { names.append("Cleaned-up text") }
-        if settings.suggestEntryDates && source == .typed { names.append("Written date") }
+        if settings.suggestEntryDates && (source == .typed || source == .photo) { names.append("Written date") }
+        if settings.insightTags || settings.insightMentions || settings.insightLifeAreas { names.append("Parts by topic") }
         names.append(contentsOf: settings.customInsightPrompts.filter(\.enabled).map(\.name))
         return names
     }

@@ -17,6 +17,9 @@ final class KeepScreenshotTests: XCTestCase {
         app.launch()
 
         app.buttons["newVoiceEntryButton"].tap()
+        let start = app.buttons["startRecordingButton"]
+        XCTAssertTrue(start.waitForExistence(timeout: 5))
+        start.tap()
         let finish = app.buttons["finishRecordingButton"]
         XCTAssertTrue(finish.waitForExistence(timeout: 5))
         wait(for: [expectation(for: NSPredicate(format: "isEnabled == true"), evaluatedWith: finish)], timeout: 5)

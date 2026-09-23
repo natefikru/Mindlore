@@ -373,9 +373,11 @@ final class GraphServices {
 
         let links = indexer.allLinks(in: context)
         let entryIDs = Set(links.compactMap(\.entryID))
+        let fetched = ((try? context.fetch(FetchDescriptor<Entry>(predicate: #Predicate { entryIDs.contains($0.id) }))) ?? [])
+            .filter { !$0.isDeleted }
+        let partContexts = Self.partContexts(for: fetched)
         let entries = Dictionary(
-            (((try? context.fetch(FetchDescriptor<Entry>(predicate: #Predicate { entryIDs.contains($0.id) }))) ?? [])
-                .filter { !$0.isDeleted }
+            fetched
                 .map { entry in
                     (entry.id, MindMapSnapshot.EntryInfo(
                         id: entry.id,
@@ -383,7 +385,7 @@ final class GraphServices {
                         areas: entry.insights?.areas ?? [],
                         mood: entry.insights?.primaryMood?.category
                     ))
-                }),
+                },
             uniquingKeysWith: { first, _ in first }
         )
 
@@ -392,13 +394,48 @@ final class GraphServices {
                   let entry = entries[entryID],
                   let root = root(of: linkEntityID), root.isBrowsable
             else { return nil }
-            return .init(entryID: entryID, entityID: root.id, entryDate: entry.date)
+            return .init(entryID: entryID, entityID: root.id, entryDate: entry.date, parts: Self.parts(of: link, root: root, in: partContexts))
         }
 
         let browsable = Dictionary(uniqueKeysWithValues: entities.filter(\.isBrowsable).map {
             ($0.id, MindMapSnapshot.EntityInfo(id: $0.id, name: $0.name, kind: $0.kind))
         })
         return MindMapSnapshot(entities: browsable, links: inputs, entries: entries)
+    }
+
+    // Entries the insights divided into two or more parts, each with the text its offsets were
+    // read from. That is the entry's text while it is still what was analyzed; after a cleanup
+    // it is the original the cleanup replaced, since cleanup drops fillers and every boundary
+    // after the first would land a few words late in the cleaned text. After any other edit
+    // there is no such text, and only the model's own lists place names.
+    static func partContexts(for entries: [Entry]) -> [UUID: EntryParts.Context] {
+        var contexts: [UUID: EntryParts.Context] = [:]
+        for entry in entries {
+            guard let insights = entry.insights else { continue }
+            let sections = insights.sections
+            guard sections.count > 1 else { continue }
+            contexts[entry.id] = EntryParts.Context(sections: sections, text: analyzedText(of: entry, insights: insights))
+        }
+        return contexts
+    }
+
+    static func analyzedText(of entry: Entry, insights: EntryInsights) -> String? {
+        let current = TextHash.of(entry.text)
+        if current == insights.sourceTextHash { return entry.text }
+        if current == entry.cleanupAppliedHash, let original = entry.originalText,
+           TextHash.of(original) == insights.sourceTextHash {
+            return original
+        }
+        return nil
+    }
+
+    // A link's parts, by what the entry wrote and what the name is now called: a merge or a
+    // rename since the run still finds the part the model listed it under.
+    static func parts(of link: EntityLink, root: Entity, in contexts: [UUID: EntryParts.Context]) -> Set<Int>? {
+        guard let entryID = link.entryID, let context = contexts[entryID] else { return nil }
+        var surfaces = [link.surface, root.name] + root.aliases
+        if let written = link.writtenSurface { surfaces.append(written) }
+        return context.parts(surfaces: surfaces, isTag: link.kind == .tag)
     }
 
     // Kept per revision: the map asks on every refresh, and what it draws only moves when
@@ -567,17 +604,23 @@ final class GraphServices {
         let links = indexer.allLinks(in: context)
         let entryIDs = Set(links.compactMap(\.entryID))
         guard !entryIDs.isEmpty else { return [] }
-        let entryDates = Dictionary(uniqueKeysWithValues:
-            (((try? context.fetch(FetchDescriptor<Entry>(predicate: #Predicate { entryIDs.contains($0.id) }))) ?? [])
-                .filter { !$0.isDeleted }
-                .map { ($0.id, $0.entryDate) }))
+        let fetched = ((try? context.fetch(FetchDescriptor<Entry>(predicate: #Predicate { entryIDs.contains($0.id) }))) ?? [])
+            .filter { !$0.isDeleted }
+        let entryDates = Dictionary(fetched.map { ($0.id, $0.entryDate) }, uniquingKeysWith: { first, _ in first })
+        // Only an entry the subject is in can give it an edge, so only those are placed: this
+        // page reads the whole store on every revision, and placing reads each entry's text.
+        let subjectEntries = Set(links.compactMap { link -> UUID? in
+            guard let entityID = link.entityID, root(of: entityID)?.id == subjectRoot.id else { return nil }
+            return link.entryID
+        })
+        let partContexts = Self.partContexts(for: fetched.filter { subjectEntries.contains($0.id) })
 
         let inputs: [EntityGraph.LinkInput] = links.compactMap { link in
             guard let linkEntityID = link.entityID, let entryID = link.entryID,
                   let entryDate = entryDates[entryID],
                   let root = root(of: linkEntityID), root.isBrowsable
             else { return nil }
-            return .init(entryID: entryID, entityID: root.id, entryDate: entryDate)
+            return .init(entryID: entryID, entityID: root.id, entryDate: entryDate, parts: Self.parts(of: link, root: root, in: partContexts))
         }
 
         let edges = EntityGraph.build(links: inputs)
@@ -678,21 +721,30 @@ final class GraphServices {
         revision += 1
     }
 
-    // The user's call that an entry is, or isn't, creative work. Marked creative, it loses its
-    // AI names, its area, and the open loose ends it raised, at once and with no AI call; the
-    // ones the user touched stay theirs. Marked life, the caller reruns insights so they return.
-    // Callers flush EntrySaver first.
-    func setCreative(_ creative: Bool, on entry: Entry, in context: ModelContext) {
-        entry.setCreativeByUser(creative)
-        if creative {
+    // The user's call on what an entry is. Marked creative, it loses its AI names, its area, its
+    // mood, and the open loose ends it raised, at once and with no AI call; marked a note it loses
+    // only its mood; the ones the user touched stay theirs. Marked something that keeps more than
+    // before, the caller reruns insights so they return. Callers flush EntrySaver first.
+    func setKind(_ kind: EntryKind, on entry: Entry, in context: ModelContext) {
+        entry.setKindByUser(kind)
+        if !kind.keepsMoods {
             entry.insights?.setMoods(primary: nil, secondary: [], editedByUser: false)
+        }
+        if !kind.keepsAreas {
             entry.insights?.areas = []
+        }
+        if !kind.keepsSections {
+            entry.insights?.sections = []
+        }
+        if !kind.keepsMentions {
             entry.insights?.mentions = []
+            indexer.index(entry, in: context)
+        }
+        if !kind.keepsLooseEnds {
             let entryID = entry.id
             for looseEnd in LooseEnd.all(in: context) where looseEnd.sourceEntryID == entryID && looseEnd.isOpen && !looseEnd.userTouched {
                 looseEnd.setStatus(.dismissed, at: .now)
             }
-            indexer.index(entry, in: context)
         }
         indexer.recount(in: context)
         do {
@@ -700,8 +752,12 @@ final class GraphServices {
         } catch {
             diagnostics.record("graph.saveFailed", ["error": .errorCode(error)])
         }
-        diagnostics.record("entry.creativeSet", ["id": .id(entry.id), "creative": .bool(creative)])
+        diagnostics.record("entry.kindSet", ["id": .id(entry.id), "kind": .string(kind.rawValue)])
         revision += 1
+    }
+
+    func setCreative(_ creative: Bool, on entry: Entry, in context: ModelContext) {
+        setKind(creative ? .creative : .journal, on: entry, in: context)
     }
 
     // After an insights run wrote this entry. The coordinator saves afterwards, and the bump

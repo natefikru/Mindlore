@@ -33,6 +33,7 @@ nonisolated enum AskContextBuilder {
         let text: String
         var entityIDs: [UUID] = []
         var isCreative = false
+        var isNote = false
     }
 
     nonisolated struct EntityInput: Equatable, Sendable {
@@ -231,13 +232,20 @@ nonisolated enum AskContextBuilder {
 
     // Said on the block itself, so a lyric about Memphis never answers "have I been to Memphis?".
     static let creativeMarker = " (a creative piece the author wrote, not an account of events)"
+    // A list or a plan is what the author kept, not what happened to them that day. Shorter than
+    // the creative marker, which is what the character estimate above is sized on.
+    static let noteMarker = " (a note the author kept, not an account of a day)"
 
-    static func block(handle: String, date: Date, title: String, text: String, creative: Bool = false) -> String {
+    static func block(handle: String, date: Date, title: String, text: String, creative: Bool = false, note: Bool = false) -> String {
         var header = "[\(handle)] \(dateFormatter.string(from: date))"
         if let title = InsightsPromptBuilder.promptSafe(sanitized(title)) {
             header += " \(title)"
         }
-        if creative { header += creativeMarker }
+        if creative {
+            header += creativeMarker
+        } else if note {
+            header += noteMarker
+        }
         return "\(header)\n\(openDelimiter)\n\(text)\n\(closeDelimiter)"
     }
 
@@ -355,7 +363,7 @@ nonisolated enum AskContextBuilder {
             guard !body.isEmpty else { return }
             let existing = context.handles.first { $0.value == entry.id }?.key
             let handle = existing ?? "E\(nextHandle)"
-            let rendered = block(handle: handle, date: entry.date, title: entry.title, text: body, creative: entry.isCreative)
+            let rendered = block(handle: handle, date: entry.date, title: entry.title, text: body, creative: entry.isCreative, note: entry.isNote)
             // A block that doesn't fit is skipped whole; a smaller one later can still go in,
             // and the handle it would have taken stays free.
             guard append(Block(text: rendered, entryID: entry.id)) else { return }

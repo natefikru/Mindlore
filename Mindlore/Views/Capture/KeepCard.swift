@@ -109,7 +109,7 @@ struct KeepCard: View {
             VStack(alignment: .leading, spacing: 6) {
                 if !entry.title.isEmpty {
                     Text(entry.title)
-                        .font(.system(.headline, design: .serif))
+                        .journalText(.headline)
                         .transition(.bloom)
                 }
                 Text(entry.text)

@@ -54,7 +54,7 @@ struct AskView: View {
 
         NavigationStack {
             conversation
-            .navigationTitle("Ask")
+            .navigationTitle("Chat")
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     Button("History", systemImage: "clock.arrow.circlepath") { showsHistory = true }
@@ -348,9 +348,9 @@ struct AskView: View {
     private func unavailableMessage(_ failure: AIJobFailure) -> String {
         switch failure.raw {
         case "settings.off" where !settings.hasChosenAskGenerator:
-            "Ask needs an OpenAI key on this iPhone. Search works either way."
+            "Chat needs an OpenAI key on this iPhone. Search works either way."
         case "settings.off":
-            "Ask is off in Settings. Search works either way."
+            "Chat is off in Settings. Search works either way."
         case "settings.aiOff", "ai.missingKey":
             "Turn on AI in Settings to ask questions. Search works either way."
         default:
