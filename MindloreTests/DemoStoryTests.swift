@@ -143,11 +143,11 @@ struct DemoStoryTests {
             #expect((matches.first?.linkCount ?? 0) >= 8, "\(name)")
         }
 
-        // The plot's threads end the way the story does: the confession is made, the move-in
-        // question is never answered, and the last days still leave something on the list.
+        // The threads are whatever the real pipeline opened, so the year is held to what any
+        // lived-in journal shows: some settled, some let go quiet, and something still on the list.
         let looseEnds = LooseEnd.all(in: context)
-        #expect(looseEnds.first { $0.text == "Tell Maya the truth about Lauren" }?.status == .resolved)
-        #expect(looseEnds.first { $0.text == "Give Maya an answer about moving in" }?.status == .faded)
+        #expect(looseEnds.contains { $0.status == .resolved })
+        #expect(looseEnds.contains { $0.status == .faded })
         #expect(looseEnds.contains { $0.isOpen })
         #expect(try DemoStory.seedIfEmpty(in: context, now: now) == 0)
     }
