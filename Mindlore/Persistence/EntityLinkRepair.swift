@@ -8,7 +8,11 @@ import SwiftData
 enum EntityLinkRepair {
     @discardableResult
     static func run(in context: ModelContext) throws -> Int {
-        let empty = try context.fetch(FetchDescriptor<EntityLink>(predicate: #Predicate { $0.linkedEntity == nil && $0.entityID != nil }))
+        // The emptiness is checked here, not in a predicate: `linkedEntity == nil` in #Predicate
+        // matched every link on the phone, so each launch rewrote all of them and re-uploaded
+        // them to iCloud.
+        let empty = try context.fetch(FetchDescriptor<EntityLink>(predicate: #Predicate { $0.entityID != nil }))
+            .filter { $0.linkedEntity == nil }
         guard !empty.isEmpty else { return 0 }
         let entities = Dictionary(try context.fetch(FetchDescriptor<Entity>()).map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         var repaired = 0

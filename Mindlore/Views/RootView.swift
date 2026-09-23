@@ -24,6 +24,8 @@ struct RootView: View {
     @State private var reminder = DailyReminder()
     @State private var lock: AppLock
     @Environment(SettingsStore.self) private var settings
+    @Environment(JournalRecovery.self) private var recovery
+    @Environment(SyncStatusMonitor.self) private var sync
     @Environment(ProviderAccountStore.self) private var accounts
     @State private var confirmingDiscard = false
     @State private var showingWelcome = false
@@ -261,6 +263,10 @@ struct RootView: View {
                 )
                 .transition(.opacity)
             }
+        }
+        // Whether to offer the safety copy back: at launch, and each time sync settles.
+        .task(id: sync.status.diagnosticName) {
+            recovery.check(in: context, status: sync.status)
         }
         .onAppear {
             lock.lockAtLaunch()

@@ -32,7 +32,9 @@ extension ModelContext {
         stampChangedEntries(at: date, except: unstamped)
         // Read before the save, which clears them.
         let touchedJournal = touchesJournal
+        let backups = EntryBackups.pending(in: self)
         try save()
+        EntryBackups.of(self)?.apply(backups)
         if touchedJournal { JournalSaves.recordSave() }
     }
 

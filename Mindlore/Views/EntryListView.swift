@@ -6,6 +6,7 @@ struct EntryListView: View {
     @Environment(EntrySaver.self) private var saver
     @Environment(GraphServices.self) private var graph
     @Environment(SettingsStore.self) private var settings
+    @Environment(JournalRecovery.self) private var recovery
     // Backdated entries share noon of their day, so createdAt keeps their order stable.
     @Query(sort: [SortDescriptor(\Entry.entryDate, order: .reverse), SortDescriptor(\Entry.createdAt, order: .reverse)])
     private var entries: [Entry]
@@ -41,6 +42,12 @@ struct EntryListView: View {
         @Bindable var router = router
         NavigationStack(path: $router.journalPath) {
             List {
+                if recovery.showsBanner {
+                    RestoreBanner()
+                        .listRowInsets(EdgeInsets())
+                        .listRowBackground(Color.clear)
+                        .listRowSeparator(.hidden)
+                }
                 if !today.isEmpty {
                     TodayHeader(
                         today: today,
@@ -77,7 +84,7 @@ struct EntryListView: View {
             .task(id: todayFingerprint) { refreshToday() }
             .undoPill(undo)
             .overlay {
-                if visibleEntries.isEmpty {
+                if visibleEntries.isEmpty, !recovery.showsBanner {
                     // The toolbar's glyphs carry no words, so the empty state names what they do
                     // and offers the two that start an entry.
                     ContentUnavailableView {
@@ -516,6 +523,7 @@ private struct EntryRow: View {
         .modelContainer(container)
         .environment(EntrySaver(context: container.mainContext))
         .environment(GraphServices())
+        .environment(JournalRecovery(backups: EntryBackups(folder: URL.temporaryDirectory), enabled: false))
         .environment(TranscriptionCoordinator())
         .environment(EditorPresence())
         .environment(AppRouter(opened: { _ in }, closed: { _ in }))
