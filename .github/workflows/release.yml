@@ -1,29 +1,46 @@
 # Archive, sign, and upload a build to TestFlight.
 #
-# Inert until the project is on a paid Apple Developer team. The job is gated on the repository
-# variable RELEASE_ENABLED; with it unset, a tag or a manual run does nothing. Turning it on
-# takes the values listed under "Placeholders" in docs/remaining-work.md:
+# Runs on its own after every push to main whose CI run passed (the unit job is the only thing
+# that can fail a CI run; the UI shards and live tests are advisory), on a v* tag, and by hand.
+# A build lands in TestFlight about 10 to 20 minutes after the upload, and an internal testing
+# group with automatic distribution hands it to the phone without anyone clicking anything.
+#
+# Gated on the repository variable RELEASE_ENABLED; with it unset, nothing runs. Turning it on
+# takes these values (scripts/release/set-secrets.sh sets them all):
 #
 #   vars.RELEASE_ENABLED                    "true"
-#   vars.APPLE_TEAM_ID                      the paid team's ID (the project still carries the
-#                                           Personal Team's; DEVELOPMENT_TEAM below overrides it)
+#   vars.APPLE_TEAM_ID                      the team's ID (7DZBU56KUA)
 #   secrets.APPLE_DISTRIBUTION_P12_BASE64   Apple Distribution certificate + private key, base64
 #   secrets.APPLE_DISTRIBUTION_P12_PASSWORD its password
+#   secrets.APPSTORE_PROFILE_BASE64         an App Store provisioning profile for
+#                                           com.natefikru.mindlore, base64
 #   secrets.ASC_KEY_ID                      App Store Connect API key ID
 #   secrets.ASC_ISSUER_ID                   App Store Connect issuer ID
 #   secrets.ASC_API_KEY_P8                  the .p8 contents
 #
-# The provisioning profile is not a secret here: with the API key, -allowProvisioningUpdates
-# lets xcodebuild create or refresh it. The build number is the run number, so TestFlight
-# never sees the same one twice; the marketing version stays in the project.
+# Signing is manual here, while the project stays automatic for Xcode and the phone. Automatic
+# signing archives with an Apple Development identity and re-signs on export, so a runner with
+# only a distribution certificate either fails the archive or has xcodebuild mint a new
+# development certificate every run until the account hits its limit. The profile has to be
+# regenerated when a capability changes (iCloud, for one) and once a year when it expires.
+#
+# The build number is <run number>.<attempt>, so neither a new run nor "Re-run jobs" hands
+# TestFlight a number it has seen; the marketing version stays in the project. A workflow_run
+# event always runs this file as it is on main, not as it was at the commit CI tested.
 
 name: Release
 
 on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
   push:
     tags: ["v*"]
   workflow_dispatch:
 
+# An upload in flight finishes; a newer run waits behind it, and GitHub drops any older waiting one,
+# so a burst of merges uploads the first and the last.
 concurrency:
   group: release
   cancel-in-progress: false
@@ -34,20 +51,34 @@ env:
 jobs:
   testflight:
     name: TestFlight
-    if: vars.RELEASE_ENABLED == 'true'
+    # From CI, only a push to main that passed: not a UI run ui-label.yml dispatched for a pull
+    # request's branch, and not a run a newer push cancelled (that newer run releases instead).
+    if: >-
+      vars.RELEASE_ENABLED == 'true' &&
+      (github.event_name != 'workflow_run' ||
+        (github.event.workflow_run.conclusion == 'success' &&
+         github.event.workflow_run.event == 'push' &&
+         github.event.workflow_run.head_branch == 'main'))
     runs-on: macos-26
     timeout-minutes: 60
     env:
       ARCHIVE: ${{ github.workspace }}/build/Mindlore.xcarchive
       EXPORT_DIR: ${{ github.workspace }}/build/export
     steps:
+      # A workflow_run event carries main's latest commit, not the one CI tested; check out the
+      # tested one.
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
 
       # The runner context is not available in a job's env block, so the temp paths are set here.
       - name: Set temp paths
         run: |
-          echo "KEYCHAIN=$RUNNER_TEMP/release.keychain-db" >> "$GITHUB_ENV"
-          echo "ASC_KEY_PATH=$RUNNER_TEMP/AuthKey.p8" >> "$GITHUB_ENV"
+          {
+            echo "KEYCHAIN=$RUNNER_TEMP/release.keychain-db"
+            echo "ASC_KEY_PATH=$RUNNER_TEMP/AuthKey.p8"
+            echo "PROFILE_PATH=$RUNNER_TEMP/appstore.mobileprovision"
+          } >> "$GITHUB_ENV"
 
       - name: Select Xcode ${{ env.XCODE_VERSION }}
         run: sudo xcode-select -s "/Applications/Xcode_${XCODE_VERSION}.app" && xcodebuild -version
@@ -68,6 +99,24 @@ jobs:
           security list-keychains -d user -s "$KEYCHAIN" login.keychain-db
           rm -f "$p12"
 
+      - name: Install the App Store provisioning profile
+        env:
+          PROFILE_BASE64: ${{ secrets.APPSTORE_PROFILE_BASE64 }}
+        run: |
+          echo "$PROFILE_BASE64" | base64 --decode > "$PROFILE_PATH"
+          security cms -D -i "$PROFILE_PATH" > "$RUNNER_TEMP/profile.plist"
+          uuid="$(/usr/libexec/PlistBuddy -c 'Print :UUID' "$RUNNER_TEMP/profile.plist")"
+          name="$(/usr/libexec/PlistBuddy -c 'Print :Name' "$RUNNER_TEMP/profile.plist")"
+          expires="$(/usr/libexec/PlistBuddy -c 'Print :ExpirationDate' "$RUNNER_TEMP/profile.plist")"
+          echo "Profile \"$name\" ($uuid), expires $expires"
+          # Xcode 16 and later read profiles from here; the older folder is kept for good measure.
+          for dir in "$HOME/Library/Developer/Xcode/UserData/Provisioning Profiles" \
+                     "$HOME/Library/MobileDevice/Provisioning Profiles"; do
+            mkdir -p "$dir"
+            cp "$PROFILE_PATH" "$dir/$uuid.mobileprovision"
+          done
+          echo "PROFILE_NAME=$name" >> "$GITHUB_ENV"
+
       - name: Install the App Store Connect API key
         env:
           ASC_API_KEY_P8: ${{ secrets.ASC_API_KEY_P8 }}
@@ -77,8 +126,6 @@ jobs:
 
       - name: Archive
         env:
-          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
-          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
           TEAM_ID: ${{ vars.APPLE_TEAM_ID }}
         run: |
           set -o pipefail
@@ -88,12 +135,11 @@ jobs:
             -configuration Release \
             -destination "generic/platform=iOS" \
             -archivePath "$ARCHIVE" \
-            -allowProvisioningUpdates \
-            -authenticationKeyPath "$ASC_KEY_PATH" \
-            -authenticationKeyID "$ASC_KEY_ID" \
-            -authenticationKeyIssuerID "$ASC_ISSUER_ID" \
             DEVELOPMENT_TEAM="$TEAM_ID" \
-            CURRENT_PROJECT_VERSION="${{ github.run_number }}" \
+            CODE_SIGN_STYLE=Manual \
+            CODE_SIGN_IDENTITY="Apple Distribution" \
+            PROVISIONING_PROFILE_SPECIFIER="$PROFILE_NAME" \
+            CURRENT_PROJECT_VERSION="${{ github.run_number }}.${{ github.run_attempt }}" \
             | xcbeautify --renderer github-actions
 
       - name: Export and upload to TestFlight
@@ -110,7 +156,12 @@ jobs:
             <key>method</key><string>app-store-connect</string>
             <key>destination</key><string>upload</string>
             <key>teamID</key><string>$TEAM_ID</string>
-            <key>signingStyle</key><string>automatic</string>
+            <key>signingStyle</key><string>manual</string>
+            <key>signingCertificate</key><string>Apple Distribution</string>
+            <key>provisioningProfiles</key>
+            <dict>
+              <key>com.natefikru.mindlore</key><string>$PROFILE_NAME</string>
+            </dict>
             <key>uploadSymbols</key><true/>
             <key>manageAppVersionAndBuildNumber</key><false/>
           </dict>
@@ -131,4 +182,4 @@ jobs:
         if: always()
         run: |
           security delete-keychain "$KEYCHAIN" || true
-          rm -f "$ASC_KEY_PATH"
+          rm -f "$ASC_KEY_PATH" "$PROFILE_PATH"

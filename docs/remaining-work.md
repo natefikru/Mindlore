@@ -195,21 +195,35 @@ spike was built and rejected on 2026-09-21; 2D ships).
 
 ## 5. Blocked
 
-- **iCloud sync** needs the paid Apple Developer Program: CloudKit entitlements don't exist on the
-  Personal Team. The schema is already CloudKit-safe (`CloudKitSchemaRulesTests`), and
-  `AppConfig.cloudKitContainerID` switches it on. The v1 plan (`tasks/archive/v1-capture-storage.md`)
-  has the design, including recovery and the cross-device transcription rule.
+- **iCloud sync** is unblocked: the paid program went live on 2026-09-23 on the same team ID. The
+  plan is `tasks/icloud-sync.md`, awaiting approval.
 - **A paid tier** (build plan Phase 6: a thin proxy backend, metering, RevenueCat). Not started, and
   a business decision before it's an engineering one.
 - **B8** until its signing spike runs.
-- **TestFlight from CI.** `.github/workflows/release.yml` is written and gated off. Once the paid
-  team exists, in the GitHub repo settings: set the variable `RELEASE_ENABLED` to `true` and
-  `APPLE_TEAM_ID` to the new team's ID; add the secrets `APPLE_DISTRIBUTION_P12_BASE64` and
-  `APPLE_DISTRIBUTION_P12_PASSWORD` (an Apple Distribution certificate exported from Keychain
-  Access, `base64 -i cert.p12 | pbcopy`), and `ASC_KEY_ID`, `ASC_ISSUER_ID`, `ASC_API_KEY_P8`
-  (an App Store Connect API key with the Developer role). Then push a `v*` tag or run the
-  workflow by hand. The app record in App Store Connect has to exist first; the build number is
-  the run number, the version stays `MARKETING_VERSION` in the project.
+
+
+## TestFlight
+
+`.github/workflows/release.yml` uploads a build after every push to `main` whose CI run passed, on
+a `v*` tag, and by hand (`gh workflow run release.yml --ref main`). It stays off until the one-time
+setup below, all of it outside the repo:
+
+1. App Store Connect, Apps, +: a new iOS app for bundle ID `com.natefikru.mindlore`.
+2. Xcode, Settings, Accounts, Manage Certificates, +, Apple Distribution. Then in Keychain Access,
+   export that certificate with its key as a `.p12`, with a password.
+3. developer.apple.com, Profiles, +, App Store Connect, `com.natefikru.mindlore`, the distribution
+   certificate. Download it.
+4. App Store Connect, Users and Access, Integrations, App Store Connect API: a team key with the
+   Developer role, which is enough to upload. Download the `.p8` (only offered once) and note the issuer ID.
+5. `scripts/release/set-secrets.sh <p12> <profile> <AuthKey_ID.p8> <issuer-id>` loads all of it
+   into GitHub and sets `RELEASE_ENABLED`.
+6. App Store Connect, the app, TestFlight: an internal group with yourself in it and automatic
+   distribution on. Install TestFlight on the phone and turn on automatic updates for Mindlore.
+
+A TestFlight build is Release, so `DiagnosticsLog` is silent and the device smoke loop still uses
+`scripts/device/deploy.sh`. Regenerate the profile and rerun step 5 when a capability is added
+(iCloud will be) and before the profile's yearly expiry. Once sync ships, deploy the CloudKit
+schema to production before the build that changes it, since TestFlight talks to production.
 
 Not blocked, but done in the GitHub UI rather than the repo: under Branches, protect `main` and
 require the `Unit tests` check; the UI shards stay advisory on pull requests (add the `ui` label to
