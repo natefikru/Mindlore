@@ -135,7 +135,8 @@ enum DemoJournal {
         var title: String
         var text: String
         var summary: String
-        var primaryMood: Mood
+        // None for a note or a creative piece, which carry no mood.
+        var primaryMood: Mood?
         var secondaryMood: Mood?
         var areas: [LifeArea]
         var tags: [String]
@@ -143,6 +144,9 @@ enum DemoJournal {
         // A thread this entry leaves open, and the index of an earlier entry whose thread it settles.
         var opens: Thread?
         var settles: Int?
+        var kind: EntryKind = .journal
+        // The entry divided by topic, as an insights run would store it.
+        var sections: [EntrySection] = []
     }
 
     // Deterministic for a given count and date: the same seed always writes the same journal.
@@ -235,6 +239,7 @@ enum DemoJournal {
         entry.title = draft.title
         entry.titleWasGenerated = true
         entry.automaticAIPassUsed = true
+        entry.kind = draft.kind
         context.insert(entry)
 
         let insights = EntryInsights(
@@ -249,6 +254,7 @@ enum DemoJournal {
         insights.areas = draft.areas
         insights.tags = draft.tags
         insights.mentions = draft.mentions
+        insights.sections = draft.sections
         return entry
     }
 
