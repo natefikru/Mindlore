@@ -263,6 +263,26 @@ struct GraphServicesTests {
         #expect(limited.map(\.id) == [tom.id])
     }
 
+    // Ordered by shared entries, the number the card and the page print, not the decayed weight:
+    // two old entries with Tom beat one from yesterday with Ana, whose weight is higher.
+    @Test func mentionedWithOrdersBySharedEntriesBeforeWeight() throws {
+        let now = Date.now
+        let old = now.addingTimeInterval(-400 * 86_400)
+        try harness.entry(entryDate: old, mentions: [("Sarah", .person), ("Tom", .person)])
+        try harness.entry(entryDate: old, mentions: [("Sarah", .person), ("Tom", .person)])
+        try harness.entry(entryDate: now, mentions: [("Sarah", .person), ("Ana", .person)])
+        harness.indexer.sweep(in: harness.context)
+        let sarah = try harness.entity("Sarah")
+        let tom = try harness.entity("Tom")
+        let ana = try harness.entity("Ana")
+
+        let found = services.mentionedWith(of: sarah.id, in: harness.context)
+
+        #expect(found.map(\.id) == [tom.id, ana.id])
+        #expect(found.map(\.entries) == [2, 1])
+        #expect(found[0].weight < found[1].weight, "Tom's two entries are older than a half-life, so weight alone would put Ana first")
+    }
+
     @Test func mentionedWithIsEmptyForAnEntityWithNothingToShare() throws {
         try harness.entry(mentions: [("Sarah", .person)])
         harness.indexer.sweep(in: harness.context)

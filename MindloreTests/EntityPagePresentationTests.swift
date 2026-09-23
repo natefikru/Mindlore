@@ -133,8 +133,8 @@ struct EntityPagePresentationTests {
     // MARK: - Mentioned with
 
     @Test func coOccurrenceRowsPreservesOrder() {
-        let tom = GraphServices.CoOccurrence(id: a, name: "Tom", kind: .person, weight: 2)
-        let ana = GraphServices.CoOccurrence(id: b, name: "Ana", kind: .person, weight: 1)
+        let tom = GraphServices.CoOccurrence(id: a, name: "Tom", kind: .person, weight: 2, entries: 2)
+        let ana = GraphServices.CoOccurrence(id: b, name: "Ana", kind: .person, weight: 1, entries: 1)
 
         #expect(P.coOccurrenceRows([tom, ana]) == [
             .init(id: a, name: "Tom", kind: .person),

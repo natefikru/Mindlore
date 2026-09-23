@@ -9,6 +9,7 @@ nonisolated struct MindMapSnapshot: Sendable {
         let id: UUID
         let name: String
         let kind: EntityKind
+        var aliases: [String] = []
     }
 
     struct EntryInfo: Equatable, Sendable {
@@ -21,6 +22,16 @@ nonisolated struct MindMapSnapshot: Sendable {
     let entities: [UUID: EntityInfo]
     let links: [EntityGraph.LinkInput]
     let entries: [UUID: EntryInfo]
+    // The date of every non-draft entry, linked or not: the "of your last M entries" a share is
+    // measured against. `entries` only holds the ones something links to.
+    let entryDates: [Date]
+
+    init(entities: [UUID: EntityInfo], links: [EntityGraph.LinkInput], entries: [UUID: EntryInfo], entryDates: [Date] = []) {
+        self.entities = entities
+        self.links = links
+        self.entries = entries
+        self.entryDates = entryDates
+    }
 
     static let empty = MindMapSnapshot(entities: [:], links: [], entries: [:])
 

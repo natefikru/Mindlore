@@ -402,9 +402,11 @@ final class GraphServices {
         }
 
         let browsable = Dictionary(uniqueKeysWithValues: entities.filter(\.isBrowsable).map {
-            ($0.id, MindMapSnapshot.EntityInfo(id: $0.id, name: $0.name, kind: $0.kind))
+            ($0.id, MindMapSnapshot.EntityInfo(id: $0.id, name: $0.name, kind: $0.kind, aliases: $0.aliases))
         })
-        return MindMapSnapshot(entities: browsable, links: inputs, entries: entries)
+        let allEntries = (try? context.fetch(FetchDescriptor<Entry>(predicate: #Predicate { !$0.isDraft }))) ?? []
+        let entryDates = allEntries.filter { !$0.isDeleted }.map(\.entryDate)
+        return MindMapSnapshot(entities: browsable, links: inputs, entries: entries, entryDates: entryDates)
     }
 
     // Entries the insights divided into two or more parts, each with the text its offsets were
@@ -589,6 +591,8 @@ final class GraphServices {
         let name: String
         let kind: EntityKind
         let weight: Double
+        // Entries the two share, placed by parts the way the map's edges are.
+        let entries: Int
     }
 
     // "Mentioned with" on an entity page. Resolves merges and hidden entities against one
@@ -633,16 +637,24 @@ final class GraphServices {
         }
 
         let edges = EntityGraph.build(links: inputs)
-        let touching = edges.compactMap { edge -> (UUID, Double)? in
-            if edge.a == subjectRoot.id { return (edge.b, edge.weight) }
-            if edge.b == subjectRoot.id { return (edge.a, edge.weight) }
+        let touching = edges.compactMap { edge -> (id: UUID, edge: EntityGraph.Edge)? in
+            if edge.a == subjectRoot.id { return (edge.b, edge) }
+            if edge.b == subjectRoot.id { return (edge.a, edge) }
             return nil
         }
 
+        // Most shared entries first, the number the card and the page print; the decayed weight
+        // breaks a tie toward whoever shared one more lately.
         return touching
-            .sorted { $0.1 > $1.1 }
+            .sorted { lhs, rhs in
+                if lhs.edge.entries != rhs.edge.entries { return lhs.edge.entries > rhs.edge.entries }
+                if lhs.edge.weight != rhs.edge.weight { return lhs.edge.weight > rhs.edge.weight }
+                return lhs.id.uuidString < rhs.id.uuidString
+            }
             .prefix(limit)
-            .compactMap { id, weight in byID[id].map { CoOccurrence(id: $0.id, name: $0.name, kind: $0.kind, weight: weight) } }
+            .compactMap { id, edge in
+                byID[id].map { CoOccurrence(id: $0.id, name: $0.name, kind: $0.kind, weight: edge.weight, entries: edge.entries) }
+            }
     }
 
     // MARK: - Bios
