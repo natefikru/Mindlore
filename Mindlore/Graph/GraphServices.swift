@@ -403,17 +403,30 @@ final class GraphServices {
         return MindMapSnapshot(entities: browsable, links: inputs, entries: entries)
     }
 
-    // Entries the insights divided into two or more parts. The text goes with them only while
-    // the insights still describe it, since an edit moves the words the offsets point at.
+    // Entries the insights divided into two or more parts, each with the text its offsets were
+    // read from. That is the entry's text while it is still what was analyzed; after a cleanup
+    // it is the original the cleanup replaced, since cleanup drops fillers and every boundary
+    // after the first would land a few words late in the cleaned text. After any other edit
+    // there is no such text, and only the model's own lists place names.
     static func partContexts(for entries: [Entry]) -> [UUID: EntryParts.Context] {
         var contexts: [UUID: EntryParts.Context] = [:]
         for entry in entries {
             guard let insights = entry.insights else { continue }
             let sections = insights.sections
             guard sections.count > 1 else { continue }
-            contexts[entry.id] = EntryParts.Context(sections: sections, text: insights.isCurrent(for: entry) ? entry.text : nil)
+            contexts[entry.id] = EntryParts.Context(sections: sections, text: analyzedText(of: entry, insights: insights))
         }
         return contexts
+    }
+
+    static func analyzedText(of entry: Entry, insights: EntryInsights) -> String? {
+        let current = TextHash.of(entry.text)
+        if current == insights.sourceTextHash { return entry.text }
+        if current == entry.cleanupAppliedHash, let original = entry.originalText,
+           TextHash.of(original) == insights.sourceTextHash {
+            return original
+        }
+        return nil
     }
 
     // A link's parts, by what the entry wrote and what the name is now called: a merge or a
@@ -594,7 +607,13 @@ final class GraphServices {
         let fetched = ((try? context.fetch(FetchDescriptor<Entry>(predicate: #Predicate { entryIDs.contains($0.id) }))) ?? [])
             .filter { !$0.isDeleted }
         let entryDates = Dictionary(fetched.map { ($0.id, $0.entryDate) }, uniquingKeysWith: { first, _ in first })
-        let partContexts = Self.partContexts(for: fetched)
+        // Only an entry the subject is in can give it an edge, so only those are placed: this
+        // page reads the whole store on every revision, and placing reads each entry's text.
+        let subjectEntries = Set(links.compactMap { link -> UUID? in
+            guard let entityID = link.entityID, root(of: entityID)?.id == subjectRoot.id else { return nil }
+            return link.entryID
+        })
+        let partContexts = Self.partContexts(for: fetched.filter { subjectEntries.contains($0.id) })
 
         let inputs: [EntityGraph.LinkInput] = links.compactMap { link in
             guard let linkEntityID = link.entityID, let entryID = link.entryID,

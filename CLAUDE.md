@@ -375,8 +375,14 @@ map** (owner, 2026-09-23): two names in one entry connect only when they share a
 everything in an entry joining everything else because it was written at one sitting.
 `EntryParts.Context` places each link at snapshot time, never stored, so older entries and names
 added by hand need nothing migrated: by the part's own `names` or `tags` list, by the part's span
-of text a name is written in (only while the insights are current, since an edit moves the words
-the offsets point at), and a tag only by the lists. A name placed in no part connects to
+of text a name is written in, and a tag only by the lists. The span is read against the text the
+offsets came from (`GraphServices.analyzedText`): the entry's own while it is still what was
+analyzed, the original after a cleanup replaced it (cleanup drops fillers, so offsets would land
+late in the cleaned text), and none after any other edit, when only the lists place names. Text
+before the first placed part belongs to the opening part. A part's `names` are stored as written
+and as grounded, like mentions, so "Sarah Kim" still places the entry's "Sarah". The map's
+snapshot is cached per graph revision, so an edit's switch to list-only placement shows on the
+map at the next graph change; `mentionedWith` reads fresh and places only the subject's entries. A name placed in no part connects to
 nothing from that entry (owner, 2026-09-23: the map's problem was clutter) and stays on the map,
 since a node shows for its mentions, not its edges, and other entries still link it. Only an
 entry with fewer than two parts, which has nothing narrower to go on, connects everything in it

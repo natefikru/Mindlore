@@ -25,13 +25,24 @@ nonisolated enum EntryParts {
                 return
             }
             let length = text.count
-            let placed = sections.enumerated()
+            let placed: [(Int, Int)] = sections.enumerated()
                 .compactMap { index, section in section.offset.map { (index, min(max(0, $0), length)) } }
                 .sorted { $0.1 < $1.1 }
-            spans = placed.enumerated().map { position, item in
+            var built: [(part: Int, start: Int, end: Int)] = placed.enumerated().map { position, item in
                 let end = position + 1 < placed.count ? placed[position + 1].1 : length
-                return (item.0, item.1, end)
+                return (part: item.0, start: item.1, end: end)
             }
+            // The words before the first placed part belong to someone: the opening part when
+            // its first words weren't found, otherwise the first placed part itself. Left out,
+            // a name in the entry's first sentence would be in no part and lose every edge.
+            if let first = built.first, first.start > 0 {
+                if sections.first?.offset == nil, first.part != 0 {
+                    built.insert((part: 0, start: 0, end: first.start), at: 0)
+                } else {
+                    built[0].start = 0
+                }
+            }
+            spans = built
         }
 
         // Nil means the whole entry: it has fewer than two parts, so there is nothing narrower to
@@ -51,13 +62,19 @@ nonisolated enum EntryParts {
                 }
             }
             // Tags are labels, not words the entry wrote, so only the model's lists place them.
-            if !isTag, let text, !spans.isEmpty {
-                for name in names {
-                    for range in NameMatching.ranges(of: name, in: text) {
-                        let at = text.distance(from: text.startIndex, to: range.lowerBound)
-                        if let span = spans.first(where: { at >= $0.start && at < $0.end }) {
-                            found.insert(span.part)
-                        }
+            // Every form of the name goes in one pattern, with NameMatching's word boundaries,
+            // so a long entry is scanned once per link rather than once per alias.
+            if !isTag, let text, !spans.isEmpty,
+               let regex = try? NSRegularExpression(
+                   pattern: "(?<![\\p{L}\\p{N}])(?:" + names.sorted { $0.count > $1.count }.map(NSRegularExpression.escapedPattern(for:)).joined(separator: "|") + ")(?![\\p{L}\\p{N}])",
+                   options: [.caseInsensitive]
+               ) {
+                let starts = regex.matches(in: text, range: NSRange(text.startIndex..., in: text))
+                    .compactMap { Range($0.range, in: text)?.lowerBound }
+                for start in starts {
+                    let at = text.distance(from: text.startIndex, to: start)
+                    if let span = spans.first(where: { at >= $0.start && at < $0.end }) {
+                        found.insert(span.part)
                     }
                 }
             }

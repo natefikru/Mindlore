@@ -590,8 +590,11 @@ nonisolated enum InsightsPromptBuilder {
             section.areasRaw = Array(areas.prefix(LifeArea.maxPerEntry))
             section.tags = Array(unique(((item["tags"] as? [Any]) ?? []).compactMap { ($0 as? String)?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
                 .filter { !$0.isEmpty && !areaNames.contains($0) }).prefix(maxSectionTags))
-            section.names = Array(unique(((item["names"] as? [Any]) ?? []).compactMap { ($0 as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) }
+            // Kept as written and as grounded, the way mentions are: a mention of "Sarah Kim" is
+            // cut back to the entry's "Sarah", and the link that part must be found by is "Sarah".
+            let listed = Array(unique(((item["names"] as? [Any]) ?? []).compactMap { ($0 as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) }
                 .filter { !$0.isEmpty }).prefix(maxSectionNames))
+            section.names = unique(listed.flatMap { [$0, grounded($0, in: text).surface] })
             if let opening = (item["startsWith"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines), !opening.isEmpty,
                let range = text.range(of: opening, options: [.caseInsensitive, .diacriticInsensitive], range: searchFrom..<text.endIndex) {
                 section.offset = text.distance(from: text.startIndex, to: range.lowerBound)

@@ -1,8 +1,8 @@
 import Foundation
 
-// One stretch of an entry that talks about one thing, as the insights run divided it. Kept in the
-// background: nothing marks up the text, but the tags and names each part carries are folded into
-// the entry's own, and the insights sheet lists the parts so a long entry reads as what it covered.
+// One stretch of an entry that talks about one thing, as the insights run divided it. Metadata for
+// the Mind map, where two names connect only when they share a part (EntryParts); nothing marks
+// up the text or shows the parts, and the tags each part carries are folded into the entry's own.
 // `offset` is where the part starts in the text the insights were made from, in characters, or
 // nil when the model's opening words weren't found in the entry.
 nonisolated struct EntrySection: Codable, Equatable, Sendable {

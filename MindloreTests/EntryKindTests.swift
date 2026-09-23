@@ -492,3 +492,90 @@ struct PartAwareGraphTests {
         #expect(Set(wholeGraph.mentionedWith(of: dana.id, in: harness.context).map(\.name)) == ["Maya", "Priya"])
     }
 }
+
+// The placement rules the review of the part-aware map asked to pin down.
+@MainActor
+struct PartPlacementTests {
+    private let now = Date(timeIntervalSinceReferenceDate: 1_000_000)
+
+    @Test func theOpeningWordsBelongToTheOpeningPart() {
+        let text = "Coffee with Dana first. Later at the office with Maya."
+        let later = text.distance(from: text.startIndex, to: text.range(of: "Later")!.lowerBound)
+        // The opening part's first words weren't found: the text before the next part is its.
+        let unplacedOpening = EntryParts.Context(sections: [
+            EntrySection(topic: "Coffee", offset: nil),
+            EntrySection(topic: "Work", offset: later),
+        ], text: text)
+        #expect(unplacedOpening.parts(surfaces: ["Dana"], isTag: false) == [0])
+        #expect(unplacedOpening.parts(surfaces: ["Maya"], isTag: false) == [1])
+        // The first part was found a few words in: the words before it are still its.
+        let lateStart = EntryParts.Context(sections: [
+            EntrySection(topic: "Coffee", offset: 7),
+            EntrySection(topic: "Work", offset: later),
+        ], text: text)
+        #expect(lateStart.parts(surfaces: ["Coffee"], isTag: false) == [0])
+    }
+
+    @Test func everyFormOfANameIsLookedForAtOnce() {
+        let text = "Lunch with Liz. Then a walk alone past Elizabeth's old flat."
+        let walk = text.distance(from: text.startIndex, to: text.range(of: "Then")!.lowerBound)
+        let context = EntryParts.Context(sections: [
+            EntrySection(topic: "Lunch", offset: 0),
+            EntrySection(topic: "Walk", offset: walk),
+        ], text: text)
+        #expect(context.parts(surfaces: ["Elizabeth", "Liz"], isTag: false) == [0, 1], "an alias counts like the name")
+        #expect(context.parts(surfaces: ["Eliza"], isTag: false) == [], "whole words only")
+    }
+
+    @Test func aPartsNamesAreKeptAsWrittenAndAsGrounded() throws {
+        let text = "Coffee with Sarah this morning. Then groceries."
+        let json: [String: Any] = ["sections": [
+            ["topic": "Coffee", "startsWith": "Coffee with Sarah", "names": ["Sarah Kim"]],
+            ["topic": "Errands", "startsWith": "Then groceries"],
+        ]]
+        let sections = InsightsPromptBuilder.parseSections(in: json, text: text, areaNames: [])
+        #expect(sections[0].names == ["Sarah Kim", "Sarah"])
+        // So the link, whose surface is the grounded "Sarah", is placed even with no text to search.
+        #expect(EntryParts.Context(sections: sections, text: nil).parts(surfaces: ["Sarah"], isTag: false) == [0])
+    }
+
+    // Cleanup drops fillers, so the cleaned text is shorter and offsets taken from the original
+    // would land late in it. The original is what names are looked for in.
+    @Test func afterACleanupNamesArePlacedInTheOriginalText() async throws {
+        let harness = try InsightsHarness()
+        harness.useGraph = true
+        harness.autoApply = true
+        let original = "um so like um like um the morning was long at work with Dana. Then Maya called."
+        let entry = try harness.entry(original, source: .voice)
+        entry.entryDate = .now
+        let then = original.distance(from: original.startIndex, to: original.range(of: "Then")!.lowerBound)
+        let response = #"{"summary":"A day.","primaryMood":"calm","secondaryMoods":[],"lifeAreas":["work"],"tags":[],"mentions":[{"name":"Dana","kind":"person"},{"name":"Maya","kind":"person"}],"looseEnds":[],"cleanedText":"The morning was long at work with Dana. Then Maya called.","sections":[{"topic":"Work","startsWith":"um so like um","names":[]},{"topic":"Call","startsWith":"Then Maya called","names":[]}]}"#
+        harness.generator.results = [.success(response)]
+        await harness.coordinator.processQueue(context: harness.context)
+
+        #expect(entry.text == "The morning was long at work with Dana. Then Maya called.", "the cleanup was applied")
+        #expect(entry.insights?.sections[1].offset == then)
+        let insights = try #require(entry.insights)
+        #expect(GraphServices.analyzedText(of: entry, insights: insights) == original)
+        let map = MindMap.graph(GraphServices(diagnostics: .disabled).mapSnapshot(in: harness.context), kinds: nil, minimumLinkCount: 1, asOf: .now)
+        #expect(map.nodes.count == 2)
+        #expect(map.edges.isEmpty, "Dana is in the first part and Maya in the second, read in the text the offsets came from")
+
+        // Any other edit leaves nothing to search, and unlisted names are placed nowhere.
+        entry.text += " Later, tea."
+        #expect(GraphServices.analyzedText(of: entry, insights: insights) == nil)
+    }
+
+    @Test func aPairApartInOneEntryAndTogetherInAnotherWeighsOnlyTheSecond() {
+        let dana = UUID(), maya = UUID()
+        let split = UUID(), plain = UUID()
+        let edges = EntityGraph.build(links: [
+            .init(entryID: split, entityID: dana, entryDate: now, parts: [0]),
+            .init(entryID: split, entityID: maya, entryDate: now, parts: [1]),
+            .init(entryID: plain, entityID: dana, entryDate: now),
+            .init(entryID: plain, entityID: maya, entryDate: now),
+        ], asOf: now)
+        #expect(edges.count == 1)
+        #expect(abs(edges[0].weight - 1.0) < 0.0001, "only the entry that joined them counts")
+    }
+}
