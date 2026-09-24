@@ -180,19 +180,17 @@ struct InsightsSettingsView: View {
             }
 
             Section {
+                // Whether a voice note's cleanup applies itself is on the AI screen, as "Format voice
+                // notes automatically" (owner, 2026-09-24), not nested here.
                 Toggle("Clean up transcriptions", isOn: $settings.insightCleanedText)
                     .accessibilityIdentifier("insightCleanedTextToggle")
-                if settings.insightCleanedText {
-                    Toggle("Use the cleaned-up version automatically", isOn: $settings.autoApplyCleanedText)
-                        .accessibilityIdentifier("autoApplyCleanedTextToggle")
-                }
             } header: {
                 Text("Transcribed entries")
             } footer: {
                 Text(settings.insightCleanedText
                      ? (settings.autoApplyCleanedText
-                        ? "The cleaned-up text replaces a transcribed entry's text on its own. Your original is kept, and you can always revert."
-                        : "The cleaned-up text is offered in the entry's insights, and replaces the text only when you tap it.")
+                        ? "A voice note's cleaned-up text replaces its transcript on its own; a journal page's is offered in the entry. Your original is kept, and you can always revert."
+                        : "The cleaned-up text is offered in the entry, and replaces the text only when you accept it.")
                      : "Only transcribed entries are cleaned up, from recordings or journal pages. Your typed words are never rewritten.")
             }
 

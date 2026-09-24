@@ -1,7 +1,8 @@
 import SwiftUI
 
-// What the journal is made of and how it looks: areas, the voice summaries are written in, the
-// font, light or dark, and what the microphone does.
+// What the journal is made of and how it reads: areas, the voice summaries are written in, the
+// font, and what the microphone does. Light or dark is the whole app's, so it is in General
+// (owner, 2026-09-24).
 struct JournalSettingsView: View {
     @Environment(SettingsStore.self) private var settings
 
@@ -30,18 +31,6 @@ struct JournalSettingsView: View {
                     LabeledContent("Font", value: settings.journalFont.settingsName)
                 }
                 .accessibilityIdentifier("journalFontSettingsLink")
-            }
-
-            Section {
-                Picker("Appearance", selection: $settings.appearance) {
-                    ForEach(AppearancePreference.allCases, id: \.self) { option in
-                        Text(option.settingsName).tag(option)
-                    }
-                }
-                .pickerStyle(.segmented)
-                .accessibilityIdentifier("appearancePicker")
-            } header: {
-                Text("Appearance")
             }
 
             Section {

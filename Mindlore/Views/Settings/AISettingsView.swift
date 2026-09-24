@@ -6,6 +6,7 @@ struct AISettingsView: View {
     var body: some View {
         Form {
             AISettingsSection()
+            VoiceFormattingSection()
             RedoInsightsSection()
         }
         .paperBackground()
@@ -60,6 +61,45 @@ struct AISettingsSection: View {
     private var keySummary: String {
         guard let account = accounts.openAIAccount, accounts.hasKey(for: account) else { return "Not set" }
         return "Saved"
+    }
+}
+
+// "Format voice notes automatically" (owner, 2026-09-24): a recording's cleaned-up, formatted text
+// replaces its transcript as soon as insights produce it, instead of waiting in the editor for
+// Review. Voice only (`Entry.cleanupAppliesAutomatically`): a journal page's text was already
+// read and approved by the user, so it stays an offer. It sits here rather than two screens down
+// in Insights because it is the one AI choice that changes the user's words. The stored key is
+// the old `autoApplyCleanedText`, so anyone who had it on keeps it.
+struct VoiceFormattingSection: View {
+    @Environment(SettingsStore.self) private var settings
+    @Environment(ProviderAccountStore.self) private var accounts
+
+    // Nothing is formatted without cleanup, so turning this on turns cleanup on, and it reads
+    // off while cleanup is off.
+    private var formatAutomatically: Binding<Bool> {
+        Binding {
+            settings.autoApplyCleanedText && settings.insightCleanedText
+        } set: { on in
+            settings.autoApplyCleanedText = on
+            if on { settings.insightCleanedText = true }
+        }
+    }
+
+    // Cleanup is only asked of OpenAI: the on-device model's budget has no room for the whole text.
+    private var usable: Bool {
+        settings.insightsGenerator == .openAI && AIServices.insightsUsable(settings: settings, accounts: accounts)
+    }
+
+    var body: some View {
+        Section {
+            Toggle("Format voice notes automatically", isOn: formatAutomatically)
+                .accessibilityIdentifier("autoApplyCleanedTextToggle")
+                .disabled(!usable)
+        } footer: {
+            Text(usable
+                 ? "A recording's transcript is replaced by its cleaned-up, formatted text (punctuation, paragraphs, and any list you spoke) as soon as insights finish, without asking you to review it. Your original transcript is kept, and Use original text in the entry's More menu brings it back. A recording you've typed into is left as it is."
+                 : "Needs AI on, with insights from OpenAI (What AI does, then Insights).")
+        }
     }
 }
 

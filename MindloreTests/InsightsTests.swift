@@ -513,6 +513,142 @@ struct CleanupTests {
     }
 }
 
+// "Format voice notes automatically" (`autoApplyCleanedText`, owner 2026-09-24): a recording's
+// cleanup applies itself as insights produce it, through the same apply the Review sheet uses.
+@MainActor
+struct VoiceFormattingTests {
+    static let raw = "i walked to the river and it was calm"
+    static let cleaned = "I walked to the river, and it was calm."
+
+    private func run(_ harness: InsightsHarness) async {
+        harness.generator.results = [.success(InsightsHarness.fullResponse)]
+        await harness.coordinator.processQueue(context: harness.context)
+    }
+
+    @Test func onFormatsAVoiceNoteAndKeepsTheOriginalForRevert() async throws {
+        let harness = try InsightsHarness()
+        harness.autoApply = true
+        let entry = try harness.entry(Self.raw, source: .voice)
+
+        await run(harness)
+
+        #expect(entry.text == Self.cleaned)
+        #expect(entry.originalText == Self.raw)
+        #expect(entry.cleanupAppliedHash == TextHash.of(Self.cleaned))
+        #expect(entry.pendingCleanedText == nil, "nothing is left to review")
+        // Applying it is not a change insights have to catch up with.
+        #expect(entry.insights?.isCurrent(for: entry) == true)
+        #expect(!entry.insightsPending)
+        await harness.coordinator.processQueue(context: harness.context)
+        #expect(harness.generator.requests.count == 1)
+
+        // Revert works exactly as after a manual accept, and nothing formats it again.
+        #expect(entry.revertToOriginalText())
+        #expect(entry.text == Self.raw && entry.originalText == nil && entry.cleanupAppliedHash == nil)
+        await harness.coordinator.processQueue(context: harness.context)
+        #expect(entry.text == Self.raw)
+        #expect(harness.generator.requests.count == 1)
+    }
+
+    @Test func offLeavesTheCleanupAsAnOffer() async throws {
+        let harness = try InsightsHarness()
+        let entry = try harness.entry(Self.raw, source: .voice)
+
+        await run(harness)
+
+        #expect(entry.text == Self.raw)
+        #expect(entry.originalText == nil)
+        #expect(entry.pendingCleanedText == Self.cleaned)
+    }
+
+    // Typed into and back again, the text still hashes the same, but it is the user's now.
+    @Test func aVoiceNoteTheUserEditedIsNotFormatted() async throws {
+        let harness = try InsightsHarness()
+        harness.autoApply = true
+        let entry = try harness.entry(Self.raw, source: .voice)
+        entry.textWasGenerated = true
+        entry.textEditedByUser = true
+
+        await run(harness)
+
+        #expect(entry.text == Self.raw)
+        #expect(entry.originalText == nil)
+        #expect(entry.pendingCleanedText == Self.cleaned, "still offered for review")
+    }
+
+    @Test func typedAndPhotoEntriesAreNotFormatted() async throws {
+        let harness = try InsightsHarness()
+        harness.autoApply = true
+        let typed = try harness.entry(Self.raw)
+        await run(harness)
+        #expect(typed.text == Self.raw && typed.originalText == nil)
+
+        // A page's text was reviewed and approved, so its cleanup stays an offer.
+        let photo = try harness.entry(Self.raw, source: .photo)
+        photo.pagesConfirmed = true
+        await run(harness)
+        #expect(photo.text == Self.raw && photo.originalText == nil)
+        #expect(photo.pendingCleanedText == Self.cleaned)
+    }
+
+    @Test func draftsAndEditedTextAreNeverFormattedAutomatically() throws {
+        let container = try ModelContainerFactory.make(.inMemory)
+        let entry = Entry(source: .voice, text: Self.raw)
+        container.mainContext.insert(entry)
+        let insights = EntryInsights(sourceTextHash: TextHash.of(Self.raw))
+        container.mainContext.insert(insights)
+        insights.entry = entry
+        insights.cleanedText = Self.cleaned
+        #expect(entry.cleanupAppliesAutomatically)
+
+        entry.isDraft = true
+        #expect(!entry.applyCleanedTextAutomatically())
+        entry.isDraft = false
+        entry.textEditedByUser = true
+        #expect(!entry.applyCleanedTextAutomatically())
+        #expect(entry.text == Self.raw)
+        entry.textEditedByUser = false
+        #expect(entry.applyCleanedTextAutomatically())
+        #expect(entry.text == Self.cleaned && entry.originalText == Self.raw)
+    }
+
+    // An open editor is never rewritten under the user: the cleanup waits, asks nothing, and
+    // applies itself once the entry closes.
+    @Test func aCleanupThatLandsWhileTheEditorIsOpenAppliesWhenItCloses() async throws {
+        let harness = try InsightsHarness()
+        harness.autoApply = true
+        let entry = try harness.entry(Self.raw, source: .voice)
+        harness.presence.open(entry.id)
+
+        await run(harness)
+        #expect(entry.text == Self.raw)
+        #expect(harness.coordinator.holdsCleanup(for: entry.id))
+
+        harness.presence.close(entry.id)
+        await harness.coordinator.processQueue(context: harness.context)
+        #expect(entry.text == Self.cleaned && entry.originalText == Self.raw)
+        #expect(!harness.coordinator.holdsCleanup(for: entry.id))
+        #expect(harness.generator.requests.count == 1)
+    }
+
+    @Test func aHeldCleanupIsDroppedWhenTheUserTypesBeforeClosing() async throws {
+        let harness = try InsightsHarness()
+        harness.autoApply = true
+        let entry = try harness.entry(Self.raw, source: .voice)
+        harness.presence.open(entry.id)
+        await run(harness)
+
+        entry.text = Self.raw + " and then it rained"
+        entry.userDidEditText()
+        harness.presence.close(entry.id)
+        await harness.coordinator.processQueue(context: harness.context)
+
+        #expect(entry.text == Self.raw + " and then it rained")
+        #expect(entry.originalText == nil)
+        #expect(!harness.coordinator.holdsCleanup(for: entry.id))
+    }
+}
+
 @MainActor
 struct AutomaticInsightsTriggerTests {
     private func trigger(insights: Bool, started: Date = Date(timeIntervalSince1970: 1_000)) -> AIPassTrigger {
