@@ -99,6 +99,27 @@ nonisolated enum LifeCopy {
         return line
     }
 
+    static func priorities(_ priorities: [LifeSignals.Priority], window: MindWindow, name: Name) -> String {
+        let gaps = priorities.filter(\.isGap)
+        let names = priorities.map { name($0.area) }
+        guard let first = gaps.first else {
+            return "Your writing \(windowPhrase(window)) follows what you said matters: \(listed(names))."
+        }
+        if first.share == 0 {
+            return "You said \(name(first.area)) matters to you right now. You haven't written about it \(windowPhrase(window))."
+        }
+        return "You said \(name(first.area)) matters to you right now. It's been \(percent(first.share)) of what you wrote \(windowPhrase(window))."
+    }
+
+    static func listed(_ names: [String]) -> String {
+        switch names.count {
+        case 0: ""
+        case 1: names[0]
+        case 2: "\(names[0]) and \(names[1])"
+        default: names.dropLast().joined(separator: ", ") + ", and " + names[names.count - 1]
+        }
+    }
+
     static func needsMore(_ progress: LifeSignals.Progress) -> String {
         let entries = max(0, LifeSignals.minimumEntries - progress.entries)
         let days = max(0, LifeSignals.minimumDays - progress.days)

@@ -219,3 +219,31 @@ struct LifeBubbleLayoutTests {
         #expect(LifeBubbleLayout.layout(areas, in: size) == LifeBubbleLayout.layout(areas, in: size))
     }
 }
+
+struct LifePrioritiesTests {
+    private func reading(_ areas: [(LifeArea, Double)]) -> LifeSignals.Reading {
+        LifeSignals.Reading(
+            window: .quarter, interval: DateInterval(start: .distantPast, duration: 1), entries: 100, baseline: 0,
+            areas: areas.map { LifeSignals.AreaReading(area: $0.0, entries: Int($0.1 * 100), share: $0.1, moods: 0, height: nil) },
+            headline: nil, recurring: [], quiet: [], changes: [], followThrough: [], contrast: nil, openThreads: 0
+        )
+    }
+
+    @Test func aPriorityUnderHalfAnEvenShareIsAGapAndAMissingOneIsZero() {
+        let r = reading([(.work, 0.6), (.family, 0.3), (.friends, 0.04), (.health, 0.2)])
+        let priorities = LifeSignals.priorities([.friends, .work, .love], reading: r, visibleCount: 9)
+        #expect(priorities.map(\.area) == [.friends, .work, .love])
+        #expect(priorities[0].isGap)
+        #expect(!priorities[1].isGap)
+        #expect(priorities[2].share == 0 && priorities[2].isGap)
+    }
+
+    @Test func theSentenceNamesTheFirstGapOrSaysTheWritingFollows() {
+        let r = reading([(.work, 0.6), (.family, 0.3)])
+        let name: (LifeArea) -> String = { $0.defaultName }
+        let gap = LifeSignals.priorities([.work, .love], reading: r, visibleCount: 9)
+        #expect(LifeCopy.priorities(gap, window: .quarter, name: name) == "You said Love matters to you right now. You haven't written about it these three months.")
+        let fine = LifeSignals.priorities([.work, .family], reading: r, visibleCount: 9)
+        #expect(LifeCopy.priorities(fine, window: .quarter, name: name) == "Your writing these three months follows what you said matters: Work and Family.")
+    }
+}

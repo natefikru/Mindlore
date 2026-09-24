@@ -385,6 +385,30 @@ nonisolated enum LifeSignals {
         return sorted.count.isMultiple(of: 2) ? (sorted[middle - 1] + sorted[middle]) / 2 : sorted[middle]
     }
 
+    // MARK: - What matters
+
+    static let maxPriorities = 3
+
+    struct Priority: Sendable, Equatable, Identifiable {
+        let area: LifeArea
+        let share: Double
+        // The share an area would have if the writing were spread evenly over the visible areas.
+        let even: Double
+        // Under half the even share: said to matter, rarely written about.
+        var isGap: Bool { share < even / 2 }
+
+        var id: LifeArea { area }
+    }
+
+    // Each area the user said matters, against where the writing actually went in the window. An
+    // area with no entries at all is a share of zero, which is the gap worth saying most.
+    static func priorities(_ picked: [LifeArea], reading: Reading, visibleCount: Int) -> [Priority] {
+        let shares = Dictionary(uniqueKeysWithValues: reading.areas.map { ($0.area, $0.share) })
+        let total = reading.areas.map(\.share).reduce(0, +)
+        let even = visibleCount > 0 ? max(total, 1) / Double(visibleCount) : 0
+        return picked.prefix(maxPriorities).map { Priority(area: $0, share: shares[$0] ?? 0, even: even) }
+    }
+
     // MARK: - One area
 
     struct MonthMood: Sendable, Equatable, Identifiable {

@@ -19,6 +19,13 @@ struct JournalSettingsView: View {
                 .accessibilityIdentifier("lifeAreasSettingsLink")
 
                 NavigationLink {
+                    LifePrioritiesPicker()
+                } label: {
+                    LabeledContent("What matters most", value: prioritiesSummary)
+                }
+                .accessibilityIdentifier("lifePrioritiesSettingsLink")
+
+                NavigationLink {
                     JournalVoiceSettingsView()
                 } label: {
                     LabeledContent("How you're written about", value: voiceSummary)
@@ -62,6 +69,11 @@ struct JournalSettingsView: View {
         case .name:
             settings.userName.isEmpty ? "By name" : settings.userName
         }
+    }
+
+    private var prioritiesSummary: String {
+        let names = settings.priorityAreas.map(settings.name(of:))
+        return names.isEmpty ? "Not set" : names.joined(separator: ", ")
     }
 
     private var areasSummary: String {

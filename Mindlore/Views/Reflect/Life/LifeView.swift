@@ -50,6 +50,7 @@ struct LifeView: View {
                     LifeBubbleField(reading: reading, name: settings.name(of:)) { area in
                         openArea(LifeAreaRoute(area: area, window: window))
                     }
+                    LifePrioritiesCard(reading: reading)
                     cards(reading)
                 } else {
                     LifeNeedsMoreCard(progress: progress)
