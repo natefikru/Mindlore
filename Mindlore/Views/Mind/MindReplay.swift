@@ -8,7 +8,7 @@ import SwiftUI
 nonisolated struct MindReplay: Equatable, Sendable {
     static let duration: TimeInterval = 6
     static let stepInterval: Duration = .milliseconds(100)
-    // Every step moves the map; every fifth also refreshes names, colours, and labels.
+    // Every step moves the map; every fifth also refreshes names and labels.
     static let publishEvery = 5
 
     static func publishes(step index: Int) -> Bool {
@@ -155,7 +155,7 @@ struct MindReplayControls: View {
                     }
                     .font(.subheadline.weight(.semibold))
                     .padding(.horizontal, 12)
-                    .frame(height: 40)
+                    .frame(height: 44)
                     .glassEffect(.regular.interactive(), in: Capsule())
                     .glassEffectID("replay", in: glass)
                 }
@@ -167,7 +167,7 @@ struct MindReplayControls: View {
                     Image(systemName: "play.fill")
                         .font(.body.weight(.semibold))
                         .contentTransition(.symbolEffect(.replace))
-                        .frame(width: 40, height: 40)
+                        .frame(width: 44, height: 44)
                         .glassEffect(.regular.interactive(), in: Circle())
                         .glassEffectID("replay", in: glass)
                 }

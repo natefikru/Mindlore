@@ -8,7 +8,6 @@ nonisolated enum MindDrawer {
     struct Stats: Equatable, Sendable {
         var window: MindWindow = .default
         var counts: [UUID: Int] = [:]
-        var areas: [UUID: LifeArea] = [:]
         var series: [UUID: [Int]] = [:]
         var changes: [MindStats.Change] = []
 
@@ -18,7 +17,6 @@ nonisolated enum MindDrawer {
             Stats(
                 window: window,
                 counts: MindStats.counts(snapshot, window: window, asOf: asOf),
-                areas: MindStats.areas(snapshot, window: window, asOf: asOf),
                 series: MindStats.series(snapshot, window: window, asOf: asOf),
                 changes: MindStats.changes(snapshot, window: window, asOf: asOf, excluding: author)
             )
@@ -29,7 +27,6 @@ nonisolated enum MindDrawer {
         let id: UUID
         let name: String
         let kind: EntityKind
-        let area: LifeArea?
         let count: Int
         let series: [Int]
         let change: MindStats.Change.Kind?
@@ -54,7 +51,7 @@ nonisolated enum MindDrawer {
             .filter { segment.includes($0.kind) && (stats.counts[$0.id] ?? 0) > 0 }
             .map { row in
                 RankedRow(
-                    id: row.id, name: row.name, kind: row.kind, area: stats.areas[row.id],
+                    id: row.id, name: row.name, kind: row.kind,
                     count: stats.counts[row.id] ?? 0, series: stats.series[row.id] ?? [],
                     change: changed[row.id], openLooseEnds: row.openLooseEnds, lastMentioned: row.lastMentioned
                 )

@@ -61,7 +61,8 @@ nonisolated enum MindStats {
     }
 
     // The life area each entity leans toward within the window. An entity whose windowed entries
-    // carry no area gets none (drawn neutral).
+    // carry no area gets none. The map no longer colours by it (colour is kind); `MindMap.primaryAreas`
+    // reads it for the whole journal.
     static func areas(_ snapshot: MindMapSnapshot, window: MindWindow, asOf: Date) -> [UUID: LifeArea] {
         let windowed = links(snapshot, window: window, asOf: asOf)
         let values = snapshot.entries.compactMapValues { entry -> EntityTally.Entry<LifeArea>? in

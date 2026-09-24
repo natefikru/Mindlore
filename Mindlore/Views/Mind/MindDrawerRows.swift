@@ -54,24 +54,22 @@ struct MindChangesRow: View {
     }
 }
 
-// One name in the window: its area, its kind, a sparkline, how many entries named it, the change
-// word when it is in the changes, and its open threads.
+// One name in the window: its kind badge (the colour its dot has on the map), a sparkline in the
+// same colour, how many entries named it, the change word when it is in the changes, and its open
+// threads.
 struct MindRankedRow: View {
     let row: MindDrawer.RankedRow
-    let areaName: String?
     let action: () -> Void
 
     var body: some View {
         Button(action: action) {
             HStack(spacing: 10) {
-                Circle()
-                    .fill(row.area?.color ?? Color.gray.opacity(0.5))
-                    .frame(width: 8, height: 8)
-                    .accessibilityLabel(areaName ?? "No area")
                 Image(systemName: row.kind.symbol)
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                    .frame(width: 20)
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(row.kind.color)
+                    .frame(width: 26, height: 26)
+                    .background(row.kind.color.opacity(0.15), in: Circle())
+                    .accessibilityLabel(row.kind.label)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(row.name)
                         .foregroundStyle(.primary)
@@ -91,7 +89,7 @@ struct MindRankedRow: View {
                         .background(.fill.tertiary, in: Capsule())
                         .accessibilityIdentifier("mindRowOpen-\(row.name)")
                 }
-                Sparkline(values: row.series, color: row.area?.color ?? .secondary, accessibilityText: countWords)
+                Sparkline(values: row.series, color: row.kind.color, accessibilityText: countWords)
                     .frame(width: 56, height: 18)
                 Text("\(row.count)")
                     .font(.subheadline.monospacedDigit())

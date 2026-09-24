@@ -34,6 +34,9 @@ nonisolated enum AskContextBuilder {
         var entityIDs: [UUID] = []
         var isCreative = false
         var isNote = false
+        // A note's text with its layout, as Markdown, so a checklist reads as one and a note Chat
+        // is asked to change keeps its shape. Nil for anything else, and for a note with no layout.
+        var markdown: String?
     }
 
     nonisolated struct EntityInput: Equatable, Sendable {
@@ -60,6 +63,9 @@ nonisolated enum AskContextBuilder {
         // Which of those went as a single line, so the privacy sheet can say "in full" against "in
         // one line" and the diagnostics can count the two apart.
         var digestEntryIDs: [UUID] = []
+        // The entries whose every word went in: not a line, not an excerpt, not cut to fit. Only
+        // one of these can be rewritten whole, which is what editing a note is.
+        var wholeEntryIDs: Set<UUID> = []
         // How many entries matched before the cut, so the prompt and the cost line can own up to it.
         var matchedCount = 0
         var rollupMonthCount = 0
@@ -105,6 +111,16 @@ nonisolated enum AskContextBuilder {
         if let id = plan.focusEntryID, let entry = entriesByID[id] {
             builder.beginSlice(cap: budget, budget: budget)
             builder.addEntry(entry, text: entry.text, limit: plan.focusTextLimit)
+        }
+
+        // Notes made or changed earlier in this conversation, whole, so "add butter to that list"
+        // reaches the list. Charged by the plan like the focus.
+        if !plan.noteEntryIDs.isEmpty {
+            builder.beginSlice(cap: budget, budget: budget)
+            for id in plan.noteEntryIDs {
+                guard let entry = entriesByID[id] else { continue }
+                builder.addEntry(entry, text: entry.text)
+            }
         }
 
         builder.beginSlice(cap: plan.slices.about, budget: budget)
@@ -366,7 +382,10 @@ nonisolated enum AskContextBuilder {
         // One entry goes in once, in whichever slice reached it first.
         mutating func addEntry(_ entry: EntryInput, text: String, limit: Int = maxEntryCharacters) {
             guard !usedEntries.contains(entry.id) else { return }
-            let body = trimmed(sanitized(text).trimmingCharacters(in: .whitespacesAndNewlines), to: limit)
+            // The entry's own text, not an excerpt of it, goes in with its layout when it has one.
+            let isOwnText = text == entry.text
+            let full = sanitized(isOwnText ? (entry.markdown ?? text) : text).trimmingCharacters(in: .whitespacesAndNewlines)
+            let body = trimmed(full, to: limit)
             guard !body.isEmpty else { return }
             let existing = context.handles.first { $0.value == entry.id }?.key
             let handle = existing ?? "E\(nextHandle)"
@@ -378,6 +397,7 @@ nonisolated enum AskContextBuilder {
             usedEntries.insert(entry.id)
             context.handles[handle] = entry.id
             context.entryIDs.append(entry.id)
+            if isOwnText, body == full { context.wholeEntryIDs.insert(entry.id) }
         }
 
         @discardableResult

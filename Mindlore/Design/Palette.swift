@@ -1,8 +1,8 @@
 import SwiftUI
 
 // Every colour the app owns. The values live in Assets.xcassets with a light and a dark variant each,
-// so nothing here names a number. Areas are warm and saturated, kinds are cooler and quieter, so a
-// kind on the graph is never mistaken for an area.
+// so nothing here names a number. Each light variant is tuned for Paper (deeper and more saturated),
+// each dark one for the dark page (lighter, so it still reads without glowing).
 enum Palette {
     // The warm page behind everything, and the opaque surface a card sits on.
     static let paper = Color(.paper)
@@ -30,9 +30,11 @@ extension LifeArea {
 }
 
 extension EntityKind {
-    // The graph canvas's node fill, and any kind legend beside it. Seven fixed colours, never derived
-    // from anything else, so a kind's colour stays stable across a session. The canvas reads these
-    // once per fill bucket, not once per node.
+    // Mind's node fill, the drawer's kind glyph, the peek card's sparkline, and the avatar: on the
+    // map colour means kind. Six well-separated hues for names (blue person, green place, amber
+    // organization, violet project, coral event, stone other) and a dark neutral for tags, which
+    // are many and small and should recede behind the names. The canvas reads these once per fill
+    // bucket, not once per node.
     var color: Color {
         switch self {
         case .person: Color(.kindPerson)

@@ -169,11 +169,10 @@ struct MindReplayTests {
             #expect(player.start(now: end, window: window) { data })
             let last = try #require(player.step(elapsed: MindReplay.duration))
             #expect(last.finished)
-            let replayed = MindView.frame(last.snapshot, window: .all, segment: .all, visibleAreas: LifeArea.allCases, asOf: last.asOf)
-            let onScreen = MindView.frame(data, window: window, segment: .all, visibleAreas: LifeArea.allCases, asOf: end)
+            let replayed = MindView.frame(last.snapshot, window: .all, segment: .all, asOf: last.asOf)
+            let onScreen = MindView.frame(data, window: window, segment: .all, asOf: end)
             #expect(Set(replayed.nodes) == Set(onScreen.nodes), "\(window)")
             #expect(Set(replayed.edges) == Set(onScreen.edges), "\(window)")
-            #expect(replayed.areaOf == onScreen.areaOf, "\(window)")
         }
     }
 }

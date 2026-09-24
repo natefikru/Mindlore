@@ -36,6 +36,8 @@ struct GraphSimulationTests {
         #expect(GraphSimulation.tagRadius < GraphSimulation.radius(linkCount: 1))
         let simulation = GraphSimulation(nodes: [.init(id: UUID(), kind: .tag, linkCount: 40)], edges: [])
         #expect(simulation.radius(at: 0) == GraphSimulation.tagRadius)
+        // Drawn tiny, tapped at full size: a finger 10pt off its centre still lands on it.
+        #expect(GraphHitTest.node(at: SIMD2(10, 0), count: 1) { _ in (SIMD2<Double>.zero, GraphSimulation.tagRadius) } == 0)
     }
 
     @Test func zeroNodesSettlesImmediately() {
@@ -437,6 +439,28 @@ struct GraphSimulationTests {
     @Test func entityKindColorsAreDistinct() {
         let colors = Set(EntityKind.allCases.map { $0.color.description })
         #expect(colors.count == EntityKind.allCases.count)
+    }
+
+    // Colour is kind on the map, so each kind needs a light variant of its own, deeper than the
+    // dark one, for Paper; and the kinds must stay apart in light mode too.
+    @MainActor
+    @Test func kindColoursHaveTheirOwnLightAndDarkVariants() {
+        var light = EnvironmentValues()
+        light.colorScheme = .light
+        var dark = EnvironmentValues()
+        dark.colorScheme = .dark
+        func luminance(_ color: Color.Resolved) -> Float {
+            0.2126 * color.red + 0.7152 * color.green + 0.0722 * color.blue
+        }
+        for kind in EntityKind.allCases {
+            let onPaper = kind.color.resolve(in: light), onDark = kind.color.resolve(in: dark)
+            #expect(luminance(onPaper) < luminance(onDark), "\(kind)")
+        }
+        let lightColours = Set(EntityKind.allCases.map { kind in
+            let resolved = kind.color.resolve(in: light)
+            return "\(resolved.red) \(resolved.green) \(resolved.blue)"
+        })
+        #expect(lightColours.count == EntityKind.allCases.count)
     }
 }
 
