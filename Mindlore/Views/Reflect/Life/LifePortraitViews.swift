@@ -25,6 +25,7 @@ struct LifePortraitCard: View {
     @State private var verdicts: [String: Bool] = [:]
     // One automatic try per appearance, so a failure doesn't ask again on every redraw.
     @State private var triedAutomatically = false
+    @State private var showingAISettings = false
 
     enum Status: Equatable {
         case idle, writing, needsCloud, unavailable, failed
@@ -60,6 +61,9 @@ struct LifePortraitCard: View {
             }
             .presentationDetents([.medium, .large])
         }
+        .sheet(isPresented: $showingAISettings, onDismiss: { Task { await write() } }) {
+            AISettingsSheet()
+        }
         .sheet(isPresented: $showingEarlier) {
             NavigationStack {
                 LifeEarlierPortraits(portraits: earlier)
@@ -85,14 +89,18 @@ struct LifePortraitCard: View {
                     .foregroundStyle(.secondary)
             }
             .accessibilityIdentifier("lifePortraitWriting")
-        case .needsCloud:
-            Text("The portrait reads a whole year, which needs OpenAI. The on-device model only has room for a few days.")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-        case .unavailable:
-            Text("Turn on AI in Settings, and Life writes you a short portrait each month: what lifts you, what weighs on you, what you keep coming back to.")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
+        case .needsCloud, .unavailable:
+            // One row and a way forward, not an apology where a portrait should be.
+            HStack(alignment: .center, spacing: 12) {
+                Text("A short portrait each month, written with OpenAI.")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                Spacer(minLength: 8)
+                Button("Set up") { showingAISettings = true }
+                    .buttonStyle(.bordered)
+                    .accessibilityIdentifier("lifePortraitSetUp")
+            }
         case .failed, .idle:
             VStack(alignment: .leading, spacing: 10) {
                 Text("A short portrait of what your year says about you, with the entries behind every line.")

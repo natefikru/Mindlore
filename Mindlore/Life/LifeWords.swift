@@ -61,7 +61,8 @@ enum LifeWords {
     private static func view(of row: ReflectSummary) -> AreaWordsView? {
         let items = row.items
         guard let paragraph = items.first(where: { $0.title == "paragraph" })?.body, !paragraph.isEmpty else { return nil }
-        let quotes = items.filter { $0.title == "quote" }.compactMap { item in
+        // Held to today's length rule, so a quote cached before it doesn't show.
+        let quotes = items.filter { $0.title == "quote" && $0.body.split(separator: " ").count <= LifePrompts.maxQuoteWords }.compactMap { item in
             item.entryIDs?.first.map { LifePrompts.Quote(entryID: $0, text: item.body) }
         }
         return AreaWordsView(paragraph: paragraph, quotes: quotes, generatedAt: row.generatedAt)
@@ -93,8 +94,10 @@ enum LifeWords {
         guard entries.count >= 3 else { return existing.flatMap(view(of:)) }
         if let running = inFlight[kind] { return await running.value.flatMap(view(of:)) }
         let task = Task<ReflectSummary?, Never> {
-            guard case .success(let provider) = resolve() else { return nil }
-            let onDevice = provider.kind == .onDevice
+            // OpenAI only, like the portrait: on the phone's model the paragraph came back in the
+            // author's own first person and its quotes ran to paragraphs.
+            guard case .success(let provider) = resolve(), provider.kind == .openAI else { return nil }
+            let onDevice = false
             let planned = LifePrompts.areaRequest(area: name, windowPhrase: LifeCopy.windowPhrase(window), entries: entries, model: provider.model, onDevice: onDevice)
             let started = Date.now
             do {

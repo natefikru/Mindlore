@@ -621,7 +621,8 @@ describes situations, never traits, and never diagnoses.
 - **What matters most**: `lifePriorities` against the window's shares; under half an even spread
   is a gap and gets the sentence ("You said Friends matters to you right now...").
 - **Words** (`LifePrompts` pure, `LifeWords` store). An area page opens with a paragraph and up to
-  two quotes, rewritten when its entries change, at most weekly; **a quote survives only if its
+  two quotes (OpenAI only: the phone's model wrote them in the author's first person and quoted
+  paragraphs), rewritten when its entries change, at most weekly; quotes run six to thirty words; **a quote survives only if its
   words are in the entry its handle names** (`LifePrompts.verbatim`). About you is a portrait
   written once a month through OpenAI only (the on-device room is days, not a year): five parts,
   each line citing digest handles, from the numbers, the cached month summaries, and 150 digest

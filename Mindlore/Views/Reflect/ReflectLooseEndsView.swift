@@ -95,7 +95,7 @@ struct ReflectLooseEndsView: View {
                 .accessibilityAddTraits(.isHeader)
                 .accessibilityIdentifier("reflectLooseEndsOpenHeader")
             ForEach(open) { item in
-                row(item)
+                row(item, underOpen: true)
             }
             Divider().padding(.leading, 16)
         }
@@ -117,7 +117,7 @@ struct ReflectLooseEndsView: View {
         }
     }
 
-    private func row(_ item: ReflectLooseEnds.Item) -> some View {
+    private func row(_ item: ReflectLooseEnds.Item, underOpen: Bool = false) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 10) {
             // The shape carries the status; the colour only repeats it.
             Image(systemName: ReflectLooseEnds.symbol(item.status))
@@ -129,7 +129,8 @@ struct ReflectLooseEndsView: View {
                     .journalText(.body)
                     .foregroundStyle(item.isOpen ? Palette.ink : Color.secondary)
                     .multilineTextAlignment(.leading)
-                Text("\(ReflectLooseEnds.statusTitle(item.status)) \u{00B7} \(ReflectLooseEnds.detail(item))")
+                // Under the Open heading the status goes without saying.
+                Text(underOpen ? ReflectLooseEnds.detail(item) : "\(ReflectLooseEnds.statusTitle(item.status)) \u{00B7} \(ReflectLooseEnds.detail(item))")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 if !item.subjects.isEmpty {

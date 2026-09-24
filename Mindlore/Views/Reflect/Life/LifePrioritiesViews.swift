@@ -134,6 +134,9 @@ struct LifePrioritiesPicker: View {
                     .accessibilityAddTraits(rank != nil ? .isSelected : [])
                     .accessibilityIdentifier("lifePriority-\(area.rawValue)")
                 }
+            } header: {
+                Text("\(settings.lifePriorities.count) of \(LifeSignals.maxPriorities) picked")
+                    .accessibilityIdentifier("lifePrioritiesCount")
             } footer: {
                 Text("Pick up to three. Life compares them with where your writing goes. Nothing here is shared or sent anywhere.")
             }

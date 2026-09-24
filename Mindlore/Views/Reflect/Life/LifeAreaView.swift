@@ -61,9 +61,10 @@ struct LifeAreaView: View {
             .padding(.bottom, 32)
         }
         .paperBackground()
-        // The header carries the name; the bar stays empty rather than saying it twice.
-        .navigationTitle("")
-        .navigationBarTitleDisplayMode(.inline)
+        // A large title that collapses into a real bar as the page scrolls, so the back button
+        // always has a bar under it instead of floating over the chart.
+        .navigationTitle(name)
+        .navigationBarTitleDisplayMode(.large)
         .task(id: RefreshKey(saver: saver.revision, graph: graph.revision, stamped: JournalSaves.revision)) { load() }
         .sheet(item: $peek) { target in
             EntityPeekSheet(entityID: target.id)
@@ -80,9 +81,6 @@ struct LifeAreaView: View {
                 .frame(width: 60, height: 60)
                 .background(area.color.opacity(0.16), in: Circle())
             VStack(alignment: .leading, spacing: 4) {
-                Text(name)
-                    .journalText(.title, weight: .semibold)
-                    .foregroundStyle(Palette.ink)
                 if let reading = detail?.reading {
                     Text("\(LifeCopy.percent(reading.share)) of what you wrote \(LifeCopy.windowPhrase(route.window))")
                         .font(.subheadline)
@@ -118,7 +116,8 @@ struct LifeAreaView: View {
             }
             .chartYScale(domain: -span(detail)...span(detail))
             .chartYAxis {
-                AxisMarks(values: [-span(detail) * 0.8, 0, span(detail) * 0.8]) { value in
+                // Leading, like Life's bubbles, so feeling is read from the same side everywhere.
+                AxisMarks(position: .leading, values: [-span(detail) * 0.8, 0, span(detail) * 0.8]) { value in
                     AxisValueLabel {
                         let v = value.as(Double.self) ?? 0
                         Text(v > 0.01 ? "Lighter" : (v < -0.01 ? "Heavier" : "Usual"))
@@ -313,8 +312,12 @@ struct LifeAreaView: View {
     }
 
     private func loadWords(_ ids: [UUID]) async {
+        // Written by OpenAI only; with the phone's model, or AI off, the page stands on its numbers.
+        guard case .success(let provider) = AIServices.askGenerator(settings: settings, accounts: accounts), provider.kind == .openAI else {
+            words = nil
+            return
+        }
         words = LifeWords.areaWords(area, route.window, in: modelContext)
-        guard case .success = AIServices.askGenerator(settings: settings, accounts: accounts) else { return }
         if words == nil { writingWords = true }
         let written = await LifeWords.writeAreaIfNeeded(
             area,

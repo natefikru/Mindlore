@@ -36,10 +36,21 @@ nonisolated enum LifeCopy {
         }
     }
 
-    // "From 64 entries since 24 June."
-    static func basis(entries: Int, since start: Date, locale: Locale = .current) -> String {
+    // "From 64 entries since 24 June." A year says so, since "since September 24" on September 24
+    // reads as today.
+    static func basis(entries: Int, window: MindWindow = .quarter, since start: Date, locale: Locale = .current) -> String {
+        let count = "\(entries) \(entries == 1 ? "entry" : "entries")"
+        if window == .year { return "From \(count) in the last 12 months." }
         let day = start.formatted(Date.FormatStyle(locale: locale).day().month(.wide))
-        return "From \(entries) \(entries == 1 ? "entry" : "entries") since \(day)."
+        return "From \(count) since \(day)."
+    }
+
+    // An arrow for a bubble that clearly leans lighter or heavier than usual.
+    static func lean(_ height: Double?) -> String? {
+        guard let height else { return nil }
+        if height >= 0.15 { return "arrow.up" }
+        if height <= -0.15 { return "arrow.down" }
+        return nil
     }
 
     static func percent(_ share: Double) -> String {
@@ -57,9 +68,11 @@ nonisolated enum LifeCopy {
         return "\(reading.entries) \(reading.entries == 1 ? "entry" : "entries"), \(feel)"
     }
 
-    static func recurringDetail(_ recurring: LifeSignals.Recurring) -> String {
+    static func recurringDetail(_ recurring: LifeSignals.Recurring, of total: Int? = nil) -> String {
         let unit = recurring.periodIsMonth ? "months" : "weeks"
-        return "In \(recurring.periods) different \(unit), \(recurring.entries) \(recurring.entries == 1 ? "entry" : "entries")"
+        let entries = "\(recurring.entries) \(recurring.entries == 1 ? "entry" : "entries")"
+        guard let total else { return "In \(recurring.periods) different \(unit), \(entries)" }
+        return "\(recurring.periods) of \(total) \(unit) · \(entries)"
     }
 
     static func quiet(_ quiet: LifeSignals.Quiet, window: MindWindow, name: Name) -> String {

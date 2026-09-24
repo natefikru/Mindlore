@@ -127,6 +127,15 @@ struct LifeWordsTests {
         #expect(LifeWords.areaIsCurrent(generatedAt: now.addingTimeInterval(-30 * 86_400), fingerprint: "same", current: "same", now: now))
     }
 
+    @Test func theOnDeviceModelNeverWritesAnAreasWords() async throws {
+        let ids = try entries(4)
+        try context.save()
+        let fake = FakeTextGenerator()
+        let words = await LifeWords.writeAreaIfNeeded(.work, window: .quarter, name: "Work", entryIDs: ids, resolve: provider(fake, kind: .onDevice), in: context)
+        #expect(words == nil)
+        #expect(fake.requests.isEmpty)
+    }
+
     @Test func draftsAndTooFewEntriesAreNeverSent() async throws {
         let ids = try entries(2)
         try context.save()

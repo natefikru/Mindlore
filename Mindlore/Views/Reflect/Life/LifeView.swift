@@ -48,7 +48,6 @@ struct LifeView: View {
                     ProgressView()
                         .frame(maxWidth: .infinity, minHeight: 300)
                 } else if let reading {
-                    windowPicker
                     header(reading)
                     LifeBubbleField(reading: reading, name: settings.name(of:)) { area in
                         openArea(LifeAreaRoute(area: area, window: window))
@@ -78,17 +77,6 @@ struct LifeView: View {
         .accessibilityIdentifier("lifeView")
     }
 
-    private var windowPicker: some View {
-        Picker("Window", selection: $window) {
-            ForEach(Self.windows, id: \.self) { option in
-                Text(option.title).tag(option)
-            }
-        }
-        .pickerStyle(.segmented)
-        .sensoryFeedback(Haptics.selected, trigger: window)
-        .accessibilityIdentifier("lifeWindowPicker")
-    }
-
     private func header(_ reading: LifeSignals.Reading) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             if let headline = reading.headline {
@@ -102,10 +90,40 @@ struct LifeView: View {
                 Text("Nothing filed under an area \(LifeCopy.windowPhrase(reading.window)).")
                     .journalText(.title3, weight: .semibold)
             }
-            Text(LifeCopy.basis(entries: reading.entries, since: reading.interval.start))
-                .font(.footnote)
-                .foregroundStyle(.secondary)
+            HStack(alignment: .firstTextBaseline) {
+                Text(LifeCopy.basis(entries: reading.entries, window: reading.window, since: reading.interval.start))
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                Spacer(minLength: 8)
+                windowMenu
+            }
         }
+    }
+
+    // The stretch Life reads, as a small menu beside the line it changes, rather than a second
+    // segmented control stacked under Reflect's own.
+    private var windowMenu: some View {
+        Menu {
+            Picker("Window", selection: $window) {
+                ForEach(Self.windows, id: \.self) { option in
+                    Text(option.title).tag(option)
+                }
+            }
+        } label: {
+            HStack(spacing: 4) {
+                Text(window.title)
+                Image(systemName: "chevron.up.chevron.down")
+                    .font(.caption2.weight(.semibold))
+            }
+            .font(.footnote.weight(.semibold))
+            .foregroundStyle(Palette.ember)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 5)
+            .background(Palette.ember.opacity(0.12), in: Capsule())
+        }
+        .sensoryFeedback(Haptics.selected, trigger: window)
+        .accessibilityLabel("Window, \(window.title)")
+        .accessibilityIdentifier("lifeWindowMenu")
     }
 
     @ViewBuilder
@@ -121,10 +139,13 @@ struct LifeView: View {
             }
             .accessibilityIdentifier("lifeRecurring")
         }
-        if !reading.quiet.isEmpty {
+        let gaps = Set(LifeSignals.priorities(settings.priorityAreas, reading: reading, visibleCount: settings.visibleLifeAreas.count).filter(\.isGap).map(\.area))
+        // An area the priorities card already calls a gap isn't said twice.
+        let quiet = reading.quiet.filter { !gaps.contains($0.area) }
+        if !quiet.isEmpty {
             LifeCard(title: "Gone quiet", symbol: "moon", tint: .indigo) {
                 VStack(alignment: .leading, spacing: 12) {
-                    ForEach(reading.quiet) { quiet in
+                    ForEach(quiet) { quiet in
                         LifeSentenceRow(area: quiet.area, text: LifeCopy.quiet(quiet, window: reading.window, name: name)) {
                             openArea(LifeAreaRoute(area: quiet.area, window: window))
                         }
@@ -134,7 +155,7 @@ struct LifeView: View {
             .accessibilityIdentifier("lifeQuiet")
         }
         if !reading.changes.isEmpty {
-            LifeCard(title: "What changed", symbol: "arrow.left.arrow.right", tint: .teal) {
+            LifeCard(title: "What shifted", symbol: "arrow.left.arrow.right", tint: .teal) {
                 VStack(alignment: .leading, spacing: 12) {
                     ForEach(reading.changes) { change in
                         LifeSentenceRow(area: change.area, text: LifeCopy.change(change, window: reading.window, name: name)) {
@@ -178,7 +199,8 @@ struct LifeView: View {
                             .foregroundStyle(Palette.ink)
                             .fixedSize(horizontal: false, vertical: true)
                     }
-                    ForEach(reading.followThrough) { follow in
+                    // The four areas with the most closed threads; nine bars read as a dashboard.
+                    ForEach(reading.followThrough.prefix(4)) { follow in
                         LifeFollowRow(follow: follow, name: name(follow.area))
                     }
                     if reading.openThreads > 0 {
@@ -257,6 +279,16 @@ struct LifeBubbleField: View {
         }
         .frame(height: Self.height)
         .padding(12)
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            // The chart in one sentence, since size and height mean two different things.
+            Text("Bigger means more of your writing, counted in entries; an entry can belong to two areas. Higher means it felt lighter than your usual.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.horizontal, 16)
+                .padding(.bottom, 14)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
         .background(Palette.card, in: RoundedRectangle(cornerRadius: Corner.card, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: Corner.card, style: .continuous).strokeBorder(Palette.hairline))
         .onAppear { appeared = true }
@@ -269,7 +301,7 @@ struct LifeBubbleField: View {
             path.move(to: CGPoint(x: start, y: y))
             path.addLine(to: CGPoint(x: end, y: y))
         }
-        .stroke(Color.secondary.opacity(0.35), style: StrokeStyle(lineWidth: 1, dash: [4, 5]))
+        .stroke(Color.secondary.opacity(0.6), style: StrokeStyle(lineWidth: 1.2, dash: [4, 5]))
         .accessibilityHidden(true)
     }
 
@@ -316,9 +348,15 @@ struct LifeBubbleField: View {
                         .foregroundStyle(Palette.ink)
                         .lineLimit(1)
                         .minimumScaleFactor(0.6)
-                    Text(LifeCopy.percent(reading.share))
-                        .font(.system(size: max(9, min(13, bubble.radius * 0.24)), weight: .medium).monospacedDigit())
-                        .foregroundStyle(.secondary)
+                    HStack(spacing: 2) {
+                        Text("\(reading.entries)")
+                        if let lean = LifeCopy.lean(reading.height) {
+                            Image(systemName: lean)
+                                .font(.system(size: max(8, min(11, bubble.radius * 0.2)), weight: .bold))
+                        }
+                    }
+                    .font(.system(size: max(9, min(13, bubble.radius * 0.24)), weight: .medium).monospacedDigit())
+                    .foregroundStyle(.secondary)
                 }
                 .padding(.horizontal, 4)
                 .frame(width: diameter * 0.86)
@@ -327,7 +365,7 @@ struct LifeBubbleField: View {
             .contentShape(Circle())
         }
         .buttonStyle(LifeBubbleButtonStyle())
-        .accessibilityLabel("\(title), \(LifeCopy.percent(reading.share)) of entries, \(LifeCopy.areaLine(reading, name: name))")
+        .accessibilityLabel("\(title), \(LifeCopy.areaLine(reading, name: name))")
         .accessibilityIdentifier("lifeBubble-\(bubble.area.rawValue)")
     }
 }
@@ -350,9 +388,11 @@ struct LifeCard<Content: View>: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
+            // One quiet title style for every card, so only the areas' own colours carry hue and
+            // the page doesn't read as a dashboard.
             Label(title, systemImage: symbol)
                 .font(.subheadline.weight(.semibold))
-                .foregroundStyle(tint)
+                .foregroundStyle(.secondary)
                 .accessibilityAddTraits(.isHeader)
             content
         }
@@ -401,7 +441,7 @@ struct LifeRecurringRow: View {
                     .font(.body.weight(.semibold))
                     .foregroundStyle(Palette.ink)
                 Spacer()
-                Text(LifeCopy.recurringDetail(item))
+                Text(LifeCopy.recurringDetail(item, of: Self.periods(of: item.periodIsMonth ? .month : .weekOfYear, in: interval, calendar: calendar).count))
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }

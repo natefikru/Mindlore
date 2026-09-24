@@ -86,16 +86,15 @@ struct NewEntryFan: View {
     }
 
     private var plusButton: some View {
-        ZStack {
-            Circle()
-                .fill(Palette.ember.gradient)
-                .shadow(color: Palette.ember.opacity(isOpen ? 0.2 : 0.35), radius: isOpen ? 4 : 10, y: isOpen ? 1 : 4)
-            Image(systemName: "plus")
-                .font(.system(size: 22, weight: .semibold))
-                .foregroundStyle(.white)
-                .rotationEffect(.degrees(isOpen ? 45 : 0))
-        }
-        .frame(width: 54, height: 54)
+        // Liquid Glass tinted ember, so the + belongs to the glass bar it sits in rather than
+        // reading as a flat disc laid over it.
+        Image(systemName: "plus")
+            .font(.system(size: 22, weight: .semibold))
+            .foregroundStyle(.white)
+            .rotationEffect(.degrees(isOpen ? 45 : 0))
+            .frame(width: 54, height: 54)
+            .glassEffect(.regular.tint(Palette.ember), in: Circle())
+            .shadow(color: Palette.ember.opacity(isOpen ? 0.15 : 0.3), radius: isOpen ? 4 : 10, y: isOpen ? 1 : 4)
         .scaleEffect(touch != nil ? 0.92 : 1)
         .animation(Motion.resolve(Motion.carry, reduceMotion: reduceMotion), value: touch != nil)
         // The whole slot takes the touch, not just the circle.
@@ -126,12 +125,15 @@ struct NewEntryFan: View {
                     // Hangs under the circle rather than stacking with it, so the button's frame
                     // is the circle and its centre is the option's place on the arc.
                     .overlay(alignment: .bottom) {
+                        // On a glass pill, so it reads on the dimmed screen in either scheme.
                         Text(optionTitle(option))
                             .font(.caption.weight(.semibold))
-                            .foregroundStyle(.white)
-                            .shadow(color: .black.opacity(0.35), radius: 3)
+                            .foregroundStyle(Palette.ink)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 3)
+                            .glassEffect(.regular, in: Capsule())
                             .fixedSize()
-                            .offset(y: 22)
+                            .offset(y: 26)
                     }
             .scaleEffect(lifted ? 1.14 : 1)
             .animation(Motion.resolve(Motion.carry, reduceMotion: reduceMotion), value: lifted)
