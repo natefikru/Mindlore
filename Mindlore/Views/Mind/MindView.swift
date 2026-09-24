@@ -29,6 +29,7 @@ struct MindView: View {
     @State private var window = MindWindow.default
     @State private var segment: EntitySearch.Segment = .all
     @State private var loadedKey: RefreshKey?
+    @State private var drawerStats = MindDrawer.Stats.empty
     // The replay plays the whole journal, first mention to today, whatever the window says
     // (owner, 2026-09-23), then hands the map back to the window.
     @State private var player = MindReplayPlayer()
@@ -47,10 +48,12 @@ struct MindView: View {
         let window: MindWindow
         let segment: EntitySearch.Segment
         let visibleAreas: [LifeArea]
+        // Who the author is, so "what changed" never lists them.
+        let userName: String
     }
 
     private var refreshKey: RefreshKey {
-        RefreshKey(revision: graph.revision, window: window, segment: segment, visibleAreas: settings.visibleLifeAreas)
+        RefreshKey(revision: graph.revision, window: window, segment: segment, visibleAreas: settings.visibleLifeAreas, userName: settings.userName)
     }
 
     var body: some View {
@@ -81,6 +84,7 @@ struct MindView: View {
                             stop: $panelStop,
                             available: available,
                             segment: $segment,
+                            stats: drawerStats,
                             select: { focus($0, source: .search) },
                             open: { router.mindPath.append(EntityRoute(id: $0)) }
                         )
@@ -372,6 +376,8 @@ struct MindView: View {
         // not new.
         let sameView = loadedKey.map { $0.window == key.window && $0.segment == key.segment } ?? false
         show(frame, snapshot: snapshot, blooms: sameView)
+        let stats = MindDrawer.Stats.make(snapshot, window: window, asOf: now, excluding: MindStats.authorIDs(named: settings.userName, in: snapshot))
+        if stats != drawerStats { drawerStats = stats }
 
         let directory = EntityDirectory(in: modelContext)
         trail.normalize(root: directory.root(of:), exists: { directory.entity($0).map { !$0.isDeleted } ?? false })

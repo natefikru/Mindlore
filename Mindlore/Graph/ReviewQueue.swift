@@ -18,8 +18,13 @@ enum ReviewQueue {
         }
     }
 
+    // Every question still to answer, in asking order: what Tidy up counts and walks through.
+    static func questions(suggestions: [EntityMatcher.Suggestion], unsure: [GraphServices.UnsureMention], skipped: Set<String>) -> [Question] {
+        let all = unsure.map(Question.whichOne) + suggestions.map { Question.same(a: $0.a, b: $0.b) }
+        return all.filter { !skipped.contains($0.id) }
+    }
+
     static func next(suggestions: [EntityMatcher.Suggestion], unsure: [GraphServices.UnsureMention], skipped: Set<String>) -> Question? {
-        let questions = unsure.map(Question.whichOne) + suggestions.map { Question.same(a: $0.a, b: $0.b) }
-        return questions.first { !skipped.contains($0.id) }
+        questions(suggestions: suggestions, unsure: unsure, skipped: skipped).first
     }
 }
