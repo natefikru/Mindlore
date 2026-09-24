@@ -2,9 +2,10 @@ import Foundation
 import SwiftData
 
 // The whole journal as files a person can keep: one Markdown file per entry, `journal.json` with
-// everything the app knows about each one, and the recordings and page photos beside them. It is
-// the only backup there is until sync exists, so it leaves nothing out, drafts and hidden names
-// included, each marked as such.
+// everything the app knows about each one, and the recordings and page photos beside them. It
+// leaves nothing out, drafts and hidden names included, each marked as such. `journal.json` has
+// two halves: readable fields for a person or a script, and `records`, every stored property
+// `JournalImport` needs to put the journal back as it was.
 //
 //   Mindlore Export 2026-09-22/
 //     journal.json
@@ -19,11 +20,17 @@ enum JournalExport {
         let mediaFiles: Int
     }
 
+    // 2 carries `records`, what `JournalImport` restores from; an export without it (1, or no
+    // version at all) was made before import existed and can't be put back.
+    static let version = 2
+
     nonisolated struct Document: Codable, Equatable {
+        var version: Int?
         var exportedAt: Date
         var entries: [ExportedEntry]
         var names: [ExportedName]
         var looseEnds: [ExportedLooseEnd]
+        var records: JournalRecords?
     }
 
     nonisolated struct ExportedEntry: Codable, Equatable {
@@ -87,7 +94,9 @@ enum JournalExport {
             return current
         }
         var namesByEntry: [UUID: [String]] = [:]
+        var linksByEntry: [UUID: [LinkRecord]] = [:]
         for link in (try? context.fetch(FetchDescriptor<EntityLink>())) ?? [] {
+            if let entryID = link.entryID { linksByEntry[entryID, default: []].append(LinkRecord(link)) }
             guard let entryID = link.entryID, let entityID = link.entityID, let entity = root(entityID) else { continue }
             if !(namesByEntry[entryID] ?? []).contains(entity.name) { namesByEntry[entryID, default: []].append(entity.name) }
         }
@@ -96,6 +105,7 @@ enum JournalExport {
         var usedNames: Set<String> = []
         var mediaFiles = 0
         var exported: [ExportedEntry] = []
+        var records = JournalRecords()
         for entry in entries {
             let file = uniqueFileName(for: entry, calendar: calendar, used: &usedNames)
             var audio: String?
@@ -106,13 +116,21 @@ enum JournalExport {
                 mediaFiles += 1
             }
             var pages: [String] = []
+            var pageRecords: [PageRecord] = []
             for (position, page) in entry.sortedPages.enumerated() {
-                guard let data = page.imageData else { continue }
+                guard let data = page.imageData else {
+                    pageRecords.append(PageRecord(page, imageFile: nil))
+                    continue
+                }
                 let name = "\(entry.id.uuidString)-page-\(position + 1).jpg"
                 try data.write(to: mediaFolder.appendingPathComponent(name))
                 pages.append("media/\(name)")
+                pageRecords.append(PageRecord(page, imageFile: "media/\(name)"))
                 mediaFiles += 1
             }
+            // Sorted so the same journal always writes the same file.
+            let links = (linksByEntry[entry.id] ?? []).sorted { ($0.entityID?.uuidString ?? "", $0.surface) < ($1.entityID?.uuidString ?? "", $1.surface) }
+            records.entries.append(EntryRecord(entry, audioFile: audio, pages: pageRecords, links: links))
             let insights = entry.insights
             let item = ExportedEntry(
                 id: entry.id,
@@ -157,7 +175,16 @@ enum JournalExport {
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
-        let document = Document(exportedAt: now, entries: exported, names: names, looseEnds: looseEnds)
+        records.entities = entities.sorted { ($0.createdAt, $0.id.uuidString) < ($1.createdAt, $1.id.uuidString) }.map(EntityRecord.init)
+        records.looseEnds = ((try? context.fetch(FetchDescriptor<LooseEnd>())) ?? [])
+            .sorted { ($0.createdAt, $0.id.uuidString) < ($1.createdAt, $1.id.uuidString) }.map(LooseEndRecord.init)
+        records.conversations = ((try? context.fetch(FetchDescriptor<AskConversation>())) ?? [])
+            .sorted { ($0.createdAt, $0.id.uuidString) < ($1.createdAt, $1.id.uuidString) }.map(ConversationRecord.init)
+        records.messages = ((try? context.fetch(FetchDescriptor<AskMessage>())) ?? [])
+            .sorted { ($0.conversationID?.uuidString ?? "", $0.index) < ($1.conversationID?.uuidString ?? "", $1.index) }.map(MessageRecord.init)
+        records.reflectSummaries = ((try? context.fetch(FetchDescriptor<ReflectSummary>())) ?? [])
+            .sorted { ($0.periodKindRaw, $0.periodStart) < ($1.periodKindRaw, $1.periodStart) }.map(ReflectSummaryRecord.init)
+        let document = Document(version: Self.version, exportedAt: now, entries: exported, names: names, looseEnds: looseEnds, records: records)
         try encoder.encode(document).write(to: folder.appendingPathComponent("journal.json"))
 
         diagnostics.record("journal.exported", ["entries": .int(exported.count), "media": .int(mediaFiles), "names": .int(names.count)])

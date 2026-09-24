@@ -477,6 +477,11 @@ final class GraphServices {
         revision += 1
     }
 
+    // An import brought names and links in without an edit here; the same rebuild.
+    func journalImported() {
+        revision += 1
+    }
+
     // Delete all data took every entity with it; every map and list keyed on the graph rebuilds.
     func journalWiped() {
         revision += 1

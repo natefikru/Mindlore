@@ -1,5 +1,6 @@
 import SwiftData
 import SwiftUI
+import UniformTypeIdentifiers
 
 // General's lock: Face ID (or whatever this phone has) when coming back to the app.
 struct AppLockSection: View {
@@ -42,7 +43,7 @@ struct AppLockSection: View {
     }
 }
 
-// General's data tools: the export, and the one delete with no Undo. Deleting the whole journal is
+// General's data tools: the export, putting an export back, and the one delete with no Undo. Deleting the whole journal is
 // the single place a confirmation dialog beats the undo pill, because there is nothing left
 // afterwards to bring back.
 struct JournalDataSection: View {
@@ -60,6 +61,13 @@ struct JournalDataSection: View {
     @State private var exportNote: String?
     @State private var confirmingDelete = false
     @State private var deleteNote: String?
+    @State private var pickingImport = false
+    @State private var importing = false
+    @State private var pendingImport: (prepared: JournalImport.Prepared, preview: JournalImport.Preview)?
+    @State private var importNote: String?
+    // Only a folder whose access was actually granted is handed back; stopping one that wasn't
+    // started is unbalanced.
+    @State private var accessingFolder = false
 
     var body: some View {
         Section {
@@ -74,6 +82,18 @@ struct JournalDataSection: View {
             }
             .disabled(exporting)
             .accessibilityIdentifier("exportJournalButton")
+
+            Button {
+                pickingImport = true
+            } label: {
+                HStack {
+                    Text("Import journal")
+                    Spacer()
+                    if importing { ProgressView() }
+                }
+            }
+            .disabled(importing || recording.status != .idle)
+            .accessibilityIdentifier("importJournalButton")
 
             Button("Delete all data", role: .destructive) { confirmingDelete = true }
                 .disabled(recording.status != .idle)
@@ -91,6 +111,25 @@ struct JournalDataSection: View {
             if let exportFolder { try? FileManager.default.removeItem(at: exportFolder.deletingLastPathComponent()) }
             exportFolder = nil
         }
+        .fileImporter(isPresented: $pickingImport, allowedContentTypes: [.folder]) { result in
+            guard case .success(let folder) = result else { return }
+            Task { await prepareImport(folder) }
+        }
+        // The folder travels into the button's action rather than being read back from state:
+        // tapping a button also dismisses the dialog, and the dismissal must not be what releases
+        // the folder the import is about to read media from.
+        .confirmationDialog(
+            importTitle,
+            isPresented: Binding(get: { pendingImport != nil }, set: { if !$0 { pendingImport = nil } }),
+            titleVisibility: .visible,
+            presenting: pendingImport?.prepared
+        ) { prepared in
+            Button("Import") { Task { await runImport(prepared) } }
+                .accessibilityIdentifier("confirmImportJournalButton")
+            Button("Cancel", role: .cancel) { releaseFolder(prepared.folder) }
+        } message: { _ in
+            Text(importMessage)
+        }
         .confirmationDialog("Delete everything in your journal?", isPresented: $confirmingDelete, titleVisibility: .visible) {
             Button("Delete All Data", role: .destructive) { deleteEverything() }
                 .accessibilityIdentifier("confirmDeleteAllDataButton")
@@ -104,7 +143,9 @@ struct JournalDataSection: View {
     private var footer: String {
         var parts: [String] = []
         parts.append("An export is a folder with every entry as a Markdown file, a journal.json with everything Mindlore knows about each one, and your recordings and page photos.")
+        parts.append("Import puts an export back. Anything already in this journal stays as it is.")
         if let exportNote { parts.append(exportNote) }
+        if let importNote { parts.append(importNote) }
         if let deleteNote { parts.append(deleteNote) }
         return parts.joined(separator: " ")
     }
@@ -125,6 +166,64 @@ struct JournalDataSection: View {
             try? FileManager.default.removeItem(at: staging)
         }
         exporting = false
+    }
+
+    private var importTitle: String {
+        guard let preview = pendingImport?.preview else { return "" }
+        return preview.newEntries == 0 ? "Everything in this export is already here." : "Import \(Self.entries(preview.newEntries))?"
+    }
+
+    private var importMessage: String {
+        guard let preview = pendingImport?.preview else { return "" }
+        var parts: [String] = []
+        if preview.newNames > 0 { parts.append("\(preview.newNames) people, places, and more come with them.") }
+        if preview.existingEntries > 0 {
+            parts.append("\(Self.entries(preview.existingEntries)) \(preview.existingEntries == 1 ? "is" : "are") already here and stay as \(preview.existingEntries == 1 ? "it is" : "they are").")
+        }
+        parts.append("Nothing is sent anywhere, and no AI runs.")
+        return parts.joined(separator: " ")
+    }
+
+    private static func entries(_ count: Int) -> String {
+        count == 1 ? "1 entry" : "\(count) entries"
+    }
+
+    // The folder the picker hands back is only readable while its access is held, and the media is
+    // read entry by entry during the import, so access runs from here until the import is done.
+    private func prepareImport(_ folder: URL) async {
+        importNote = nil
+        accessingFolder = folder.startAccessingSecurityScopedResource()
+        do {
+            let prepared = try await Task.detached { try JournalImport.read(folder: folder) }.value
+            pendingImport = (prepared, JournalImport.preview(prepared, in: modelContext))
+        } catch {
+            releaseFolder(folder)
+            importNote = error as? JournalImport.Failure == .olderExport
+                ? "That export was made before Mindlore could import. Export again from the phone the journal is on, then import that."
+                : "That folder isn't a Mindlore export."
+        }
+    }
+
+    private func releaseFolder(_ folder: URL) {
+        if accessingFolder { folder.stopAccessingSecurityScopedResource() }
+        accessingFolder = false
+    }
+
+    private func runImport(_ prepared: JournalImport.Prepared) async {
+        importing = true
+        saver.flush()
+        do {
+            let summary = try await JournalImport.apply(prepared, into: modelContext)
+            graph.journalImported()
+            var note = "Imported \(Self.entries(summary.entries))."
+            if summary.missingMedia > 0 { note += " \(summary.missingMedia) recordings or photos were missing from the folder." }
+            importNote = note
+        } catch {
+            modelContext.rollback()
+            importNote = "The import stopped partway. What was saved stays; importing again adds the rest."
+        }
+        importing = false
+        releaseFolder(prepared.folder)
     }
 
     private func deleteEverything() {
