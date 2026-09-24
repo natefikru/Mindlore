@@ -75,12 +75,16 @@ if [ -n "${GITHUB_ACTIONS:-}" ]; then
 fi
 
 udid="$(simulator_udid)"
-boot_simulator "$udid"
 mkdir -p "$RESULTS"
 rm -rf "$RESULTS/$name.xcresult"
 
+# The boot and xcodebuild start together. On a fresh runner the boot took 75 seconds and xcodebuild
+# sat silent for 58 before it even looked for a destination, one after the other; xcodebuild waits
+# for a simulator that is still booting, so the two overlap. If either fails the other is stopped
+# at once and the step fails, rather than xcodebuild waiting out a boot that already gave up.
 echo "Running $mode tests on simulator $udid from $(basename "$xctestrun")"
-status=0
+boot_simulator "$udid" &
+boot_pid=$!
 run_xcodebuild \
   test-without-building \
   -xctestrun "$xctestrun" \
@@ -89,16 +93,46 @@ run_xcodebuild \
   -parallel-testing-enabled NO \
   -test-timeouts-enabled YES \
   -default-test-execution-time-allowance "$allowance" \
-  "${only[@]}" || status=$?
+  "${only[@]}" &
+xcodebuild_pid=$!
+
+# macOS's bash 3.2 has no `wait -n`, so poll until one of them finishes.
+status=0
+while :; do
+  if ! kill -0 "$boot_pid" 2>/dev/null; then
+    if ! wait "$boot_pid"; then
+      echo "Simulator $udid failed to boot; stopping xcodebuild." >&2
+      stop_tree "$xcodebuild_pid"
+      wait "$xcodebuild_pid" 2>/dev/null || true
+      status=1
+      break
+    fi
+    wait "$xcodebuild_pid" || status=$?
+    break
+  fi
+  if ! kill -0 "$xcodebuild_pid" 2>/dev/null; then
+    wait "$xcodebuild_pid" || status=$?
+    if [ "$status" -ne 0 ]; then
+      echo "xcodebuild failed before the simulator finished booting; stopping the boot." >&2
+    fi
+    stop_tree "$boot_pid"
+    wait "$boot_pid" 2>/dev/null || true
+    break
+  fi
+  sleep 1
+done
 
 # The formatted log can mislead: xcbeautify printed a green check for a test the allowance had
 # killed. The result bundle is the record, so end with what it says failed and what needed a retry.
+# A run stopped early leaves a bundle xcresulttool can't read; that must not replace the real status.
 if [ -d "$RESULTS/$name.xcresult" ] && command -v jq >/dev/null 2>&1; then
+  {
   echo "Result bundle: $(xcrun xcresulttool get test-results summary --path "$RESULTS/$name.xcresult" \
     | jq -r '"\(.result), \(.passedTests) passed, \(.failedTests) failed, \(.skippedTests) skipped"')"
   xcrun xcresulttool get test-results summary --path "$RESULTS/$name.xcresult" \
     | jq -r '.testFailures[] | "  FAILED \(.testIdentifierString // .testName): \(.failureText)"'
   xcrun xcresulttool get test-results tests --path "$RESULTS/$name.xcresult" \
     | jq -r '.. | objects | select(.nodeType? == "Test Case" and .result == "Passed" and ([.children[]? | select(.nodeType == "Repetition")] | length) > 1) | "  RETRIED, then passed: \(.nodeIdentifier // .name)"'
+  } || echo "The result bundle could not be read."
 fi
 exit "$status"

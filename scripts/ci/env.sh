@@ -54,6 +54,31 @@ boot_simulator() {
   echo "Simulator $udid ready (waited $((SECONDS - started))s)"
 }
 
+# Stop a background job and everything it started: killing only a subshell leaves the xcodebuild
+# or simctl inside it running. xcodebuild winds down for a few seconds after TERM, so anything
+# still there after ten gets KILL.
+stop_tree() {
+  local pids pid waited=0
+  pids="$(descendants "$1") $1"
+  for pid in $pids; do kill "$pid" 2>/dev/null || true; done
+  while [ "$waited" -lt 10 ]; do
+    local alive=""
+    for pid in $pids; do kill -0 "$pid" 2>/dev/null && alive=1; done
+    [ -z "$alive" ] && return 0
+    sleep 1
+    waited=$((waited + 1))
+  done
+  for pid in $pids; do kill -9 "$pid" 2>/dev/null || true; done
+}
+
+descendants() {
+  local child
+  for child in $(pgrep -P "$1" 2>/dev/null); do
+    descendants "$child"
+    echo "$child"
+  done
+}
+
 # xcbeautify is on every GitHub macOS image and optional at home. pipefail (set above) keeps
 # xcodebuild's exit code through the pipe.
 run_xcodebuild() {
