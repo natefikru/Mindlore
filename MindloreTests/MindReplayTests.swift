@@ -114,6 +114,7 @@ struct MindReplayTests {
         let trimmed = data.since(at(20))
         #expect(trimmed.links.map(\.entryDate) == [at(20.001), at(30)])
         #expect(trimmed.entities == data.entities, "entities stay: the map's minimum is sized on them")
+        #expect(trimmed.linkedEntityIDs == data.linkedEntityIDs, "and so do the names the journal carries")
         #expect(data.since(nil).links == data.links)
     }
 
@@ -148,7 +149,19 @@ struct MindReplayTests {
             entries[id] = .init(id: id, date: at(entry.day), areas: [entry.area], mood: nil)
             links += entry.names.map { EntityGraph.LinkInput(entryID: id, entityID: $0, entryDate: at(entry.day)) }
         }
-        let data = MindMapSnapshot(entities: entities, links: links, entries: entries, entryDates: written.map { at($0.day) })
+        // Sixty more names from early on, so the journal is past MindMap.largeJournal and the map
+        // asks for two mentions a name. A replay trimmed to a window must ask the same.
+        var allEntities = entities
+        var dates = written.map { at($0.day) }
+        for index in 0..<60 {
+            let name = UUID(), entry = UUID()
+            allEntities[name] = .init(id: name, name: "Name \(index)", kind: .person)
+            entries[entry] = .init(id: entry, date: at(50), areas: [.work], mood: nil)
+            links.append(EntityGraph.LinkInput(entryID: entry, entityID: name, entryDate: at(50)))
+            dates.append(at(50))
+        }
+        let data = MindMapSnapshot(entities: allEntities, links: links, entries: entries, entryDates: dates)
+        #expect(MindMap.minimumMentions(browsableCount: data.linkedEntityIDs.count) == 2)
         let end = at(400)
 
         for window in MindWindow.allCases {

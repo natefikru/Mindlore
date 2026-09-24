@@ -27,6 +27,17 @@ struct GraphSimulationTests {
 
     // MARK: - Settling within budget
 
+    // A tag is a pin: one size whatever its count, smaller than the smallest name.
+    @Test func aTagIsASmallPinAtAnyCount() {
+        for count in [1, 80] {
+            let tag = GraphSimulation.Node(id: UUID(), kind: .tag, linkCount: count)
+            #expect(GraphSimulation.radius(for: tag) == GraphSimulation.tagRadius)
+        }
+        #expect(GraphSimulation.tagRadius < GraphSimulation.radius(linkCount: 1))
+        let simulation = GraphSimulation(nodes: [.init(id: UUID(), kind: .tag, linkCount: 40)], edges: [])
+        #expect(simulation.radius(at: 0) == GraphSimulation.tagRadius)
+    }
+
     @Test func zeroNodesSettlesImmediately() {
         let simulation = GraphSimulation(nodes: [], edges: [])
         #expect(settle(simulation) <= 2000)

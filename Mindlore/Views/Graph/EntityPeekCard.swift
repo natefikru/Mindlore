@@ -31,8 +31,21 @@ struct EntityPeekSheet: View {
 // pageOpened, so looking at a card never starts a bio draft.
 struct EntityPeekCard: View {
     let route: EntityRoute
-    // Mind shows a focused entity's card even when the window or kind leaves it off the map.
-    var showsMapHint = false
+    // Why a focused entity's card is showing without its node: the window or kind leaves it off,
+    // or no journal entry names it at all, which no filter will change.
+    enum MapHint: Equatable {
+        case outsideView
+        case notInJournal
+
+        var text: String {
+            switch self {
+            case .outsideView: "Not on the map in this stretch"
+            case .notInJournal: "Only in notes or creative pieces, which stay off the map"
+            }
+        }
+    }
+
+    var mapHint: MapHint?
     let open: (EntityRoute) -> Void
     @Environment(\.modelContext) private var modelContext
     @Environment(GraphServices.self) private var graph
@@ -40,9 +53,9 @@ struct EntityPeekCard: View {
     @State private var summary: EntityPeekPresentation.Summary?
     @State private var loaded = false
 
-    init(route: EntityRoute, showsMapHint: Bool = false, open: @escaping (EntityRoute) -> Void) {
+    init(route: EntityRoute, mapHint: MapHint? = nil, open: @escaping (EntityRoute) -> Void) {
         self.route = route
-        self.showsMapHint = showsMapHint
+        self.mapHint = mapHint
         self.open = open
         let id = route.id
         _matches = Query(filter: #Predicate<Entity> { $0.id == id })
@@ -126,8 +139,8 @@ struct EntityPeekCard: View {
                 }
                 .accessibilityElement(children: .combine)
                 .accessibilityIdentifier("entityPeekPresence")
-                if showsMapHint {
-                    Text("Not on the map in this stretch")
+                if let mapHint {
+                    Text(mapHint.text)
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .accessibilityIdentifier("entityPeekOffMap")
