@@ -452,4 +452,76 @@ struct AskRetrievalTests {
         #expect(result.rankedEntryIDs.isEmpty)
         #expect(result.estimatedCharacters == 0)
     }
+
+    // MARK: - An entry the conversation is about
+
+    private func focus(_ name: String, characters: Int, isSendable: Bool = true) -> AskIndex.DocumentInput {
+        let text = String(repeating: "Quiet morning by the water. ", count: characters / 28 + 1).prefix(characters)
+        return AskIndex.DocumentInput(
+            id: id(for: name),
+            date: now.addingTimeInterval(-86_400 * 40),
+            text: String(text),
+            isSendable: isSendable,
+            blockCharacters: AskContextBuilder.blockCharacterEstimate(title: "", text: String(text)),
+            textCharacters: text.count
+        )
+    }
+
+    private func plan(_ question: String, focusing focusID: UUID, in index: AskIndex) -> AskRetrieval.Plan {
+        AskRetrieval.plan(
+            query: query(question, in: index),
+            index: index,
+            budget: AskContextBuilder.openAIBudget,
+            provider: .openAI,
+            focusEntryID: focusID,
+            calendar: calendar
+        )
+    }
+
+    @Test func theFocusGoesFirstAndWholePastTheUsualCap() {
+        let index = index([focus("focus", characters: 5_000), input("a")])
+        let result = plan("deadline", focusing: id(for: "focus"), in: index)
+
+        #expect(result.focusEntryID == id(for: "focus"))
+        #expect(result.focusTextLimit == 5_000, "all of it, not maxEntryCharacters")
+        #expect(result.entryIDs.first == id(for: "focus"))
+        // The rest of the journal is still searched.
+        #expect(result.rankedEntryIDs == [id(for: "a")])
+    }
+
+    @Test func aVeryLongFocusIsCappedOnOpenAI() {
+        let index = index([focus("focus", characters: 50_000)])
+        let result = plan("water", focusing: id(for: "focus"), in: index)
+
+        #expect(result.focusTextLimit > 23_000)
+        #expect(result.focusTextLimit <= AskRetrieval.maxFocusCharactersOpenAI)
+    }
+
+    @Test func theFocusIsNeverRankedOrDigestedAgain() {
+        let index = index([focus("focus", characters: 500), input("a", text: "Quiet morning by the water.")])
+        let result = plan("quiet morning water", focusing: id(for: "focus"), in: index)
+
+        #expect(result.entryIDs.filter { $0 == id(for: "focus") }.count == 1)
+        #expect(!result.rankedEntryIDs.contains(id(for: "focus")))
+        #expect(!result.digestEntryIDs.contains(id(for: "focus")))
+        #expect(result.rankedEntryIDs == [id(for: "a")])
+    }
+
+    // "What do you make of this?" shares no word with the journal, and is about the entry, not a
+    // reason to send the newest five and say nothing matched.
+    @Test func aQuestionMatchingNothingKeepsTheFocusAndSkipsTheRecencyFallback() {
+        let index = index([focus("focus", characters: 500), input("a"), input("b")])
+        let result = plan("zebra", focusing: id(for: "focus"), in: index)
+
+        #expect(!result.matchedNothing)
+        #expect(result.entryIDs == [id(for: "focus")])
+    }
+
+    @Test func aFocusThatMayNotBeSentIsDropped() {
+        let index = index([focus("focus", characters: 500, isSendable: false), input("a")])
+        let result = plan("deadline", focusing: id(for: "focus"), in: index)
+
+        #expect(result.focusEntryID == nil)
+        #expect(!result.entryIDs.contains(id(for: "focus")))
+    }
 }

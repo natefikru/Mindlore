@@ -55,7 +55,8 @@ enum AskSources {
                 areas: insights?.areas.map(\.defaultName) ?? [],
                 mood: insights?.primaryMood?.rawValue,
                 isSendable: InsightsCoordinator.canRunAI(on: entry),
-                blockCharacters: AskContextBuilder.blockCharacterEstimate(title: entry.title, text: entry.text)
+                blockCharacters: AskContextBuilder.blockCharacterEstimate(title: entry.title, text: entry.text),
+                textCharacters: entry.text.count
             )
         }
 

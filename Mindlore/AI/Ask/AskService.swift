@@ -88,9 +88,18 @@ final class AskService {
     private(set) var conversationID = UUID()
     private(set) var turns: [AskTurn] = []
     private(set) var handles: [String: UUID] = [:]
-    private(set) var isRunning = false
+    // The conversation an answer is being written for. Running belongs to that conversation, not
+    // to the service: an answer left behind by a new conversation finishes into nothing (stillOpen
+    // drops it), and until it does it must not hold the new conversation's send button. The
+    // on-device model has no stream to cancel, so it can take seconds to let go.
+    private var runningIn: UUID?
+    var isRunning: Bool { runningIn != nil && runningIn == conversationID }
     // Kept while the user is on another tab, so a half-typed question survives a look at Mind.
     var draftQuestion = ""
+    // The entry this conversation was opened from, which every answer in it gets in full. Held for
+    // the conversation on screen only: one reopened from history goes on through what its answers
+    // cited, like any other.
+    private(set) var focusEntryID: UUID?
 
     @ObservationIgnored private let resolve: () -> Result<AskProvider, AIJobFailure>
     @ObservationIgnored private let indexStore: AskIndexStore
@@ -140,13 +149,14 @@ final class AskService {
 
     // MARK: - Moving between conversations
 
-    func newConversation() {
+    func newConversation(about entryID: UUID? = nil) {
         cancelStream()
         conversationID = UUID()
         turns = []
         handles = [:]
         draftQuestion = ""
         isSaved = false
+        focusEntryID = entryID
     }
 
     func open(_ conversation: AskConversation, in context: ModelContext) {
@@ -155,6 +165,7 @@ final class AskService {
         handles = conversation.handleMap
         isSaved = true
         draftQuestion = ""
+        focusEntryID = nil
         turns = AskMessage.all(forConversation: conversation.id, in: context).map {
             AskTurn(
                 id: $0.id,
@@ -190,7 +201,7 @@ final class AskService {
     func send(_ question: String, in context: ModelContext) async {
         let trimmed = question.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty, !isRunning else { return }
-        isRunning = true
+        runningIn = conversationID
         draftQuestion = ""
         turns.append(AskTurn(id: UUID(), role: .user, text: trimmed))
         await answer(trimmed, in: context)
@@ -200,7 +211,7 @@ final class AskService {
     func retryLast(in context: ModelContext) async {
         guard !isRunning, let last = turns.last, last.role == .assistant, last.canRetry,
               let question = turns.dropLast().last, question.role == .user else { return }
-        isRunning = true
+        runningIn = conversationID
         turns.removeLast()
         if isSaved, let message = AskMessage.all(forConversation: conversationID, in: context).first(where: { $0.id == last.id }) {
             store.write({ context.delete(message) }, in: context)
@@ -217,10 +228,11 @@ final class AskService {
         await indexStore.refreshIfNeeded(revisions: revisions(), in: context)
     }
 
-    // Entered with isRunning already true, set by the caller before its first await, so two
+    // Entered with runningIn already set, by the caller before its first await, so two
     // taps can never both get past the guard.
     private func answer(_ question: String, in context: ModelContext) async {
-        defer { isRunning = false }
+        let runningFor = conversationID
+        defer { if runningIn == runningFor { runningIn = nil } }
         let provider: AskProvider
         switch resolve() {
         case .success(let resolved):
@@ -263,6 +275,8 @@ final class AskService {
             "about": .int(retrievalPlan.aboutEntityIDs.count),
             "aggregate": .bool(retrievalPlan.isAggregate),
             "rangeInherited": .bool(retrievalPlan.rangeWasInherited),
+            // What went out, not what was planned: a focus that became a draft since is not sent.
+            "focused": .bool(retrievalPlan.focusEntryID.map(built.entryIDs.contains) ?? false),
             "turn": .int(turnIndex),
         ])
         guard !built.isEmpty else {
@@ -433,7 +447,9 @@ final class AskService {
             return Delivered(answer: .init(text: partial, handles: []), streamed: true, wasStopped: true, firstDeltaAt: firstDeltaAt)
         }
         streamReader = reader
-        defer { streamReader = nil }
+        // Only its own: an answer abandoned by a new conversation can finish after the next one
+        // has started streaming, and must not take that one's Stop away.
+        defer { if streamReader == reader { streamReader = nil } }
         return try await withTaskCancellationHandler {
             try await reader.value
         } onCancel: {
@@ -498,6 +514,7 @@ final class AskService {
             budget: budget(for: provider, question: question),
             provider: provider.kind,
             rollups: true,
+            focusEntryID: focusEntryID,
             calendar: calendar
         )
         return (query, plan)
@@ -514,6 +531,7 @@ final class AskService {
                 + AskPrompt.folded(previous: previousTurn(), into: "").count
                 + question.count
                 + AskPrompt.onDeviceNotesHeadroom
+                + (focusEntryID == nil ? 0 : AskPrompt.focusNoteHeadroom)
                 + AskContextBuilder.onDeviceAnswerHeadroom
             return max(0, AskContextBuilder.onDeviceBudget - fixed)
         }

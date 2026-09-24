@@ -263,6 +263,85 @@ struct AskServiceTests {
         #expect(AskConversation.all(in: context).isEmpty)
     }
 
+    // MARK: - A conversation about one entry
+
+    @Test func aConversationAboutAnEntrySendsItWholeOnEveryTurn() async throws {
+        let long = entry(String(repeating: "Quiet morning by the water. ", count: 120) + "Then Sam called about the lease.", daysAgo: 30)
+        entry("Paddled the river.")
+        let ask = service()
+        ask.newConversation(about: long.id)
+        generator.results = [answer("A calm one.", citing: ["E1"]), answer("The lease.", citing: ["E1"])]
+
+        await ask.send("What do you make of this?", in: context)
+        let first = try #require(generator.requests.last)
+        #expect(first.user.contains("Then Sam called about the lease."), "the end of an entry past the usual cap")
+        #expect(first.user.contains(AskPrompt.focusNote(handle: "E1")))
+        #expect(!first.user.contains("most recent entries"), "not the nothing-matched fallback")
+
+        // A follow-up sharing no word with it still has it.
+        await ask.send("And why?", in: context)
+        let second = try #require(generator.requests.last)
+        #expect(second.user.contains("Then Sam called about the lease."))
+        #expect(ask.turns.last?.sentEntryIDs.first == long.id)
+    }
+
+    @Test func aNewConversationOrAReopenedOneHasNoFocus() async throws {
+        let entry = entry("Paddled the river.")
+        let ask = service()
+        generator.results = [answer("You paddled.", citing: ["E1"])]
+        await ask.send("river?", in: context)
+        let saved = try #require(AskConversation.all(in: context).first)
+
+        ask.newConversation(about: entry.id)
+        #expect(ask.focusEntryID == entry.id)
+        ask.newConversation()
+        #expect(ask.focusEntryID == nil)
+
+        ask.newConversation(about: entry.id)
+        ask.open(saved, in: context)
+        #expect(ask.focusEntryID == nil)
+    }
+
+    @Test func aDraftIsNeverSentAsTheFocus() async throws {
+        let draft = entry("Half written about the lease.")
+        draft.isDraft = true
+        entry("Paddled the river.")
+        let ask = service()
+        ask.newConversation(about: draft.id)
+        generator.results = [answer("Nothing.", citing: [])]
+
+        await ask.send("What do you make of this?", in: context)
+
+        #expect(!generator.requests.contains { $0.user.contains("Half written") })
+        #expect(ask.turns.last?.sentEntryIDs.contains(draft.id) == false)
+    }
+
+    // Opening a chat about an entry over an answer still being written: the abandoned one finishes
+    // into nothing, and must not hold the new conversation's send button while it does.
+    @Test func aNewConversationCanSendWhileTheAbandonedAnswerIsStillComing() async throws {
+        let entry = entry("Paddled the river.")
+        let ask = service()
+        generator.suspends = true
+        let abandoned = Task { await ask.send("river?", in: context) }
+        await generator.waitForRequest(number: 1)
+        #expect(ask.isRunning)
+
+        ask.newConversation(about: entry.id)
+        #expect(!ask.isRunning)
+        let sending = Task { await ask.send("What do you make of this?", in: context) }
+        await generator.waitForRequest(number: 2)
+        #expect(ask.isRunning)
+
+        generator.answer(answer("Too late.", citing: []))
+        await abandoned.value
+        #expect(ask.isRunning, "the old answer finishing doesn't end the new one")
+        generator.answer(answer("A calm one.", citing: ["E1"]))
+        await sending.value
+
+        #expect(!ask.isRunning)
+        #expect(ask.turns.map(\.text) == ["What do you make of this?", "A calm one."])
+    }
+
     @Test func aCitedEntryDeletedLaterStillReadsBackAsAnID() async throws {
         let entry = entry("Paddled the river.")
         let ask = service()

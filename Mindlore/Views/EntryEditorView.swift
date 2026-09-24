@@ -173,6 +173,15 @@ struct EntryEditorView: View {
                     // Done and Insights are what an entry is for; the rest are occasional and wait
                     // behind one menu, or a photo entry with cleaned text showed five icons at once.
                     Menu {
+                        // Only what Ask may send: a draft or an entry still waiting for its text
+                        // would open a conversation with nothing in it.
+                        if InsightsCoordinator.canRunAI(on: entry) {
+                            Button("Chat about this entry", systemImage: "text.bubble") {
+                                saver.flush()
+                                router.showAsk(question: nil, aboutEntry: entry.id)
+                            }
+                            .accessibilityIdentifier("chatAboutEntryButton")
+                        }
                         Button("Entry date", systemImage: "calendar") { editingDate = true }
                             .accessibilityIdentifier("entryDateButton")
                         if entry.source == .photo && entry.pagesConfirmed {

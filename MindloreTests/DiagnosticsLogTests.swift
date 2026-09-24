@@ -445,6 +445,12 @@ struct AskDiagnosticsPrivacyTests {
         generator.results = [.success(#"{"answer":"Often \#(sentinel)","citations":["E1"]}"#)]
         await ask.send("How often do I write about \(sentinel)?", in: context)
 
+        // A conversation about the entry, which sends it whole and logs that it did.
+        ask.newConversation(about: entry.id)
+        generator.results = [.success(#"{"answer":"About \#(sentinel)","citations":["E1"]}"#)]
+        await ask.send("What do you make of \(sentinel)?", in: context)
+        #expect(generator.requests.last?.user.contains("Dear diary, \(sentinel)") == true)
+
         // And the search panel, which reads the same index.
         let results = JournalSearch.results(for: sentinel, index: ask.index, in: context)
         // Specifically the entries: `isEmpty` is also false when only the entity row matched, and

@@ -134,6 +134,9 @@ nonisolated enum AskPrompt {
                 + "Say you don't have anything on it, in one plain sentence, and don't describe "
                 + "having looked."]
         }
+        if let id = plan.focusEntryID, let handle = context.handle(for: id) {
+            notes.append(focusNote(handle: handle))
+        }
         if context.wasCut {
             // The ranked entries, not the continuity ones: those are what the last turn cited, and
             // calling them "the best match" for this question is not what they are.
@@ -161,6 +164,17 @@ nonisolated enum AskPrompt {
     // the user message, so nothing else was counting them, and on a prompt that lands near 3,300
     // characters they are about 8% of it.
     static let onDeviceNotesHeadroom = 320
+
+    // A conversation opened from an entry. Said as a note rather than a marker on the block, so the
+    // block reads like every other one and the note can carry its own silence.
+    static func focusNote(handle: String) -> String {
+        "The author opened this conversation from one entry, \(handle), given in full. "
+            + "Take each question as being about it unless they say otherwise, and use other "
+            + "entries only where they bear on it. Never mention how the conversation started."
+    }
+
+    // Held back on device on top of the headroom above, only when there is an entry to note.
+    static let focusNoteHeadroom = focusNote(handle: "E1234").count
 
     // The device's own zone would shift a range built in another calendar by a day, and the device's
     // locale would render the sentence in the user's language inside an otherwise English prompt.

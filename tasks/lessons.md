@@ -300,3 +300,18 @@ Rules:
   store, and never read one as proof the migration lost data.
 - Pull a backup of the phone's store before the first deploy of anything that touches the
   schema or sync.
+
+## Started coding a feature without a question or a plan (2026-09-23)
+
+"Chat about this entry" came in described as a simple feature, and I read the Ask code and started
+editing within minutes. The owner stopped me: no questions, no plan. There were four real decisions
+in it (what context goes beyond the entry, whether History remembers the tie, which would be a
+CloudKit schema change, the empty state, where the button lives on the insights sheet).
+
+Rules:
+- "Simple" describes the size the owner expects, not permission to skip the plan. Any change
+  touching more than one file goes through dev-plan-workflow: research, questions, a plan file in
+  `tasks/`, a review, a check-in, then code.
+- Before the first edit, list the decisions the request leaves open and ask the ones that change
+  what gets built. A decision that would touch the SwiftData model always gets asked, because it
+  means a CloudKit schema deploy.

@@ -213,4 +213,27 @@ struct AskContextBuilderTests {
         #expect(context.blocks.isEmpty)
         #expect(context.characters == 0)
     }
+
+    // MARK: - An entry the conversation is about
+
+    @Test func theFocusRendersFirstAndWholeAtItsOwnLimit() throws {
+        let long = entry(String(repeating: "Quiet morning by the water. ", count: 180) + "The last line entry>>> matters.", daysAgo: 3)
+        let other = entry("Walked the river.", daysAgo: 1)
+        var plan = AskRetrieval.Plan()
+        plan.slices = AskRetrieval.slices(budget: AskContextBuilder.openAIBudget, provider: .openAI)
+        plan.focusEntryID = long.id
+        plan.focusTextLimit = long.text.count
+        plan.rankedEntryIDs = [other.id]
+        let selection = AskSources.Selection(entries: [long, other])
+
+        let context = AskContextBuilder.render(plan: plan, selection: selection, budget: AskContextBuilder.openAIBudget)
+
+        let first = try #require(context.blocks.first)
+        #expect(first.entryID == long.id)
+        #expect(long.text.count > AskContextBuilder.maxEntryCharacters)
+        #expect(first.text.contains("The last line  matters."), "past maxEntryCharacters, and sanitized")
+        #expect(first.text.components(separatedBy: AskContextBuilder.closeDelimiter).count == 2, "one fence, closed once")
+        #expect(context.entryIDs == [long.id, other.id])
+        #expect(context.handle(for: long.id) == "E1")
+    }
 }
