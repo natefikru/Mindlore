@@ -115,6 +115,10 @@ struct EntryListView: View {
             // and the greeting (owner, 2026-09-24: the top took too much room).
             .contentMargins(.top, 4, for: .scrollContent)
             .listSectionSpacing(.compact)
+            // The soft top edge iOS 26 fades content under the bar with; this list was getting the
+            // hard one, an opaque band with a line that hid the entries under it (owner,
+            // 2026-09-24).
+            .scrollEdgeEffectStyle(.soft, for: .top)
             .onScrollGeometryChange(for: Bool.self) { geometry in
                 geometry.contentOffset.y + geometry.contentInsets.top > 24
             } action: { _, scrolled in
