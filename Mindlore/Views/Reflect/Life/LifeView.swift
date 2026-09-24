@@ -52,6 +52,7 @@ struct LifeView: View {
                     }
                     LifePrioritiesCard(reading: reading)
                     cards(reading)
+                    LifePortraitCard(reading: reading)
                 } else {
                     LifeNeedsMoreCard(progress: progress)
                 }

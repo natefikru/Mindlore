@@ -13,12 +13,16 @@ struct LifeAreaView: View {
     @Environment(EntrySaver.self) private var saver
     @Environment(GraphServices.self) private var graph
     @Environment(AppRouter.self) private var router
+    @Environment(ProviderAccountStore.self) private var accounts
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     @State private var detail: LifeSignals.AreaDetail?
     @State private var people: [LifeSource.Person] = []
     @State private var threads: [ReflectLooseEnds.Item] = []
     @State private var latest: [LifeSource.EntryRow] = []
     @State private var peek: PeekTarget?
+    @State private var words: LifeWords.AreaWordsView?
+    @State private var writingWords = false
 
     // The three monotonic counters, never a count.
     private struct RefreshKey: Equatable {
@@ -39,6 +43,7 @@ struct LifeAreaView: View {
             VStack(alignment: .leading, spacing: 20) {
                 header
                 if let detail {
+                    wordsCard
                     feeling(detail)
                     if !people.isEmpty { peopleCard }
                     if !detail.tags.isEmpty { tagsCard(detail) }
@@ -260,6 +265,71 @@ struct LifeAreaView: View {
         }
     }
 
+    // The area's paragraph and two lines in the author's own words, when AI can read them. Hidden
+    // entirely when it can't: the numbers stand on their own.
+    @ViewBuilder
+    private var wordsCard: some View {
+        if let words {
+            LifeCard(title: "What it's been about", symbol: "text.quote", tint: area.color) {
+                VStack(alignment: .leading, spacing: 14) {
+                    Text(words.paragraph)
+                        .font(.body)
+                        .foregroundStyle(Palette.ink)
+                        .fixedSize(horizontal: false, vertical: true)
+                    ForEach(Array(words.quotes.enumerated()), id: \.offset) { _, quote in
+                        Button {
+                            router.showEntry(quote.entryID, forReading: true, returningTo: .reflect)
+                        } label: {
+                            HStack(alignment: .top, spacing: 10) {
+                                RoundedRectangle(cornerRadius: 1.5)
+                                    .fill(area.color)
+                                    .frame(width: 3)
+                                Text("“\(quote.text)”")
+                                    .journalText(.body)
+                                    .italic()
+                                    .foregroundStyle(Palette.ink)
+                                    .multilineTextAlignment(.leading)
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityIdentifier("lifeQuote")
+                    }
+                }
+            }
+            .transition(.opacity)
+            .accessibilityIdentifier("lifeAreaWords")
+        } else if writingWords {
+            LifeCard(title: "What it's been about", symbol: "text.quote", tint: area.color) {
+                HStack(spacing: 10) {
+                    ProgressView()
+                    Text("Reading this part of your journal…")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
+    }
+
+    private func loadWords(_ ids: [UUID]) async {
+        words = LifeWords.areaWords(area, route.window, in: modelContext)
+        guard case .success = AIServices.askGenerator(settings: settings, accounts: accounts) else { return }
+        if words == nil { writingWords = true }
+        let written = await LifeWords.writeAreaIfNeeded(
+            area,
+            window: route.window,
+            name: name,
+            entryIDs: ids,
+            resolve: { AIServices.askGenerator(settings: settings, accounts: accounts) },
+            in: modelContext
+        )
+        withAnimation(Motion.resolve(Motion.settle, reduceMotion: reduceMotion)) {
+            words = written ?? words
+            writingWords = false
+        }
+    }
+
     private func load() {
         let facts = LifeSource.facts(in: modelContext)
         let next = LifeSignals.detail(for: area, entries: facts.entries, threads: facts.threads, window: route.window, now: .now)
@@ -267,6 +337,8 @@ struct LifeAreaView: View {
         people = LifeSource.people(in: next?.entryIDs ?? [], context: modelContext)
         threads = LifeSource.openThreads(area: area, context: modelContext)
         latest = LifeSource.entryRows(next?.entryIDs ?? [], context: modelContext)
+        let ids = next?.entryIDs ?? []
+        Task { await loadWords(ids) }
     }
 }
 

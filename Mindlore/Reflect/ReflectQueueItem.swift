@@ -17,12 +17,16 @@ nonisolated struct ReflectQueueItem: Identifiable, Equatable, Codable, Sendable 
     // What seeds a new entry when the card is tapped. Never empty in practice; a caller that has
     // nothing worth writing about doesn't make the item.
     let prompt: String
+    // The entries a line rests on, for Life's words (a portrait line's sources, a quote's entry).
+    // Optional so rows written before it decode unchanged.
+    let entryIDs: [UUID]?
 
-    init(id: String, source: Source, title: String, body: String, prompt: String) {
+    init(id: String, source: Source, title: String, body: String, prompt: String, entryIDs: [UUID]? = nil) {
         self.id = id
         self.source = source
         self.title = title
         self.body = body
         self.prompt = prompt
+        self.entryIDs = entryIDs
     }
 }

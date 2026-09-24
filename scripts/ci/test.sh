@@ -19,7 +19,7 @@ shift || true
 # The suites that call real OpenAI. Their assertions judge a live model's answers, which vary
 # from call to call: each has failed a CI run with no code change. On CI the unit run leaves them
 # out and the "live" mode runs them in an advisory job. Locally, unit runs them as before.
-live_suites=(OpenAILiveTests CreativeOpenAIQualityTests)
+live_suites=(OpenAILiveTests CreativeOpenAIQualityTests LifeLiveTests)
 
 case "$mode" in
   unit)
