@@ -78,8 +78,8 @@ struct NewEntryFan: View {
 
     // Quicker than the app's bloom: the options have to be under the thumb before it starts to
     // slide, and at 0.6 seconds with a stagger they felt late (owner, 2026-09-24).
-    static let spring = Animation.spring(duration: 0.26, bounce: 0.22)
-    static let stagger = 0.025
+    static let spring = Animation.spring(duration: 0.16, bounce: 0.2)
+    static let stagger = 0.01
 
     private func animation(delay: Double = 0) -> Animation? {
         Motion.resolve(Self.spring, reduceMotion: reduceMotion).map { $0.delay(isOpen ? delay : 0) }
@@ -294,13 +294,13 @@ private struct FanWheel: View {
         let middle = (NewEntryFanLayout.ringInner + NewEntryFanLayout.ringOuter) / 2
         ZStack {
             if let hovered, let range = sectors[hovered] {
-                let glow = middle * 0.8
+                let glow = middle * 0.9
                 // A soft light centred on the option, cut to its slice by a blurred mask so even
                 // the slice's own edges fade rather than end on a line.
                 Circle()
                     .fill(
                         RadialGradient(
-                            colors: [Palette.ember.opacity(0.42), Palette.ember.opacity(0.14), Palette.ember.opacity(0)],
+                            colors: [Palette.ember.opacity(0.7), Palette.ember.opacity(0.32), Palette.ember.opacity(0)],
                             center: .center,
                             startRadius: 0,
                             endRadius: glow
@@ -310,7 +310,7 @@ private struct FanWheel: View {
                     .position(Self.point(center, middle, (range.lowerBound + range.upperBound) / 2))
                     .mask(
                         Self.wedge(center: center, inner: NewEntryFanLayout.ringInner - 18, outer: NewEntryFanLayout.ringOuter + 18, from: range.lowerBound, to: range.upperBound)
-                            .blur(radius: 12)
+                            .blur(radius: 9)
                     )
                     .id(hovered)
                     .transition(.opacity)
