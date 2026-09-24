@@ -42,9 +42,11 @@ nonisolated struct EntryDeletionRequest: Equatable, Sendable {
 }
 
 // A request for Ask to take the field, with a question to put in it or none. Ask fills the field
-// and focuses it; the user sends. The token makes asking twice count.
+// and focuses it; the user sends. With an entry, Ask starts a conversation about it. The token
+// makes asking twice count.
 nonisolated struct AskFieldRequest: Equatable, Sendable {
     let question: String?
+    var entryID: UUID? = nil
     let token: Int
 }
 
@@ -76,7 +78,7 @@ final class AppRouter {
         case entry(JournalRoute)
         case newEntry(String?)
         case mind(UUID)
-        case ask(String?)
+        case ask(String?, UUID?)
         case settings
     }
 
@@ -153,7 +155,7 @@ final class AppRouter {
         case .entry(let route): showEntry(route.entryID, forReading: route.opensForReading)
         case .newEntry(let startingText): showNewEntry(startingText: startingText)
         case .mind(let id): showInMind(id)
-        case .ask(let question): showAsk(question: question)
+        case .ask(let question, let entryID): showAsk(question: question, aboutEntry: entryID)
         case .settings: showSettings()
         }
     }
@@ -171,16 +173,17 @@ final class AppRouter {
         journalPath = [.new(startingText: startingText)]
     }
 
-    // Switches to Ask and asks it to take the field. Journal's path is left alone, like Mind.
-    func showAsk(question: String?) {
+    // Switches to Ask and asks it to take the field. Journal's path is left alone, like Mind, so
+    // an entry opened from Chat about it is still open when the user comes back.
+    func showAsk(question: String?, aboutEntry entryID: UUID? = nil) {
         guard openCovers.isEmpty else {
-            pendingJump = .ask(question)
+            pendingJump = .ask(question, entryID)
             return
         }
         keptEntryID = nil
         dismissPresentationsToken += 1
         askFieldToken += 1
-        askFieldRequest = AskFieldRequest(question: question, token: askFieldToken)
+        askFieldRequest = AskFieldRequest(question: question, entryID: entryID, token: askFieldToken)
         tab = .ask
     }
 

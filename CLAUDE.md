@@ -214,6 +214,16 @@ after the system prompt and the answer headroom come out.
   suggestions never leave the phone, so the promise is only that a hidden or muted name never
   renders, and a thread with any hidden or muted subject is dropped whole. They refresh on the
   graph and save revisions, never from the view body.
+- **A conversation can be about one entry.** "Chat about this entry" in the editor's and the
+  insights sheet's More menus (shown only when `canRunAI` allows the entry) jumps through
+  `AppRouter.showAsk(aboutEntry:)` to a new conversation with `AskService.focusEntryID` set.
+  `AskRetrieval.plan` takes the focus first, whole up to `maxFocusCharactersOpenAI` (24,000; the
+  index's `textCharacters` is the uncapped length), before any slice divides the rest, so the
+  journal is still searched; a question matching nothing keeps the focus instead of falling back
+  to the newest five. It renders first with `AskPrompt.focusNote`. The tie is in memory only, by
+  choice (owner, 2026-09-23): no model change, and a conversation reopened from History carries on
+  through what it cited. `isRunning` belongs to the conversation that asked (`runningIn`), so an
+  answer abandoned by the jump can't hold the new conversation's send button.
 - **The field** is Liquid Glass over solid Paper with a short fade above, on the whole bottom stack
   so the fade never lands on the search panel's last row and catches its tap. Dragging the
   conversation or tapping empty space dismisses the keyboard (it covers the tab bar); not on the

@@ -151,6 +151,27 @@ struct IntentTests {
         #expect(request?.question == nil)
     }
 
+    @Test func askAboutAnEntryCarriesTheEntry() {
+        let router = router()
+        let entryID = UUID()
+        router.showAsk(question: nil, aboutEntry: entryID)
+
+        #expect(router.tab == .ask)
+        #expect(router.consumeAskField()?.entryID == entryID)
+    }
+
+    @Test func askAboutAnEntryKeepsTheEntryBehindACover() {
+        let router = router()
+        let entryID = UUID()
+        router.setCover("pageOrder", open: true)
+
+        router.showAsk(question: nil, aboutEntry: entryID)
+        #expect(router.askFieldRequest == nil)
+
+        router.setCover("pageOrder", open: false)
+        #expect(router.consumeAskField()?.entryID == entryID)
+    }
+
     @Test func askWaitsBehindACoverThatCantBeClosedFromOutside() {
         let router = router()
         router.setCover("pageOrder", open: true)

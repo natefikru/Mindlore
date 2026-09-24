@@ -21,6 +21,8 @@ struct AskView: View {
     @State private var scrollPosition = ScrollPosition()
     @State private var suggestions: [AskSuggestion] = []
     @State private var hasEntries = true
+    // The entry the conversation is about, looked up when the focus changes rather than per draw.
+    @State private var focus: AskEntryRefs.Ref?
     // Counts sends, so the button's bounce and the tap both fire once per question.
     @State private var sends = 0
     @FocusState private var fieldFocused: Bool
@@ -119,13 +121,20 @@ struct AskView: View {
         // screen, so it starts a new conversation, unless an answer is still being written.
         .onChange(of: router.askFieldRequest, initial: true) { _, request in
             guard request != nil, let taken = router.consumeAskField() else { return }
-            if !ask.turns.isEmpty, !ask.isRunning {
+            if let entryID = taken.entryID {
+                // Asked for from an entry, so the conversation starts over about it, even over an
+                // answer still being written: that is what the tap asked for.
+                ask.newConversation(about: entryID)
+            } else if !ask.turns.isEmpty, !ask.isRunning {
                 ask.newConversation()
             }
             if let question = taken.question?.trimmingCharacters(in: .whitespacesAndNewlines), !question.isEmpty {
                 ask.draftQuestion = question
             }
             fieldFocused = true
+        }
+        .task(id: ask.focusEntryID) {
+            focus = ask.focusEntryID.flatMap { AskEntryRefs.refs([$0], in: modelContext)[$0] }
         }
         .onChange(of: router.dismissPresentationsToken) {
             peekTarget = nil
@@ -180,7 +189,9 @@ struct AskView: View {
         ScrollViewReader { proxy in
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 16) {
-                    if ask.turns.isEmpty {
+                    if let focus {
+                        focusCard(focus)
+                    } else if ask.turns.isEmpty {
                         empty
                     }
                     ForEach(ask.turns) { turn in
@@ -254,6 +265,45 @@ struct AskView: View {
         .padding(.top, 12)
     }
 
+    // What this conversation is about, above it for as long as it lasts. Tapping it opens the entry.
+    private func focusCard(_ ref: AskEntryRefs.Ref) -> some View {
+        Button {
+            open(entryID: ref.id)
+        } label: {
+            HStack(spacing: 12) {
+                Image(systemName: "text.bubble")
+                    .font(.body.weight(.medium))
+                    .foregroundStyle(Palette.ember)
+                    .frame(width: 34, height: 34)
+                    .background(Palette.ember.opacity(0.12), in: Circle())
+                    .accessibilityHidden(true)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("About this entry")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Text(verbatim: ref.title)
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.primary)
+                        .lineLimit(2)
+                    Text(AskEntryRefs.dateText(ref.date, dayOnly: ref.isDayOnly))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer(minLength: 0)
+                Image(systemName: "chevron.right")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.tertiary)
+                    .accessibilityHidden(true)
+            }
+            .card(padding: 14, corner: Corner.tile)
+            .contentShape(RoundedRectangle(cornerRadius: Corner.tile, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .padding(.horizontal)
+        .padding(.top, 12)
+        .accessibilityIdentifier("askFocusCard")
+    }
+
     private var suggestionCards: some View {
         VStack(spacing: 10) {
             ForEach(Array(suggestions.enumerated()), id: \.element) { index, suggestion in
@@ -295,7 +345,7 @@ struct AskView: View {
                     .accessibilityHidden(true)
                 // One line, so the keyboard's Send key sends. On a vertical field it inserts a
                 // newline instead, which is not what a question wants.
-                TextField("Ask or search", text: $ask.draftQuestion)
+                TextField(focus == nil ? "Ask or search" : "Ask about this entry", text: $ask.draftQuestion)
                     .textFieldStyle(.plain)
                     .focused($fieldFocused)
                     .submitLabel(.send)

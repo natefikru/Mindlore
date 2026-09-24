@@ -50,6 +50,11 @@ nonisolated enum AskRetrieval {
     // question names. On device the whole budget is near 3,300 and the reserve would otherwise
     // leave no room for an entry at all.
     static let aboutShareOfBudget = 0.5
+    // The entry a conversation was opened from goes in whole, up to this, rather than at
+    // maxEntryCharacters: "talk to me about this entry" answered from its first two thousand
+    // characters would miss the end of a long recording. About twenty minutes of speech. On device
+    // it takes whatever the budget has, since there the entry is the whole point.
+    static let maxFocusCharactersOpenAI = 24_000
 
     nonisolated struct Slices: Sendable, Equatable {
         var about = 0
@@ -62,6 +67,10 @@ nonisolated enum AskRetrieval {
     }
 
     nonisolated struct Plan: Sendable, Equatable {
+        // The entry the conversation is about, taken before anything else and rendered first.
+        var focusEntryID: UUID?
+        // How much of its text goes in: all of it, unless it is longer than the focus allows.
+        var focusTextLimit = 0
         var aboutEntityIDs: [UUID] = []
         var rollupMonths: [DateInterval] = []
         var continuityEntryIDs: [UUID] = []
@@ -90,14 +99,14 @@ nonisolated enum AskRetrieval {
         var slices = Slices()
 
         // The entries that go in whole.
-        var entryIDs: [UUID] { rankedEntryIDs + continuityEntryIDs }
+        var entryIDs: [UUID] { [focusEntryID].compactMap { $0 } + rankedEntryIDs + continuityEntryIDs }
         // Everything whose text has to be fetched, digests included: a one-line digest is still
         // entry text leaving the phone, so it goes through the same gate in AskSources.
         var fetchedEntryIDs: [UUID] { entryIDs + digestEntryIDs }
         var isEmpty: Bool { entryIDs.isEmpty && aboutEntityIDs.isEmpty }
         // Whether the prompt has to own up to a cut. A digest counts as having seen the entry, so a
         // question whose whole matched set fit in lines has nothing to own up to.
-        var wasCut: Bool { matchedCount > rankedEntryIDs.count + digestEntryIDs.count }
+        var wasCut: Bool { matchedCount > rankedEntryIDs.count + digestEntryIDs.count + (focusEntryID == nil ? 0 : 1) }
     }
 
     // The caps. The renderer applies each as min(cap, what is left) in this order, so a slice that
@@ -129,6 +138,8 @@ nonisolated enum AskRetrieval {
         // PR 2 renders rollups. Until it does, planning them would reserve and report characters
         // that never leave the phone.
         rollups: Bool = false,
+        // The entry the conversation was opened from, if it was. Nil for an ordinary question.
+        focusEntryID: UUID? = nil,
         calendar: Calendar = .current
     ) -> Plan {
         var plan = Plan()
@@ -139,9 +150,26 @@ nonisolated enum AskRetrieval {
 
         guard budget > 0 else { return plan }
 
+        // First claim on the budget. Checked against the index like everything else, so an entry
+        // that has become a draft since the conversation opened is simply not sent.
+        var focusCost = 0
+        if let focusEntryID, let document = index.document(withID: focusEntryID), document.isSendable {
+            let overhead = document.blockCharacters - min(document.textCharacters, AskContextBuilder.maxEntryCharacters)
+            let cap = provider == .openAI ? min(maxFocusCharactersOpenAI, budget) : budget
+            let limit = min(document.textCharacters, cap - overhead)
+            if limit > 0 {
+                plan.focusEntryID = focusEntryID
+                plan.focusTextLimit = limit
+                focusCost = overhead + limit + blockSeparator
+            }
+        }
+        let budget = budget - focusCost
+
         var scored = index.search(query.indexQuery)
         var wasRecencyFallback = false
-        if scored.isEmpty {
+        // With an entry in hand, a question sharing no word with the journal ("what do you make of
+        // this?") is about that entry, not a reason to send the newest five.
+        if scored.isEmpty, plan.focusEntryID == nil {
             // A7's tier 4. A question sharing no word with the journal still gets an answer built
             // from the newest entries rather than a failure with no Retry on it.
             scored = Array(index.search(AskIndex.Query(sendableOnly: true, asOf: query.asOf)).prefix(recencyFallbackCount))
@@ -153,6 +181,7 @@ nonisolated enum AskRetrieval {
         }
         guard !scored.isEmpty else {
             plan.isAggregate = query.aggregateHint
+            plan.estimatedCharacters = focusCost
             return plan
         }
 
@@ -200,9 +229,10 @@ nonisolated enum AskRetrieval {
         var remaining = max(0, budget - aboutReserve - rollupCharacters)
 
         let subjects = Set(plan.aboutEntityIDs)
-        var taken: Set<UUID> = []
+        var taken = Set([plan.focusEntryID].compactMap { $0 })
         for result in scored.prefix(limit) {
             let document = index.documents[Int(result.document)]
+            guard !taken.contains(document.id) else { continue }
             let cost = document.blockCharacters + blockSeparator
             guard cost <= remaining else { continue }
             remaining -= cost
@@ -257,7 +287,7 @@ nonisolated enum AskRetrieval {
         // since ranking is not limited to what counts as a match.
         plan.matchedCount = max(plan.matchedCount, plan.rankedEntryIDs.count + plan.digestEntryIDs.count)
 
-        plan.estimatedCharacters = aboutReserve + rollupCharacters + plan.digestCharacters + plan.entryIDs.compactMap {
+        plan.estimatedCharacters = focusCost + aboutReserve + rollupCharacters + plan.digestCharacters + (plan.rankedEntryIDs + plan.continuityEntryIDs).compactMap {
             index.document(withID: $0)?.blockCharacters
         }.reduce(0) { $0 + $1 + blockSeparator }
 

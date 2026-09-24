@@ -94,6 +94,14 @@ struct EntryInsightsView: View {
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     Menu {
+                        if InsightsCoordinator.canRunAI(on: entry) {
+                            // The jump's dismiss token takes this sheet down on the way.
+                            Button("Chat about this entry", systemImage: "text.bubble") {
+                                saver.flush()
+                                router.showAsk(question: nil, aboutEntry: entry.id)
+                            }
+                            .accessibilityIdentifier("insightsChatButton")
+                        }
                         if insights != nil {
                             NavigationLink {
                                 WhatWasSentView(entry: entry, settings: settings)

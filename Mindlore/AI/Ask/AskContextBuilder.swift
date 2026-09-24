@@ -100,6 +100,13 @@ nonisolated enum AskContextBuilder {
         var builder = Builder(handles: handles)
         let entriesByID = Dictionary(selection.entries.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
 
+        // The entry the conversation is about, first and whole: the plan already charged the budget
+        // for it, so it takes no slice's room.
+        if let id = plan.focusEntryID, let entry = entriesByID[id] {
+            builder.beginSlice(cap: budget, budget: budget)
+            builder.addEntry(entry, text: entry.text, limit: plan.focusTextLimit)
+        }
+
         builder.beginSlice(cap: plan.slices.about, budget: budget)
         for entity in selection.entities {
             builder.addEntity(entity)
@@ -357,9 +364,9 @@ nonisolated enum AskContextBuilder {
         }
 
         // One entry goes in once, in whichever slice reached it first.
-        mutating func addEntry(_ entry: EntryInput, text: String) {
+        mutating func addEntry(_ entry: EntryInput, text: String, limit: Int = maxEntryCharacters) {
             guard !usedEntries.contains(entry.id) else { return }
-            let body = trimmed(sanitized(text).trimmingCharacters(in: .whitespacesAndNewlines))
+            let body = trimmed(sanitized(text).trimmingCharacters(in: .whitespacesAndNewlines), to: limit)
             guard !body.isEmpty else { return }
             let existing = context.handles.first { $0.value == entry.id }?.key
             let handle = existing ?? "E\(nextHandle)"

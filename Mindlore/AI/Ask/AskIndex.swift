@@ -32,6 +32,9 @@ nonisolated struct AskIndex: Sendable {
         // What rendering this entry as a block would cost, so a plan can divide a budget without
         // reading any text.
         var blockCharacters: Int = 0
+        // The entry's whole length, uncapped, for the one entry a conversation is about, which
+        // goes in whole rather than at maxEntryCharacters.
+        var textCharacters: Int = 0
     }
 
     // Enough to find a name in a question without fetching. Bios and loose ends stay out: they
@@ -57,6 +60,7 @@ nonisolated struct AskIndex: Sendable {
         var mood: String?
         var isSendable: Bool = true
         var blockCharacters: Int = 0
+        var textCharacters: Int = 0
         // Tokens in the body and title, for BM25's length normalization.
         var length: Int = 0
         // Context tokens, normalized against each other rather than against the body. A two-word
@@ -261,6 +265,7 @@ nonisolated struct AskIndex: Sendable {
                     mood: input.mood,
                     isSendable: input.isSendable,
                     blockCharacters: input.blockCharacters,
+                    textCharacters: input.textCharacters,
                     length: length,
                     contextLength: contextLength
                 )
