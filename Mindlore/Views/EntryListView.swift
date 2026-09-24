@@ -19,6 +19,9 @@ struct EntryListView: View {
     @State private var shownKind: EntryKind?
     @State private var today = Today()
     @State private var showingSettings = false
+    // Past the top of the list: the wordmark tucks into a small one.
+    @State private var scrolledDown = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(RecordingSession.self) private var recording
     @Environment(InsightsCoordinator.self) private var insightsCoordinator
     @State private var undo = UndoQueue()
@@ -111,6 +114,11 @@ struct EntryListView: View {
             // The grouped list's own top margin sat a band of empty paper between the inline title
             // and the greeting (owner, 2026-09-24: the top took too much room).
             .contentMargins(.top, 4, for: .scrollContent)
+            .onScrollGeometryChange(for: Bool.self) { geometry in
+                geometry.contentOffset.y + geometry.contentInsets.top > 24
+            } action: { _, scrolled in
+                scrolledDown = scrolled
+            }
             // The name as a wordmark on the bar's leading side, level with the gear, so the row the
             // gear sits in isn't an empty band above the greeting (owner, 2026-09-24). The system
             // title stays for the back button and VoiceOver's screen name, not drawn.
@@ -124,9 +132,12 @@ struct EntryListView: View {
                 // Starting an entry lives in the tab bar's + (NewEntryFan), so the only button up here
                 // is Settings, which left the tab bar (owner, 2026-09-24).
                 ToolbarItem(placement: .topBarLeading) {
+                    // Title-sized at the top of the list, tucked small into the corner once it
+                    // scrolls, so it never covers the entries (owner, 2026-09-24).
                     Text("Mindlore")
-                        .font(.title2.weight(.bold))
-                        .foregroundStyle(Palette.ink)
+                        .font(scrolledDown ? .headline.weight(.semibold) : .title2.weight(.bold))
+                        .foregroundStyle(scrolledDown ? Color.secondary : Palette.ink)
+                        .animation(Motion.resolve(.snappy(duration: 0.25), reduceMotion: reduceMotion), value: scrolledDown)
                         .fixedSize()
                         .accessibilityAddTraits(.isHeader)
                         .accessibilityIdentifier("journalWordmark")

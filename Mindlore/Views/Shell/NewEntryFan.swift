@@ -280,9 +280,9 @@ private struct TabBarProbe: UIViewRepresentable {
     }
 }
 
-// The half ring behind the fan while a finger is down: one faint wedge per option, the hovered one
-// brighter with a thin rim beyond it. Subtle on purpose; it says where a release will land, it
-// isn't a second menu.
+// Behind the option a sliding finger is over, and nothing anywhere else: a soft orange light
+// filling that option's slice of the half circle, brightest around the option and fading to
+// nothing at its edges. No outline, no rim, no track for the others (owner, 2026-09-24).
 private struct FanWheel: View {
     let center: CGPoint
     let options: [NewEntryFanLayout.Option]
@@ -291,25 +291,32 @@ private struct FanWheel: View {
 
     var body: some View {
         let sectors = NewEntryFanLayout.sectors(options: options)
+        let middle = (NewEntryFanLayout.ringInner + NewEntryFanLayout.ringOuter) / 2
         ZStack {
-            ForEach(options) { option in
-                if let range = sectors[option] {
-                    let lit = hovered == option
-                    Self.wedge(center: center, inner: NewEntryFanLayout.ringInner, outer: NewEntryFanLayout.ringOuter, from: range.lowerBound + 1.5, to: range.upperBound - 1.5)
-                        .fill(Palette.ember.opacity(lit ? 0.22 : 0.07))
-                        .overlay(
-                            Self.wedge(center: center, inner: NewEntryFanLayout.ringInner, outer: NewEntryFanLayout.ringOuter, from: range.lowerBound + 1.5, to: range.upperBound - 1.5)
-                                .stroke(Color.white.opacity(lit ? 0.45 : 0.18), lineWidth: 1)
+            if let hovered, let range = sectors[hovered] {
+                let glow = middle * 0.8
+                // A soft light centred on the option, cut to its slice by a blurred mask so even
+                // the slice's own edges fade rather than end on a line.
+                Circle()
+                    .fill(
+                        RadialGradient(
+                            colors: [Palette.ember.opacity(0.42), Palette.ember.opacity(0.14), Palette.ember.opacity(0)],
+                            center: .center,
+                            startRadius: 0,
+                            endRadius: glow
                         )
-                    if lit {
-                        Self.rim(center: center, radius: NewEntryFanLayout.ringOuter + 6, from: range.lowerBound + 4, to: range.upperBound - 4)
-                            .stroke(Palette.ember.opacity(0.7), style: StrokeStyle(lineWidth: 2.5, lineCap: .round))
-                            .transition(.opacity)
-                    }
-                }
+                    )
+                    .frame(width: glow * 2, height: glow * 2)
+                    .position(Self.point(center, middle, (range.lowerBound + range.upperBound) / 2))
+                    .mask(
+                        Self.wedge(center: center, inner: NewEntryFanLayout.ringInner - 18, outer: NewEntryFanLayout.ringOuter + 18, from: range.lowerBound, to: range.upperBound)
+                            .blur(radius: 12)
+                    )
+                    .id(hovered)
+                    .transition(.opacity)
             }
         }
-        .animation(Motion.resolve(.snappy(duration: 0.18), reduceMotion: reduceMotion), value: hovered)
+        .animation(Motion.resolve(.easeOut(duration: 0.16), reduceMotion: reduceMotion), value: hovered)
     }
 
     // Angles counterclockwise from the right, drawn with y growing downward.
@@ -333,13 +340,4 @@ private struct FanWheel: View {
         }
     }
 
-    static func rim(center: CGPoint, radius: CGFloat, from start: Double, to end: Double) -> Path {
-        Path { path in
-            let steps = max(2, Int((end - start) / 3))
-            for step in 0...steps {
-                let p = point(center, radius, start + (end - start) * Double(step) / Double(steps))
-                if step == 0 { path.move(to: p) } else { path.addLine(to: p) }
-            }
-        }
-    }
 }
