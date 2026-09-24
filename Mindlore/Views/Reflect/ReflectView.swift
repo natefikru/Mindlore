@@ -1,7 +1,9 @@
 import SwiftData
 import SwiftUI
 
-// The Reflect tab (owner, 2026-09-24): a segmented control over its sides. Recaps is a scroll of
+// The Reflect tab (owner, 2026-09-24): a segmented control over its sides. Life (`LifeView`) is
+// what keeps happening and how it has felt; it is the side Reflect opens on once it has enough
+// journal to read, and Recaps until then. Recaps is a scroll of
 // weeks and months, newest first: the last `recentWeekCount` weeks in full, then every month before
 // that back to the journal's first entry, collapsed. Loose ends (`ReflectLooseEndsView`) is every
 // loose end the journal has raised, open ones pinned on top. Today's week strip jumps here on
@@ -19,19 +21,27 @@ struct ReflectView: View {
     // says there is nothing to look back on rather than showing a blank sheet.
     @State private var emptyRows: Set<Date> = []
     @State private var page: ReflectPage = .recaps
+    // Decided once, at the first load: Life when it has a reading, else Recaps. A jump that names a
+    // side wins over it.
+    @State private var pageDecided = false
+    @State private var lifeWindow: MindWindow = .quarter
+    @State private var path: [LifeAreaRoute] = []
 
     var recentWeekCount = ReflectFeed.defaultRecentWeekCount
 
-    private var pages: [ReflectPage] { [.recaps, .looseEnds] }
+    private var pages: [ReflectPage] { ReflectPage.allCases }
 
     var body: some View {
-        NavigationStack {
+        NavigationStack(path: $path) {
             Group {
                 switch page {
-                case .life, .recaps: summaries
+                case .life:
+                    LifeView(window: $lifeWindow, openArea: { path.append($0) }, showLooseEnds: { page = .looseEnds })
+                case .recaps: summaries
                 case .looseEnds: ReflectLooseEndsView()
                 }
             }
+            .navigationDestination(for: LifeAreaRoute.self) { LifeAreaView(route: $0) }
             .navigationTitle("Reflect")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -50,8 +60,13 @@ struct ReflectView: View {
             // reload the feed.
             .task { await load() }
             .onChange(of: router.reflectPageRequest, initial: true) {
-                if let requested = router.consumeReflectPage() { page = requested }
+                if let requested = router.consumeReflectPage() {
+                    page = requested
+                    pageDecided = true
+                    path = []
+                }
             }
+            .sensoryFeedback(Haptics.selected, trigger: page)
         }
     }
 
@@ -97,6 +112,10 @@ struct ReflectView: View {
             textUsable: AIServices.textUsable(settings: settings, accounts: accounts),
             onDeviceAvailable: FoundationModelsAvailability.isAvailable
         )
+        if !pageDecided {
+            pageDecided = true
+            page = LifeSignals.progress(LifeSource.facts(in: modelContext).entries).isEnough ? .life : .recaps
+        }
         guard let earliest = ReflectSource.earliestEntryDate(in: modelContext) else {
             hasLoaded = true
             return
