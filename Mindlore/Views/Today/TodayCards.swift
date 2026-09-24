@@ -66,7 +66,13 @@ struct TodayHeader: View {
                 .fixedSize(horizontal: false, vertical: true)
                 .scrollTargetLayout()
             }
-            .contentMargins(.horizontal, 16, for: .scrollContent)
+            // The row reaches past the list's inset so the cards scroll out to the screen's edges
+            // like the chips below; the margins grow by the same amount, so each card keeps its
+            // width and starts where it did (owner, 2026-09-24).
+            .contentMargins(.horizontal, 16 + UnclippedListRow.groupedInset, for: .scrollContent)
+            .padding(.horizontal, -UnclippedListRow.groupedInset)
+            .scrollClipDisabled()
+            .unclippedListRow()
             .scrollTargetBehavior(.viewAligned)
             .scrollPosition(id: $position)
             .scrollIndicators(.hidden)

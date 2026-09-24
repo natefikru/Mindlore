@@ -365,9 +365,6 @@ struct EntryListView: View {
         JournalFilter.offered(entryAreas: entries.map { $0.insights?.areasRaw ?? [] }, hidden: settings.hiddenLifeAreas)
     }
 
-    // The grouped list's own side inset on a phone.
-    private static let listInset: CGFloat = 20
-
     private var areaFilterRow: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 8) {
@@ -400,13 +397,13 @@ struct EntryListView: View {
                     .accessibilityIdentifier(kind == .creative ? "creativeFilter" : "kindFilter-\(kind.rawValue)")
                 }
             }
-            .padding(.horizontal, 16 + Self.listInset)
+            .padding(.horizontal, 16 + UnclippedListRow.groupedInset)
             .padding(.vertical, 2)
         }
         // Chips scroll out to the screen's edges rather than stopping at the list's margin: the row
         // reaches past the grouped list's inset on both sides, and its content starts back in line
         // with the cards above (owner, 2026-09-24).
-        .padding(.horizontal, -Self.listInset)
+        .padding(.horizontal, -UnclippedListRow.groupedInset)
         .scrollClipDisabled()
         .unclippedListRow()
         .sensoryFeedback(Haptics.selected, trigger: pickedAreas)

@@ -38,6 +38,12 @@ struct UnclippedListRow: UIViewRepresentable {
     }
 }
 
+extension UnclippedListRow {
+    // A grouped list's side inset on a phone: how far a strip reaches past its row to meet the
+    // screen's edges.
+    static let groupedInset: CGFloat = 20
+}
+
 extension View {
     func unclippedListRow() -> some View {
         background(UnclippedListRow().allowsHitTesting(false))
