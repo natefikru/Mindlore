@@ -299,6 +299,7 @@ struct AskStreamingTests {
 
         let asking = Task { await ask.send("river?", in: context) }
         await generator.waitForDeltas(1)
+        await waitForText(ask, "You paddl")
         ask.stop()
         generator.release()
         await asking.value
