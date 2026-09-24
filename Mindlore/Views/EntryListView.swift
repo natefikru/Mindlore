@@ -119,6 +119,28 @@ struct EntryListView: View {
             // hard one, an opaque band with a line that hid the entries under it (owner,
             // 2026-09-24).
             .scrollEdgeEffectStyle(.soft, for: .top)
+            // And a fade of its own, from the page's colour at the very top to clear below the
+            // bar, so scrolled entries melt into the top on a phone as they do in the simulator
+            // (owner, 2026-09-24). Only once scrolled: at rest nothing sits under the bar.
+            .overlay(alignment: .top) {
+                GeometryReader { geometry in
+                    LinearGradient(
+                        stops: [
+                            .init(color: Palette.paper, location: 0),
+                            .init(color: Palette.paper.opacity(0.85), location: 0.45),
+                            .init(color: Palette.paper.opacity(0), location: 1),
+                        ],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                    .frame(height: geometry.safeAreaInsets.top + 36)
+                    .ignoresSafeArea(edges: .top)
+                    .opacity(scrolledDown ? 1 : 0)
+                    .animation(.easeOut(duration: 0.2), value: scrolledDown)
+                }
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
+            }
             .onScrollGeometryChange(for: Bool.self) { geometry in
                 geometry.contentOffset.y + geometry.contentInsets.top > 24
             } action: { _, scrolled in
