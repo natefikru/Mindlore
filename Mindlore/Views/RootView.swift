@@ -241,6 +241,7 @@ struct RootView: View {
         .task {
             await ingestor.ingestAll(in: .standard, context: context)
             await transcription.processQueue(context: context)
+            refreshThisWeek()
         }
         .task {
             await pageTranscription.processQueue(context: context)
@@ -279,6 +280,7 @@ struct RootView: View {
             }
             await titles.processQueue(context: context)
             await insights.processQueue(context: context)
+            refreshThisWeek()
         }
         .overlay {
             if showingWelcome {
@@ -303,6 +305,9 @@ struct RootView: View {
             // asked about again on every launch.
             if !showingWelcome { settings.welcomeSeen = true }
         }
+        // Every edit, a recording's text arriving, and a title landing move the running week, so its
+        // summary is rewritten in the background once things go quiet.
+        .onChange(of: saver.revision) { refreshThisWeek() }
         .onChange(of: scenePhase) { _, phase in
             DiagnosticsLog.shared.record("app.scenePhase", ["phase": .string(String(describing: phase))])
             lock.sceneChanged(to: phase)
@@ -351,6 +356,15 @@ struct RootView: View {
     }
 
     // A reminder iOS won't show is switched off rather than left looking on. Settings says why.
+    private func refreshThisWeek() {
+        ReflectSummaryStore.scheduleCurrentWeekRefresh(
+            resolve: { AIServices.askGenerator(settings: settings, accounts: accounts) },
+            voice: { settings.promptVoice },
+            isEditing: { presence.anyOpen },
+            in: context
+        )
+    }
+
     private func rescheduleReminder() async {
         let outcome = await reminder.reschedule(
             enabled: settings.reminderEnabled,
