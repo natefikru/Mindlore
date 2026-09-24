@@ -111,10 +111,10 @@ struct EntryListView: View {
             // The grouped list's own top margin sat a band of empty paper between the inline title
             // and the greeting (owner, 2026-09-24: the top took too much room).
             .contentMargins(.top, 4, for: .scrollContent)
-            // No title: the greeting is the page's title, and a "Mindlore" above it was a second one
-            // taking room the greeting already fills (owner, 2026-09-24). Kept for the back button
-            // and VoiceOver's screen name.
-            .navigationTitle("Journal")
+            // The name as a wordmark on the bar's leading side, level with the gear, so the row the
+            // gear sits in isn't an empty band above the greeting (owner, 2026-09-24). The system
+            // title stays for the back button and VoiceOver's screen name, not drawn.
+            .navigationTitle("Mindlore")
             .toolbarTitleDisplayMode(.inline)
             .toolbar(removing: .title)
             .navigationDestination(for: JournalRoute.self) { route in
@@ -123,6 +123,15 @@ struct EntryListView: View {
             .toolbar {
                 // Starting an entry lives in the tab bar's + (NewEntryFan), so the only button up here
                 // is Settings, which left the tab bar (owner, 2026-09-24).
+                ToolbarItem(placement: .topBarLeading) {
+                    Text("Mindlore")
+                        .font(.title2.weight(.bold))
+                        .foregroundStyle(Palette.ink)
+                        .fixedSize()
+                        .accessibilityAddTraits(.isHeader)
+                        .accessibilityIdentifier("journalWordmark")
+                }
+                .sharedBackgroundVisibility(.hidden)
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("Settings", systemImage: "gearshape") { showingSettings = true }
                         .accessibilityIdentifier("settingsButton")
