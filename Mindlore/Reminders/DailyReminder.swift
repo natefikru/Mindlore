@@ -42,6 +42,7 @@ final class SystemNotificationCenter: NotificationScheduling {
 // week keeps rolling forward; a journal left alone for a week stops asking.
 nonisolated enum ReminderPlan {
     static let daysAhead = 7
+    static let identifierPrefix = "dailyReminder-"
     // 9 pm.
     static let defaultMinutes = 21 * 60
 
@@ -66,7 +67,7 @@ nonisolated enum ReminderPlan {
 @MainActor
 @Observable
 final class DailyReminder {
-    static let identifiers = (0..<ReminderPlan.daysAhead).map { "dailyReminder-\($0)" }
+    static let identifiers = (0..<ReminderPlan.daysAhead).map { "\(ReminderPlan.identifierPrefix)\($0)" }
     static let body = "A moment for today?"
 
     enum Outcome: Equatable {
@@ -78,6 +79,11 @@ final class DailyReminder {
 
     // Set when a reschedule finds permission gone, so Settings can say why the switch went off.
     private(set) var permissionLost = false
+    // What Settings says about the reminder, so a day it skipped never looks like one that broke
+    // (owner, 2026-09-23: turned it on, saw nothing, and nothing said why). The next one actually
+    // scheduled, and whether today went because the user had already written.
+    private(set) var next: Date?
+    private(set) var skippedToday = false
 
     @ObservationIgnored private let center: any NotificationScheduling
     @ObservationIgnored private let diagnostics: DiagnosticsLog
@@ -99,10 +105,14 @@ final class DailyReminder {
     func reschedule(enabled: Bool, minutesAfterMidnight: Int, todayHasEntry: Bool, now: Date = .now, calendar: Calendar = .current) async -> Outcome {
         guard enabled else {
             center.removePendingRequests(withIdentifiers: Self.identifiers)
+            next = nil
+            skippedToday = false
             return .off
         }
         guard await center.isAuthorized() else {
             center.removePendingRequests(withIdentifiers: Self.identifiers)
+            next = nil
+            skippedToday = false
             permissionLost = true
             diagnostics.record("reminder.scheduled", ["count": .int(0), "allowed": .bool(false)])
             return .notAllowed
@@ -115,6 +125,7 @@ final class DailyReminder {
         // Cut short this way, it keeps the old week.
         let dates = ReminderPlan.dates(now: now, minutesAfterMidnight: minutesAfterMidnight, todayHasEntry: todayHasEntry, calendar: calendar)
         var added = 0
+        var first: Date?
         for (index, date) in dates.enumerated() {
             let content = UNMutableNotificationContent()
             content.body = Self.body
@@ -124,11 +135,36 @@ final class DailyReminder {
                 repeats: false
             )
             let request = UNNotificationRequest(identifier: Self.identifiers[index], content: content, trigger: trigger)
-            if (try? await center.add(request)) != nil { added += 1 }
+            if (try? await center.add(request)) != nil {
+                added += 1
+                first = first ?? date
+            }
         }
+        next = first
+        // Today's slot was still ahead, and only the entry took it away.
+        skippedToday = todayHasEntry && ReminderPlan.dates(
+            now: now, minutesAfterMidnight: minutesAfterMidnight, todayHasEntry: false, calendar: calendar
+        ).first.map { calendar.isDate($0, inSameDayAs: now) } == true
         center.removePendingRequests(withIdentifiers: Array(Self.identifiers.dropFirst(dates.count)))
         diagnostics.record("reminder.scheduled", ["count": .int(added), "allowed": .bool(true), "skippedToday": .bool(todayHasEntry)])
         return .scheduled(added)
+    }
+
+    // The line Settings shows above the reminder's rules: "Next: tomorrow at 9:00 PM." Nil when
+    // nothing is scheduled, which the switch or the permission sentence already explains.
+    static func nextLine(next: Date?, skippedToday: Bool, now: Date = .now, calendar: Calendar = .current, locale: Locale = .current) -> String? {
+        guard let next else { return nil }
+        let time = next.formatted(Date.FormatStyle(date: .omitted, time: .shortened, locale: locale, calendar: calendar, timeZone: calendar.timeZone))
+        let day: String
+        if calendar.isDate(next, inSameDayAs: now) {
+            day = "today"
+        } else if let tomorrow = calendar.date(byAdding: .day, value: 1, to: now), calendar.isDate(next, inSameDayAs: tomorrow) {
+            day = "tomorrow"
+        } else {
+            day = "on " + next.formatted(Date.FormatStyle(locale: locale, calendar: calendar, timeZone: calendar.timeZone).weekday(.wide))
+        }
+        let line = "Next reminder: \(day) at \(time)."
+        return skippedToday ? "Not today, since you've already written. " + line : line
     }
 
     // Anything that reached the app today counts, a draft included: the user showed up.
@@ -137,5 +173,23 @@ final class DailyReminder {
         var descriptor = FetchDescriptor<Entry>(predicate: #Predicate { $0.createdAt >= start })
         descriptor.fetchLimit = 1
         return ((try? context.fetch(descriptor)) ?? []).contains { !$0.isDeleted }
+    }
+}
+
+// iOS drops a notification that arrives while its app is open unless a delegate says to show it,
+// so without this a reminder set a minute ahead, with Mindlore still on screen, never appeared.
+// Held by a static: the centre keeps its delegate weakly, and one made inside `MindloreApp.init`
+// would be freed at once, taking the fix with it.
+final class ReminderPresenter: NSObject, UNUserNotificationCenterDelegate {
+    static let shared = ReminderPresenter()
+
+    nonisolated static func presents(_ identifier: String) -> Bool {
+        identifier.hasPrefix(ReminderPlan.identifierPrefix)
+    }
+
+    nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification) async -> UNNotificationPresentationOptions {
+        guard Self.presents(notification.request.identifier) else { return [] }
+        DiagnosticsLog.shared.record("reminder.presented", ["foreground": .bool(true)])
+        return [.banner, .list, .sound]
     }
 }

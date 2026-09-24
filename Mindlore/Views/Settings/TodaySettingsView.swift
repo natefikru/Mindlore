@@ -40,6 +40,17 @@ struct TodaySettingsView: View {
         return (parts.hour ?? 0) * 60 + (parts.minute ?? 0)
     }
 
+    private var reminderFooter: String {
+        if reminderDenied || reminder.permissionLost {
+            return "Notifications are off for Mindlore. Turn them on in the Settings app, then try again."
+        }
+        let rules = "One a day, skipped when you've already written. It only ever says \u{201C}\(DailyReminder.body)\u{201D}, never anything from your journal."
+        guard settings.reminderEnabled,
+              let next = DailyReminder.nextLine(next: reminder.next, skippedToday: reminder.skippedToday)
+        else { return rules }
+        return next + " " + rules
+    }
+
     var body: some View {
         @Bindable var settings = settings
 
@@ -63,9 +74,8 @@ struct TodaySettingsView: View {
             } header: {
                 Text("Reminder")
             } footer: {
-                Text(reminderDenied || reminder.permissionLost
-                     ? "Notifications are off for Mindlore. Turn them on in the Settings app, then try again."
-                     : "One a day, skipped when you've already written. It only ever says \u{201C}\(DailyReminder.body)\u{201D}, never anything from your journal.")
+                Text(reminderFooter)
+                    .accessibilityIdentifier("reminderFooter")
             }
         }
         .paperBackground()

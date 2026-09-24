@@ -454,7 +454,11 @@ Ask only fills the field, never sends. `DailyReminder` is one local notification
 default, fixed neutral words, no badge. It schedules a week of single notifications rather than a
 repeating one, because "skip today if you've written" can only be decided when scheduling; it
 adds before it prunes, so a reschedule cut short by suspension keeps the old week; and a reminder
-iOS won't show (permission withdrawn in Settings) switches off with the footer saying why. The
+iOS won't show (permission withdrawn in Settings) switches off with the footer saying why. Settings'
+Today and reminders screen says when the next one is and whether today went because you already
+wrote (`DailyReminder.next`, `skippedToday`), since a skipped day looked exactly like a broken
+reminder. `ReminderPresenter` shows it over the open app, which iOS otherwise drops; it is held by
+a static because the centre keeps its delegate weakly. The
 notification centre sits behind `NotificationScheduling`, faked in `DailyReminderTests`.
 
 **Reflect** (`Mindlore/Reflect/`, `Mindlore/Views/Reflect/`). A week or month looked back on: where

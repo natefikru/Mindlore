@@ -273,13 +273,17 @@ ready to type.
 
 ### 31. The daily reminder
 
-Settings, Reminder, turn on Daily reminder. Expect the iOS permission prompt and
-`reminder.permission allowed=true`. Set the time two minutes ahead and leave the app without having
-written today. Expect `reminder.scheduled count=7 allowed=true skippedToday=false`, and a
-notification reading only "A moment for today?", with no badge on the icon.
+Settings, Today and reminders, turn on Daily reminder. Expect the iOS permission prompt and
+`reminder.permission allowed=true`. Set the time two minutes ahead without having written today. The
+footer says "Next reminder: today at" that time. Stay in the app: the banner shows over it and the
+log has `reminder.presented foreground=true` (before `feature/settings-sections` this was silently
+dropped). Set it two minutes ahead again and leave the app. Expect
+`reminder.scheduled count=7 allowed=true skippedToday=false`, and a notification reading only "A
+moment for today?", with no badge on the icon.
 
 Write an entry, set the time a few minutes ahead again, and leave the app. Expect
-`skippedToday=true`, `count=6`, and no notification today.
+`skippedToday=true`, `count=6`, no notification today, and the footer saying "Not today, since
+you've already written. Next reminder: tomorrow at" that time.
 
 Then turn notifications off for Mindlore in the iOS Settings app and come back. Expect
 `reminder.scheduled allowed=false`, the switch off, and the footer saying notifications are off.

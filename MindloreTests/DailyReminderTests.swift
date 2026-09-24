@@ -138,6 +138,65 @@ struct DailyReminderTests {
         #expect(!center.fireDates.contains { $0.day == 21 })
     }
 
+    // MARK: - What Settings says about it
+
+    // The owner turned it on and saw nothing (2026-09-23). A skipped day has to say so.
+    @Test func itRemembersTheNextOneAndWhyTodayWent() async {
+        let reminder = DailyReminder(center: FakeNotificationCenter(), diagnostics: .disabled)
+
+        await reminder.reschedule(enabled: true, minutesAfterMidnight: nine, todayHasEntry: false, now: date(2026, 9, 21, hour: 13), calendar: utc)
+        #expect(reminder.next == date(2026, 9, 21, hour: 21))
+        #expect(!reminder.skippedToday)
+
+        await reminder.reschedule(enabled: true, minutesAfterMidnight: nine, todayHasEntry: true, now: date(2026, 9, 21, hour: 13), calendar: utc)
+        #expect(reminder.next == date(2026, 9, 22, hour: 21))
+        #expect(reminder.skippedToday)
+    }
+
+    // After nine, today is gone because of the clock, not because anything was written.
+    @Test func aPassedTimeIsNotASkip() async {
+        let reminder = DailyReminder(center: FakeNotificationCenter(), diagnostics: .disabled)
+        await reminder.reschedule(enabled: true, minutesAfterMidnight: nine, todayHasEntry: true, now: date(2026, 9, 21, hour: 22), calendar: utc)
+        #expect(reminder.next == date(2026, 9, 22, hour: 21))
+        #expect(!reminder.skippedToday)
+    }
+
+    @Test func offAndNotAllowedScheduleNothingToShow() async {
+        let center = FakeNotificationCenter()
+        let reminder = DailyReminder(center: center, diagnostics: .disabled)
+        await reminder.reschedule(enabled: true, minutesAfterMidnight: nine, todayHasEntry: true, now: date(2026, 9, 21, hour: 13), calendar: utc)
+        #expect(reminder.next != nil)
+
+        await reminder.reschedule(enabled: false, minutesAfterMidnight: nine, todayHasEntry: true, now: date(2026, 9, 21, hour: 13), calendar: utc)
+        #expect(reminder.next == nil)
+        #expect(!reminder.skippedToday)
+
+        await reminder.reschedule(enabled: true, minutesAfterMidnight: nine, todayHasEntry: true, now: date(2026, 9, 21, hour: 13), calendar: utc)
+        center.authorized = false
+        await reminder.reschedule(enabled: true, minutesAfterMidnight: nine, todayHasEntry: true, now: date(2026, 9, 21, hour: 13), calendar: utc)
+        #expect(reminder.next == nil)
+        #expect(!reminder.skippedToday)
+    }
+
+    @Test func theNextLineNamesTheDay() {
+        let now = date(2026, 9, 21, hour: 13)
+        let us = Locale(identifier: "en_US")
+        func line(_ next: Date?, skipped: Bool = false) -> String? {
+            DailyReminder.nextLine(next: next, skippedToday: skipped, now: now, calendar: utc, locale: us)
+        }
+        #expect(line(nil) == nil)
+        #expect(line(date(2026, 9, 21, hour: 21)) == "Next reminder: today at 9:00\u{202F}PM.")
+        #expect(line(date(2026, 9, 22, hour: 21)) == "Next reminder: tomorrow at 9:00\u{202F}PM.")
+        #expect(line(date(2026, 9, 23, hour: 21)) == "Next reminder: on Wednesday at 9:00\u{202F}PM.")
+        #expect(line(date(2026, 9, 22, hour: 21), skipped: true) == "Not today, since you've already written. Next reminder: tomorrow at 9:00\u{202F}PM.")
+    }
+
+    // Only the reminder is shown over the open app; anything else keeps the system's default.
+    @Test func thePresenterShowsOnlyTheReminder() {
+        #expect(DailyReminder.identifiers.allSatisfy(ReminderPresenter.presents))
+        #expect(!ReminderPresenter.presents("somethingElse-0"))
+    }
+
     // Going to the background is when this usually runs, and the app can be suspended mid-way.
     // Clearing first would leave nothing; adding first leaves the old week standing.
     @Test func aRescheduleCutShortNeverLeavesNothing() async {

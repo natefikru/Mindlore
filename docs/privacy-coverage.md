@@ -6,7 +6,7 @@ extended by `feature/phase-b5` with three more (135): `intent.invoked`, `reminde
 (139): `entry.kindSet`, `title.requested`, and `recording.ready` in the table, and
 `editor.editFromReadTap` under view events. The formatting editor (`claude/editor-formatting`)
 added three more (142) under view events: `editor.formatted`, `editor.checkboxTicked`, and
-`editor.nameTyped`.
+`editor.nameTyped`. `feature/settings-sections` added `reminder.presented` (143), in the table.
 Those two tests assert that the event was written as well as that the sentinel wasn't, which is
 what the instrumented run below establishes for the rest.
 
@@ -39,6 +39,7 @@ To redo it: add a one-line append to `record`, run the tests below one at a time
 | `IntentTests/theLogSaysWhichIntentAndNeverWhatWasAsked` | `intent.invoked` (the question is the sentinel) |
 | `EntryKindDiagnosticsPrivacyTests/kindTitleAndReadyRecorderNeverLogTheUsersWords` | `entry.kindSet`, `title.requested`, `recording.ready` (added 2026-09-23 with entry kinds and the waiting recorder) |
 | `DailyReminderTests/theLogCarriesCountsOnly` | `reminder.permission`, `reminder.scheduled` (no user text ever reaches the reminder, so there is no sentinel to feed; the test checks both are written and that not even the fixed notification line is) |
+| `DailyReminderTests/thePresenterShowsOnlyTheReminder` | `reminder.presented` (fired from the system's delegate callback, which no test can drive; the event carries one fixed bool, and the test covers the filter that decides it) |
 
 Of the 32 events added since `main`, 30 are in this table. The other two are `demo.seeded` and
 `demo.seedFailed`, covered below.
