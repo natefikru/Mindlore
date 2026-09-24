@@ -216,12 +216,12 @@ final class GraphUITests: XCTestCase {
         }
         XCTAssertTrue(app.buttons["mindWindow-quarter"].isSelected)
 
-        // Themes alone leaves the river tag, drawn as a ring, without replacing the canvas.
+        // Themes alone leaves the river tag, drawn as a pin, without replacing the canvas.
         raisePanel()
         let themes = app.buttons["mindKindChip-tags"]
         XCTAssertTrue(themes.waitForExistence(timeout: 5))
         themes.tap()
-        waitFor("value BEGINSWITH 'nodes=1 rings=1 '", on: canvas)
+        waitFor("value BEGINSWITH 'nodes=1 tags=1 '", on: canvas)
         app.buttons["mindKindChip-all"].tap()
         waitFor("value BEGINSWITH 'nodes=3 '", on: canvas)
     }

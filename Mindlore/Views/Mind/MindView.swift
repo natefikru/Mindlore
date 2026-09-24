@@ -2,7 +2,7 @@ import SwiftData
 import SwiftUI
 
 // The Mind tab: the whole journal's map, full screen, with a search panel pulled up from the
-// bottom. Each channel means one thing: colour is life area, shape is kind (a tag is a ring), size
+// bottom. Each channel means one thing: colour is life area, shape is kind (a tag is a small pin), size
 // is how many entries in the window name it, and the window control at the top is time. Tapping a
 // node or a result focuses it and shows its card; the trail of focuses is the breadcrumb row.
 // Entity pages push onto the router's Mind path.

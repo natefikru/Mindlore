@@ -90,8 +90,8 @@ struct GraphCanvasModelTests {
 
     // An area tile brings a group forward; focus says more, so it still lights its own set.
     // Colour is area, looked up per node; a node with no area in the window is grey. Tags, and
-    // only tags, are rings. A new area map recomputes the plan only when its generation moves.
-    @Test func fillsFollowAreasRingsFollowTagsAndTheCacheKeysOnTheGeneration() {
+    // only tags, are pins. A new area map recomputes the plan only when its generation moves.
+    @Test func fillsFollowAreasPinsFollowTagsAndTheCacheKeysOnTheGeneration() {
         let person = node(4), tag = GraphSimulation.Node(id: UUID(), kind: .tag, linkCount: 3), loose = node(1)
         let simulation = GraphSimulation(nodes: [person, tag, loose], edges: [])
         let cache = GraphDrawCache()
@@ -100,7 +100,7 @@ struct GraphCanvasModelTests {
         #expect(plan.fills[simulation.index(of: person.id)!] == .area(.work))
         #expect(plan.fills[simulation.index(of: tag.id)!] == .area(.play))
         #expect(plan.fills[simulation.index(of: loose.id)!] == .neutral)
-        #expect(plan.ringNodes == [simulation.index(of: tag.id)!])
+        #expect(plan.tagNodes == [simulation.index(of: tag.id)!])
 
         _ = cache.plan(for: simulation, focusedID: nil, areaOf: [:], areaGeneration: 1)
         #expect(cache.recomputeCount == 1, "same generation, same plan")
