@@ -7,17 +7,49 @@ nonisolated enum AskAnswerParser {
     nonisolated struct Answer: Equatable, Sendable {
         let text: String
         let handles: [String]
+        // A note the author asked for in this turn, still Markdown. Only the OpenAI shape can carry
+        // one; a stopped or a marker-parsed answer never does.
+        var note: NoteRequest? = nil
     }
 
-    // The OpenAI shape: {"answer": "...", "citations": ["E1"]}.
+    // What the model wrote for "make me a note". The text is Markdown, read into words and
+    // formatting by AskNoteWriter the same way a cleanup is.
+    nonisolated struct NoteRequest: Equatable, Sendable {
+        let title: String
+        let text: String
+    }
+
+    // The OpenAI shape: {"answer": "...", "citations": ["E1"], "noteTitle": null, "noteText": null}.
+    // Two flat nullable strings rather than a nullable object, because a nullable string is the
+    // shape every schema the app sends already uses. Optional to the decoder too, so an answer
+    // without them (a server that ignored the strict schema, a fixture from before) still reads.
     nonisolated struct Payload: Decodable {
         let answer: String
         let citations: [String]
+        let noteTitle: String?
+        let noteText: String?
     }
 
     static func parseJSON(_ text: String, known: Set<String>) throws -> Answer {
         let payload = try StructuredOutputParser.decode(Payload.self, from: text)
-        return Answer(text: payload.answer.trimmingCharacters(in: .whitespacesAndNewlines), handles: filtered(payload.citations, known: known))
+        return Answer(
+            text: payload.answer.trimmingCharacters(in: .whitespacesAndNewlines),
+            handles: filtered(payload.citations, known: known),
+            note: noteRequest(title: payload.noteTitle, text: payload.noteText)
+        )
+    }
+
+    // A note with no words is no note: a title alone would make an entry that reads as empty.
+    static func noteRequest(title: String?, text: String?) -> NoteRequest? {
+        let body = (text ?? "")
+            .replacingOccurrences(of: "\r\n", with: "\n")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !body.isEmpty else { return nil }
+        let heading = (title ?? "")
+            .split(whereSeparator: \.isNewline)
+            .joined(separator: " ")
+            .trimmingCharacters(in: .whitespaces)
+        return NoteRequest(title: heading, text: body)
     }
 
     // Foundation Models answers in plain text with [E3] markers. Known markers become citations

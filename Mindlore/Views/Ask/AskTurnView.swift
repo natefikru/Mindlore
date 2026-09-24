@@ -55,9 +55,14 @@ struct AskTurnView: View {
 
     var body: some View {
         content
-            .task(id: turn.citedEntryIDs) {
-                refs = AskEntryRefs.refs(turn.citedEntryIDs, in: modelContext)
+            .task(id: referencedIDs) {
+                refs = AskEntryRefs.refs(referencedIDs, in: modelContext)
             }
+    }
+
+    // The cited entries, and the note this answer made, looked up together.
+    private var referencedIDs: [UUID] {
+        turn.citedEntryIDs + (turn.createdNoteID.map { [$0] } ?? [])
     }
 
     @ViewBuilder
@@ -90,6 +95,7 @@ struct AskTurnView: View {
                     .background(Palette.card, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
                     .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(Palette.hairline))
                 }
+                createdNote
                 citations
                 footer
             }
@@ -151,6 +157,33 @@ struct AskTurnView: View {
                 }
             }
             .scrollIndicators(.hidden)
+        }
+    }
+
+    // The note the author asked for, one tap from the editor. Quiet like the source chips, and gone
+    // once the note is deleted: there is nothing left to open.
+    @ViewBuilder
+    private var createdNote: some View {
+        if let id = turn.createdNoteID, let ref = refs[id] {
+            Button { openEntry(id) } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: EntryKind.note.symbol)
+                        .font(.caption2)
+                    Text("Note created")
+                        .font(.caption2)
+                    Text(verbatim: ref.title)
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                        .lineLimit(1)
+                }
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 5)
+                .background(.quaternary.opacity(0.25), in: Capsule())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(Text(verbatim: "Note created, \(ref.title)"))
+            .accessibilityIdentifier("askCreatedNote")
         }
     }
 

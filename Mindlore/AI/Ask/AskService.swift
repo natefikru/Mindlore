@@ -34,6 +34,9 @@ nonisolated struct AskTurn: Identifiable, Equatable, Sendable {
     var isStreaming = false
     // The author stopped it partway. Not a failure, so nothing to retry, and no chips.
     var wasStopped = false
+    // The note this answer made, when the author asked for one. It carries the answer's own id
+    // (AskNoteWriter), so a reopened conversation finds it again by looking for that entry.
+    var createdNoteID: UUID?
 
     // Whether the answer was written from a sample of a larger set, which is what "What was sent"
     // has to say out loud. A digest counts: the model saw the day, in a line.
@@ -119,6 +122,9 @@ final class AskService {
     // the task is what the flag cuts.
     @ObservationIgnored private var stopRequested = false
     @ObservationIgnored private var streamReader: Task<Delivered?, any Error>?
+    // Told about a note Chat has just made and saved, so the app can give it the one automatic
+    // AI pass every finished entry gets. Set by RootView, which owns AIPassTrigger.
+    @ObservationIgnored var onNoteCreated: ((Entry) -> Void)?
 
     static let maxHistoryTurns = 6
 
@@ -166,7 +172,9 @@ final class AskService {
         isSaved = true
         draftQuestion = ""
         focusEntryID = nil
-        turns = AskMessage.all(forConversation: conversation.id, in: context).map {
+        let messages = AskMessage.all(forConversation: conversation.id, in: context)
+        let notes = Self.existingEntryIDs(Set(messages.filter { $0.role == .assistant }.map(\.id)), in: context)
+        turns = messages.map {
             AskTurn(
                 id: $0.id,
                 role: $0.role,
@@ -179,9 +187,17 @@ final class AskService {
                 rollupMonthCount: $0.rollupMonthCount,
                 digestEntryCount: $0.digestEntryCount,
                 failureRaw: $0.failureRaw,
-                wasStopped: $0.wasStopped
+                wasStopped: $0.wasStopped,
+                createdNoteID: notes.contains($0.id) ? $0.id : nil
             )
         }
+    }
+
+    // Which of these ids are entries, for the notes answers made. One fetch for the conversation.
+    private static func existingEntryIDs(_ ids: Set<UUID>, in context: ModelContext) -> Set<UUID> {
+        guard !ids.isEmpty else { return [] }
+        let descriptor = FetchDescriptor<Entry>(predicate: #Predicate { ids.contains($0.id) })
+        return Set(((try? context.fetch(descriptor)) ?? []).filter { !$0.isDeleted }.map(\.id))
     }
 
     func conversations(in context: ModelContext) -> [AskConversation] {
@@ -359,6 +375,13 @@ final class AskService {
             digestEntryCount: built.digestEntryIDs.count
         )
         turn.wasStopped = delivered.wasStopped
+        // A note only from an answer that arrived whole: a stopped one has no fields to read, and
+        // a failed one never gets here. Inserted before finish, whose save carries it.
+        var createdNote: Entry?
+        if !delivered.wasStopped, provider.kind == .openAI, let request = answer.note {
+            createdNote = AskNoteWriter.insert(request, id: turnID, providerLabel: provider.label, now: now(), in: context)
+            turn.createdNoteID = createdNote?.id
+        }
         var event: [String: DiagnosticValue] = [
             "entries": .int(built.entryIDs.count),
             "digests": .int(built.digestEntryIDs.count),
@@ -378,6 +401,16 @@ final class AskService {
         }
         diagnostics.record(delivered.wasStopped ? "ask.stopped" : "ask.answered", event)
         finish(question: question, turn: turn, context: built, in: context)
+        if let createdNote {
+            // Counts and bools only. The note's words are the author's, as much as an entry's are.
+            diagnostics.record("ask.noteCreated", [
+                "characters": .int(createdNote.text.count),
+                "hasTitle": .bool(!createdNote.title.isEmpty),
+                "formatted": .bool(createdNote.formattingRaw != nil),
+                "turn": .int(turnIndex),
+            ])
+            onNoteCreated?(createdNote)
+        }
     }
 
     // MARK: - Getting the answer across
