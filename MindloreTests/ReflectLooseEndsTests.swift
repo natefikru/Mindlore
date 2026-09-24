@@ -61,6 +61,31 @@ struct ReflectLooseEndsTests {
         #expect(ReflectLooseEnds.months([], filter: .all, calendar: utc).isEmpty)
     }
 
+    @Test func openOnesArePinnedAboveTheMonthsDueSoonestFirst() {
+        let items = [
+            ReflectLooseEnds.Item(text: "open new", raisedOn: date(2026, 9, 10)),
+            ReflectLooseEnds.Item(text: "done sep", status: .resolved, raisedOn: date(2026, 9, 12)),
+            ReflectLooseEnds.Item(text: "open old due late", raisedOn: date(2026, 5, 1), dueDate: date(2026, 10, 30)),
+            ReflectLooseEnds.Item(text: "open due soon", raisedOn: date(2026, 8, 1), dueDate: date(2026, 9, 28)),
+            ReflectLooseEnds.Item(text: "open older", raisedOn: date(2026, 6, 1)),
+            ReflectLooseEnds.Item(text: "faded aug", status: .faded, raisedOn: date(2026, 8, 20)),
+        ]
+
+        let all = ReflectLooseEnds.layout(items, filter: .all, calendar: utc)
+        #expect(all.open.map(\.text) == ["open due soon", "open old due late", "open new", "open older"])
+        #expect(all.months.flatMap(\.items).map(\.text) == ["done sep", "faded aug"], "an open one never repeats below")
+
+        let open = ReflectLooseEnds.layout(items, filter: .open, calendar: utc)
+        #expect(open.open.count == 4)
+        #expect(open.months.isEmpty)
+
+        let closed = ReflectLooseEnds.layout(items, filter: .closed, calendar: utc)
+        #expect(closed.open.isEmpty)
+        #expect(closed.months.flatMap(\.items).map(\.text) == ["done sep", "faded aug"])
+
+        #expect(ReflectLooseEnds.layout([], filter: .all, calendar: utc).isEmpty)
+    }
+
     @Test func eachStatusHasItsOwnWordAndShape() {
         let statuses = LooseEndStatus.allCases
         #expect(statuses.map(ReflectLooseEnds.statusTitle) == ["Open", "Done", "Faded", "Let go"])
