@@ -29,6 +29,8 @@ struct RootView: View {
     @Environment(ProviderAccountStore.self) private var accounts
     @State private var confirmingDiscard = false
     @State private var showingWelcome = false
+    // The welcome screen's Add a key.
+    @State private var showingAISettings = false
     private let context: ModelContext
 
     init(container: ModelContainer, settings: SettingsStore, accounts: ProviderAccountStore) {
@@ -151,24 +153,34 @@ struct RootView: View {
     }
 
     var body: some View {
-        TabView(selection: $router.tab) {
+        // The + never becomes the selected tab: picking it opens the fan (`AppRouter.select`).
+        TabView(selection: Binding(get: { router.tab }, set: { router.select($0) })) {
             Tab("Journal", systemImage: "book", value: AppTab.journal) {
                 EntryListView()
             }
             Tab("Mind", systemImage: "circle.hexagongrid", value: AppTab.mind) {
                 MindView()
             }
+            // Drawn over by NewEntryFan's own +; this tab is its slot and its VoiceOver button.
+            Tab("New", systemImage: "plus", value: AppTab.newEntry) {
+                Color.clear
+            }
+            Tab("Reflect", systemImage: "leaf", value: AppTab.reflect) {
+                ReflectView()
+            }
             Tab("Chat", systemImage: "bubble.left.and.bubble.right", value: AppTab.ask) {
                 AskView()
             }
-            Tab("Settings", systemImage: "gearshape", value: AppTab.settings) {
-                SettingsView()
-            }
+        }
+        .overlay {
+            NewEntryFan()
+                .environment(router)
+                .environment(recording)
         }
         // The accessory and the recorder are handed the session directly rather than relying on
         // the environment below reaching their separate hosting.
-        // Only while a recording runs, so it follows the user across tabs. Record itself sits in
-        // Journal's toolbar.
+        // Only while a recording runs, so it follows the user across tabs. Record itself is in the
+        // tab bar's + fan.
         .tabViewBottomAccessory(isEnabled: recording.showsAccessory) {
             RecordAccessory(session: recording) { confirmingDiscard = true }
         }
@@ -186,6 +198,9 @@ struct RootView: View {
             }
         }
         .sensoryFeedback(Haptics.recordStop, trigger: recording.isFinishing) { _, finishing in finishing }
+        .sheet(isPresented: $showingAISettings) {
+            AISettingsSheet()
+        }
         .confirmationDialog("Discard this recording?", isPresented: $confirmingDiscard, titleVisibility: .visible) {
             Button("Discard Recording", role: .destructive) { recording.discard() }
                 .accessibilityIdentifier("confirmDiscardRecordingButton")
@@ -265,7 +280,7 @@ struct RootView: View {
                     onStart: { closeWelcome() },
                     onAddKey: {
                         closeWelcome()
-                        router.showSettings()
+                        showingAISettings = true
                     }
                 )
                 .transition(.opacity)

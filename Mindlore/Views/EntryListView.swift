@@ -18,10 +18,7 @@ struct EntryListView: View {
     // clears the areas, and picking an area clears it. Journal is what the list is, so it has none.
     @State private var shownKind: EntryKind?
     @State private var today = Today()
-    @State private var showingReflect = false
-    // Set right before a Reflect card jumps to a new entry, so leaving that entry (back or Done)
-    // returns to Reflect instead of dumping the user on the Journal list they never asked for.
-    @State private var returnToReflectAfterEntry = false
+    @State private var showingSettings = false
     @Environment(RecordingSession.self) private var recording
     @Environment(InsightsCoordinator.self) private var insightsCoordinator
     @State private var undo = UndoQueue()
@@ -55,7 +52,7 @@ struct EntryListView: View {
                         mute: muteFromToday,
                         act: actOnThread,
                         openEntry: { router.showEntry($0, forReading: true) },
-                        openReflect: { showingReflect = true }
+                        openReflect: { router.showReflect(.recaps) }
                     )
                         .listRowInsets(EdgeInsets())
                         .listRowBackground(Color.clear)
@@ -116,27 +113,18 @@ struct EntryListView: View {
                 JournalEntryDestination(route: route)
             }
             .toolbar {
-                // Voice sits outermost, in the easiest-to-reach position. A running recording shows in
-                // the tab bar's accessory.
-                ToolbarItemGroup(placement: .topBarTrailing) {
-                    if DocumentCameraView.isSupported || FakePages.isEnabled {
-                        Button("Photograph Pages", systemImage: "camera") { pageOrder = .new }
-                            .accessibilityIdentifier("newPhotoEntryButton")
-                    }
-                    newTypedEntryButton
-                    Button("New Voice Entry", systemImage: "mic") { recording.begin() }
-                        .disabled(recording.status != .idle)
-                        .accessibilityIdentifier("newVoiceEntryButton")
+                // Starting an entry lives in the tab bar's + (NewEntryFan), so the only button up here
+                // is Settings, which left the tab bar (owner, 2026-09-24).
+                ToolbarItem(placement: .topBarLeading) {
+                    Button("Settings", systemImage: "gearshape") { showingSettings = true }
+                        .accessibilityIdentifier("settingsButton")
                 }
+            }
+            .sheet(isPresented: $showingSettings) {
+                SettingsView()
             }
             .sheet(item: $insightsEntry) { entry in
                 EntryInsightsView(entry: entry)
-            }
-            .sheet(isPresented: $showingReflect) {
-                ReflectView(onOpenEntry: { prompt in
-                    returnToReflectAfterEntry = true
-                    router.showNewEntry(startingText: prompt)
-                })
             }
             .fullScreenCover(item: $pageOrder) { target in
                 switch target {
@@ -154,20 +142,17 @@ struct EntryListView: View {
             }
             .onChange(of: router.dismissPresentationsToken) {
                 insightsEntry = nil
-                showingReflect = false
+                showingSettings = false
+            }
+            // The fan's Pages, from any tab: the page cover lives here.
+            .onChange(of: router.newPagesRequest) {
+                pageOrder = .new
             }
             // Deleted from the editor's menu: the editor has already left the path, and the
             // delete waits here behind the same Undo a swipe gets.
             .onChange(of: router.entryDeletionRequest, initial: true) {
                 guard let id = router.consumeEntryDeletion() else { return }
                 scheduleDelete([id], reason: "editor")
-            }
-            // The entry a Reflect card opened has closed (back or Done): return to Reflect rather
-            // than leaving the user on the plain Journal list.
-            .onChange(of: router.journalPath) { _, path in
-                guard path.isEmpty, returnToReflectAfterEntry else { return }
-                returnToReflectAfterEntry = false
-                showingReflect = true
             }
         }
     }
@@ -275,11 +260,6 @@ struct EntryListView: View {
                     .strokeBorder(Palette.hairline)
             )
             .padding(.vertical, 3)
-    }
-
-    private var newTypedEntryButton: some View {
-        Button("New Written Entry", systemImage: "square.and.pencil") { router.journalPath.append(.new()) }
-            .accessibilityIdentifier("newEntryButton")
     }
 
     private var activeAreas: Set<LifeArea> {

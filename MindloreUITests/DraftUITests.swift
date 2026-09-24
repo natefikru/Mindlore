@@ -14,7 +14,7 @@ final class DraftUITests: XCTestCase {
     @MainActor
     func testWriteLeaveComeBackAndFinish() throws {
         app.launch()
-        app.buttons["newEntryButton"].tap()
+        app.startNewWrittenEntry()
         let editor = app.textViews["entryEditor"]
         XCTAssertTrue(editor.waitForExistence(timeout: 5))
         wait(for: [expectation(for: NSPredicate(format: "isHittable == true"), evaluatedWith: editor)], timeout: 5)

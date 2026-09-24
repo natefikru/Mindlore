@@ -27,7 +27,7 @@ final class InsightsUITests: XCTestCase {
     }
 
     private func typeEntry(_ text: String) {
-        app.buttons["newEntryButton"].tap()
+        app.startNewWrittenEntry()
         XCTAssertTrue(editor.waitForExistence(timeout: 5))
         wait(for: [expectation(for: NSPredicate(format: "isHittable == true"), evaluatedWith: editor)], timeout: 5)
         editor.tap()

@@ -199,10 +199,10 @@ struct ReflectLooseEndsView: View {
         load()
     }
 
-    // Leaves Reflect for the entry, in read mode, the way a search result opens one. The router's
-    // jump closes this sheet.
+    // Leaves Reflect for the entry, in read mode, the way a search result opens one; closing the
+    // entry comes back here.
     private func openEntry(_ id: UUID) {
         guard ReflectLooseEndSource.entryExists(id, in: modelContext) else { return }
-        router.showEntry(id, forReading: true)
+        router.showEntry(id, forReading: true, returningTo: .reflect)
     }
 }

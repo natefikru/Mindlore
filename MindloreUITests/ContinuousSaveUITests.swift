@@ -41,9 +41,7 @@ final class ContinuousSaveUITests: XCTestCase {
     }
 
     private func startNewEntry() {
-        let newEntry = app.buttons["newEntryButton"]
-        XCTAssertTrue(newEntry.waitForExistence(timeout: 5))
-        newEntry.tap()
+        app.startNewWrittenEntry()
         focusEditor()
     }
 

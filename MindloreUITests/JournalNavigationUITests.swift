@@ -16,7 +16,7 @@ final class JournalNavigationUITests: XCTestCase {
 
     private func startNewEntry() {
         app.launch()
-        app.buttons["newEntryButton"].tap()
+        app.startNewWrittenEntry()
         XCTAssertTrue(editor.waitForExistence(timeout: 5))
         wait(for: [expectation(for: NSPredicate(format: "isHittable == true"), evaluatedWith: editor)], timeout: 5)
         editor.coordinate(withNormalizedOffset: CGVector(dx: 0.95, dy: 0.5)).tap()

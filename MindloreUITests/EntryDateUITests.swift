@@ -14,9 +14,7 @@ final class EntryDateUITests: XCTestCase {
     @MainActor
     func testBackdatingAnEntrySurvivesRelaunch() throws {
         app.launch()
-        let newEntry = app.buttons["newEntryButton"]
-        XCTAssertTrue(newEntry.waitForExistence(timeout: 5))
-        newEntry.tap()
+        app.startNewWrittenEntry()
 
         let editor = app.textViews["entryEditor"]
         XCTAssertTrue(editor.waitForExistence(timeout: 5))

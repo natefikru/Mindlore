@@ -1,8 +1,30 @@
 import Foundation
 import Observation
 
+// The tab bar, left to right. `newEntry` is the + in the middle: it never becomes the selected
+// tab, it opens the new-entry fan over whichever tab is showing (`AppRouter.select`).
 enum AppTab: Hashable {
-    case journal, mind, ask, settings
+    case journal, mind, newEntry, reflect, ask
+}
+
+// The three sides of the Reflect tab.
+enum ReflectPage: String, CaseIterable, Identifiable, Sendable {
+    case life, recaps, looseEnds
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .life: "Life"
+        case .recaps: "Recaps"
+        case .looseEnds: "Loose ends"
+        }
+    }
+}
+
+nonisolated struct ReflectPageRequest: Equatable, Sendable {
+    let page: ReflectPage
+    let token: Int
 }
 
 // One entry on Journal's stack. It carries an id, never an Entry, so a deleted entry never leaves a
@@ -55,7 +77,9 @@ nonisolated struct AskFieldRequest: Equatable, Sendable {
 // switch or a cover over the editor).
 @Observable
 final class AppRouter {
-    var tab: AppTab = .journal
+    private(set) var tab: AppTab = .journal
+    // The + tab's fan of ways to start an entry. Open over whatever tab is showing.
+    var showingNewEntryFan = false
     var journalPath: [JournalRoute] = [] {
         didSet { reportChanges(from: oldValue) }
     }
@@ -73,13 +97,25 @@ final class AppRouter {
     @ObservationIgnored private(set) var pendingJump: PendingJump?
     @ObservationIgnored private var mindFocusToken = 0
     @ObservationIgnored private var askFieldToken = 0
+    // Reflect's side to show, taken once by Reflect.
+    private(set) var reflectPageRequest: ReflectPageRequest?
+    @ObservationIgnored private var reflectPageToken = 0
+    // A photographed-pages entry asked for from outside Journal (the fan): Journal owns the page
+    // cover, so it takes this once and opens it.
+    private(set) var newPagesRequest = 0
+    // Where to go back to once the entry opened from there leaves Journal's path: an entry opened
+    // from Reflect returns to Reflect. Cleared by any other move, so a tab the user picked by hand
+    // is never overridden.
+    @ObservationIgnored private(set) var returnTab: AppTab?
+    @ObservationIgnored private var returnEntryID: UUID?
 
     enum PendingJump: Equatable {
-        case entry(JournalRoute)
-        case newEntry(String?)
+        case entry(JournalRoute, AppTab?)
+        case newEntry(String?, AppTab?)
+        case newPages
         case mind(UUID)
         case ask(String?, UUID?)
-        case settings
+        case reflect(ReflectPage)
     }
 
     @ObservationIgnored private let opened: (UUID) -> Void
@@ -129,18 +165,47 @@ final class AppRouter {
         keptEntryID = nil
     }
 
-    // Replaces Journal's path rather than appending, so a finished recording never lands on top of
-    // another open entry.
-    func showEntry(_ id: UUID, forReading: Bool = false) {
-        let route = JournalRoute(entryID: id, opensForReading: forReading)
-        guard openCovers.isEmpty else {
-            pendingJump = .entry(route)
+    // A tab picked in the tab bar. The + opens or closes the fan and leaves the tab where it was.
+    func select(_ picked: AppTab) {
+        if picked == .newEntry {
+            showingNewEntryFan.toggle()
             return
         }
-        keptEntryID = nil
-        dismissPresentationsToken += 1
+        showingNewEntryFan = false
+        clearReturn()
+        tab = picked
+    }
+
+    // Replaces Journal's path rather than appending, so a finished recording never lands on top of
+    // another open entry. With `returningTo`, closing the entry goes back to that tab.
+    func showEntry(_ id: UUID, forReading: Bool = false, returningTo: AppTab? = nil) {
+        let route = JournalRoute(entryID: id, opensForReading: forReading)
+        guard openCovers.isEmpty else {
+            pendingJump = .entry(route, returningTo)
+            return
+        }
+        open(route, returningTo: returningTo)
+    }
+
+    private func open(_ route: JournalRoute, returningTo: AppTab?) {
+        beginJump()
         tab = .journal
         journalPath = [route]
+        returnTab = returningTo
+        returnEntryID = returningTo == nil ? nil : route.entryID
+    }
+
+    // What every jump does first: the Keep card, the fan, sheets, and any pending return go.
+    private func beginJump() {
+        keptEntryID = nil
+        showingNewEntryFan = false
+        clearReturn()
+        dismissPresentationsToken += 1
+    }
+
+    private func clearReturn() {
+        returnTab = nil
+        returnEntryID = nil
     }
 
     func setCover(_ name: String, open: Bool) {
@@ -152,25 +217,52 @@ final class AppRouter {
         guard openCovers.isEmpty, let pending = pendingJump else { return }
         pendingJump = nil
         switch pending {
-        case .entry(let route): showEntry(route.entryID, forReading: route.opensForReading)
-        case .newEntry(let startingText): showNewEntry(startingText: startingText)
+        case .entry(let route, let returning): showEntry(route.entryID, forReading: route.opensForReading, returningTo: returning)
+        case .newEntry(let startingText, let returning): showNewEntry(startingText: startingText, returningTo: returning)
+        case .newPages: showNewPages()
         case .mind(let id): showInMind(id)
         case .ask(let question, let entryID): showAsk(question: question, aboutEntry: entryID)
-        case .settings: showSettings()
+        case .reflect(let page): showReflect(page)
         }
     }
 
-    // A new written entry from outside the app (Shortcuts, Siri). Replaces Journal's path like
-    // showEntry, so it never lands on top of another open entry, whose close rules run as it goes.
-    func showNewEntry(startingText: String? = nil) {
+    // A new written entry: the fan, Siri, a Reflect prompt. Replaces Journal's path like showEntry,
+    // so it never lands on top of another open entry, whose close rules run as it goes.
+    func showNewEntry(startingText: String? = nil, returningTo: AppTab? = nil) {
         guard openCovers.isEmpty else {
-            pendingJump = .newEntry(startingText)
+            pendingJump = .newEntry(startingText, returningTo)
             return
         }
-        keptEntryID = nil
-        dismissPresentationsToken += 1
+        open(.new(startingText: startingText), returningTo: returningTo)
+    }
+
+    // A photographed-pages entry. Journal's path is left alone: the page cover opens over it.
+    func showNewPages() {
+        guard openCovers.isEmpty else {
+            pendingJump = .newPages
+            return
+        }
+        beginJump()
         tab = .journal
-        journalPath = [.new(startingText: startingText)]
+        newPagesRequest += 1
+    }
+
+    // Switches to Reflect on one of its sides.
+    func showReflect(_ page: ReflectPage) {
+        guard openCovers.isEmpty else {
+            pendingJump = .reflect(page)
+            return
+        }
+        beginJump()
+        reflectPageToken += 1
+        reflectPageRequest = ReflectPageRequest(page: page, token: reflectPageToken)
+        tab = .reflect
+    }
+
+    // Reflect takes the request once, whether it was built before the jump or because of it.
+    func consumeReflectPage() -> ReflectPage? {
+        defer { reflectPageRequest = nil }
+        return reflectPageRequest?.page
     }
 
     // Switches to Ask and asks it to take the field. Journal's path is left alone, like Mind, so
@@ -180,8 +272,7 @@ final class AppRouter {
             pendingJump = .ask(question, entryID)
             return
         }
-        keptEntryID = nil
-        dismissPresentationsToken += 1
+        beginJump()
         askFieldToken += 1
         askFieldRequest = AskFieldRequest(question: question, entryID: entryID, token: askFieldToken)
         tab = .ask
@@ -200,26 +291,11 @@ final class AppRouter {
             pendingJump = .mind(entityID)
             return
         }
-        keptEntryID = nil
-        dismissPresentationsToken += 1
+        beginJump()
         mindFocusToken += 1
         mindFocusRequest = MindFocusRequest(id: entityID, token: mindFocusToken)
         tab = .mind
         mindPath = []
-    }
-
-    // Switches to Settings. The insights sheet's "AI is off" recovery is the only caller: it is a
-    // sheet, and a tab switch underneath a sheet leaves the sheet covering the tab it switched to,
-    // so the token has to take the sheet down on the way. Journal's path is left alone, like Mind.
-    func showSettings() {
-        // Like the other jumps: a full-screen cover can't be closed from outside, so wait for it.
-        guard openCovers.isEmpty else {
-            pendingJump = .settings
-            return
-        }
-        keptEntryID = nil
-        dismissPresentationsToken += 1
-        tab = .settings
     }
 
     // Mind takes the request once, whether it was built before the jump or because of it.
@@ -255,5 +331,11 @@ final class AppRouter {
             }
         }
         arrived.forEach(opened)
+        // The entry opened from another tab has closed: go back there, if Journal is still showing.
+        if let id = returnEntryID, !journalPath.contains(where: { $0.entryID == id }) {
+            let back = returnTab
+            clearReturn()
+            if tab == .journal, let back { tab = back }
+        }
     }
 }

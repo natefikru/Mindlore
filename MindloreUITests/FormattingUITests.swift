@@ -16,7 +16,7 @@ final class FormattingUITests: XCTestCase {
 
     private func startEntry() {
         app.launch()
-        app.buttons["newEntryButton"].tap()
+        app.startNewWrittenEntry()
         XCTAssertTrue(editor.waitForExistence(timeout: 5))
         wait(for: [expectation(for: NSPredicate(format: "hasKeyboardFocus == true"), evaluatedWith: editor)], timeout: 5)
     }

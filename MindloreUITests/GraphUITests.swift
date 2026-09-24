@@ -19,9 +19,7 @@ final class GraphUITests: XCTestCase {
     private var editor: XCUIElement { app.textViews["entryEditor"] }
 
     private func startNewEntry() {
-        let newEntry = app.buttons["newEntryButton"]
-        XCTAssertTrue(newEntry.waitForExistence(timeout: 5))
-        newEntry.tap()
+        app.startNewWrittenEntry()
         focusEditor()
     }
 

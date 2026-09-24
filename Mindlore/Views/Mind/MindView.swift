@@ -15,6 +15,7 @@ struct MindView: View {
     @Environment(RecordingSession.self) private var recording
     @Environment(ProviderAccountStore.self) private var accounts
     @State private var simulation: GraphSimulation?
+    @State private var showingAISettings = false
     @State private var version = 0
     @State private var names: [UUID: String] = [:]
     @State private var arrivedAt: [UUID: Date] = [:]
@@ -104,6 +105,9 @@ struct MindView: View {
             .toolbar(.hidden, for: .navigationBar)
             .navigationDestination(for: EntityRoute.self) { EntityView(route: $0) }
             // Tidy up's questions, presented from the map inside the stack.
+            .sheet(isPresented: $showingAISettings) {
+                AISettingsSheet()
+            }
             .sheet(isPresented: $tidyingUp, onDismiss: refreshReview) {
                 TidyUpView(skipped: $skipped, hidden: tidyHidden, open: { router.mindPath.append(EntityRoute(id: $0)) })
             }
@@ -192,7 +196,7 @@ struct MindView: View {
             } description: {
                 Text("The map is built from the people, places, and projects AI finds in your entries. Turn on AI in Settings to start it.")
             } actions: {
-                Button("Open AI settings") { router.showSettings() }
+                Button("Open AI settings") { showingAISettings = true }
                     .accessibilityIdentifier("mindEmptyOpenSettings")
             }
             .accessibilityIdentifier("mindEmptyState")
