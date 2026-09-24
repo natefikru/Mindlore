@@ -8,6 +8,7 @@
 import Speech
 import SwiftUI
 import SwiftData
+import UserNotifications
 
 @main
 struct MindloreApp: App {
@@ -29,6 +30,9 @@ struct MindloreApp: App {
             launch["run"] = .string(arguments[index + 1])
         }
         diagnostics.record("app.launch", launch)
+        // Before launch finishes, as the notification centre asks, so a reminder that fires while the
+        // app is open still shows.
+        UNUserNotificationCenter.current().delegate = ReminderPresenter.shared
 
         // UI tests get their own settings and Keychain per named store, and run against whatever model
         // the simulator's host offers, so on-device titles stay off to keep them deterministic.

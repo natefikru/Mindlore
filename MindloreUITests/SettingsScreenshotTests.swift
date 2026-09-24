@@ -37,14 +37,11 @@ final class SettingsScreenshotTests: XCTestCase {
     }
 
     // A List only builds the rows on screen, so a link below the fold doesn't exist until the list
-    // scrolls to it. Once Privacy and data joined the root, the AI section fell below it and this
-    // tour failed on aiKeyLink until it learned to scroll: down first, then back up for a link
-    // that was above.
+    // scrolls to it. The root is five rows now, but About and the AI screens can still run long.
     private func open(_ identifier: String) {
         let link = app.buttons[identifier]
         _ = link.waitForExistence(timeout: 2)
-        for _ in 0..<6 where !(link.exists && link.isHittable) { app.swipeUp() }
-        for _ in 0..<8 where !(link.exists && link.isHittable) { app.swipeDown() }
+        for _ in 0..<4 where !(link.exists && link.isHittable) { app.swipeUp() }
         XCTAssertTrue(link.waitForExistence(timeout: 5), "\(identifier) should exist")
         link.tap()
     }
@@ -60,21 +57,31 @@ final class SettingsScreenshotTests: XCTestCase {
         XCTAssertTrue(app.navigationBars["Settings"].waitForExistence(timeout: 10))
         attach("\(tag)-settings-root")
 
-        // About and, in this Debug build, the Debug section sit below the fold.
-        let entries = app.descendants(matching: .any)["totalEntries"]
-        for _ in 0..<4 where !(entries.exists && entries.isHittable) { app.swipeUp() }
-        XCTAssertTrue(entries.exists, "About should be on the root")
-        attach("\(tag)-settings-root-bottom")
-        for _ in 0..<4 { app.swipeDown() }
+        open("generalSettingsLink")
+        attach("\(tag)-general")
+        back()
 
+        open("journalSettingsLink")
+        attach("\(tag)-journal")
         open("lifeAreasSettingsLink")
         attach("\(tag)-life-areas")
         back()
-
         open("journalVoiceSettingsLink")
         attach("\(tag)-voice")
         back()
+        back()
 
+        open("todaySettingsLink")
+        attach("\(tag)-today-reminders")
+        back()
+
+        open("aboutSettingsLink")
+        XCTAssertTrue(app.descendants(matching: .any)["totalEntries"].waitForExistence(timeout: 5))
+        attach("\(tag)-about")
+        back()
+
+        open("aiSettingsLink")
+        attach("\(tag)-ai")
         open("aiKeyLink")
         attach("\(tag)-key")
         back()
