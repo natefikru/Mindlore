@@ -103,33 +103,9 @@ nonisolated struct GraphEdgeStyle: Hashable, Sendable {
     var opacity: Double { [0.15, 0.25, 0.4, 0.6][opacityBucket] }
 }
 
-// A lens's colouring. Only `generation` goes into the draw cache's key, so a frame never compares
-// the maps; whoever builds a new paint bumps it.
-nonisolated struct GraphPaint: Sendable {
-    var generation: Int
-    // At most a handful of colours; a node's slot indexes into it.
-    var palette: [Color] = []
-    // Nodes missing here keep their kind colour, or neutral grey when `neutralUnslotted` is set.
-    var slotByID: [UUID: Int] = [:]
-    var neutralUnslotted = false
-    // Drawn at `fadedOpacity`.
-    var faded: Set<UUID> = []
-    // Glow while nothing is focused.
-    var glowing: Set<UUID> = []
-
-    static let fadedOpacity = 0.35
-
-    // Everything but the generation.
-    func sameColours(as other: GraphPaint) -> Bool {
-        palette == other.palette && slotByID == other.slotByID && neutralUnslotted == other.neutralUnslotted
-            && faded == other.faded && glowing == other.glowing
-    }
-}
-
-// Which colour a node takes.
+// Which colour a node takes: its life area in the window, or grey when it has none there.
 nonisolated enum GraphFill: Hashable, Sendable {
-    case kind(EntityKind)
-    case slot(Int)
+    case area(LifeArea)
     case neutral
 }
 
@@ -146,60 +122,45 @@ nonisolated struct GraphDrawPlan: Sendable {
     // so focusing a hub doesn't cost a gradient fill per neighbour every frame.
     let glowNodes: [Int]
     let edgeStyles: [GraphEdgeStyle]
-    // A highlighted group (an area tile) as node indices, or nil. Ignored while something is
-    // focused, since focus says more.
-    var highlightedNodes: Set<Int>? = nil
-    // Per node index. Entry dots are always neutral.
+    // Per node index.
     var fills: [GraphFill] = []
-    // Node indices a lens fades.
-    var fadedNodes: Set<Int> = []
-    // Node indices that breathe: named by an entry in the last few days. Resolved here, with
-    // everything else the cache holds, so a frame strokes rings against a set it did not build.
-    var haloNodes: Set<Int> = []
+    // Tags, drawn as hollow rings with lighter labels; everything else is filled.
+    var ringNodes: Set<Int> = []
 
     static let empty = GraphDrawPlan(focusedIndex: nil, litNodes: [], litEdges: [], rankedLabels: [], glowNodes: [], edgeStyles: [])
 
     var hasFocus: Bool { focusedIndex != nil }
-
-    // Whether a node draws at full strength outside of focus.
-    func isHighlighted(_ index: Int) -> Bool {
-        highlightedNodes?.contains(index) ?? true
-    }
 }
 
-// Recomputes the plan only when the simulation's topology or the focus changes, so a frame pays
-// for a key comparison, never for sorting or neighbour walks. Zoom never enters the key: it only
-// picks how much of `rankedLabels` to show.
+// Recomputes the plan only when the simulation's topology, the focus, or the areas change, so a
+// frame pays for a key comparison, never for sorting or neighbour walks. Zoom never enters the
+// key: it only picks how much of `rankedLabels` to show. The areas enter by generation, bumped by
+// whoever writes a new map, so a frame never compares dictionaries.
 nonisolated final class GraphDrawCache {
     static let labelCap = 60
     static let focusLabelCap = 24
-    static let glowCap = 25
 
     private struct Key: Equatable {
         let simulation: ObjectIdentifier
         let version: Int
         let focusedID: UUID?
-        let highlighted: Set<UUID>?
-        let paint: Int?
-        let haloed: Set<UUID>
+        let areaGeneration: Int
     }
 
     private var key: Key?
     private var cached = GraphDrawPlan.empty
     private(set) var recomputeCount = 0
 
-    func plan(for simulation: GraphSimulation, focusedID: UUID?, highlighted: Set<UUID>? = nil, paint: GraphPaint? = nil, haloed: Set<UUID> = []) -> GraphDrawPlan {
-        let current = Key(simulation: ObjectIdentifier(simulation), version: simulation.topologyVersion, focusedID: focusedID, highlighted: highlighted, paint: paint?.generation, haloed: haloed)
+    func plan(for simulation: GraphSimulation, focusedID: UUID?, areaOf: [UUID: LifeArea] = [:], areaGeneration: Int = 0) -> GraphDrawPlan {
+        let current = Key(simulation: ObjectIdentifier(simulation), version: simulation.topologyVersion, focusedID: focusedID, areaGeneration: areaGeneration)
         if current == key { return cached }
         key = current
-        cached = Self.makePlan(simulation, focusedID: focusedID, paint: paint)
-        cached.highlightedNodes = highlighted.map { Set($0.compactMap(simulation.index(of:))) }
-        cached.haloNodes = Set(haloed.compactMap(simulation.index(of:)))
+        cached = Self.makePlan(simulation, focusedID: focusedID, areaOf: areaOf)
         recomputeCount += 1
         return cached
     }
 
-    private static func makePlan(_ simulation: GraphSimulation, focusedID: UUID?, paint: GraphPaint?) -> GraphDrawPlan {
+    private static func makePlan(_ simulation: GraphSimulation, focusedID: UUID?, areaOf: [UUID: LifeArea]) -> GraphDrawPlan {
         let nodes = simulation.nodes
         let sortKeys = nodes.map(\.id.uuidString)
         func ranksBefore(_ lhs: Int, _ rhs: Int) -> Bool {
@@ -207,13 +168,7 @@ nonisolated final class GraphDrawCache {
             return sortKeys[lhs] < sortKeys[rhs]
         }
 
-        // An entry's edges are always the thinnest and faintest, so the dots never out-draw the
-        // entities' own ties.
-        let styles = zip(simulation.edges, simulation.edgeIndices).map { edge, pair in
-            nodes[pair.a].isEntry || nodes[pair.b].isEntry
-                ? GraphEdgeStyle(widthBucket: 0, opacityBucket: 0)
-                : GraphEdgeStyle(weight: edge.weight, recency: edge.recency)
-        }
+        let styles = simulation.edges.map { GraphEdgeStyle(weight: $0.weight, recency: $0.recency) }
         let focusedIndex = focusedID.flatMap { simulation.index(of: $0) }
 
         var litNodes: Set<Int> = []
@@ -231,40 +186,23 @@ nonisolated final class GraphDrawCache {
                 }
                 litEdges.insert(position)
             }
-            let neighbours = litNodes.subtracting([focusedIndex]).filter { !nodes[$0].isEntry }.sorted(by: ranksBefore)
+            let neighbours = litNodes.subtracting([focusedIndex]).sorted(by: ranksBefore)
             head = [focusedIndex] + neighbours.prefix(focusLabelCap)
         }
 
         let headSet = Set(head)
-        let rest = nodes.indices.filter { !headSet.contains($0) && !nodes[$0].isEntry }.sorted(by: ranksBefore)
+        let rest = nodes.indices.filter { !headSet.contains($0) }.sorted(by: ranksBefore)
         let ranked = head + rest.prefix(max(0, labelCap - head.count))
-
-        var glow = head
-        if focusedIndex == nil, let paint, !paint.glowing.isEmpty {
-            glow = paint.glowing.compactMap { simulation.index(of: $0) }
-                .filter { !nodes[$0].isEntry }
-                .sorted(by: ranksBefore)
-                .prefix(glowCap)
-                .map { $0 }
-        }
-
-        let fills: [GraphFill] = nodes.map { node in
-            if node.isEntry { return .neutral }
-            guard let paint else { return .kind(node.kind) }
-            if let slot = paint.slotByID[node.id], paint.palette.indices.contains(slot) { return .slot(slot) }
-            return paint.neutralUnslotted ? .neutral : .kind(node.kind)
-        }
-        let faded = Set((paint?.faded ?? []).compactMap { simulation.index(of: $0) })
 
         return GraphDrawPlan(
             focusedIndex: focusedIndex,
             litNodes: litNodes,
             litEdges: litEdges,
             rankedLabels: ranked,
-            glowNodes: glow,
+            glowNodes: head,
             edgeStyles: styles,
-            fills: fills,
-            fadedNodes: faded
+            fills: nodes.map { node in areaOf[node.id].map(GraphFill.area) ?? .neutral },
+            ringNodes: Set(nodes.indices.filter { nodes[$0].kind == .tag })
         )
     }
 }
@@ -282,6 +220,19 @@ nonisolated enum GraphLabels {
         guard rank >= full else { return 1 }
         let fadeSteps = Double(budget - full)
         return 1 - 0.75 * Double(rank - full + 1) / fadeSteps
+    }
+
+    // Which of the ranked labels to draw, in rank order: each is kept only if its box, grown by
+    // `gap`, overlaps no label already kept. A lower-ranked name gives way rather than being
+    // printed over a higher one, which is what made a zoomed-out map unreadable.
+    static func unobstructed(_ frames: [CGRect], gap: CGFloat = 2) -> [Bool] {
+        var kept: [CGRect] = []
+        return frames.map { frame in
+            let padded = frame.insetBy(dx: -gap, dy: -gap)
+            guard !kept.contains(where: { $0.intersects(padded) }) else { return false }
+            kept.append(frame)
+            return true
+        }
     }
 }
 
@@ -310,39 +261,19 @@ nonisolated enum GraphHitTest {
         return best?.index
     }
 
-    static let entryTolerance: Double = 8
-
-    // Which end of a tapped edge takes focus: never an entry dot, else the better-connected one.
-    // The middle of the given nodes that are on the map, or nil with none.
-    static func centroid(of ids: Set<UUID>, in simulation: GraphSimulation) -> SIMD2<Double>? {
-        let points = ids.compactMap(simulation.position(of:))
-        guard !points.isEmpty else { return nil }
-        return points.reduce(.zero, +) / Double(points.count)
-    }
-
+    // Which end of a tapped edge takes focus: the better-connected one.
     static func focusEnd(_ a: GraphSimulation.Node, _ b: GraphSimulation.Node) -> GraphSimulation.Node {
-        if a.isEntry != b.isEntry { return a.isEntry ? b : a }
-        return a.linkCount >= b.linkCount ? a : b
+        a.linkCount >= b.linkCount ? a : b
     }
 
-    // The topmost (last drawn) entity whose circle, at least 12pt, contains the point. Entry dots
-    // are only considered when no entity is there, and only within 8pt, so a dot beside a person
-    // never takes the person's tap.
-    static func node(
-        at point: SIMD2<Double>,
-        count: Int,
-        isEntry: (Int) -> Bool = { _ in false },
-        circle: (Int) -> (center: SIMD2<Double>, radius: Double)
-    ) -> Int? {
-        func hit(entries: Bool, minimum: Double) -> Int? {
-            for index in stride(from: count - 1, through: 0, by: -1) where isEntry(index) == entries {
-                let (center, radius) = circle(index)
-                let d = point - center
-                if (d * d).sum().squareRoot() <= max(radius, minimum) { return index }
-            }
-            return nil
+    // The topmost (last drawn) node whose circle, at least 12pt, contains the point.
+    static func node(at point: SIMD2<Double>, count: Int, circle: (Int) -> (center: SIMD2<Double>, radius: Double)) -> Int? {
+        for index in stride(from: count - 1, through: 0, by: -1) {
+            let (center, radius) = circle(index)
+            let d = point - center
+            if (d * d).sum().squareRoot() <= max(radius, minimumNodeRadius) { return index }
         }
-        return hit(entries: false, minimum: minimumNodeRadius) ?? hit(entries: true, minimum: entryTolerance)
+        return nil
     }
 }
 
@@ -408,10 +339,6 @@ nonisolated struct GraphRenderStats: Equatable, Sendable {
     let frameP50Milliseconds: Double?
     let frameP95Milliseconds: Double?
     let workP95Milliseconds: Double?
-    var entryNodes = 0
-    var lens: MindLens = .kind
-    // Whether the sample was taken during a replay.
-    var replay = false
 }
 
 nonisolated extension GraphSimulation.Node {

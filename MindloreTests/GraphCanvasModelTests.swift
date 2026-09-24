@@ -89,38 +89,40 @@ struct GraphCanvasModelTests {
     }
 
     // An area tile brings a group forward; focus says more, so it still lights its own set.
-    @Test func aHighlightMarksItsNodesAndFocusStillLights() {
-        let (simulation, nodes) = hub()
+    // Colour is area, looked up per node; a node with no area in the window is grey. Tags, and
+    // only tags, are rings. A new area map recomputes the plan only when its generation moves.
+    @Test func fillsFollowAreasRingsFollowTagsAndTheCacheKeysOnTheGeneration() {
+        let person = node(4), tag = GraphSimulation.Node(id: UUID(), kind: .tag, linkCount: 3), loose = node(1)
+        let simulation = GraphSimulation(nodes: [person, tag, loose], edges: [])
         let cache = GraphDrawCache()
-        let group: Set<UUID> = [nodes[0].id, nodes[1].id, UUID()]
 
-        let plan = cache.plan(for: simulation, focusedID: nil, highlighted: group)
-        #expect(plan.highlightedNodes?.count == 2, "an id off the map is ignored")
-        #expect(plan.isHighlighted(simulation.index(of: nodes[0].id)!))
-        #expect(!plan.isHighlighted(simulation.index(of: nodes[4].id)!))
+        let plan = cache.plan(for: simulation, focusedID: nil, areaOf: [person.id: .work, tag.id: .play], areaGeneration: 1)
+        #expect(plan.fills[simulation.index(of: person.id)!] == .area(.work))
+        #expect(plan.fills[simulation.index(of: tag.id)!] == .area(.play))
+        #expect(plan.fills[simulation.index(of: loose.id)!] == .neutral)
+        #expect(plan.ringNodes == [simulation.index(of: tag.id)!])
 
-        let focused = cache.plan(for: simulation, focusedID: nodes[4].id, highlighted: group)
-        #expect(focused.hasFocus)
-        #expect(focused.litNodes.contains(simulation.index(of: nodes[5].id)!))
-
-        let none = cache.plan(for: simulation, focusedID: nil)
-        #expect(none.highlightedNodes == nil)
-        #expect(none.isHighlighted(0))
+        _ = cache.plan(for: simulation, focusedID: nil, areaOf: [:], areaGeneration: 1)
+        #expect(cache.recomputeCount == 1, "same generation, same plan")
+        let moved = cache.plan(for: simulation, focusedID: nil, areaOf: [person.id: .family], areaGeneration: 2)
+        #expect(cache.recomputeCount == 2)
+        #expect(moved.fills[simulation.index(of: person.id)!] == .area(.family))
     }
 
-    @Test func thePlanRecomputesOnAHighlightChangeOnly() {
-        let (simulation, nodes) = hub()
-        let cache = GraphDrawCache()
-        let group: Set<UUID> = [nodes[0].id]
-        _ = cache.plan(for: simulation, focusedID: nil, highlighted: group)
-        _ = cache.plan(for: simulation, focusedID: nil, highlighted: group)
-        #expect(cache.recomputeCount == 1)
-        _ = cache.plan(for: simulation, focusedID: nil, highlighted: [nodes[1].id])
-        _ = cache.plan(for: simulation, focusedID: nil, highlighted: nil)
-        #expect(cache.recomputeCount == 3)
+    // Kept in rank order: a label that would touch one already kept is skipped, and a skipped
+    // label never blocks the ones after it.
+    @Test func labelsThatWouldOverlapAHigherRankedOneAreSkipped() {
+        let frames = [
+            CGRect(x: 0, y: 0, width: 40, height: 12),
+            CGRect(x: 30, y: 4, width: 40, height: 12),
+            CGRect(x: 80, y: 0, width: 40, height: 12),
+            CGRect(x: 60, y: 0, width: 25, height: 12),
+            CGRect(x: 0, y: 13, width: 40, height: 12),
+        ]
+        #expect(GraphLabels.unobstructed(frames) == [true, false, true, false, false])
+        #expect(GraphLabels.unobstructed(frames, gap: 0) == [true, false, true, false, true])
     }
 
-    // A focused node lands in the middle of what the panel and card leave uncovered.
     @Test func aFlightCanLandOffCentre() {
         let camera = GraphCamera()
         let center = SIMD2<Double>(200, 400)
@@ -356,92 +358,18 @@ struct GraphCanvasModelTests {
 
     // MARK: - Lenses and entry dots
 
-    @Test func aPaintSetsFillsFadesAndRecomputesOnlyOnANewGeneration() {
-        let (simulation, nodes) = hub()
-        let cache = GraphDrawCache()
-        let paint = GraphPaint(generation: 1, palette: [.red, .blue], slotByID: [nodes[0].id: 1, nodes[1].id: 7], neutralUnslotted: true, faded: [nodes[2].id])
-        let plan = cache.plan(for: simulation, focusedID: nil, paint: paint)
-        #expect(plan.fills[0] == .slot(1))
-        #expect(plan.fills[1] == .neutral, "a slot outside the palette falls back")
-        #expect(plan.fills[3] == .neutral)
-        #expect(plan.fadedNodes == [2])
-
-        let unpainted = GraphDrawCache().plan(for: simulation, focusedID: nil)
-        #expect(unpainted.fills.allSatisfy { $0 == .kind(.person) })
-        #expect(unpainted.fadedNodes.isEmpty)
-
-        let before = cache.recomputeCount
-        var same = paint
-        same.faded = []
-        _ = cache.plan(for: simulation, focusedID: nil, paint: same)
-        #expect(cache.recomputeCount == before, "only the generation is compared")
-        same.generation = 2
-        _ = cache.plan(for: simulation, focusedID: nil, paint: same)
-        #expect(cache.recomputeCount == before + 1)
+    @Test func aTappedEdgeFocusesItsBetterConnectedEnd() {
+        let small = node(2), big = node(5)
+        #expect(GraphHitTest.focusEnd(small, big).id == big.id)
+        #expect(GraphHitTest.focusEnd(big, small).id == big.id)
     }
 
-    @Test func recencyGlowIsCappedAndGivesWayToFocus() {
-        let nodes = (0..<40).map { node(40 - $0) }
-        let simulation = GraphSimulation(nodes: nodes, edges: [EntityGraph.Edge(nodes[0].id, nodes[1].id, weight: 1)])
-        let paint = GraphPaint(generation: 1, glowing: Set(nodes.map(\.id)))
-        let plan = GraphDrawCache().plan(for: simulation, focusedID: nil, paint: paint)
-        #expect(plan.glowNodes == Array(0..<GraphDrawCache.glowCap))
-
-        let focused = GraphDrawCache().plan(for: simulation, focusedID: nodes[1].id, paint: paint)
-        #expect(focused.glowNodes == [1, 0])
-    }
-
-    @Test func entryDotsAreNeverLabelledOrGlowingAndTheirEdgesAreFaint() {
-        let person = node(5)
-        let entry = GraphSimulation.Node(id: UUID(), kind: .other, linkCount: 1, isEntry: true)
-        let other = node(2)
-        let simulation = GraphSimulation(nodes: [person, entry, other], edges: [
-            EntityGraph.Edge(entry.id, person.id, weight: 1, recency: 1),
-            EntityGraph.Edge(person.id, other.id, weight: 3, recency: 1),
-        ])
-        let entryEdge = simulation.allEdges().firstIndex { $0.a == entry.id || $0.b == entry.id }!
-        let personEdge = 1 - entryEdge
-
-        let plan = GraphDrawCache().plan(for: simulation, focusedID: person.id, paint: GraphPaint(generation: 1, glowing: [entry.id]))
-        #expect(plan.rankedLabels == [0, 2])
-        #expect(plan.glowNodes == [0, 2])
-        #expect(plan.litNodes == [0, 1, 2], "focus lights the entity's entries")
-        #expect(plan.fills[1] == .neutral)
-        #expect(plan.edgeStyles[entryEdge] == GraphEdgeStyle(widthBucket: 0, opacityBucket: 0))
-        #expect(plan.edgeStyles[personEdge] != GraphEdgeStyle(widthBucket: 0, opacityBucket: 0))
-        #expect(simulation.radius(of: entry.id) == GraphSimulation.entryRadius)
-    }
-
-    @Test func anEntityBeatsAnOverlappingEntryDotAndDotsNeedACloserTap() {
-        let circles: [(SIMD2<Double>, Double)] = [(SIMD2(0, 0), 5), (SIMD2(6, 0), 2.5)]
-        let isEntry: (Int) -> Bool = { $0 == 1 }
-        #expect(GraphHitTest.node(at: SIMD2(6, 0), count: 2, isEntry: isEntry) { circles[$0] } == 0,
-                "the dot is drawn later but sits inside the person's 12pt target")
-        let far: [(SIMD2<Double>, Double)] = [(SIMD2(0, 0), 5), (SIMD2(40, 0), 2.5)]
-        #expect(GraphHitTest.node(at: SIMD2(47, 0), count: 2, isEntry: isEntry) { far[$0] } == 1)
-        #expect(GraphHitTest.node(at: SIMD2(49, 0), count: 2, isEntry: isEntry) { far[$0] } == nil)
-    }
-
-    @Test func anEdgeToAnEntryFocusesItsEntityEnd() {
-        let person = node(1)
-        let entry = GraphSimulation.Node(id: UUID(), kind: .other, linkCount: 4, isEntry: true)
-        #expect(GraphHitTest.focusEnd(entry, person) == person)
-        #expect(GraphHitTest.focusEnd(person, entry) == person)
-        let big = node(9)
-        #expect(GraphHitTest.focusEnd(person, big) == big)
-    }
-
-    @Test func aFlightCanKeepTheZoomAndACentroidSkipsWhatIsOffTheMap() {
+    @Test func aFlightCanKeepTheZoom() {
         let camera = GraphCamera()
         camera.setZoom(0.5, keeping: .zero, center: .zero)
         camera.fly(to: SIMD2(100, 0), now: 0, zoom: camera.zoom)
         camera.advance(now: 1)
         #expect(camera.zoom == 0.5)
         #expect(close(camera.screen(SIMD2(100, 0), center: .zero), .zero))
-
-        let (simulation, nodes) = hub()
-        let a = simulation.position(of: nodes[0].id)!, b = simulation.position(of: nodes[1].id)!
-        #expect(GraphHitTest.centroid(of: [nodes[0].id, nodes[1].id, UUID()], in: simulation) == (a + b) / 2)
-        #expect(GraphHitTest.centroid(of: [UUID()], in: simulation) == nil)
     }
 }

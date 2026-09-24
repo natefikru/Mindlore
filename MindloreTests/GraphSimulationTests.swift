@@ -163,93 +163,6 @@ struct GraphSimulationTests {
         }
     }
 
-    // MARK: - Area regions
-
-    private func runRegions(_ nodes: [GraphSimulation.Node], regions: [UUID: SIMD2<Double>]) -> GraphSimulation {
-        let edges = [EntityGraph.Edge(nodes[0].id, nodes[1].id, weight: 1)]
-        let simulation = GraphSimulation(nodes: nodes, edges: edges, regions: regions)
-        for _ in 0..<300 { simulation.tick() }
-        return simulation
-    }
-
-    @Test func aRegionPullsItsNodesTowardItsPoint() {
-        let nodes = makeNodes(6)
-        let point = SIMD2<Double>(400, 0)
-        let regions = [nodes[2].id: point, nodes[3].id: point]
-        let grouped = runRegions(nodes, regions: regions)
-        let free = runRegions(nodes, regions: [:])
-        func distance(_ simulation: GraphSimulation, _ id: UUID) -> Double {
-            let d = simulation.position(of: id)! - point
-            return (d * d).sum().squareRoot()
-        }
-        #expect(distance(grouped, nodes[2].id) < distance(free, nodes[2].id) - 100)
-        #expect(distance(grouped, nodes[3].id) < distance(free, nodes[3].id) - 100)
-    }
-
-    @Test func regionsKeepTheLayoutDeterministic() {
-        let nodes = makeNodes(12)
-        let regions = Dictionary(uniqueKeysWithValues: nodes.enumerated().map { ($0.element.id, SIMD2<Double>(Double($0.offset % 3) * 150, 50)) })
-        let first = runRegions(nodes, regions: regions)
-        let second = runRegions(nodes, regions: regions)
-        for node in nodes {
-            #expect(first.position(of: node.id) == second.position(of: node.id))
-        }
-    }
-
-    @Test func aPinnedNodeIgnoresItsRegion() {
-        let nodes = makeNodes(3)
-        let simulation = GraphSimulation(nodes: nodes, edges: [], regions: [nodes[0].id: SIMD2(500, 500)])
-        simulation.pin(nodes[0].id, at: SIMD2(1, 1))
-        for _ in 0..<50 { simulation.tick() }
-        #expect(simulation.position(of: nodes[0].id) == SIMD2(1, 1))
-    }
-
-    @Test func updateCarriesRegionsAndReheatsOnlyWhenTheyChange() {
-        let nodes = makeNodes(3)
-        let point = SIMD2<Double>(300, 0)
-        let simulation = GraphSimulation(nodes: nodes, edges: [])
-        _ = settle(simulation)
-        let version = simulation.topologyVersion
-
-        simulation.update(nodes: nodes, edges: [], regions: [:])
-        #expect(simulation.settled, "equal (empty) regions change nothing")
-        #expect(simulation.topologyVersion == version)
-
-        let newcomer = makeNodes(1)[0]
-        let regions = [nodes[0].id: point, newcomer.id: point]
-        simulation.update(nodes: nodes, edges: [], regions: regions)
-        #expect(simulation.alpha == GraphSimulation.updateReheat)
-        #expect(simulation.topologyVersion == version + 1)
-
-        _ = settle(simulation)
-        simulation.update(nodes: nodes, edges: [], regions: regions)
-        #expect(simulation.settled, "the same regions again change nothing")
-
-        simulation.update(nodes: nodes + [newcomer], edges: [], regions: regions)
-        _ = settle(simulation)
-        func distance(_ id: UUID) -> Double {
-            let d = simulation.position(of: id)! - point
-            return (d * d).sum().squareRoot()
-        }
-        for id in [nodes[0].id, newcomer.id] {
-            #expect(distance(id) < distance(nodes[1].id) - 100, "both the survivor and the newcomer head for the point")
-        }
-
-        simulation.update(nodes: nodes + [newcomer], edges: [], regions: [:])
-        #expect(simulation.alpha == GraphSimulation.updateReheat, "clearing regions regroups too")
-    }
-
-    @Test func regionsFollowTheNodeNotTheCallersOrder() {
-        let nodes = makeNodes(2)
-        let simulation = GraphSimulation(nodes: nodes, edges: [])
-        _ = settle(simulation)
-        let far = SIMD2<Double>(600, 0)
-        simulation.update(nodes: nodes.reversed(), edges: [], regions: [nodes[0].id: far])
-        _ = settle(simulation)
-        let pulled = simulation.position(of: nodes[0].id)!, free = simulation.position(of: nodes[1].id)!
-        #expect(pulled.x > free.x + 200, "the region went to nodes[0], not to whatever sat at index 0")
-    }
-
     @Test func newWeightsOnTheSameNodesOnlyNudge() {
         let nodes = makeNodes(3)
         let simulation = GraphSimulation(nodes: nodes, edges: [EntityGraph.Edge(nodes[0].id, nodes[1].id, weight: 1, recency: 1)])
@@ -257,14 +170,6 @@ struct GraphSimulationTests {
         simulation.update(nodes: nodes, edges: [EntityGraph.Edge(nodes[0].id, nodes[1].id, weight: 0.8, recency: 0.8)])
         #expect(simulation.alpha < GraphSimulation.updateReheat, "a replay step that only reweights edges doesn't jolt the map")
     }
-
-    @Test func entryNodesHaveTheFixedRadius() {
-        let entry = GraphSimulation.Node(id: UUID(), kind: .other, linkCount: 40, isEntry: true)
-        let simulation = GraphSimulation(nodes: [entry], edges: [])
-        #expect(simulation.radius(of: entry.id) == GraphSimulation.entryRadius)
-    }
-
-    // MARK: - Determinism
 
     @Test func sameNodesAndEdgesProduceIdenticalPositions() {
         let ids = (0..<30).map { _ in UUID() }

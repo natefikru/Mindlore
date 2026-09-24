@@ -19,6 +19,15 @@ nonisolated enum MindWindow: String, CaseIterable, Sendable {
 
     var length: TimeInterval? { days.map { Double($0) * 86_400 } }
 
+    var title: String {
+        switch self {
+        case .month: "Month"
+        case .quarter: "3 months"
+        case .year: "Year"
+        case .all: "All"
+        }
+    }
+
     // The stretch ending at `end`, or nil for all time. A date on the start instant belongs to
     // the window before (MindStats reads windows as start-exclusive), so consecutive windows
     // never count one entry twice.

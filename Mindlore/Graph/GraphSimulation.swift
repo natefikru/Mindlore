@@ -15,15 +15,11 @@ nonisolated final class GraphSimulation {
         let id: UUID
         let kind: EntityKind
         let linkCount: Int
-        // A journal entry drawn as a small dot beside the entities it mentions. Its kind is
-        // unused.
-        let isEntry: Bool
 
-        init(id: UUID, kind: EntityKind, linkCount: Int, isEntry: Bool = false) {
+        init(id: UUID, kind: EntityKind, linkCount: Int) {
             self.id = id
             self.kind = kind
             self.linkCount = linkCount
-            self.isEntry = isEntry
         }
     }
 
@@ -62,26 +58,19 @@ nonisolated final class GraphSimulation {
     private(set) var edgeIndices: [EdgeIndex]
     private var springShapes: [SpringShape]
     private var indexByID: [UUID: Int]
-    private var entryFlags: [Bool]
 
     private var positions: [SIMD2<Double>]
     private var velocities: [SIMD2<Double>]
     private var radii: [Double]
     private var pinned: [Bool]
     private var pinPoints: [SIMD2<Double>]
-    // Where each node's life area sits, when the map groups by area.
-    private var regionsByID: [UUID: SIMD2<Double>]
-    private var regionPoints: [SIMD2<Double>?]
 
-    static let regionStrength: Double = 0.15
-
-    init(nodes: [Node], edges: [EntityGraph.Edge], regions: [UUID: SIMD2<Double>] = [:]) {
+    init(nodes: [Node], edges: [EntityGraph.Edge]) {
         let unique = Self.deduplicated(nodes)
         let map = Self.indexMap(unique)
         let resolved = Self.resolve(edges, in: map)
         self.nodes = unique
         indexByID = map
-        entryFlags = unique.map(\.isEntry)
         self.edges = resolved.edges
         edgeIndices = resolved.indices
         springShapes = Self.springShapes(resolved.indices, nodeCount: unique.count)
@@ -90,8 +79,6 @@ nonisolated final class GraphSimulation {
         radii = unique.map(Self.radius(for:))
         pinned = Array(repeating: false, count: unique.count)
         pinPoints = Array(repeating: .zero, count: unique.count)
-        regionsByID = regions
-        regionPoints = unique.map { regions[$0.id] }
     }
 
     var settled: Bool { alpha <= alphaMin && alphaTarget <= alphaMin }
@@ -160,27 +147,14 @@ nonisolated final class GraphSimulation {
     // that already has a place, so it grows out of the cluster it belongs to; one with no such
     // neighbour gets its phyllotaxis point. Reheats only when the id or edge sets changed, so a
     // rename (which bumps graph.revision and lands here with the same sets) doesn't jolt anything.
-    //
-    // `regions` gives each node's area point (see applyRegions); a change to them alone reheats
-    // so the layout regroups.
-    func update(nodes newNodes: [Node], edges newEdges: [EntityGraph.Edge], regions: [UUID: SIMD2<Double>] = [:]) {
+    func update(nodes newNodes: [Node], edges newEdges: [EntityGraph.Edge]) {
         let unique = Self.deduplicated(newNodes)
         let map = Self.indexMap(unique)
         let resolved = Self.resolve(newEdges, in: map)
 
         let sameNodes = Set(unique) == Set(nodes)
         let sameEdges = Set(resolved.edges) == Set(edges)
-        let sameRegions = regions == regionsByID
-        regionsByID = regions
-        if sameNodes && sameEdges {
-            // The arrays keep their own order here, whatever order the caller used.
-            regionPoints = nodes.map { regions[$0.id] }
-            if !sameRegions {
-                topologyVersion += 1
-                reheat(to: Self.updateReheat)
-            }
-            return
-        }
+        if sameNodes && sameEdges { return }
         let shapeChanged = Set(unique.map(\.id)) != Set(nodes.map(\.id))
             || Set(resolved.edges.map(\.key)) != Set(edges.map(\.key))
 
@@ -227,7 +201,6 @@ nonisolated final class GraphSimulation {
         let radiiBefore = radii
         nodes = unique
         indexByID = map
-        entryFlags = unique.map(\.isEntry)
         edges = resolved.edges
         edgeIndices = resolved.indices
         springShapes = Self.springShapes(resolved.indices, nodeCount: unique.count)
@@ -236,10 +209,9 @@ nonisolated final class GraphSimulation {
         radii = newRadii
         pinned = newPinned
         pinPoints = newPinPoints
-        regionPoints = unique.map { regions[$0.id] }
         let radiiChanged = newRadii != unique.map { node in indexByIDBefore[node.id].map { radiiBefore[$0] } ?? -1 }
         topologyVersion += 1
-        if shapeChanged || !sameRegions {
+        if shapeChanged {
             reheat(to: Self.updateReheat)
         } else if radiiChanged {
             // A node that grew needs room, but not a jolt.
@@ -255,10 +227,8 @@ nonisolated final class GraphSimulation {
         min(16, 3.5 + sqrt(Double(max(linkCount, 1))) * 1.4)
     }
 
-    static let entryRadius: Double = 2.5
-
     static func radius(for node: Node) -> Double {
-        node.isEntry ? entryRadius : radius(linkCount: node.linkCount)
+        radius(linkCount: node.linkCount)
     }
 
     static func targetDistance(weight: Double) -> Double {
@@ -323,7 +293,6 @@ nonisolated final class GraphSimulation {
             applyRepulsion()
             applySprings()
             applyGravity()
-            applyRegions()
             applyCollision()
 
             for index in 0..<nodes.count where !pinned[index] {
@@ -358,9 +327,6 @@ nonisolated final class GraphSimulation {
         for i in 0..<nodes.count {
             for j in (i + 1)..<nodes.count {
                 if pinned[i] && pinned[j] { continue }
-                // Two entry dots are kept apart by collision alone; it's most of the pairs a
-                // map with dots on adds.
-                if entryFlags[i] && entryFlags[j] { continue }
                 let dx = positions[i].x - positions[j].x
                 let dy = positions[i].y - positions[j].y
                 let distance = (dx * dx + dy * dy).squareRoot()
@@ -406,17 +372,6 @@ nonisolated final class GraphSimulation {
     private func applyGravity() {
         for index in 0..<nodes.count where !pinned[index] {
             velocities[index] += -positions[index] * 0.01 * alpha
-        }
-    }
-
-    // Each unpinned node with an area point is pulled toward it, 15 times as hard as gravity. On
-    // the 300-entry demo map that leaves 165 of 170 nodes nearest their own area's spot (0.06
-    // left 157), while springs still draw cross-area pairs toward each other.
-    private func applyRegions() {
-        let strength = Self.regionStrength * alpha
-        for index in 0..<nodes.count where !pinned[index] {
-            guard let point = regionPoints[index] else { continue }
-            velocities[index] += (point - positions[index]) * strength
         }
     }
 

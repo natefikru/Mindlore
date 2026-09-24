@@ -322,7 +322,7 @@ struct AIDiagnosticsPrivacyTests {
         _ = graph.vocabulary(in: context)
         graph.sweep(in: context)
 
-        // Mind: the map, the panel's rows, a review answer, and the focus and filter events,
+        // Mind: the map, the panel's rows, a review answer, and the focus and window events,
         // over entities named with the sentinel. They carry counts and kinds only, but this proves
         // it over data that would leak if anything upstream forgot to resolve to plain ids first.
         let services = GraphServices(diagnostics: log)
@@ -332,29 +332,32 @@ struct AIDiagnosticsPrivacyTests {
         services.answer(pair, with: .skip, in: context)
         services.answer(pair, with: .notSame, in: context)
         services.recordMindFocused(source: .search, onMap: false)
-        services.recordMindFiltersChanged(kinds: 3, minimum: 1, entries: true, regions: true, nodes: 2)
         let globalData = services.globalGraph(kinds: nil, minimumLinkCount: 0, in: context)
         services.recordGraphRendered(GraphRenderStats(
             nodes: globalData.nodes.count, edges: globalData.edges.count, settleMilliseconds: nil,
-            frameSamples: 0, frameP50Milliseconds: nil, frameP95Milliseconds: nil, workP95Milliseconds: nil,
-            entryNodes: 1, lens: .mood, replay: true
-        ))
+            frameSamples: 0, frameP50Milliseconds: nil, frameP95Milliseconds: nil, workP95Milliseconds: nil
+        ), window: .quarter)
 
-        // A5b: lenses, entry dots, regions, and a replay over the same data, with the renamed
-        // Work area as a region label.
+        // The window and its numbers over the same data: every stretch's frame, counts, areas,
+        // sparklines, and changes, then the two events that report them.
         let snapshot = services.mapSnapshot(in: context)
-        let filters = MindFilters(kinds: Set(EntityKind.allCases), minimumMentions: 0, showsEntries: true, groupsByArea: true)
-        let frame = MindView.frame(snapshot, filters: filters, visibleAreas: settings.visibleLifeAreas, asOf: .distantFuture)
-        for lens in MindLens.allCases {
-            _ = lens.paint(snapshot, onMap: Set(frame.nodes.map(\.id)), asOf: .distantFuture, generation: 1)
+        for window in MindWindow.allCases {
+            let frame = MindView.frame(snapshot, window: window, segment: .all, visibleAreas: settings.visibleLifeAreas, asOf: .distantFuture)
+            _ = MindStats.series(snapshot, window: window, asOf: .distantFuture)
+            for change in MindStats.changes(snapshot, window: window, asOf: .distantFuture, excluding: MindStats.authorIDs(named: sentinel, in: snapshot)) {
+                services.recordMindChangeTapped(change.kind, kind: snapshot.entities[change.id]?.kind ?? .other)
+            }
+            services.recordMindWindowChanged(window, nodes: frame.nodes.count)
         }
-        services.recordMindLensChanged(MindLens.recency.rawValue)
+        services.recordMindChangeTapped(.quieter, kind: .person)
+        // The replay steps the whole journal over the same data.
         let player = MindReplayPlayer()
         player.start(now: .distantFuture) { services.mapSnapshot(in: context) }
-        _ = player.step(elapsed: 5)
+        if let step = player.step(elapsed: 5) {
+            _ = MindView.frame(step.snapshot, window: .all, segment: .all, visibleAreas: settings.visibleLifeAreas, asOf: step.asOf)
+        }
         player.stop()
-        services.recordMindReplayed(steps: 100, durationMilliseconds: 10_000, stepP95Milliseconds: 3, finished: true, nodes: frame.nodes.count)
-        services.recordMindEntryOpened()
+        services.recordMindReplayed(steps: 100, durationMilliseconds: 10_000, stepP95Milliseconds: 3, finished: true, nodes: 2)
 
         let contents = file.contents()
         #expect(contents.contains("ai.keySaved"))
@@ -367,8 +370,7 @@ struct AIDiagnosticsPrivacyTests {
         for event in ["graph.indexed", "graph.entityEdited", "graph.hidden", "graph.resurfacingMuted",
                       "graph.suggestionDismissed",
                       "graph.merged", "graph.unmerged", "graph.repointed", "graph.rendered",
-                      "mind.reviewAnswered", "mind.focused", "mind.filtersChanged",
-                      "mind.lensChanged", "mind.replayed", "mind.entryOpened",
+                      "mind.reviewAnswered", "mind.focused", "mind.windowChanged", "mind.changeTapped", "mind.replayed",
                       "graph.renameRewrote", "graph.contactLinked", "graph.contactUnlinked",
                       "graph.placeLinked", "graph.placeUnlinked", "graph.contactAccess",
                       "graph.nameAdded", "graph.nameRemoved"] {

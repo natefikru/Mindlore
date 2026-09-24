@@ -42,40 +42,31 @@ struct MindMapTests {
         #expect(places.nodes.map(\.id) == [ana])
     }
 
-    @Test func recentMentionsCoverThirtyDaysInclusive() {
+    // A window draws only what the stretch holds: sizes are its counts, and an edge needs an entry
+    // inside it, so an old shared entry doesn't tie two names the window has apart.
+    @Test func aWindowDrawsOnlyItsOwnEntries() {
         let map = snapshot([
-            (UUID(), 70, [sarah], [], nil),
-            (UUID(), 69, [tom], [], nil),
-            (UUID(), 101, [ana], [], nil),
+            (UUID(), 10, [sarah, tom], [], nil),
+            (UUID(), 90, [sarah], [], nil),
+            (UUID(), 95, [sarah, ana], [], nil),
+            (UUID(), 96, [tom], [], nil),
         ])
-        let recent = MindMap.recentMentions(map, asOf: at(100))
-        #expect(recent[sarah] == 1, "exactly 30 days back is in")
-        #expect(recent[tom] == nil, "31 days back is out")
-        #expect(recent[ana] == nil, "after asOf is out")
+        let month = MindMap.graph(map, window: .month, kinds: nil, minimumLinkCount: 1, asOf: at(100))
+        #expect(Set(month.nodes.map(\.id)) == [sarah, tom, ana])
+        #expect(month.nodes.first { $0.id == sarah }?.linkCount == 2)
+        #expect(month.edges.map(\.key) == [EntityGraph.Edge(sarah, ana, weight: 1).key], "Sarah and Tom last shared an entry ninety days ago")
+
+        let all = MindMap.graph(map, window: .all, kinds: nil, minimumLinkCount: 1, asOf: at(100))
+        #expect(all.nodes.first { $0.id == sarah }?.linkCount == 3)
+        #expect(all.edges.count == 2)
     }
 
-    @Test func entryNodesKeepTheNewestEntriesTiedToEntitiesOnTheMap() {
-        let e1 = UUID(), e2 = UUID(), e3 = UUID(), e4 = UUID()
-        let map = snapshot([
-            (e1, 1, [sarah, tom], [], nil),
-            (e2, 2, [ana], [], nil),
-            (e3, 3, [sarah], [], nil),
-            (e4, 9, [sarah], [], nil),
-        ])
-        let result = MindMap.entryNodes(map, onMap: [sarah, tom], asOf: at(5), cap: 2)
-        let ids = result.nodes.map { $0.id }
-        #expect(ids == [e3, e1], "e2 has nothing on the map, e4 is after asOf")
-        #expect(result.nodes.allSatisfy { $0.isEntry })
-        #expect(result.nodes.last?.linkCount == 2)
-        #expect(Set(result.edges.map(\.key)) == [
-            EntityGraph.Edge(e3, sarah, weight: 1).key,
-            EntityGraph.Edge(e1, sarah, weight: 1).key,
-            EntityGraph.Edge(e1, tom, weight: 1).key,
-        ])
-        #expect(result.edges.allSatisfy { $0.recency > 0 && $0.recency <= 1 })
+    @Test func aLargeJournalNeedsTwoMentionsToDraw() {
+        #expect(MindMap.minimumMentions(browsableCount: MindMap.largeJournal - 1) == 1)
+        #expect(MindMap.minimumMentions(browsableCount: MindMap.largeJournal) == 2)
     }
 
-    @Test func areasAndMoodsFollowAsOf() {
+    @Test func areasFollowAsOf() {
         let map = snapshot([
             (UUID(), 1, [sarah], [.work], .anxious),
             (UUID(), 5, [sarah], [.play], .joyful),
@@ -83,14 +74,6 @@ struct MindMapTests {
         ])
         #expect(MindMap.primaryAreas(map, asOf: at(2))[sarah] == .work)
         #expect(MindMap.primaryAreas(map, asOf: at(9))[sarah] == .play)
-        #expect(MindMap.moodAround(map, asOf: at(2))[sarah] == .anxious)
-        #expect(MindMap.moodAround(map, asOf: at(9))[sarah] == .joyful)
-    }
-
-    @Test func earliestLinkIgnoresTheFuture() {
-        let map = snapshot([(UUID(), 50, [sarah], [], nil), (UUID(), 3, [tom], [], nil)])
-        #expect(map.earliestLinkDate(onOrBefore: at(10)) == at(3))
-        #expect(map.earliestLinkDate(onOrBefore: at(1)) == nil)
     }
 }
 
@@ -116,7 +99,7 @@ struct MindMapSnapshotTests {
         #expect(snapshot.links.allSatisfy { $0.entityID == sarah.id })
         #expect(snapshot.entries[entry.id]?.mood == .anxious)
         #expect(snapshot.entries[entry.id]?.areas == [.work])
-        #expect(MindMap.mentionCounts(snapshot, asOf: at(2))[sarah.id] == 1, "the merged pair's links count one entry once")
+        #expect(MindStats.counts(snapshot, window: .all, asOf: at(2))[sarah.id] == 1, "the merged pair's links count one entry once")
 
         let builds = graph.snapshotBuildCount
         _ = graph.mapSnapshot(in: context)

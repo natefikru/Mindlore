@@ -35,6 +35,12 @@ nonisolated enum MindStats {
         date <= end && (start.map { date > $0 } ?? true)
     }
 
+    // The links inside the window.
+    static func links(_ snapshot: MindMapSnapshot, window: MindWindow, asOf: Date) -> [EntityGraph.LinkInput] {
+        let start = window.interval(endingAt: asOf)?.start
+        return snapshot.links.filter { contains($0.entryDate, after: start, through: asOf) }
+    }
+
     // Each entity's distinct entries up to `asOf`, with their dates. One entity can reach an entry
     // through several links (a name and its tag after a merge); it counts once.
     private static func entryDates(_ snapshot: MindMapSnapshot, asOf: Date) -> [UUID: [UUID: Date]] {
@@ -47,9 +53,8 @@ nonisolated enum MindStats {
 
     // Entries per entity in the window, each entry once.
     static func counts(_ snapshot: MindMapSnapshot, window: MindWindow, asOf: Date) -> [UUID: Int] {
-        let start = window.interval(endingAt: asOf)?.start
         var entries: [UUID: Set<UUID>] = [:]
-        for link in snapshot.links where contains(link.entryDate, after: start, through: asOf) {
+        for link in links(snapshot, window: window, asOf: asOf) {
             entries[link.entityID, default: []].insert(link.entryID)
         }
         return entries.mapValues(\.count)
@@ -58,12 +63,11 @@ nonisolated enum MindStats {
     // The life area each entity leans toward within the window. An entity whose windowed entries
     // carry no area gets none (drawn neutral).
     static func areas(_ snapshot: MindMapSnapshot, window: MindWindow, asOf: Date) -> [UUID: LifeArea] {
-        let start = window.interval(endingAt: asOf)?.start
-        let links = snapshot.links.filter { contains($0.entryDate, after: start, through: asOf) }
+        let windowed = links(snapshot, window: window, asOf: asOf)
         let values = snapshot.entries.compactMapValues { entry -> EntityTally.Entry<LifeArea>? in
             entry.areas.isEmpty ? nil : EntityTally.Entry(values: entry.areas, date: entry.date)
         }
-        return EntityTally.primary(links: links, values: values)
+        return EntityTally.primary(links: windowed, values: values)
     }
 
     // The span a sparkline covers: the window and the three before it, or for all time the

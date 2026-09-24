@@ -31,7 +31,8 @@ struct SearchPanel: View {
 
     @Binding var stop: Stop
     let available: CGFloat
-    @Binding var highlightedArea: LifeArea?
+    // The kind filter, owned by Mind because it filters the map as well as this list.
+    @Binding var segment: EntitySearch.Segment
     let select: (UUID) -> Void
     let open: (UUID) -> Void
 
@@ -42,7 +43,6 @@ struct SearchPanel: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Query private var looseEnds: [LooseEnd]
     @State private var query = ""
-    @State private var segment: EntitySearch.Segment = .all
     @State private var rows = MindDirectory.Rows()
     @State private var question: ReviewQueue.Question?
     @State private var questionDate: Date?
@@ -209,19 +209,16 @@ struct SearchPanel: View {
                         .listRowBackground(Color.clear)
                         .listRowSeparator(.hidden)
                 }
-                areaTiles
-                    .listRowBackground(Color.clear)
-                    .listRowSeparator(.hidden)
             }
             Section {
                 ForEach(results) { row in
                     EntityRowButton(row: row) { choose(row.id) }
                         .accessibilityIdentifier("mindRow-\(row.name)")
                 }
-                // A row, not an overlay. Centred over the whole list it landed on top of the area
-                // tiles and the segmented picker, which are still there and still tappable: two
+                // A row, not an overlay. Centred over the whole list it landed on top of the review
+                // card and the segmented picker, which are still there and still tappable: two
                 // sentences printed across a working screen. Only the searching case below can
-                // own the list, because the tiles are hidden while searching.
+                // own the list.
                 if results.isEmpty, hiddenResults.isEmpty, !searching, rows.visible.isEmpty, rows.hidden.isEmpty {
                     ContentUnavailableView(
                         "No names yet",
@@ -270,40 +267,6 @@ struct SearchPanel: View {
             if searching, results.isEmpty, hiddenResults.isEmpty {
                 ContentUnavailableView.search(text: query)
                     .padding(.top, 40)
-            }
-        }
-    }
-
-    private var areaTiles: some View {
-        LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 3), spacing: 8) {
-            ForEach(settings.visibleLifeAreas, id: \.self) { area in
-                let selected = highlightedArea == area
-                Button {
-                    highlightedArea = selected ? nil : area
-                } label: {
-                    VStack(spacing: 4) {
-                        Image(systemName: area.symbol)
-                            .foregroundStyle(area.color)
-                        Text(settings.name(of: area))
-                            .font(.caption)
-                            .lineLimit(2)
-                            .multilineTextAlignment(.center)
-                    }
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 10)
-                    .background(
-                        selected ? AnyShapeStyle(area.color.opacity(0.25)) : AnyShapeStyle(.fill.tertiary),
-                        in: RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    )
-                    .overlay {
-                        if selected {
-                            RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(area.color, lineWidth: 1.5)
-                        }
-                    }
-                }
-                .buttonStyle(.plain)
-                .accessibilityIdentifier("areaTile-\(area.rawValue)")
-                .accessibilityAddTraits(selected ? .isSelected : [])
             }
         }
     }

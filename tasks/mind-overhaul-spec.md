@@ -100,6 +100,22 @@ story journal used for screenshots has parts.
   grouping go.
 - Breadcrumbs (`FocusTrail`) and bloom for newly written names stay.
 - The author is excluded from "what changed" by `SettingsStore.userName` (name or alias match).
+- The chips keep today's segment mapping, with Tags renamed Themes: People, Places, Projects, and
+  Themes each show one kind; organizations, events, and other show only under All (owner,
+  2026-09-23, during Phase 2).
+- A journal with 60 or more names keeps its automatic minimum of 2 mentions in the window before a
+  name draws; the list still shows everyone (owner, 2026-09-23, during Phase 2).
+- Phase 1 readings: changes rank by the shift in share times the larger of the two counts (a sum
+  put Greg fifth behind a tag), "more lately" needs an earlier mention, and no changes show
+  without a baseline.
+- Phase 2: the map's edges come from the window's entries too, not only its sizes, so an old
+  shared entry doesn't tie two names the window has apart. Map labels and the window control cap
+  their text size (accessibility sizes truncated the control and buried the map in labels). The
+  drawer's area tiles went with the area highlight they drove.
+- The replay stays (owner, 2026-09-23, reversing its removal): a play button left of Month plays
+  the whole journal, first mention to today, whatever the window, in the drawer's chosen kind,
+  then returns to the window. Picking a window during a replay ends it there. `MindReplay`,
+  `MindReplayTests`, and `mind.replayed` stay.
 
 ## Phase 1: the numbers (pure, no UI)
 
