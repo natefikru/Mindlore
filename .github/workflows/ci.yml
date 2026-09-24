@@ -134,7 +134,10 @@ jobs:
   unit:
     name: Unit tests
     needs: build
-    if: inputs.only == '' && inputs.skip_unit != true
+    # Every job after build says !cancelled() and checks build itself: without a status function
+    # GitHub adds success(), which also looks past build at the skipped nightly gate and skips this
+    # job, and a skipped "Unit tests" counts as a passed required check.
+    if: ${{ !cancelled() && needs.build.result == 'success' && inputs.only == '' && inputs.skip_unit != true }}
     runs-on: macos-26
     timeout-minutes: 30
     steps:
@@ -168,7 +171,7 @@ jobs:
   live:
     name: Live OpenAI tests
     needs: build
-    if: github.event_name == 'schedule' || inputs.live
+    if: ${{ !cancelled() && needs.build.result == 'success' && (github.event_name == 'schedule' || inputs.live) }}
     continue-on-error: ${{ github.event_name != 'schedule' }}
     runs-on: macos-26
     timeout-minutes: 30
@@ -201,7 +204,7 @@ jobs:
   ui:
     name: UI tests (shard ${{ matrix.shard }})
     needs: build
-    if: github.event_name == 'schedule' || inputs.ui || inputs.only != ''
+    if: ${{ !cancelled() && needs.build.result == 'success' && (github.event_name == 'schedule' || inputs.ui || inputs.only != '') }}
     continue-on-error: ${{ github.event_name != 'schedule' }}
     runs-on: macos-26
     timeout-minutes: 45
