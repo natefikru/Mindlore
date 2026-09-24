@@ -120,6 +120,35 @@ nonisolated enum LifeCopy {
         }
     }
 
+    static func subject(_ subject: LifeSignals.Suggestion.Subject, name: Name) -> String {
+        switch subject {
+        case .tag(let tag): tag
+        case .area(let area): name(area)
+        }
+    }
+
+    static func suggestion(_ suggestion: LifeSignals.Suggestion, name: Name) -> String {
+        let what = subject(suggestion.subject, name: name)
+        return "Your lighter weeks had \(what) in them: \(suggestion.lighterWith) of \(suggestion.lighterWeeks), against \(suggestion.heavierWith) of \(suggestion.heavierWeeks) heavier ones. Put some \(what) in this week?"
+    }
+
+    // The loose end an accepted experiment becomes.
+    static func experimentThread(_ subject: LifeSignals.Suggestion.Subject, name: Name) -> String {
+        "Make room for some \(self.subject(subject, name: name)) this week"
+    }
+
+    static func tried(_ tried: LifeSignals.Tried, subject: LifeSignals.Suggestion.Subject, name: Name) -> String {
+        let what = self.subject(subject, name: name)
+        guard tried.weeksWith > 0 else {
+            return "No \(what) yet in the \(tried.weeksSince) \(tried.weeksSince == 1 ? "week" : "weeks") since you picked it."
+        }
+        var line = "\(what.prefix(1).uppercased() + what.dropFirst()) came up in \(tried.weeksWith) of the \(tried.weeksSince) \(tried.weeksSince == 1 ? "week" : "weeks") since you picked it."
+        if let height = tried.height {
+            line += height >= 0.15 ? " Those weeks were lighter than your usual." : (height <= -0.15 ? " Those weeks were heavier than your usual." : " Those weeks were about your usual.")
+        }
+        return line
+    }
+
     static func needsMore(_ progress: LifeSignals.Progress) -> String {
         let entries = max(0, LifeSignals.minimumEntries - progress.entries)
         let days = max(0, LifeSignals.minimumDays - progress.days)

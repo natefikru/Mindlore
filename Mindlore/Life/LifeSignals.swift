@@ -409,6 +409,137 @@ nonisolated enum LifeSignals {
         return picked.prefix(maxPriorities).map { Priority(area: $0, share: shares[$0] ?? 0, even: even) }
     }
 
+    // MARK: - Something to try
+
+    // Something that shows up in most of the author's lighter weeks and rarely in their heavier
+    // ones. Code finds it; the card offers it as an experiment, never as advice about a life.
+    struct Suggestion: Sendable, Equatable {
+        enum Subject: Sendable, Equatable, Hashable {
+            case tag(String)
+            case area(LifeArea)
+        }
+
+        let subject: Subject
+        let lighterWith: Int
+        let lighterWeeks: Int
+        let heavierWith: Int
+        let heavierWeeks: Int
+    }
+
+    // A week counts once it has two entries with a mood, and is lighter or heavier when its mean
+    // is this far from the baseline.
+    static let weekMinimumMoods = 2
+    static let weekTilt = 0.15
+    static let suggestionMinimumWeeks = 3
+    static let suggestionMinimumGap = 0.3
+    static let tagHeadStart = 0.2
+
+    struct WeekMood: Sendable, Equatable {
+        let start: Date
+        let tone: Tone
+        let tags: Set<String>
+        let areas: Set<LifeArea>
+    }
+
+    static func weeks(_ entries: [EntryFact], in interval: DateInterval, baseline: Double, calendar: Calendar = .current) -> [WeekMood] {
+        var byWeek: [Date: [EntryFact]] = [:]
+        for entry in entries where isInside(entry.date, interval) {
+            let week = calendar.dateInterval(of: .weekOfYear, for: entry.date)?.start ?? entry.date
+            byWeek[week, default: []].append(entry)
+        }
+        return byWeek.compactMap { start, facts in
+            let valences = facts.compactMap(\.valence)
+            guard valences.count >= weekMinimumMoods else { return nil }
+            let mean = Double(valences.reduce(0, +)) / Double(valences.count)
+            guard abs(mean - baseline) >= weekTilt else { return nil }
+            return WeekMood(
+                start: start,
+                tone: mean > baseline ? .lighter : .heavier,
+                tags: Set(facts.flatMap(\.tags)),
+                areas: Set(facts.flatMap(\.areas))
+            )
+        }
+        .sorted { $0.start < $1.start }
+    }
+
+    // The strongest tag or area by how much more often it appears in lighter weeks, skipping
+    // anything already declined or being tried.
+    static func suggestion(
+        _ entries: [EntryFact],
+        interval: DateInterval,
+        baseline: Double?,
+        skipping: Set<Suggestion.Subject> = [],
+        hidden: Set<LifeArea> = [],
+        calendar: Calendar = .current
+    ) -> Suggestion? {
+        guard let baseline else { return nil }
+        let all = weeks(entries, in: interval, baseline: baseline, calendar: calendar)
+        let lighter = all.filter { $0.tone == .lighter }
+        let heavier = all.filter { $0.tone == .heavier }
+        guard lighter.count >= suggestionMinimumWeeks, heavier.count >= 2 else { return nil }
+        var subjects: Set<Suggestion.Subject> = []
+        for week in lighter {
+            week.tags.forEach { subjects.insert(.tag($0)) }
+            week.areas.filter { !hidden.contains($0) }.forEach { subjects.insert(.area($0)) }
+        }
+        func has(_ week: WeekMood, _ subject: Suggestion.Subject) -> Bool {
+            switch subject {
+            case .tag(let tag): week.tags.contains(tag)
+            case .area(let area): week.areas.contains(area)
+            }
+        }
+        let scored: [(Suggestion, Double)] = subjects.subtracting(skipping).compactMap { subject in
+            let with = lighter.filter { has($0, subject) }.count
+            let against = heavier.filter { has($0, subject) }.count
+            guard with >= suggestionMinimumWeeks else { return nil }
+            let gap = Double(with) / Double(lighter.count) - Double(against) / Double(heavier.count)
+            guard gap >= suggestionMinimumGap else { return nil }
+            // A tag is something done ("some running"); an area is broad ("some Play"), so a tag
+            // gets a head start: an experiment is only useful if it's something to do.
+            let score = gap + (subject.isTag ? tagHeadStart : 0)
+            return (Suggestion(subject: subject, lighterWith: with, lighterWeeks: lighter.count, heavierWith: against, heavierWeeks: heavier.count), score)
+        }
+        return scored.max { a, b in
+            if a.1 != b.1 { return a.1 < b.1 }
+            return String(describing: a.0.subject) > String(describing: b.0.subject)
+        }?.0
+    }
+
+    // How an accepted experiment went: the weeks since it was picked that had it, and whether
+    // those weeks read lighter or heavier than usual.
+    struct Tried: Sendable, Equatable {
+        let weeksSince: Int
+        let weeksWith: Int
+        // Mean valence of the entries in the weeks that had it, against the baseline.
+        let height: Double?
+    }
+
+    static func tried(_ subject: Suggestion.Subject, since start: Date, entries: [EntryFact], baseline: Double?, now: Date, calendar: Calendar = .current) -> Tried {
+        let interval = DateInterval(start: start, end: max(start, now))
+        var weeks: [Date: [EntryFact]] = [:]
+        var cursor = calendar.dateInterval(of: .weekOfYear, for: start)?.start ?? start
+        while cursor <= now {
+            weeks[cursor] = []
+            guard let next = calendar.date(byAdding: .weekOfYear, value: 1, to: cursor) else { break }
+            cursor = next
+        }
+        for entry in entries where entry.date >= interval.start && entry.date <= interval.end {
+            let week = calendar.dateInterval(of: .weekOfYear, for: entry.date)?.start ?? entry.date
+            weeks[week, default: []].append(entry)
+        }
+        let withIt = weeks.values.filter { facts in
+            facts.contains { fact in
+                switch subject {
+                case .tag(let tag): fact.tags.contains(tag)
+                case .area(let area): fact.areas.contains(area)
+                }
+            }
+        }
+        let valences = withIt.flatMap { $0.compactMap(\.valence) }
+        let height = baseline.flatMap { base in valences.isEmpty ? nil : Double(valences.reduce(0, +)) / Double(valences.count) - base }
+        return Tried(weeksSince: weeks.count, weeksWith: withIt.count, height: height)
+    }
+
     // MARK: - One area
 
     struct MonthMood: Sendable, Equatable, Identifiable {
