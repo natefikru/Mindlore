@@ -37,6 +37,18 @@ struct NewEntryFanLayoutTests {
         #expect(NewEntryFanLayout.option(at: CGPoint(x: plus.x, y: plus.y - 300), plus: plus, options: all) == nil, "far above")
     }
 
+    @Test func theWholeWedgeCountsNotJustTheCircle() {
+        let center = NewEntryFanLayout.arcCenter(plus)
+        // Between Record's and Pages' circles, on Pages' side of the line between their wedges.
+        let between = CGPoint(x: center.x + 90 * cos(50 * .pi / 180), y: center.y - 90 * sin(50 * .pi / 180))
+        #expect(NewEntryFanLayout.option(at: between, plus: plus, options: all) == .pages)
+        // Out past the ring, or down inside it by the +, is nothing.
+        #expect(NewEntryFanLayout.option(at: CGPoint(x: center.x, y: center.y - NewEntryFanLayout.ringOuter - 10), plus: plus, options: all) == nil)
+        #expect(NewEntryFanLayout.option(at: CGPoint(x: center.x + 10, y: center.y - 20), plus: plus, options: all) == nil)
+        let sectors = NewEntryFanLayout.sectors(options: all)
+        #expect(sectors[.write] == 120...180 && sectors[.record] == 60...120 && sectors[.pages] == 0...60)
+    }
+
     @Test func releasingOnAnOptionChoosesItWhateverOpenedTheFan() {
         let pages = NewEntryFanLayout.centers(around: plus, options: all)[.pages]!
         #expect(NewEntryFanLayout.release(at: pages, plus: plus, options: all, leftPlus: true, openedByThisTouch: true) == .choose(.pages))

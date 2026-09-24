@@ -35,9 +35,6 @@ nonisolated enum NewEntryFanLayout {
     // tab bar's own labels.
     static let lift: CGFloat = 28
     static let optionDiameter: CGFloat = 64
-    // A finger within this of an option's centre is on it: a little more than the circle, since
-    // the thumb covers what it points at.
-    static let hitRadius: CGFloat = 44
     // The + itself, for "the finger never left it".
     static let plusHitRadius: CGFloat = 34
 
@@ -68,13 +65,39 @@ nonisolated enum NewEntryFanLayout {
         return result
     }
 
+    // The half ring behind the options while a finger is down, and what a slide lands on: the ring
+    // between these radii, cut into one wedge per option. Hovering by wedge rather than by circle is
+    // what makes a radial menu forgiving: the whole slice counts, not just the button.
+    static let ringInner: CGFloat = radius - 58
+    static let ringOuter: CGFloat = radius + 56
+
+    // Where the arc is centred: above the + by the lift, and by the strip while recording.
+    static func arcCenter(_ plus: CGPoint, extraLift: CGFloat = 0) -> CGPoint {
+        CGPoint(x: plus.x, y: plus.y - lift - extraLift)
+    }
+
+    // Each option's wedge, in degrees counterclockwise from the right: halfway to its neighbours,
+    // and out to the ends of the half circle.
+    static func sectors(options: [Option]) -> [Option: ClosedRange<Double>] {
+        let angles = angles(count: options.count)
+        var result: [Option: ClosedRange<Double>] = [:]
+        for (index, option) in options.enumerated() {
+            let upper = index == 0 ? 180 : (angles[index - 1] + angles[index]) / 2
+            let lower = index == options.count - 1 ? 0 : (angles[index] + angles[index + 1]) / 2
+            result[option] = lower...upper
+        }
+        return result
+    }
+
     static func option(at point: CGPoint, plus: CGPoint, options: [Option], extraLift: CGFloat = 0) -> Option? {
-        let centers = centers(around: plus, options: options, extraLift: extraLift)
-        return options
-            .map { ($0, distance(point, centers[$0] ?? plus)) }
-            .filter { $0.1 <= hitRadius }
-            .min { $0.1 < $1.1 }?
-            .0
+        let center = arcCenter(plus, extraLift: extraLift)
+        let reach = distance(point, center)
+        guard reach >= ringInner, reach <= ringOuter else { return nil }
+        // Counterclockwise from the right, with y growing downward on screen.
+        let degrees = atan2(Double(center.y - point.y), Double(point.x - center.x)) * 180 / .pi
+        guard degrees >= -8, degrees <= 188 else { return nil }
+        let clamped = min(180, max(0, degrees))
+        return sectors(options: options).first { $0.value.contains(clamped) }?.key
     }
 
     enum Release: Equatable {

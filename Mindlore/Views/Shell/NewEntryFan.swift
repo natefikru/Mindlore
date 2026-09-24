@@ -43,6 +43,13 @@ struct NewEntryFan: View {
                     backdrop
                         .transition(.opacity)
                 }
+                // While a finger is down: the half ring the options sit on, the wedge under the
+                // finger lit, so a slide shows where it will land.
+                if isOpen, touch != nil {
+                    FanWheel(center: NewEntryFanLayout.arcCenter(plus, extraLift: extraLift), options: options, hovered: hovered)
+                        .transition(.opacity)
+                        .allowsHitTesting(false)
+                }
                 ForEach(Array(options.enumerated()), id: \.element) { index, option in
                     if isOpen, let center = centers[option] {
                         // Offset, not `.position`: position stretches the button's frame over the
@@ -52,7 +59,7 @@ struct NewEntryFan: View {
                             .alignmentGuide(.leading) { $0[HorizontalAlignment.center] - center.x }
                             .alignmentGuide(.top) { $0[VerticalAlignment.center] - center.y }
                             .transition(.popOut(from: CGPoint(x: plus.x - center.x, y: plus.y - center.y), reduceMotion: reduceMotion))
-                            .animation(animation(delay: Double(index) * Motion.stagger), value: isOpen)
+                            .animation(animation(delay: Double(index) * Self.stagger), value: isOpen)
                     }
                 }
                 if barFrame != .zero, !router.editorHasKeyboard {
@@ -69,8 +76,13 @@ struct NewEntryFan: View {
         .sensoryFeedback(Haptics.selected, trigger: isOpen)
     }
 
+    // Quicker than the app's bloom: the options have to be under the thumb before it starts to
+    // slide, and at 0.6 seconds with a stagger they felt late (owner, 2026-09-24).
+    static let spring = Animation.spring(duration: 0.26, bounce: 0.22)
+    static let stagger = 0.025
+
     private func animation(delay: Double = 0) -> Animation? {
-        Motion.resolve(Motion.bloom, reduceMotion: reduceMotion).map { $0.delay(isOpen ? delay : 0) }
+        Motion.resolve(Self.spring, reduceMotion: reduceMotion).map { $0.delay(isOpen ? delay : 0) }
     }
 
     // Dims whatever is behind and takes any tap outside the options as a close.
@@ -264,6 +276,70 @@ private struct TabBarProbe: UIViewRepresentable {
                 if let bar = tabBar(in: subview) { return bar }
             }
             return nil
+        }
+    }
+}
+
+// The half ring behind the fan while a finger is down: one faint wedge per option, the hovered one
+// brighter with a thin rim beyond it. Subtle on purpose; it says where a release will land, it
+// isn't a second menu.
+private struct FanWheel: View {
+    let center: CGPoint
+    let options: [NewEntryFanLayout.Option]
+    let hovered: NewEntryFanLayout.Option?
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        let sectors = NewEntryFanLayout.sectors(options: options)
+        ZStack {
+            ForEach(options) { option in
+                if let range = sectors[option] {
+                    let lit = hovered == option
+                    Self.wedge(center: center, inner: NewEntryFanLayout.ringInner, outer: NewEntryFanLayout.ringOuter, from: range.lowerBound + 1.5, to: range.upperBound - 1.5)
+                        .fill(Palette.ember.opacity(lit ? 0.22 : 0.07))
+                        .overlay(
+                            Self.wedge(center: center, inner: NewEntryFanLayout.ringInner, outer: NewEntryFanLayout.ringOuter, from: range.lowerBound + 1.5, to: range.upperBound - 1.5)
+                                .stroke(Color.white.opacity(lit ? 0.45 : 0.18), lineWidth: 1)
+                        )
+                    if lit {
+                        Self.rim(center: center, radius: NewEntryFanLayout.ringOuter + 6, from: range.lowerBound + 4, to: range.upperBound - 4)
+                            .stroke(Palette.ember.opacity(0.7), style: StrokeStyle(lineWidth: 2.5, lineCap: .round))
+                            .transition(.opacity)
+                    }
+                }
+            }
+        }
+        .animation(Motion.resolve(.snappy(duration: 0.18), reduceMotion: reduceMotion), value: hovered)
+    }
+
+    // Angles counterclockwise from the right, drawn with y growing downward.
+    private static func point(_ center: CGPoint, _ radius: CGFloat, _ degrees: Double) -> CGPoint {
+        let radians = degrees * .pi / 180
+        return CGPoint(x: center.x + radius * CGFloat(cos(radians)), y: center.y - radius * CGFloat(sin(radians)))
+    }
+
+    static func wedge(center: CGPoint, inner: CGFloat, outer: CGFloat, from start: Double, to end: Double) -> Path {
+        Path { path in
+            let steps = max(2, Int((end - start) / 3))
+            for step in 0...steps {
+                let degrees = start + (end - start) * Double(step) / Double(steps)
+                let p = point(center, outer, degrees)
+                if step == 0 { path.move(to: p) } else { path.addLine(to: p) }
+            }
+            for step in (0...steps).reversed() {
+                path.addLine(to: point(center, inner, start + (end - start) * Double(step) / Double(steps)))
+            }
+            path.closeSubpath()
+        }
+    }
+
+    static func rim(center: CGPoint, radius: CGFloat, from start: Double, to end: Double) -> Path {
+        Path { path in
+            let steps = max(2, Int((end - start) / 3))
+            for step in 0...steps {
+                let p = point(center, radius, start + (end - start) * Double(step) / Double(steps))
+                if step == 0 { path.move(to: p) } else { path.addLine(to: p) }
+            }
         }
     }
 }
