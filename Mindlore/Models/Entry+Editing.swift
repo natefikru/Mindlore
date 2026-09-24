@@ -175,7 +175,7 @@ extension Entry {
     }
 }
 
-// MARK: - Cleaned-up text (transcribed entries: voice and pages)
+// MARK: - Cleaned-up text (transcribed entries: voice and pages; applied automatically for voice only)
 
 extension Entry {
     // A cleanup comes back as Markdown, the one place the model may add structure (a spoken
@@ -218,6 +218,24 @@ extension Entry {
         let parsed = Self.parseCleanup(cleaned)
         guard !parsed.text.isEmpty, parsed.text != text || parsed.formatting != formatting else { return nil }
         return cleaned
+    }
+
+    // "Format voice notes automatically" (`autoApplyCleanedText`) covers only recordings nobody has
+    // touched. Voice is the one way in where no person has read the raw text; a photographed
+    // page's text was reviewed and approved by the user, so rewriting it afterwards would change
+    // words they signed off on, and it stays an offer (owner, 2026-09-24: "voice notes"). Once the
+    // user has typed into the text it is theirs, even if it still hashes the same, and a draft is
+    // never final.
+    var cleanupAppliesAutomatically: Bool {
+        source == .voice && !textEditedByUser && !isDraft
+    }
+
+    // The automatic path of the same apply the Review sheet's button calls, so revert, the kept
+    // original, and `cleanupAppliedHash` behave exactly as after a manual accept.
+    @discardableResult
+    func applyCleanedTextAutomatically() -> Bool {
+        guard cleanupAppliesAutomatically, let cleaned = pendingCleanedText else { return false }
+        return applyCleanedText(cleaned)
     }
 
     @discardableResult

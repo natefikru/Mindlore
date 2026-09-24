@@ -328,6 +328,13 @@ final class GraphUITests: XCTestCase {
         XCTAssertTrue(tidyUp.waitForExistence(timeout: 5))
         XCTAssertTrue((tidyUp.value as? String)?.contains("to check") == true, String(describing: tidyUp.value))
         tidyUp.tap()
+        // XCTest taps the middle of the button's accessibility frame, and says hittable from the
+        // accessibility tree, not from SwiftUI's hit test; this caught a Tidy up that only took
+        // touches on its glyph and badge.
+        XCTAssertTrue(
+            app.buttons["tidyUpDone"].waitForExistence(timeout: 5),
+            "Tidy up opens its sheet (button hittable: \(tidyUp.exists && tidyUp.isHittable))"
+        )
         let notTheSame = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'reviewNotSame-'")).firstMatch
         XCTAssertTrue(notTheSame.waitForExistence(timeout: 5), "Sara and Sarah look alike enough to ask")
         notTheSame.tap()

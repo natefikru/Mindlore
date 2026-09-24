@@ -29,6 +29,9 @@ nonisolated enum AskRetrieval {
     // never disagree about how many lines fit.
     static let digestBudgetOpenAI = AskDigests.estimatedCharacters(lineCount: maxDigestEntries)
     static let continuityBudgetOpenAI = 4_800
+    // The most the notes Chat made or changed in this conversation may take before anything else.
+    // A grocery list is a few hundred characters; this keeps a dozen of them from eating the answer.
+    static let conversationNotesBudgetOpenAI = 8_000
     static let aboutBudgetOnDevice = 800
 
     // An entry has to be this close to the best match to count as matching at all. Counting every
@@ -71,6 +74,9 @@ nonisolated enum AskRetrieval {
         var focusEntryID: UUID?
         // How much of its text goes in: all of it, unless it is longer than the focus allows.
         var focusTextLimit = 0
+        // Notes Chat made or changed earlier in this conversation, taken right after the focus so
+        // a follow-up ("add butter to that list") always has the list in front of it.
+        var noteEntryIDs: [UUID] = []
         var aboutEntityIDs: [UUID] = []
         var rollupMonths: [DateInterval] = []
         var continuityEntryIDs: [UUID] = []
@@ -99,7 +105,7 @@ nonisolated enum AskRetrieval {
         var slices = Slices()
 
         // The entries that go in whole.
-        var entryIDs: [UUID] { [focusEntryID].compactMap { $0 } + rankedEntryIDs + continuityEntryIDs }
+        var entryIDs: [UUID] { [focusEntryID].compactMap { $0 } + noteEntryIDs + rankedEntryIDs + continuityEntryIDs }
         // Everything whose text has to be fetched, digests included: a one-line digest is still
         // entry text leaving the phone, so it goes through the same gate in AskSources.
         var fetchedEntryIDs: [UUID] { entryIDs + digestEntryIDs }
@@ -140,6 +146,9 @@ nonisolated enum AskRetrieval {
         rollups: Bool = false,
         // The entry the conversation was opened from, if it was. Nil for an ordinary question.
         focusEntryID: UUID? = nil,
+        // Notes Chat made or changed in this conversation, newest first. OpenAI only: the caller
+        // passes none on device, where nothing can be written.
+        noteEntryIDs: [UUID] = [],
         calendar: Calendar = .current
     ) -> Plan {
         var plan = Plan()
@@ -163,13 +172,24 @@ nonisolated enum AskRetrieval {
                 focusCost = overhead + limit + blockSeparator
             }
         }
+        // Then the conversation's own notes, whole or not at all, checked against the index like the
+        // focus so one that has become a draft since is simply not sent.
+        var notesCost = 0
+        for id in noteEntryIDs where id != plan.focusEntryID && !plan.noteEntryIDs.contains(id) {
+            guard let document = index.document(withID: id), document.isSendable else { continue }
+            let cost = document.blockCharacters + blockSeparator
+            guard notesCost + cost <= min(conversationNotesBudgetOpenAI, budget - focusCost) else { continue }
+            notesCost += cost
+            plan.noteEntryIDs.append(id)
+        }
+        focusCost += notesCost
         let budget = budget - focusCost
 
         var scored = index.search(query.indexQuery)
         var wasRecencyFallback = false
         // With an entry in hand, a question sharing no word with the journal ("what do you make of
         // this?") is about that entry, not a reason to send the newest five.
-        if scored.isEmpty, plan.focusEntryID == nil {
+        if scored.isEmpty, plan.focusEntryID == nil, plan.noteEntryIDs.isEmpty {
             // A7's tier 4. A question sharing no word with the journal still gets an answer built
             // from the newest entries rather than a failure with no Retry on it.
             scored = Array(index.search(AskIndex.Query(sendableOnly: true, asOf: query.asOf)).prefix(recencyFallbackCount))
@@ -229,7 +249,7 @@ nonisolated enum AskRetrieval {
         var remaining = max(0, budget - aboutReserve - rollupCharacters)
 
         let subjects = Set(plan.aboutEntityIDs)
-        var taken = Set([plan.focusEntryID].compactMap { $0 })
+        var taken = Set([plan.focusEntryID].compactMap { $0 } + plan.noteEntryIDs)
         for result in scored.prefix(limit) {
             let document = index.documents[Int(result.document)]
             guard !taken.contains(document.id) else { continue }

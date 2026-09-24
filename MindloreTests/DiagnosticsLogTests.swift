@@ -342,7 +342,7 @@ struct AIDiagnosticsPrivacyTests {
         // sparklines, and changes, then the two events that report them.
         let snapshot = services.mapSnapshot(in: context)
         for window in MindWindow.allCases {
-            let frame = MindView.frame(snapshot, window: window, segment: .all, visibleAreas: settings.visibleLifeAreas, asOf: .distantFuture)
+            let frame = MindView.frame(snapshot, window: window, segment: .all, asOf: .distantFuture)
             _ = MindStats.series(snapshot, window: window, asOf: .distantFuture)
             for change in MindStats.changes(snapshot, window: window, asOf: .distantFuture, excluding: MindStats.authorIDs(named: sentinel, in: snapshot)) {
                 services.recordMindChangeTapped(change.kind, kind: snapshot.entities[change.id]?.kind ?? .other)
@@ -355,7 +355,7 @@ struct AIDiagnosticsPrivacyTests {
             let player = MindReplayPlayer()
             #expect(player.start(now: .now.addingTimeInterval(60), window: window) { services.mapSnapshot(in: context) })
             if let step = player.step(elapsed: 3) {
-                _ = MindView.frame(step.snapshot, window: .all, segment: .all, visibleAreas: settings.visibleLifeAreas, asOf: step.asOf)
+                _ = MindView.frame(step.snapshot, window: .all, segment: .all, asOf: step.asOf)
             }
             player.stop()
         }
@@ -502,8 +502,19 @@ struct AskDiagnosticsPrivacyTests {
         #expect(stoppingAsk.turns.last?.wasStopped == true)
         #expect(stoppingAsk.turns.last?.text.contains(sentinel) == true, "the partial answer is the sentinel, and it still must not be logged")
 
+        // A note made at the author's request. Its title and words are theirs, as an entry's are.
+        ask.newConversation()
+        generator.results = [.success(#"{"answer":"Made \#(sentinel)","citations":[],"noteTitle":"Title \#(sentinel)","noteText":"- [ ] \#(sentinel)"}"#)]
+        await ask.send("Make a note of \(sentinel)", in: context)
+        #expect(ask.turns.last?.createdNoteID != nil, "the note has to have actually been made")
+        // And changed on the next turn. The note goes in first, after the one entry the last turn
+        // already handed out, so it is E2.
+        generator.results = [.success(#"{"answer":"Changed \#(sentinel)","citations":[],"noteTitle":"Title \#(sentinel)","noteText":"- [ ] \#(sentinel)\n- [ ] More \#(sentinel)","editNoteHandle":"E2"}"#)]
+        await ask.send("Add more \(sentinel) to that", in: context)
+        #expect(ask.turns.last?.editedNoteID != nil, "the note has to have actually been changed")
+
         let contents = file.contents()
-        for event in ["ask.answered", "ask.stopped", "ask.failed", "ask.conversationDeleted", "ask.indexed", "ask.retrieved"] {
+        for event in ["ask.answered", "ask.stopped", "ask.failed", "ask.conversationDeleted", "ask.indexed", "ask.retrieved", "ask.noteCreated", "ask.noteEdited"] {
             #expect(contents.contains(event), "\(event) was never exercised")
         }
         #expect(contents.contains(sentinel) == false)
@@ -602,6 +613,26 @@ struct AIEdgePathDiagnosticsPrivacyTests {
             entry.insightsPending = false
         }
 
+        // A voice note's cleanup that lands while its editor is open is held, and applied once it
+        // closes ("Format voice notes automatically").
+        generator.suspends = false
+        let formatting = InsightsCoordinator(
+            resolve: { .success(.init(generator: generator, model: "m", label: "openai:m")) },
+            sections: { AIServices.insightSections(settings) },
+            autoApplyCleanedText: { true }, presence: presence, diagnostics: log
+        )
+        let held = try voiceEntry()
+        held.insightsPending = true
+        try context.save()
+        presence.open(held.id)
+        generator.results = [.success(#"{"summary":"About \#(sentinel)","cleanedText":"Spoken, \#(sentinel)."}"#)]
+        await formatting.processQueue(context: context)
+        #expect(held.text == "Spoken \(sentinel)")
+        presence.close(held.id)
+        await formatting.processQueue(context: context)
+        #expect(held.text == "Spoken, \(sentinel).")
+        generator.suspends = true
+
         // Titles that land while the editor is open are held; after a restart they are discarded.
         let titles = TitleCoordinator(
             resolve: { .success(.init(generator: generator, model: "m", label: "openai:m")) },
@@ -624,7 +655,7 @@ struct AIEdgePathDiagnosticsPrivacyTests {
         let contents = file.contents()
         for event in ["ai.pass", "insights.unavailable", "title.unavailable", "pages.transcription.unavailable",
                       "ai.offline", "pages.transcription.failed", "insights.stale", "insights.discarded",
-                      "title.held", "title.discarded", "ai.keyRemoved"] {
+                      "title.held", "title.discarded", "ai.keyRemoved", "cleanup.held", "cleanup.applied"] {
             #expect(contents.contains(event), "\(event) was never exercised")
         }
         #expect(contents.contains(sentinel) == false)

@@ -14,6 +14,12 @@ final class InsightsCoordinator {
     // running. Lives only as long as the app: the entries' own pending flags are the queue, so a run
     // cut short by a kill still finishes at the next launch, just without the count on screen.
     private(set) var redo: RedoProgress?
+    // Voice entries whose cleanup arrived while their editor was open, with "Format voice notes
+    // automatically" on. Changing the text under an open editor could land on a caret or a
+    // half-typed word, so it is held and applied once the entry closes, and the editor hides its
+    // Review offer meanwhile: nobody is asked about a cleanup that is going to apply itself.
+    // Memory only: if the app dies first, the cleanup is still in the insights as an offer.
+    private(set) var heldCleanups: Set<UUID> = []
 
     struct RedoProgress: Equatable {
         var total: Int
@@ -79,6 +85,8 @@ final class InsightsCoordinator {
     }
 
     func processQueue(context: ModelContext) async {
+        // Before the busy check: a close fires this while a long queue may still be running.
+        applyHeldCleanups(context: context)
         guard !isProcessing else {
             needsAnotherPass = true
             return
@@ -349,8 +357,14 @@ final class InsightsCoordinator {
                     diagnostics.record("entryDate.suggested", ["id": .id(entryID), "source": "insights"])
                 }
             }
-            if let cleaned = result.cleanedText, autoApplyCleanedText(), !presence.isOpen(entryID) {
-                if current.applyCleanedText(cleaned) {
+            // Only a voice entry the user hasn't typed into, through the same apply the Review
+            // sheet's button calls. The insights stay current: `isCurrent` accepts the cleaned
+            // text by `cleanupAppliedHash`, and nothing here flags another pass.
+            if result.cleanedText != nil, autoApplyCleanedText(), current.cleanupAppliesAutomatically {
+                if presence.isOpen(entryID) {
+                    heldCleanups.insert(entryID)
+                    diagnostics.record("cleanup.held", ["id": .id(entryID)])
+                } else if current.applyCleanedTextAutomatically() {
                     changedEntry = true
                     diagnostics.record("cleanup.applied", ["id": .id(entryID), "trigger": "automatic"])
                 }
@@ -380,6 +394,26 @@ final class InsightsCoordinator {
             "inputTokens": .int(usage.inputTokens ?? -1),
             "outputTokens": .int(usage.outputTokens ?? -1),
         ])
+    }
+
+    func holdsCleanup(for id: UUID) -> Bool {
+        heldCleanups.contains(id)
+    }
+
+    // A held cleanup goes in once its editor has closed, if everything that allowed it still
+    // holds: the setting, an untouched voice entry, and text that is still exactly what the
+    // cleanup was made from. Anything else drops it back to an ordinary offer.
+    private func applyHeldCleanups(context: ModelContext) {
+        for entryID in heldCleanups where !presence.isOpen(entryID) {
+            heldCleanups.remove(entryID)
+            guard autoApplyCleanedText() else { continue }
+            var descriptor = FetchDescriptor<Entry>(predicate: #Predicate { $0.id == entryID })
+            descriptor.fetchLimit = 1
+            guard let entry = try? context.fetch(descriptor).first, entry.applyCleanedTextAutomatically() else { continue }
+            // Applying cleanup is an edit, so the entry is stamped like any other.
+            try? save(context, [])
+            diagnostics.record("cleanup.applied", ["id": .id(entryID), "trigger": "automatic", "held": true])
+        }
     }
 
     // The journal's most used tags, so new entries reuse them instead of near-duplicates.

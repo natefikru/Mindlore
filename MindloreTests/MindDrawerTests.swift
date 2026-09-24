@@ -24,7 +24,6 @@ struct MindDrawerTests {
         MindDrawer.Stats(
             window: .month,
             counts: [maya: 6, greg: 6, park: 2, running: 11],
-            areas: [maya: .love, running: .health],
             series: [maya: [1, 2, 3]],
             changes: [change(running, .more, inWindow: 11, before: 7), change(quiet, .quieter, inWindow: 0, before: 9)]
         )
@@ -36,10 +35,9 @@ struct MindDrawerTests {
         #expect(!ranked.contains { $0.id == quiet }, "no entry in the window, so search finds it instead")
         let running = ranked[0]
         #expect(running.change == .more)
-        #expect(running.area == .health)
+        #expect(running.kind == .tag)
         #expect(ranked.first { $0.id == maya }?.openLooseEnds == 2)
         #expect(ranked.first { $0.id == maya }?.series == [1, 2, 3])
-        #expect(ranked.first { $0.id == greg }?.area == nil)
     }
 
     @Test func chipsFilterTheListAndTheCards() {

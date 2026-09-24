@@ -13,6 +13,8 @@ struct EntryEditorView: View {
     @Environment(InsightsCoordinator.self) private var insightsCoordinator
     @Environment(AppRouter.self) private var router
     @Environment(RecordingSession.self) private var recording
+    // Optional so a screen built without it (a preview, a test) still works.
+    @Environment(AppLock.self) private var lock: AppLock?
     @State private var currentEntry: Entry?
     // The entry the first keystroke created, held by reference as well as in `currentEntry`. A
     // redraw already under way when that keystroke lands still reads the state from before it,
@@ -97,6 +99,7 @@ struct EntryEditorView: View {
                             isFocused: editorFocused,
                             focusAtEndToken: focusAtEndToken,
                             focusOffset: focusOffset,
+                            canRestoreFocus: !(lock?.isLocked ?? false),
                             showsFormatBar: !recording.showsAccessory,
                             links: isReading ? currentLinks : [],
                             accessibilityIdentifier: isReading ? "entryReadText" : "entryEditor",
@@ -329,7 +332,8 @@ struct EntryEditorView: View {
                     .padding(.horizontal)
                     .padding(.top, 8)
             }
-            if let entry, let cleaned = entry.pendingCleanedText, !cleanupDismissed {
+            // A cleanup held to apply itself on close ("Format voice notes automatically") asks nothing.
+            if let entry, let cleaned = entry.pendingCleanedText, !cleanupDismissed, !insightsCoordinator.holdsCleanup(for: entry.id) {
                 cleanupBanner(for: entry, cleaned: cleaned)
                     .padding(.horizontal)
                     .padding(.top, 8)

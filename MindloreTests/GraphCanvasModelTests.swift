@@ -88,25 +88,25 @@ struct GraphCanvasModelTests {
         #expect(plan.focusedIndex == simulation.index(of: nodes[1].id))
     }
 
-    // An area tile brings a group forward; focus says more, so it still lights its own set.
-    // Colour is area, looked up per node; a node with no area in the window is grey. Tags, and
-    // only tags, are pins. A new area map recomputes the plan only when its generation moves.
-    @Test func fillsFollowAreasPinsFollowTagsAndTheCacheKeysOnTheGeneration() {
+    // Colour is kind, read off each node, so the plan carries no fills. Tags, and only tags, are
+    // pins. A node switched to a tag lands through `update` as a topology change, so the cached
+    // plan picks the new tag set up without any key of its own.
+    @Test func tagsArePinsAndAKindChangeRecomputesThePlan() {
         let person = node(4), tag = GraphSimulation.Node(id: UUID(), kind: .tag, linkCount: 3), loose = node(1)
         let simulation = GraphSimulation(nodes: [person, tag, loose], edges: [])
         let cache = GraphDrawCache()
 
-        let plan = cache.plan(for: simulation, focusedID: nil, areaOf: [person.id: .work, tag.id: .play], areaGeneration: 1)
-        #expect(plan.fills[simulation.index(of: person.id)!] == .area(.work))
-        #expect(plan.fills[simulation.index(of: tag.id)!] == .area(.play))
-        #expect(plan.fills[simulation.index(of: loose.id)!] == .neutral)
+        let plan = cache.plan(for: simulation, focusedID: nil)
         #expect(plan.tagNodes == [simulation.index(of: tag.id)!])
+        _ = cache.plan(for: simulation, focusedID: nil)
+        #expect(cache.recomputeCount == 1, "same topology, same plan")
 
-        _ = cache.plan(for: simulation, focusedID: nil, areaOf: [:], areaGeneration: 1)
-        #expect(cache.recomputeCount == 1, "same generation, same plan")
-        let moved = cache.plan(for: simulation, focusedID: nil, areaOf: [person.id: .family], areaGeneration: 2)
+        let retagged = GraphSimulation.Node(id: loose.id, kind: .tag, linkCount: 1)
+        simulation.update(nodes: [person, tag, retagged], edges: [])
+        let moved = cache.plan(for: simulation, focusedID: nil)
         #expect(cache.recomputeCount == 2)
-        #expect(moved.fills[simulation.index(of: person.id)!] == .area(.family))
+        #expect(moved.tagNodes == [simulation.index(of: tag.id)!, simulation.index(of: loose.id)!])
+        #expect(simulation.kind(of: loose.id) == .tag)
     }
 
     // Kept in rank order: a label that would touch one already kept is skipped, and a skipped

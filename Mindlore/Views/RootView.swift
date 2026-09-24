@@ -103,11 +103,18 @@ struct RootView: View {
         // The index is rebuilt when any of the three counters moves: the saver for the editor's own
         // writes, the graph for insights and entity edits, and JournalSaves for every other save
         // path, which is what catches a recording's transcribed text.
-        _ask = State(initialValue: AskService(
+        let ask = AskService(
             resolve: { AIServices.askGenerator(settings: settings, accounts: accounts) },
             revisions: { .init(saver: saver.revision, graph: graph.revision, stamped: JournalSaves.revision) },
             store: AskStore(flush: { saver.flush() })
-        ))
+        )
+        // A note Chat made is finished the moment it exists, so it gets its automatic pass then.
+        ask.onNoteCreated = { note in
+            guard aiPass.fire(for: note, at: .chatNote) else { return }
+            try? context.saveStampingEntries()
+            aiPass.onFlagged?()
+        }
+        _ask = State(initialValue: ask)
         let ingestor = RecordingIngestor()
         _ingestor = State(initialValue: ingestor)
         let fakeRecorder = UITestingRecorder.isEnabled

@@ -14,6 +14,9 @@ final class AIPassTrigger {
         case kept
         case approved
         case launchSweep
+        // A note Chat made at the author's request. Nothing opens or closes for it, so its making
+        // is the moment, the way a recording's Keep card is.
+        case chatNote
     }
 
     @ObservationIgnored private let settings: SettingsStore

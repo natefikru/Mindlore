@@ -73,12 +73,15 @@ struct AudioPlayerView: View {
                     isPlaying = false
                     // A finished player rewinds itself; the playhead goes with it.
                     position = player.currentTime
+                    Self.releaseSession()
                 }
             }
         }
         .onDisappear {
+            let wasPlaying = isPlaying
             player?.stop()
             isPlaying = false
+            if wasPlaying { Self.releaseSession() }
         }
     }
 
@@ -101,6 +104,7 @@ struct AudioPlayerView: View {
         if isPlaying {
             player?.pause()
             isPlaying = false
+            Self.releaseSession()
             return
         }
         do {
@@ -111,6 +115,15 @@ struct AudioPlayerView: View {
         } catch {
             failed = true
         }
+    }
+
+    // Playback holds the audio session only while it plays. Left active, it kept other audio
+    // (another app, a keyboard's voice typing) waiting on this app after the recording stopped.
+    // Only the player's own session: a recording in the accessory holds a `.record` one.
+    private static func releaseSession() {
+        let session = AVAudioSession.sharedInstance()
+        guard session.category == .playback else { return }
+        try? session.setActive(false, options: .notifyOthersOnDeactivation)
     }
 
     private func skip(by seconds: TimeInterval) {

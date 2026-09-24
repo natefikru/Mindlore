@@ -294,16 +294,32 @@ struct LooseEndWriterTests {
                 "only what was still open and untouched goes; the rest is history a rerun reuses")
     }
 
-    @Test func reopeningHandsItBackToTheJournal() throws {
+    // A reopen is the user's call like Done and Let go: no entry's insights close it again.
+    @Test func aReopenedOneStaysTheUsersToClose() throws {
         let early = try entry("early", on: day)
         let reopened = seed("Reopened", from: early)
         reopened.setByUser(.dismissed)
         reopened.setByUser(.open, at: Date(timeIntervalSince1970: 30 * day))
-        #expect(!reopened.userTouched && reopened.isOpen)
+        #expect(reopened.userTouched && reopened.isOpen)
         #expect(reopened.lastMentionedAt == Date(timeIntervalSince1970: 30 * day), "a fresh mention, so it doesn't fade at once")
 
         let later = try entry("later", on: 31 * day)
-        #expect(write(.init(resolved: [reopened.id]), to: later).resolved == 1)
+        #expect(write(.init(mentioned: [reopened.id], resolved: [reopened.id]), to: later) == .init(mentioned: 1))
+        #expect(reopened.isOpen)
+        #expect(reopened.lastMentionedAt == later.entryDate, "still counts as written about")
+    }
+
+    // The entry that settled it can't settle it again on a rerun once the user has reopened it.
+    @Test func aRerunOfTheSettlingEntryLeavesAReopenedOneOpen() throws {
+        let first = try entry("first", on: day)
+        write(.init(new: [.init(text: "Hear from Acme")]), to: first)
+        let id = try looseEnd("Hear from Acme").id
+        let later = try entry("second", on: 3 * day)
+        #expect(write(.init(resolved: [id]), to: later).resolved == 1)
+
+        try looseEnd("Hear from Acme").setByUser(.open, at: Date(timeIntervalSince1970: 4 * day))
+        #expect(write(.init(resolved: [id]), to: later).resolved == 0)
+        #expect(try looseEnd("Hear from Acme").isOpen)
     }
 
     @Test func aMergedEntityResolvesToItsWinnerAndBackAfterUnmerge() throws {

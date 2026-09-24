@@ -55,9 +55,21 @@ struct AskTurnView: View {
 
     var body: some View {
         content
-            .task(id: turn.citedEntryIDs) {
-                refs = AskEntryRefs.refs(turn.citedEntryIDs, in: modelContext)
+            .task(id: referencedIDs) {
+                refs = AskEntryRefs.refs(referencedIDs, in: modelContext)
             }
+    }
+
+    // The cited entries, and the note this answer made or changed, looked up together.
+    private var referencedIDs: [UUID] {
+        turn.citedEntryIDs + [turn.createdNoteID, turn.editedNoteID].compactMap { $0 }
+    }
+
+    // A turn only carries one of these, and only when the note was actually written.
+    private var noteChip: (id: UUID, label: String, identifier: String)? {
+        if let id = turn.createdNoteID { return (id, "Note created", "askCreatedNote") }
+        if let id = turn.editedNoteID { return (id, "Note updated", "askUpdatedNote") }
+        return nil
     }
 
     @ViewBuilder
@@ -90,6 +102,7 @@ struct AskTurnView: View {
                     .background(Palette.card, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
                     .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(Palette.hairline))
                 }
+                createdNote
                 citations
                 footer
             }
@@ -151,6 +164,33 @@ struct AskTurnView: View {
                 }
             }
             .scrollIndicators(.hidden)
+        }
+    }
+
+    // The note the author asked for or asked to change, one tap from the editor. Quiet like the
+    // source chips, and gone once the note is deleted: there is nothing left to open.
+    @ViewBuilder
+    private var createdNote: some View {
+        if let chip = noteChip, let ref = refs[chip.id] {
+            Button { openEntry(chip.id) } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: EntryKind.note.symbol)
+                        .font(.caption2)
+                    Text(chip.label)
+                        .font(.caption2)
+                    Text(verbatim: ref.title)
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                        .lineLimit(1)
+                }
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 5)
+                .background(.quaternary.opacity(0.25), in: Capsule())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(Text(verbatim: "\(chip.label), \(ref.title)"))
+            .accessibilityIdentifier(chip.identifier)
         }
     }
 

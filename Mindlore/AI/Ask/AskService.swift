@@ -34,6 +34,12 @@ nonisolated struct AskTurn: Identifiable, Equatable, Sendable {
     var isStreaming = false
     // The author stopped it partway. Not a failure, so nothing to retry, and no chips.
     var wasStopped = false
+    // The note this answer made, when the author asked for one. It carries the answer's own id
+    // (AskNoteWriter), so a reopened conversation finds it again by looking for that entry.
+    var createdNoteID: UUID?
+    // The note this answer changed. Held for the session only: a reopened conversation can't tell
+    // an edit happened without a field on AskMessage, so its chip does not come back.
+    var editedNoteID: UUID?
 
     // Whether the answer was written from a sample of a larger set, which is what "What was sent"
     // has to say out loud. A digest counts: the model saw the day, in a line.
@@ -119,6 +125,9 @@ final class AskService {
     // the task is what the flag cuts.
     @ObservationIgnored private var stopRequested = false
     @ObservationIgnored private var streamReader: Task<Delivered?, any Error>?
+    // Told about a note Chat has just made and saved, so the app can give it the one automatic
+    // AI pass every finished entry gets. Set by RootView, which owns AIPassTrigger.
+    @ObservationIgnored var onNoteCreated: ((Entry) -> Void)?
 
     static let maxHistoryTurns = 6
 
@@ -166,7 +175,9 @@ final class AskService {
         isSaved = true
         draftQuestion = ""
         focusEntryID = nil
-        turns = AskMessage.all(forConversation: conversation.id, in: context).map {
+        let messages = AskMessage.all(forConversation: conversation.id, in: context)
+        let notes = Self.existingEntryIDs(Set(messages.filter { $0.role == .assistant }.map(\.id)), in: context)
+        turns = messages.map {
             AskTurn(
                 id: $0.id,
                 role: $0.role,
@@ -179,9 +190,17 @@ final class AskService {
                 rollupMonthCount: $0.rollupMonthCount,
                 digestEntryCount: $0.digestEntryCount,
                 failureRaw: $0.failureRaw,
-                wasStopped: $0.wasStopped
+                wasStopped: $0.wasStopped,
+                createdNoteID: notes.contains($0.id) ? $0.id : nil
             )
         }
+    }
+
+    // Which of these ids are entries, for the notes answers made. One fetch for the conversation.
+    private static func existingEntryIDs(_ ids: Set<UUID>, in context: ModelContext) -> Set<UUID> {
+        guard !ids.isEmpty else { return [] }
+        let descriptor = FetchDescriptor<Entry>(predicate: #Predicate { ids.contains($0.id) })
+        return Set(((try? context.fetch(descriptor)) ?? []).filter { !$0.isDeleted }.map(\.id))
     }
 
     func conversations(in context: ModelContext) -> [AskConversation] {
@@ -277,6 +296,7 @@ final class AskService {
             "rangeInherited": .bool(retrievalPlan.rangeWasInherited),
             // What went out, not what was planned: a focus that became a draft since is not sent.
             "focused": .bool(retrievalPlan.focusEntryID.map(built.entryIDs.contains) ?? false),
+            "conversationNotes": .int(retrievalPlan.noteEntryIDs.count),
             "turn": .int(turnIndex),
         ])
         guard !built.isEmpty else {
@@ -291,6 +311,11 @@ final class AskService {
         }
 
         let known = built.handlesSent
+        // The notes this request carried whole, which are the only ones the model may rewrite: a
+        // rewrite of a line or an excerpt would lose every word it wasn't shown.
+        let editableNotes: [String] = provider.kind == .openAI
+            ? selection.entries.filter { $0.isNote && built.wholeEntryIDs.contains($0.id) }.compactMap { built.handle(for: $0.id) }
+            : []
         var request = TextRequest(
             model: provider.model,
             system: AskPrompt.system(
@@ -309,7 +334,7 @@ final class AskService {
         switch provider.kind {
         case .openAI:
             request.messages = history()
-            request.schema = AskPrompt.schema(handles: Array(known))
+            request.schema = AskPrompt.schema(handles: Array(known), editableNotes: editableNotes)
         case .onDevice:
             request.user = AskPrompt.folded(previous: previousTurn(), into: request.user)
         }
@@ -321,7 +346,7 @@ final class AskService {
 
         let delivered: Delivered?
         do {
-            delivered = try await deliver(request, provider: provider, known: known, askedIn: askedIn, turnID: turnID, in: context)
+            delivered = try await deliver(request, provider: provider, known: known, editable: Set(editableNotes), askedIn: askedIn, turnID: turnID, in: context)
         } catch {
             // A cancelled task is not an unreadable answer: without this it stores as the
             // catch-all failure and reads as one.
@@ -359,6 +384,24 @@ final class AskService {
             digestEntryCount: built.digestEntryIDs.count
         )
         turn.wasStopped = delivered.wasStopped
+        // A note only from an answer that arrived whole: a stopped one has no fields to read, and
+        // a failed one never gets here. Written before finish, whose save carries it. This is the
+        // only place either happens, once per answer: a retry replaces a failed answer, which wrote
+        // nothing, and the turn's id is new every time.
+        var createdNote: Entry?
+        var editedNote: (entry: Entry, previousCharacters: Int)?
+        if !delivered.wasStopped, provider.kind == .openAI, let request = answer.note {
+            if let target = request.target {
+                if let id = built.handles[target], let sent = selection.entries.first(where: { $0.id == id }),
+                   let entry = AskNoteWriter.replace(request, id: id, sentText: sent.text, providerLabel: provider.label, now: now(), in: context) {
+                    editedNote = (entry, sent.text.count)
+                    turn.editedNoteID = entry.id
+                }
+            } else {
+                createdNote = AskNoteWriter.insert(request, id: turnID, providerLabel: provider.label, now: now(), in: context)
+                turn.createdNoteID = createdNote?.id
+            }
+        }
         var event: [String: DiagnosticValue] = [
             "entries": .int(built.entryIDs.count),
             "digests": .int(built.digestEntryIDs.count),
@@ -378,6 +421,25 @@ final class AskService {
         }
         diagnostics.record(delivered.wasStopped ? "ask.stopped" : "ask.answered", event)
         finish(question: question, turn: turn, context: built, in: context)
+        if let createdNote {
+            // Counts and bools only. The note's words are the author's, as much as an entry's are.
+            diagnostics.record("ask.noteCreated", [
+                "characters": .int(createdNote.text.count),
+                "hasTitle": .bool(!createdNote.title.isEmpty),
+                "formatted": .bool(createdNote.formattingRaw != nil),
+                "turn": .int(turnIndex),
+            ])
+            onNoteCreated?(createdNote)
+        }
+        if let editedNote {
+            diagnostics.record("ask.noteEdited", [
+                "characters": .int(editedNote.entry.text.count),
+                "previousCharacters": .int(editedNote.previousCharacters),
+                "hasTitle": .bool(!editedNote.entry.title.isEmpty),
+                "formatted": .bool(editedNote.entry.formattingRaw != nil),
+                "turn": .int(turnIndex),
+            ])
+        }
     }
 
     // MARK: - Getting the answer across
@@ -397,6 +459,7 @@ final class AskService {
         _ request: TextRequest,
         provider: AskProvider,
         known: Set<String>,
+        editable: Set<String>,
         askedIn: UUID,
         turnID: UUID,
         in context: ModelContext
@@ -404,7 +467,7 @@ final class AskService {
         guard provider.kind == .openAI, let generator = provider.generator as? any StreamingTextGenerator else {
             let result = try await provider.generator.generate(request)
             let answer = switch provider.kind {
-            case .openAI: try AskAnswerParser.parseJSON(result.text, known: known)
+            case .openAI: try AskAnswerParser.parseJSON(result.text, known: known, editable: editable)
             case .onDevice: AskAnswerParser.parseMarkers(result.text, known: known)
             }
             return Delivered(answer: answer, streamed: false, wasStopped: false, firstDeltaAt: nil)
@@ -436,7 +499,7 @@ final class AskService {
             // because a thumb was a millisecond early would lose its citations for nothing.
             if let result {
                 return Delivered(
-                    answer: try AskAnswerParser.parseJSON(result.text, known: known),
+                    answer: try AskAnswerParser.parseJSON(result.text, known: known, editable: editable),
                     streamed: true,
                     wasStopped: false,
                     firstDeltaAt: firstDeltaAt
@@ -515,9 +578,22 @@ final class AskService {
             provider: provider.kind,
             rollups: true,
             focusEntryID: focusEntryID,
+            noteEntryIDs: provider.kind == .openAI ? conversationNoteIDs : [],
             calendar: calendar
         )
         return (query, plan)
+    }
+
+    // The notes answers in this conversation made or changed, newest first, each once. What lets
+    // "add butter to that list" reach the list whatever the question's words match.
+    private var conversationNoteIDs: [UUID] {
+        var ids: [UUID] = []
+        for turn in turns.reversed() {
+            for id in [turn.editedNoteID, turn.createdNoteID].compactMap({ $0 }) where !ids.contains(id) {
+                ids.append(id)
+            }
+        }
+        return ids
     }
 
     // OpenAI's budget covers the blocks alone. On device the 6,000 is the whole session, so the

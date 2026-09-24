@@ -103,12 +103,6 @@ nonisolated struct GraphEdgeStyle: Hashable, Sendable {
     var opacity: Double { [0.15, 0.25, 0.4, 0.6][opacityBucket] }
 }
 
-// Which colour a node takes: its life area in the window, or grey when it has none there.
-nonisolated enum GraphFill: Hashable, Sendable {
-    case area(LifeArea)
-    case neutral
-}
-
 nonisolated struct GraphDrawPlan: Sendable {
     // Nil when nothing is focused or the focused id is no longer in the simulation.
     let focusedIndex: Int?
@@ -122,9 +116,8 @@ nonisolated struct GraphDrawPlan: Sendable {
     // so focusing a hub doesn't cost a gradient fill per neighbour every frame.
     let glowNodes: [Int]
     let edgeStyles: [GraphEdgeStyle]
-    // Per node index.
-    var fills: [GraphFill] = []
-    // Tags, drawn as small pins with lighter labels.
+    // Tags, drawn as small pins with lighter labels. A node's colour is its kind, read straight
+    // off the simulation's node, so the plan carries no fills.
     var tagNodes: Set<Int> = []
 
     static let empty = GraphDrawPlan(focusedIndex: nil, litNodes: [], litEdges: [], rankedLabels: [], glowNodes: [], edgeStyles: [])
@@ -132,10 +125,10 @@ nonisolated struct GraphDrawPlan: Sendable {
     var hasFocus: Bool { focusedIndex != nil }
 }
 
-// Recomputes the plan only when the simulation's topology, the focus, or the areas change, so a
-// frame pays for a key comparison, never for sorting or neighbour walks. Zoom never enters the
-// key: it only picks how much of `rankedLabels` to show. The areas enter by generation, bumped by
-// whoever writes a new map, so a frame never compares dictionaries.
+// Recomputes the plan only when the simulation's topology or the focus change, so a frame pays
+// for a key comparison, never for sorting or neighbour walks. Zoom never enters the key: it only
+// picks how much of `rankedLabels` to show. A kind change is a topology change (the node's kind is
+// part of its identity in `update`), so the tag set never goes stale.
 nonisolated final class GraphDrawCache {
     static let labelCap = 60
     static let focusLabelCap = 24
@@ -144,23 +137,22 @@ nonisolated final class GraphDrawCache {
         let simulation: ObjectIdentifier
         let version: Int
         let focusedID: UUID?
-        let areaGeneration: Int
     }
 
     private var key: Key?
     private var cached = GraphDrawPlan.empty
     private(set) var recomputeCount = 0
 
-    func plan(for simulation: GraphSimulation, focusedID: UUID?, areaOf: [UUID: LifeArea] = [:], areaGeneration: Int = 0) -> GraphDrawPlan {
-        let current = Key(simulation: ObjectIdentifier(simulation), version: simulation.topologyVersion, focusedID: focusedID, areaGeneration: areaGeneration)
+    func plan(for simulation: GraphSimulation, focusedID: UUID?) -> GraphDrawPlan {
+        let current = Key(simulation: ObjectIdentifier(simulation), version: simulation.topologyVersion, focusedID: focusedID)
         if current == key { return cached }
         key = current
-        cached = Self.makePlan(simulation, focusedID: focusedID, areaOf: areaOf)
+        cached = Self.makePlan(simulation, focusedID: focusedID)
         recomputeCount += 1
         return cached
     }
 
-    private static func makePlan(_ simulation: GraphSimulation, focusedID: UUID?, areaOf: [UUID: LifeArea]) -> GraphDrawPlan {
+    private static func makePlan(_ simulation: GraphSimulation, focusedID: UUID?) -> GraphDrawPlan {
         let nodes = simulation.nodes
         let sortKeys = nodes.map(\.id.uuidString)
         func ranksBefore(_ lhs: Int, _ rhs: Int) -> Bool {
@@ -201,7 +193,6 @@ nonisolated final class GraphDrawCache {
             rankedLabels: ranked,
             glowNodes: head,
             edgeStyles: styles,
-            fills: nodes.map { node in areaOf[node.id].map(GraphFill.area) ?? .neutral },
             tagNodes: Set(nodes.indices.filter { nodes[$0].kind == .tag })
         )
     }

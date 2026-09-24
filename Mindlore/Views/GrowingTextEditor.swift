@@ -30,6 +30,9 @@ struct GrowingTextEditor: UIViewRepresentable {
     // (a tap on the text being read) and at the end of the text otherwise.
     var focusAtEndToken: Int
     var focusOffset: Int? = nil
+    // False while something covers the journal (the app lock): focus the app took with it when it
+    // left waits until then, so a keyboard never opens over the lock cover.
+    var canRestoreFocus = true
     // The format bar goes away while a recording sits in the accessory: the two would stack.
     var showsFormatBar = true
     // Names to link while reading.
@@ -71,6 +74,10 @@ struct GrowingTextEditor: UIViewRepresentable {
         tap.delegate = coordinator
         view.addGestureRecognizer(tap)
         coordinator.load(text, formatting, into: view)
+        // Selector observers are removed with the coordinator.
+        NotificationCenter.default.addObserver(coordinator, selector: #selector(Coordinator.appWillResignActive), name: UIApplication.willResignActiveNotification, object: nil)
+        NotificationCenter.default.addObserver(coordinator, selector: #selector(Coordinator.appDidBecomeActive), name: UIApplication.didBecomeActiveNotification, object: nil)
+        NotificationCenter.default.addObserver(coordinator, selector: #selector(Coordinator.inputModeChanged), name: UITextInputMode.currentInputModeDidChangeNotification, object: nil)
         return view
     }
 
@@ -133,6 +140,8 @@ struct GrowingTextEditor: UIViewRepresentable {
         } else if isEditable && isFocused && !view.isFirstResponder && !coordinator.resignedByUser {
             view.becomeFirstResponder()
         }
+        // The lock lifting is an update, not an activation, so a focus held back for it comes here.
+        if canRestoreFocus { coordinator.restoreFocusIfNeeded() }
     }
 
     func sizeThatFits(_ proposal: ProposedViewSize, uiView: UITextView, context: Context) -> CGSize? {
@@ -161,6 +170,12 @@ struct GrowingTextEditor: UIViewRepresentable {
         // The keyboard went away by the user's hand (a drag on the scroll view, the Done button),
         // so a stale focus flag must not bring it straight back.
         var resignedByUser = false
+        // The selection the view was editing with when the app went inactive, until the app is
+        // back. A third-party keyboard's voice typing (Gboard's microphone key) switches to the
+        // keyboard's own app to record and then types into this view through the keyboard once
+        // the user comes back, so coming back must find the view still editing with the caret where
+        // it was. UIKit can end editing while the app is away; that is not the user's hand.
+        var focusToRestore: NSRange?
         // Carries the block of an empty last paragraph; see the note at the top of the file.
         static let sentinelKey = NSAttributedString.Key("mindlore.sentinel")
 
@@ -182,6 +197,17 @@ struct GrowingTextEditor: UIViewRepresentable {
         private var typingInline: FormattingStyle.Inline = []
         // Set by the delegate before an edit, read after it to normalise what changed.
         private var pendingEdit: (range: NSRange, inserted: Int, crossesParagraphs: Bool)?
+        // What the system's dictation has written so far, normalised once it finishes. The
+        // microphone in the bar under a third-party keyboard (and the one on Apple's) switches the
+        // view into dictation, which streams its text in and revises it as it goes; restyling the
+        // storage or moving the selection under it makes UIKit treat the text as changed from
+        // outside and end dictation at once, which is what made the button look dead.
+        private var dictatedRange: NSRange?
+        private var dictationChangedUnseen = false
+
+        static func isDictating(_ textView: UITextView) -> Bool {
+            textView.textInputMode?.primaryLanguage == "dictation"
+        }
 
         init(_ parent: GrowingTextEditor) {
             self.parent = parent
@@ -230,6 +256,11 @@ struct GrowingTextEditor: UIViewRepresentable {
         func textViewDidChange(_ textView: UITextView) {
             // Always recorded, including while text is marked: inline predictions and dictation mark
             // text as you type, and skipping those would lose what was typed.
+            if Self.isDictating(textView) {
+                noteDictated(textView)
+                report(from: textView)
+                return
+            }
             normaliseAfterEdit(textView)
             syncSentinel(textView)
             report(from: textView)
@@ -245,7 +276,7 @@ struct GrowingTextEditor: UIViewRepresentable {
         }
 
         func textViewDidChangeSelection(_ textView: UITextView) {
-            guard textView.markedTextRange == nil else { return }
+            guard textView.markedTextRange == nil, !Self.isDictating(textView) else { return }
             // Never past the sentinel: typing goes in front of it, into its paragraph.
             let end = (Self.plain(textView.textStorage) as NSString).length
             if textView.selectedRange.length == 0, textView.selectedRange.location > end {
@@ -264,8 +295,86 @@ struct GrowingTextEditor: UIViewRepresentable {
             parent.onFocusChange(true)
         }
 
+        // Between the app going inactive and becoming active again, when nothing is restored.
+        private var appIsAway = false
+
+        @objc func appWillResignActive() {
+            appIsAway = true
+            // Not cleared when the view isn't editing: after a trip away with the app lock on, the
+            // Face ID sheet makes the app inactive again while the focus is still held back.
+            guard let view, view.isEditable, view.isFirstResponder else { return }
+            focusToRestore = view.selectedRange
+        }
+
+        @objc func appDidBecomeActive() {
+            appIsAway = false
+            guard parent.canRestoreFocus else { return }
+            restoreFocusIfNeeded()
+        }
+
+        func restoreFocusIfNeeded() {
+            guard let selection = focusToRestore, !appIsAway else { return }
+            focusToRestore = nil
+            guard let view, view.isEditable, !view.isFirstResponder, view.window != nil else { return }
+            let end = Self.plain(view.textStorage).utf16.count
+            let location = min(selection.location, end)
+            view.selectedRange = NSRange(location: location, length: min(selection.length, end - location))
+            resignedByUser = false
+            view.becomeFirstResponder()
+            DiagnosticsLog.shared.record("editor.focusRestored")
+        }
+
+        // MARK: Dictation
+
+        // Leaves the storage alone while dictation runs and remembers the span it touched, moved
+        // along by each later edit, so nothing it wrote goes without its paragraph's formatting.
+        private func noteDictated(_ textView: UITextView) {
+            guard let edit = pendingEdit else {
+                dictationChangedUnseen = true
+                return
+            }
+            pendingEdit = nil
+            let start = edit.range.location
+            var end = start + edit.inserted
+            if let previous = dictatedRange {
+                var previousEnd = NSMaxRange(previous)
+                if start <= previousEnd { previousEnd += edit.inserted - edit.range.length }
+                end = max(end, previousEnd)
+                dictatedRange = NSRange(location: min(start, previous.location), length: max(0, end - min(start, previous.location)))
+            } else {
+                dictatedRange = NSRange(location: start, length: edit.inserted)
+            }
+        }
+
+        @objc func inputModeChanged() {
+            // The input mode reports the switch back a moment after the notification.
+            DispatchQueue.main.async { [weak self] in self?.finishDictationIfEnded() }
+        }
+
+        // Once dictation has handed the keyboard back, what it wrote is normalised the way a
+        // typed edit is: its paragraphs re-marked, the sentinel kept in place, the result reported.
+        func finishDictationIfEnded() {
+            guard let view, dictatedRange != nil || dictationChangedUnseen, !Self.isDictating(view), view.markedTextRange == nil else { return }
+            let length = (view.textStorage.string as NSString).length
+            if let range = dictatedRange {
+                let location = min(range.location, length)
+                let clamped = NSRange(location: location, length: min(range.length, length - location))
+                pendingEdit = (clamped, clamped.length, true)
+                normaliseAfterEdit(view)
+            } else {
+                restyleAll()
+                applyTypingAttributes(view)
+            }
+            dictatedRange = nil
+            dictationChangedUnseen = false
+            syncSentinel(view)
+            report(from: view)
+        }
+
         func textViewDidEndEditing(_ textView: UITextView) {
-            resignedByUser = true
+            finishDictationIfEnded()
+            // Ended by UIKit while the app was away, not by the user: coming back restores it.
+            resignedByUser = focusToRestore == nil
             bar.model.mention = nil
             // A tag the text ends on has nothing typed after it; leaving the field completes it.
             let text = Self.plain(textView.textStorage)
@@ -412,7 +521,19 @@ struct GrowingTextEditor: UIViewRepresentable {
                     list = (textView.textStorage.attribute(.paragraphStyle, at: range.location, effectiveRange: nil) as? NSParagraphStyle)?.textLists.first
                 }
             }
-            textView.typingAttributes = FormattingStyle.typingAttributes(paragraph: paragraph, inline: typingInline, list: list, fonts: fonts, palette: palette)
+            let attributes = FormattingStyle.typingAttributes(paragraph: paragraph, inline: typingInline, list: list, fonts: fonts, palette: palette)
+            // Only when something UIKit keeps would change (it drops the custom keys anyway): a
+            // needless reset mid-dictation is one more outside change under it.
+            let kept: [NSAttributedString.Key] = [.font, .foregroundColor, .paragraphStyle, .strikethroughStyle]
+            let current = textView.typingAttributes
+            let unchanged = kept.allSatisfy { key in
+                switch (current[key] as? NSObject, attributes[key] as? NSObject) {
+                case (nil, nil): true
+                case let (lhs?, rhs?): lhs.isEqual(rhs)
+                default: false
+                }
+            }
+            if !unchanged { textView.typingAttributes = attributes }
         }
 
         // After UIKit applied an edit: the characters it inserted carry no custom keys, so the
@@ -426,6 +547,18 @@ struct GrowingTextEditor: UIViewRepresentable {
             pendingEdit = nil
             guard textView.markedTextRange == nil else { return }
             let inserted = NSRange(location: edit.range.location, length: min(edit.inserted, max(0, string.length - edit.range.location)))
+            // Plain words into a plain paragraph already carry what UIKit's typing attributes gave
+            // them, which is all this would write. Leaving the storage untouched there is what
+            // keeps Apple's dictation running: on its keyboard it streams text in with the keyboard
+            // still up (the input mode never reads "dictation"), and any write to the storage
+            // under it ends it.
+            if typingInline.isEmpty, !edit.crossesParagraphs {
+                let current = paragraph(at: inserted.location, in: textView)
+                if current.block == nil, current.indent == 0 {
+                    applyTypingAttributes(textView)
+                    return
+                }
+            }
             if inserted.length > 0 {
                 FormattingStyle.setInline(typingInline, in: inserted, of: storage, fonts: fonts, block: nil)
             }
@@ -446,7 +579,12 @@ struct GrowingTextEditor: UIViewRepresentable {
                 let range = FormattingStyle.paragraphRange(at: inserted.location, in: string)
                 let withNewline = NSRange(location: range.location, length: min(range.length + 1, string.length - range.location))
                 let paragraph = paragraph(at: inserted.location, in: textView)
-                let list = (storage.attribute(.paragraphStyle, at: min(range.location, max(0, string.length - 1)), effectiveRange: nil) as? NSParagraphStyle)?.textLists.first
+                // Read from the paragraph's first character, or the last one when the paragraph is
+                // the empty one at the end. Backspace over the only character leaves no character
+                // at all, and asking an empty storage for an attribute at 0 raises NSRangeException:
+                // that crash is what clearing a new entry by backspace did.
+                let probe = min(range.location, string.length - 1)
+                let list = probe >= 0 ? (storage.attribute(.paragraphStyle, at: probe, effectiveRange: nil) as? NSParagraphStyle)?.textLists.first : nil
                 FormattingStyle.style(withNewline, paragraph: paragraph, list: list, in: storage, fonts: fonts, palette: palette)
             }
             applyTypingAttributes(textView)

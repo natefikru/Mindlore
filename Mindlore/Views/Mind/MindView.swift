@@ -2,7 +2,7 @@ import SwiftData
 import SwiftUI
 
 // The Mind tab: the whole journal's map, full screen, with a search panel pulled up from the
-// bottom. Each channel means one thing: colour is life area, shape is kind (a tag is a small pin), size
+// bottom. Each channel means one thing: colour is kind (tags a small dark pin), size
 // is how many entries in the window name it, and the window control at the top is time. Tapping a
 // node or a result focuses it and shows its card; the trail of focuses is the breadcrumb row.
 // Entity pages push onto the router's Mind path.
@@ -17,8 +17,6 @@ struct MindView: View {
     @State private var simulation: GraphSimulation?
     @State private var version = 0
     @State private var names: [UUID: String] = [:]
-    @State private var areaOf: [UUID: LifeArea] = [:]
-    @State private var areaGeneration = 0
     @State private var arrivedAt: [UUID: Date] = [:]
     // Names a journal entry has at all, whatever the window does with them: what tells an empty
     // map apart from a quiet stretch, and a name only notes carry from one the window hides.
@@ -46,20 +44,19 @@ struct MindView: View {
     // Grows with the text size, or the peek card's name, details, and bio clip at accessibility
     // sizes. Capped so the map keeps some room.
     static var cardHeight: CGFloat { min(UIFontMetrics.default.scaledValue(for: 260), 460) }
-    private static let topBarHeight: CGFloat = 52
+    private static let topBarHeight: CGFloat = 56
     private static let crumbRowHeight: CGFloat = 36
 
     private struct RefreshKey: Equatable {
         let revision: Int
         let window: MindWindow
         let segment: EntitySearch.Segment
-        let visibleAreas: [LifeArea]
         // Who the author is, so "what changed" never lists them.
         let userName: String
     }
 
     private var refreshKey: RefreshKey {
-        RefreshKey(revision: graph.revision, window: window, segment: segment, visibleAreas: settings.visibleLifeAreas, userName: settings.userName)
+        RefreshKey(revision: graph.revision, window: window, segment: segment, userName: settings.userName)
     }
 
     var body: some View {
@@ -106,6 +103,10 @@ struct MindView: View {
             .onDisappear { endReplay(finished: false) }
             .toolbar(.hidden, for: .navigationBar)
             .navigationDestination(for: EntityRoute.self) { EntityView(route: $0) }
+            // Tidy up's questions, presented from the map inside the stack.
+            .sheet(isPresented: $tidyingUp, onDismiss: refreshReview) {
+                TidyUpView(skipped: $skipped, hidden: tidyHidden, open: { router.mindPath.append(EntityRoute(id: $0)) })
+            }
         }
         .environment(\.entityRouteReplacer, EntityRouteReplacer { loser, winner in
             router.replaceInMind(loser, with: winner)
@@ -113,9 +114,6 @@ struct MindView: View {
         })
         .task(id: refreshKey) { refresh() }
         .onChange(of: skipped) { refreshReview() }
-        .sheet(isPresented: $tidyingUp, onDismiss: refreshReview) {
-            TidyUpView(skipped: $skipped, hidden: tidyHidden, open: { router.mindPath.append(EntityRoute(id: $0)) })
-        }
         .onChange(of: router.mindFocusRequest?.token) {
             // Ending the replay refreshes, and the refresh takes the request.
             if player.isRunning { endReplay(finished: false) } else { takeFocusRequest() }
@@ -145,8 +143,6 @@ struct MindView: View {
                         }
                     }
                 ),
-                areaOf: areaOf,
-                areaGeneration: areaGeneration,
                 arrivedAt: arrivedAt,
                 recentreToken: MindWindow.allCases.firstIndex(of: window) ?? 0,
                 animating: player.isRunning,
@@ -260,9 +256,11 @@ struct MindView: View {
 
     // One glass capsule holding the four stretches; the chosen one sits in a tinted capsule that
     // slides between them rather than jumping. A replay plays the chosen one, so it stays chosen;
-    // tapping any stretch ends the replay on it.
+    // tapping any stretch ends the replay on it. Each stretch is a full 44pt tall and at least 48
+    // wide, and the whole padded capsule takes the tap, not just the word (owner, 2026-09-24: the
+    // old 30pt strips were hard to hit). No gap between them, so a tap never lands on nothing.
     private var windowControl: some View {
-        HStack(spacing: 2) {
+        HStack(spacing: 0) {
             ForEach(MindWindow.allCases, id: \.self) { option in
                 let selected = option == window
                 Button {
@@ -272,8 +270,11 @@ struct MindView: View {
                     Text(option.title)
                         .font(.subheadline.weight(selected ? .semibold : .regular))
                         .foregroundStyle(selected ? .primary : .secondary)
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 7)
+                        .lineLimit(1)
+                        // Room for the play and Tidy up buttons on the narrowest phone.
+                        .minimumScaleFactor(0.8)
+                        .padding(.horizontal, 14)
+                        .frame(minWidth: 48, minHeight: 44)
                         .background {
                             if selected {
                                 Capsule()
@@ -281,13 +282,14 @@ struct MindView: View {
                                     .matchedGeometryEffect(id: "selectedWindow", in: glass)
                             }
                         }
+                        .contentShape(Capsule())
                 }
                 .buttonStyle(.plain)
                 .accessibilityIdentifier("mindWindow-\(option.rawValue)")
                 .accessibilityAddTraits(selected ? .isSelected : [])
             }
         }
-        .padding(3)
+        .padding(2)
         .glassEffect(.regular.interactive(), in: Capsule())
         // Four words across one row: past the largest standard size they truncated to "M…" and
         // "Y…". VoiceOver and Large Content Viewer still read the full titles.
@@ -338,7 +340,7 @@ struct MindView: View {
             names[id] = EntityDirectory(in: modelContext).entity(id)?.name
         }
         trail.focus(id)
-        panelStop = .peek
+        withAnimation(Motion.resolve(.snappy(duration: 0.3), reduceMotion: reduceMotion)) { panelStop = .peek }
         graph.recordMindFocused(source: source, onMap: simulation?.index(of: id) != nil)
     }
 
@@ -357,12 +359,9 @@ struct MindView: View {
         var nodes: [GraphSimulation.Node]
         var edges: [EntityGraph.Edge]
         var names: [UUID: String]
-        // Only the nodes on the map, and only areas the user hasn't hidden: a hidden area's names
-        // draw neutral rather than in a colour the rest of the app no longer shows.
-        var areaOf: [UUID: LifeArea]
     }
 
-    static func frame(_ snapshot: MindMapSnapshot, window: MindWindow, segment: EntitySearch.Segment, visibleAreas: [LifeArea], asOf: Date) -> Frame {
+    static func frame(_ snapshot: MindMapSnapshot, window: MindWindow, segment: EntitySearch.Segment, asOf: Date) -> Frame {
         let kinds = segment == .all ? nil : Set(EntityKind.allCases.filter(segment.includes))
         let data = MindMap.graph(
             snapshot,
@@ -371,11 +370,7 @@ struct MindView: View {
             minimumLinkCount: MindMap.minimumMentions(browsableCount: snapshot.linkedEntityIDs.count),
             asOf: asOf
         )
-        let onMap = Set(data.nodes.map(\.id))
-        let visible = Set(visibleAreas)
-        let areaOf = MindStats.areas(snapshot, window: window, asOf: asOf)
-            .filter { onMap.contains($0.key) && visible.contains($0.value) }
-        return Frame(nodes: data.nodes, edges: data.edges, names: data.names, areaOf: areaOf)
+        return Frame(nodes: data.nodes, edges: data.edges, names: data.names)
     }
 
     // The first load builds the simulation; every change after that updates it in place, so
@@ -391,7 +386,7 @@ struct MindView: View {
         let key = refreshKey
         let snapshot = graph.mapSnapshot(in: modelContext)
         replayAvailable = MindReplay(snapshot: snapshot, window: window, end: now) != nil
-        let frame = Self.frame(snapshot, window: window, segment: segment, visibleAreas: settings.visibleLifeAreas, asOf: now)
+        let frame = Self.frame(snapshot, window: window, segment: segment, asOf: now)
         // Only a change the journal made blooms; a window or kind change reveals names that are
         // not new.
         let sameView = loadedKey.map { $0.window == key.window && $0.segment == key.segment } ?? false
@@ -455,10 +450,6 @@ struct MindView: View {
             names[id] = self.names[id]
         }
         if names != self.names { self.names = names }
-        if frame.areaOf != areaOf {
-            areaOf = frame.areaOf
-            areaGeneration += 1
-        }
         if snapshot.linkedEntityIDs != journalNamed { journalNamed = snapshot.linkedEntityIDs }
 
         if let simulation {
@@ -487,7 +478,7 @@ struct MindView: View {
         while !Task.isCancelled {
             let stepStart = clock.now
             guard let step = player.step(elapsed: (stepStart - began).seconds) else { return }
-            let frame = Self.frame(step.snapshot, window: .all, segment: segment, visibleAreas: settings.visibleLifeAreas, asOf: step.asOf)
+            let frame = Self.frame(step.snapshot, window: .all, segment: segment, asOf: step.asOf)
             show(frame, snapshot: step.snapshot, publish: MindReplay.publishes(step: player.stepSeconds.count) || step.finished, blooms: false)
             player.noteStep(seconds: (clock.now - stepStart).seconds)
             if step.finished {
@@ -537,7 +528,11 @@ private struct TidyUpButton: View {
         Button(action: action) {
             Image(systemName: "sparkles")
                 .font(.body.weight(.semibold))
-                .frame(width: 40, height: 40)
+                .frame(width: 44, height: 44)
+                // A plain button takes touches only where its label draws, and glass doesn't
+                // count: without this only the glyph and the badge were tappable, and a tap
+                // between them fell through to the map and cleared its focus.
+                .contentShape(Circle())
                 .glassEffect(.regular.interactive(), in: Circle())
                 .glassEffectID("tidyUp", in: glass)
                 .overlay(alignment: .topTrailing) {

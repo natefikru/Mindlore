@@ -25,7 +25,8 @@ final class LooseEnd {
     var statusChangedAt: Date?
     var lastMentionedAt: Date = Date.distantPast
     var promptedAt: Date?
-    // Marked done or let go by hand. Regenerating or deleting an entry never overrides that.
+    // Marked done, let go, or reopened by hand. Regenerating or deleting an entry never overrides
+    // that, and no entry's insights settle it afterwards.
     var userTouched: Bool = false
 
     init(text: String, sourceEntryID: UUID, sourceEntryDate: Date, entityIDs: [UUID] = [], dueDate: Date? = nil) {
@@ -51,27 +52,48 @@ final class LooseEnd {
         resolvedByEntryID = status == .resolved ? entryID : nil
     }
 
-    // The user's own call: done or let go. Reopening hands it back to the journal, so a later
-    // entry can settle it again, and counts as a fresh mention so it doesn't fade on the spot.
+    // The user's own call: done, let go, or reopened. Every caller (Today's thread card, the
+    // insights sheet, an entity page, Reflect's Loose ends) goes through here, so the rule is one
+    // rule. A reopen is the user's call too (2026-09-24): it stays touched, so the entry
+    // that settled it can't settle it again on a rerun and no later entry's insights close it
+    // behind their back; only the user closes it, or it fades. It counts as a fresh mention and
+    // restarts the fade clock (`reopenedAt`, read by `fadeDate`), so the next launch sweep doesn't
+    // fade it again on the spot, even when its due date is long past.
     func setByUser(_ status: LooseEndStatus, at date: Date = .now) {
         setStatus(status, at: date)
-        userTouched = status != .open
+        userTouched = true
         if status == .open {
             lastMentionedAt = max(lastMentionedAt, date)
         }
+    }
+
+    // When the user reopened it, while it is still open because they did. No stored field: an open
+    // loose end the user touched can only have got there by a reopen, and that reopen is its last
+    // status change.
+    var reopenedAt: Date? {
+        isOpen && userTouched ? statusChangedAt : nil
+    }
+
+    // When it fades if nothing touches it first. The sweep and every card read this.
+    var fadeDate: Date {
+        LooseEndFading.date(dueDate: dueDate, lastMentionedAt: lastMentionedAt, reopenedAt: reopenedAt)
     }
 }
 
 // When an open loose end fades if nothing touches it first. One rule, read by the sweep that
 // fades it and by the card that says when it will, so the two can never disagree. A dated one
 // waits for its day however quiet it is, then gets a week; an undated one fades six weeks after
-// it was last written about, which is why writing about it moves the date.
+// it was last written about, which is why writing about it moves the date. One the user reopened
+// gets at least the same room again from the reopen: six weeks undated, a week when dated, so a
+// thread reopened after its day has passed isn't faded by the very next sweep.
 nonisolated enum LooseEndFading {
     static let afterSilence: TimeInterval = 42 * 86_400
     static let afterDue: TimeInterval = 7 * 86_400
 
-    static func date(dueDate: Date?, lastMentionedAt: Date) -> Date {
-        dueDate.map { $0.addingTimeInterval(afterDue) } ?? lastMentionedAt.addingTimeInterval(afterSilence)
+    static func date(dueDate: Date?, lastMentionedAt: Date, reopenedAt: Date? = nil) -> Date {
+        let rule = dueDate.map { $0.addingTimeInterval(afterDue) } ?? lastMentionedAt.addingTimeInterval(afterSilence)
+        guard let reopenedAt else { return rule }
+        return max(rule, reopenedAt.addingTimeInterval(dueDate == nil ? afterSilence : afterDue))
     }
 }
 
@@ -155,7 +177,7 @@ extension LooseEnd {
     }
 
     static func shouldFade(_ looseEnd: LooseEnd, now: Date) -> Bool {
-        now > LooseEndFading.date(dueDate: looseEnd.dueDate, lastMentionedAt: looseEnd.lastMentionedAt)
+        now > looseEnd.fadeDate
     }
 }
 

@@ -197,6 +197,21 @@ struct GrowingTextEditorTests {
         #expect(view.text.isEmpty, "the hidden space went with the bullet")
     }
 
+    // Backspace over the last character leaves the storage empty, and the edit path used to read
+    // an attribute at 0 of it, which raises: clearing a new entry crashed the app (the UI tests
+    // that type a word and delete it died there). Bold, so the edit goes past the plain-text
+    // shortcut and into the restyle.
+    @Test func backspacingAwayTheLastCharacterLeavesAnEmptyEntry() {
+        let (view, coordinator, holder) = makeReporting("")
+        coordinator.perform(.inline(.bold))
+        type("Go", into: view, coordinator)
+        #expect(holder.text == "Go")
+        deleteBackward(in: view, coordinator)
+        deleteBackward(in: view, coordinator)
+        #expect(holder.text.isEmpty)
+        #expect(view.textStorage.length == 0)
+    }
+
     // A list Return goes around UIKit's own editing, so it registers its own undo step.
     @Test func undoAndRedoAListReturn() throws {
         let (view, coordinator, holder) = makeReporting("Milk", EntryFormatting(paragraphs: [.init(index: 0, block: .number)]))

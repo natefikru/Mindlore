@@ -38,6 +38,8 @@ nonisolated struct LooseEndFacts: Equatable, Sendable, Identifiable {
     let lastMentionedAt: Date
     let dueDate: Date?
     let resolvedByEntryID: UUID?
+    // Set while it is open because the user reopened it (`LooseEnd.reopenedAt`).
+    let reopenedAt: Date?
 
     init(
         id: UUID,
@@ -47,7 +49,8 @@ nonisolated struct LooseEndFacts: Equatable, Sendable, Identifiable {
         sourceEntryDate: Date,
         lastMentionedAt: Date? = nil,
         dueDate: Date? = nil,
-        resolvedByEntryID: UUID? = nil
+        resolvedByEntryID: UUID? = nil,
+        reopenedAt: Date? = nil
     ) {
         self.id = id
         self.text = text
@@ -57,11 +60,12 @@ nonisolated struct LooseEndFacts: Equatable, Sendable, Identifiable {
         self.lastMentionedAt = lastMentionedAt ?? sourceEntryDate
         self.dueDate = dueDate
         self.resolvedByEntryID = resolvedByEntryID
+        self.reopenedAt = reopenedAt
     }
 
     // When it fades if nothing touches it first, by the same rule the sweep applies.
     var fadeDate: Date {
-        LooseEndFading.date(dueDate: dueDate, lastMentionedAt: lastMentionedAt)
+        LooseEndFading.date(dueDate: dueDate, lastMentionedAt: lastMentionedAt, reopenedAt: reopenedAt)
     }
 }
 

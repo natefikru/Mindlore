@@ -14,10 +14,6 @@ struct GraphCanvasView: View {
     var version: Int = 0
     let namer: (UUID) -> String?
     @Binding var focusedID: UUID?
-    // Each node's life area in the window; colour always means area. `areaGeneration` is bumped
-    // with every new map so the draw cache never compares the dictionary.
-    var areaOf: [UUID: LifeArea] = [:]
-    var areaGeneration = 0
     // Nodes that have just joined the map, against the moment they joined: they scale and fade up
     // out of the spot the simulation put them in. The caller decides what counts as joining; see
     // `MindView.show`.
@@ -49,6 +45,9 @@ struct GraphCanvasView: View {
     }
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    // Read so an appearance change (the app's own Light/Dark override as well as the system's)
+    // wakes a canvas that has paused: the kind colours resolve per frame against this.
+    @Environment(\.colorScheme) private var colorScheme
     @State private var camera = GraphCamera()
     @State private var cache = GraphDrawCache()
     @State private var sampler = FrameTimeSampler()
@@ -68,12 +67,11 @@ struct GraphCanvasView: View {
     @GestureState private var pinchLive = false
 
     private static let focusDim = 0.15
-    private static let neutralOpacity = 0.6
     // A tag's name is lighter than a person's or a place's, the way its node is only a pin.
     private static let tagLabelOpacity = 0.6
 
     private var currentPlan: GraphDrawPlan {
-        cache.plan(for: simulation, focusedID: focusedID, areaOf: areaOf, areaGeneration: areaGeneration)
+        cache.plan(for: simulation, focusedID: focusedID)
     }
 
     var body: some View {
@@ -138,7 +136,7 @@ struct GraphCanvasView: View {
             flyToFocus()
             wake()
         }
-        .onChange(of: areaGeneration) { wake() }
+        .onChange(of: colorScheme) { wake() }
         .onChange(of: animating) { _, on in
             activity.animating = on
             wake()
@@ -207,13 +205,6 @@ struct GraphCanvasView: View {
         return plan.rankedLabels.map { nodes[$0].id }
     }
 
-    private func color(_ fill: GraphFill) -> Color {
-        switch fill {
-        case .area(let area): area.color
-        case .neutral: .gray
-        }
-    }
-
     private func draw(in context: inout GraphicsContext, center: SIMD2<Double>, plan: GraphDrawPlan) {
         let nodes = simulation.nodes
         let zoom = camera.zoom
@@ -252,7 +243,7 @@ struct GraphCanvasView: View {
 
         // Glow behind the lit nodes: a gradient fill, no blur filter.
         for index in plan.glowNodes {
-            let color = color(plan.fills[index])
+            let color = nodes[index].kind.color
             let rect = circle(index, scale: 2.2)
             context.fill(
                 Path(ellipseIn: rect),
@@ -267,7 +258,7 @@ struct GraphCanvasView: View {
 
         // Nodes: one path per colour and strength, dimmest first so lit nodes sit on top.
         struct Bucket: Hashable {
-            let fill: GraphFill
+            let kind: EntityKind
             let opacity: Double
         }
         // Nodes that arrived in the last 0.6 s, as indices. Usually one; an entry that named five
@@ -292,16 +283,19 @@ struct GraphCanvasView: View {
                 scale = BloomCurve.scale(at: elapsed, reduceMotion: reduceMotion)
                 opacity *= BloomCurve.opacity(at: elapsed)
             }
-            nodePaths[Bucket(fill: plan.fills[index], opacity: opacity), default: Path()].addEllipse(in: circle(index, scale: scale))
+            nodePaths[Bucket(kind: nodes[index].kind, opacity: opacity), default: Path()].addEllipse(in: circle(index, scale: scale))
         }
         for (bucket, path) in nodePaths.sorted(by: { $0.key.opacity < $1.key.opacity }) {
-            context.fill(path, with: .color(color(bucket.fill).opacity(bucket.opacity * (bucket.fill == .neutral ? Self.neutralOpacity : 1))))
+            context.fill(path, with: .color(bucket.kind.color.opacity(bucket.opacity)))
         }
         if let focusedIndex = plan.focusedIndex {
-            // On a name the ring is its edge. A pin is too small for that: a 2.5pt line on a 3pt
-            // dot reads as a blob, so a focused tag gets a thin ring standing clear of it.
+            // On a name the ring is its edge. A pin is too small for that: a 2.5pt line on a 2pt
+            // dot reads as a blob, so a focused tag gets a thin ring standing a fixed 3.5pt clear
+            // of it at any zoom, big enough to find and never swallowing the dot.
             if plan.tagNodes.contains(focusedIndex) {
-                context.stroke(Path(ellipseIn: circle(focusedIndex, scale: 2)), with: .color(.primary), lineWidth: 1.5)
+                let r = simulation.radius(at: focusedIndex) * zoom + 3.5
+                let ring = CGRect(x: screen[focusedIndex].x - r, y: screen[focusedIndex].y - r, width: r * 2, height: r * 2)
+                context.stroke(Path(ellipseIn: ring), with: .color(.primary), lineWidth: 1.5)
             } else {
                 context.stroke(Path(ellipseIn: circle(focusedIndex)), with: .color(.primary), lineWidth: 2.5)
             }

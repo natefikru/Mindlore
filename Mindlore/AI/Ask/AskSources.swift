@@ -166,7 +166,10 @@ enum AskSources {
                     text: entry.text,
                     entityIDs: Array(rootsByEntry[entry.id] ?? []),
                     isCreative: entry.isCreative,
-                    isNote: entry.isNote
+                    isNote: entry.isNote,
+                    markdown: entry.isNote && entry.formattingRaw != nil
+                        ? MarkdownCodec.render(text: entry.text, formatting: entry.formatting)
+                        : nil
                 )
             },
             entities: entities
