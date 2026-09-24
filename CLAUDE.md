@@ -311,12 +311,17 @@ every view and service resolves an entity by fetching its id, never by walking t
 - **Mind** (`Views/Mind/`) is the second tab: one full-screen map where each channel means one
   thing (owner, 2026-09-23; the spec and its measurements are `tasks/mind-overhaul-spec.md`).
   Colour is the name's life area inside the window (grey without one, or when the area is hidden
-  in Settings); shape is kind, a tag drawn as a hollow ring with a lighter label; size is entries
-  in the window; time is the window control at the top (`MindWindow`: Month, 3 months, Year, All;
+  in Settings); shape is kind, a tag drawn as a small filled pin (`GraphSimulation.tagRadius`,
+  one size at any count) with a lighter label; size is entries in the window; time is the window control at the top (`MindWindow`: Month, 3 months, Year, All;
   3 months by default, remembered per launch, never a setting). Edges come only from the window's
-  entries. `GraphServices.mapSnapshot` reads the store once per `revision` into a
-  `MindMapSnapshot`, which also carries every non-draft entry's date (the denominator a share
-  needs); `MindView.frame` (static, pure) turns it into nodes, edges, and areas for the window and
+  entries. **The map reads journal entries only** (owner, 2026-09-23): `buildSnapshot` drops notes
+  and creative pieces, so their names, tags, edges, and share of a shared name never draw, and an
+  entry switched to either kind leaves at the next rebuild (`setKind` bumps `revision`); nothing
+  stored changes, and search, entity pages, Today, and Ask still count every kind.
+  `GraphServices.mapSnapshot` reads the store once per `revision` into a `MindMapSnapshot`, which
+  also carries every non-draft journal entry's date (the denominator a share needs) and
+  `linkedEntityIDs`, the names a journal entry has, which sizes the map and tells an empty map from
+  a quiet stretch (`entities` keeps every browsable name, so the drawer finds the author by name); `MindView.frame` (static, pure) turns it into nodes, edges, and areas for the window and
   the drawer's kind segment. A journal of `MindMap.largeJournal` (60) names or more draws a name
   only with two mentions in the window; the drawer still lists it. The play button left of Month
   (`MindReplayPlayer`) plays the whole journal, first mention to today, whatever the window, over
@@ -385,10 +390,11 @@ flags, `AI/Insights/CreativeSignals.swift`). An entry is a journal entry, a note
 piece, and the kind decides what an insights run is allowed to say about the author's life
 (`EntryKind.keeps*`, applied by `InsightsResult.restrict(to:)` before anything is written). A
 poem, lyrics, or a story is work the author made, not an account of their life, so it keeps its
-title, tags, and a line saying what it is, and gets no names on the map, no area, no mood, no
+title, tags, and a line saying what it is, and gets no names, no area, no mood, no
 loose ends, and no parts (owner, 2026-09-22). A note (a list, a plan, a recipe, notes from a
 meeting) is kept for use rather than telling what happened: it keeps its names, area, loose ends,
 and parts, and carries no mood, so a grocery list never colours Reflect's week (owner,
+2026-09-23). Neither kind puts anything on Mind's map, which reads journal entries only (owner,
 2026-09-23). The insights request asks `entryKind` (life, note, or creative) first. OpenAI's
 answer is trusted; the on-device model's is not: prose is never creative on device, a line over
 15 words means prose, only text laid out like verse gets a second single-question request, and
@@ -454,7 +460,7 @@ love, friends, play, home), at most two per entry, replaced per-entry themes bec
 connected anything. `EntryInsights.areasRaw` stores raw values, which is also what the prompt
 sends; the user's renames and hidden set live in `SettingsStore` (`lifeAreaNames`,
 `hiddenLifeAreas`, `visibleLifeAreas`) and only change display. An entity's area on the map is
-computed, not stored: `MindMap.primaryAreas`, over the areas of the entries it appears in.
+computed, not stored: `MindMap.primaryAreas`, over the areas of the journal entries it appears in.
 
 **Entry dates.** `createdAt` is when the entry reached the app and drives every automation rule. `entryDate` is where it belongs in the journal, editable; a picked day is noon with `entryDateIsDayOnly`, and `EntryDateRepair` fixes any entry whose untouched date drifted. A date written at the top of a photographed page is the day the page was written, so a photo entry takes it without asking while it has no picked day (`!entryDateIsDayOnly`), from the page transcriber first and from the insights run's `writtenDate` (asked for typed and photo entries) as a second reading, whatever the typed-entry "use the suggested date automatically" setting says; once a day is picked, by the user or an earlier pass, a different reading is only offered. Turning "Suggest entry dates" off turns both off. Approving page text also asks for a title through `AIPassTrigger.requestTitle`, whether or not the entry's one automatic pass is already spent, so a photo entry is never left titled by its first line.
 

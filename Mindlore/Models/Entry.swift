@@ -58,7 +58,8 @@ final class Entry {
     // Insights set it, strictly, unless the user has; the user's call is never overridden.
     var isCreative: Bool = false
     // A note: a list, a plan, a reference, kept for use rather than telling what happened. It
-    // keeps its names, area, and loose ends and carries no mood. Never true together with
+    // keeps its names, area, and loose ends and carries no mood. Like creative work it stays off
+    // Mind's map, which reads journal entries only. Never true together with
     // isCreative; `kind` is the one way to read or set them.
     var isNote: Bool = false
     // The user picked the kind (journal, note, or creative). Insights never override it.

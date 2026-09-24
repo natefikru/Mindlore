@@ -124,8 +124,8 @@ nonisolated struct GraphDrawPlan: Sendable {
     let edgeStyles: [GraphEdgeStyle]
     // Per node index.
     var fills: [GraphFill] = []
-    // Tags, drawn as hollow rings with lighter labels; everything else is filled.
-    var ringNodes: Set<Int> = []
+    // Tags, drawn as small pins with lighter labels.
+    var tagNodes: Set<Int> = []
 
     static let empty = GraphDrawPlan(focusedIndex: nil, litNodes: [], litEdges: [], rankedLabels: [], glowNodes: [], edgeStyles: [])
 
@@ -202,7 +202,7 @@ nonisolated final class GraphDrawCache {
             glowNodes: head,
             edgeStyles: styles,
             fills: nodes.map { node in areaOf[node.id].map(GraphFill.area) ?? .neutral },
-            ringNodes: Set(nodes.indices.filter { nodes[$0].kind == .tag })
+            tagNodes: Set(nodes.indices.filter { nodes[$0].kind == .tag })
         )
     }
 }

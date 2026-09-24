@@ -2,7 +2,9 @@ import Foundation
 
 // Everything Mind's map draws, read from the store in one pass (GraphServices.mapSnapshot) and
 // kept as plain values. Merges and hidden entities are already resolved: `links` points at
-// browsable roots only. Entries dated in the future stay in; every builder below filters by its
+// browsable roots only. The map is the author's life, so `links`, `entries`, and `entryDates`
+// come from journal entries only: a note or a creative piece puts nothing on it (owner,
+// 2026-09-23), and an entry switched to either kind leaves at the next rebuild. Entries dated in the future stay in; every builder below filters by its
 // own `asOf`, so a cached snapshot never goes stale just because the clock moved.
 nonisolated struct MindMapSnapshot: Sendable {
     struct EntityInfo: Equatable, Sendable {
@@ -19,18 +21,24 @@ nonisolated struct MindMapSnapshot: Sendable {
         let mood: MoodCategory?
     }
 
+    // Every browsable entity, whether or not a journal entry names it: the drawer finds the
+    // author here by name even before a journal entry does.
     let entities: [UUID: EntityInfo]
     let links: [EntityGraph.LinkInput]
     let entries: [UUID: EntryInfo]
-    // The date of every non-draft entry, linked or not: the "of your last M entries" a share is
-    // measured against. `entries` only holds the ones something links to.
+    // The date of every non-draft journal entry, linked or not: the "of your last M entries" a
+    // share is measured against. `entries` only holds the ones something links to.
     let entryDates: [Date]
+    // The entities a journal entry names, which is everything the map can ever draw.
+    // `entities` also holds names only notes and creative pieces carry, which never draw.
+    let linkedEntityIDs: Set<UUID>
 
     init(entities: [UUID: EntityInfo], links: [EntityGraph.LinkInput], entries: [UUID: EntryInfo], entryDates: [Date] = []) {
         self.entities = entities
         self.links = links
         self.entries = entries
         self.entryDates = entryDates
+        linkedEntityIDs = Set(links.map(\.entityID))
     }
 
     static let empty = MindMapSnapshot(entities: [:], links: [], entries: [:])

@@ -4,7 +4,8 @@ import Foundation
 // something kept for use (a list, a plan, a recipe, notes from a meeting or a book), and a
 // creative piece is work the author made (a poem, lyrics, a story). The kind decides which
 // insights are taken as facts about the author's life: a grocery list carries no mood, and a lyric
-// puts nobody on the map. Stored on the entry as two flags, `isNote` and `isCreative`, because
+// puts nobody on the map. Mind's map reads journal entries only, so neither a note nor a creative
+// piece draws anything there (owner, 2026-09-23). Stored on the entry as two flags, `isNote` and `isCreative`, because
 // everything that reads `isCreative` already keys off it.
 nonisolated enum EntryKind: String, CaseIterable, Codable, Sendable {
     case journal
@@ -31,7 +32,7 @@ nonisolated enum EntryKind: String, CaseIterable, Codable, Sendable {
     var meaning: String {
         switch self {
         case .journal: "An account of your day: moods, names, and open threads all count."
-        case .note: "Something kept for use, like a list or a plan. Names and open threads count; it carries no mood."
+        case .note: "Something kept for use, like a list or a plan. Open threads count; it carries no mood and stays off the map."
         case .creative: "A poem, lyrics, or a story. Its names, moods, and threads are never taken as your life."
         }
     }

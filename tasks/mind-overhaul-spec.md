@@ -78,7 +78,9 @@ counts. Nothing on the screen answers the questions the data can: who and what f
 how it connects, and what changed.
 
 Owner decisions (2026-09-23): the map stays the centerpiece. Color always means life area. Kind is
-shape: tags are hollow rings with lighter labels, everything else filled. Time is a window control
+shape: tags are hollow rings with lighter labels, everything else filled (later the same day:
+tags became small filled pins, and the map reads journal entries only; see
+`tasks/mind-journal-only.md`). Time is a window control
 (Month, 3 months, Year, All) that replaces the replay. The drawer holds search, a "what changed"
 row, a ranked list with sparklines and kind chips, and a Tidy up row. In scope too: a richer peek
 card and an entity page that leads with insight, with admin moved under Edit. Island labels are
@@ -172,7 +174,7 @@ asserts the headline arc (for 3 months: running more lately; Greg quieter).
 - Fill by area: `GraphFill` gains `.area(LifeArea)`; `GraphDrawCache.makePlan` (around line 251)
   takes `areaOf: [UUID: LifeArea]` in place of `GraphPaint` and keys its cache on an area
   generation. `color(_:)` resolves through `LifeArea.color`.
-- Tags as rings: the node loop (`GraphCanvasView.swift:356-391`) buckets tag nodes separately and
+- Tags as rings (since replaced by pins, `tasks/mind-journal-only.md`): the node loop (`GraphCanvasView.swift:356-391`) buckets tag nodes separately and
   strokes them (fill for everything else), keeping the per-bucket path discipline. Tag labels
   draw at secondary opacity.
 - Labels: keep `rankedLabels` ordering (by the node's count, now the window count), add a

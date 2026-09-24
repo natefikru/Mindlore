@@ -227,8 +227,12 @@ nonisolated final class GraphSimulation {
         min(16, 3.5 + sqrt(Double(max(linkCount, 1))) * 1.4)
     }
 
+    // A tag is a pin: one small size at any count, under the smallest name, because a theme
+    // carries less weight than a person or a place (owner, 2026-09-23).
+    static let tagRadius: Double = 3
+
     static func radius(for node: Node) -> Double {
-        radius(linkCount: node.linkCount)
+        node.kind == .tag ? tagRadius : radius(linkCount: node.linkCount)
     }
 
     static func targetDistance(weight: Double) -> Double {

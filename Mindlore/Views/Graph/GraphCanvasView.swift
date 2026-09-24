@@ -69,9 +69,8 @@ struct GraphCanvasView: View {
 
     private static let focusDim = 0.15
     private static let neutralOpacity = 0.6
-    // A tag's name is lighter than a person's or a place's, the way its node is only a ring.
-    private static let ringLabelOpacity = 0.6
-    private static let ringWidth = 1.5
+    // A tag's name is lighter than a person's or a place's, the way its node is only a pin.
+    private static let tagLabelOpacity = 0.6
 
     private var currentPlan: GraphDrawPlan {
         cache.plan(for: simulation, focusedID: focusedID, areaOf: areaOf, areaGeneration: areaGeneration)
@@ -186,7 +185,7 @@ struct GraphCanvasView: View {
 
     // Tests match its start (`nodes=`) and its end (`focused=`), so new fields go in the middle.
     private func accessibilityValue(_ plan: GraphDrawPlan) -> String {
-        "nodes=\(simulation.nodeCount) rings=\(plan.ringNodes.count) focused=\(focusedID.flatMap(namer) ?? "none")"
+        "nodes=\(simulation.nodeCount) tags=\(plan.tagNodes.count) focused=\(focusedID.flatMap(namer) ?? "none")"
     }
 
     private func flyToFocus() {
@@ -266,12 +265,10 @@ struct GraphCanvasView: View {
             )
         }
 
-        // Nodes: one path per colour, strength, and shape, dimmest first so lit nodes sit on top.
-        // A tag is a ring, stroked; everything else is filled.
+        // Nodes: one path per colour and strength, dimmest first so lit nodes sit on top.
         struct Bucket: Hashable {
             let fill: GraphFill
             let opacity: Double
-            let ring: Bool
         }
         // Nodes that arrived in the last 0.6 s, as indices. Usually one; an entry that named five
         // new people is five. Resolved here rather than per node, since the lookup is by id.
@@ -295,22 +292,19 @@ struct GraphCanvasView: View {
                 scale = BloomCurve.scale(at: elapsed, reduceMotion: reduceMotion)
                 opacity *= BloomCurve.opacity(at: elapsed)
             }
-            let ring = plan.ringNodes.contains(index)
-            // A ring's stroke sits inside the node's radius, so a tag and a name of one size match.
-            let rect = circle(index, scale: scale)
-            nodePaths[Bucket(fill: plan.fills[index], opacity: opacity, ring: ring), default: Path()]
-                .addEllipse(in: ring ? rect.insetBy(dx: Self.ringWidth / 2, dy: Self.ringWidth / 2) : rect)
+            nodePaths[Bucket(fill: plan.fills[index], opacity: opacity), default: Path()].addEllipse(in: circle(index, scale: scale))
         }
         for (bucket, path) in nodePaths.sorted(by: { $0.key.opacity < $1.key.opacity }) {
-            let shading = GraphicsContext.Shading.color(color(bucket.fill).opacity(bucket.opacity * (bucket.fill == .neutral ? Self.neutralOpacity : 1)))
-            if bucket.ring {
-                context.stroke(path, with: shading, lineWidth: Self.ringWidth)
-            } else {
-                context.fill(path, with: shading)
-            }
+            context.fill(path, with: .color(color(bucket.fill).opacity(bucket.opacity * (bucket.fill == .neutral ? Self.neutralOpacity : 1))))
         }
         if let focusedIndex = plan.focusedIndex {
-            context.stroke(Path(ellipseIn: circle(focusedIndex)), with: .color(.primary), lineWidth: 2.5)
+            // On a name the ring is its edge. A pin is too small for that: a 2.5pt line on a 3pt
+            // dot reads as a blob, so a focused tag gets a thin ring standing clear of it.
+            if plan.tagNodes.contains(focusedIndex) {
+                context.stroke(Path(ellipseIn: circle(focusedIndex, scale: 2)), with: .color(.primary), lineWidth: 1.5)
+            } else {
+                context.stroke(Path(ellipseIn: circle(focusedIndex)), with: .color(.primary), lineWidth: 2.5)
+            }
         }
 
         // Labels: a zoom-sized prefix of the ranked list, fading by rank, dimmed outside the focus.
@@ -329,7 +323,7 @@ struct GraphCanvasView: View {
         for (label, visible) in zip(placed, GraphLabels.unobstructed(frames)) where visible {
             var opacity = GraphLabels.opacity(rank: label.rank, budget: budget)
             if dimmed && !plan.litNodes.contains(label.index) { opacity *= Self.focusDim }
-            if plan.ringNodes.contains(label.index) { opacity *= Self.ringLabelOpacity }
+            if plan.tagNodes.contains(label.index) { opacity *= Self.tagLabelOpacity }
             var labelContext = context
             labelContext.opacity = opacity
             labelContext.draw(label.symbol, at: label.at)
