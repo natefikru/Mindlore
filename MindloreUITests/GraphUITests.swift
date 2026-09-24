@@ -328,6 +328,7 @@ final class GraphUITests: XCTestCase {
         XCTAssertTrue(tidyUp.waitForExistence(timeout: 5))
         XCTAssertTrue((tidyUp.value as? String)?.contains("to check") == true, String(describing: tidyUp.value))
         tidyUp.tap()
+        XCTAssertTrue(app.buttons["tidyUpDone"].waitForExistence(timeout: 5), "Tidy up opens its sheet")
         let notTheSame = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'reviewNotSame-'")).firstMatch
         XCTAssertTrue(notTheSame.waitForExistence(timeout: 5), "Sara and Sarah look alike enough to ask")
         notTheSame.tap()

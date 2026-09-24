@@ -103,6 +103,13 @@ struct MindView: View {
             .onDisappear { endReplay(finished: false) }
             .toolbar(.hidden, for: .navigationBar)
             .navigationDestination(for: EntityRoute.self) { EntityView(route: $0) }
+            // On the map, inside the stack, where the drawer's copy of this sheet always worked.
+            // Attached to the NavigationStack itself, it showed no question in the UI test that
+            // renames a name on its page (whose Edit and Rename are sheets), comes back, and taps
+            // Tidy up, while the same steps through the drawer's sheet passed.
+            .sheet(isPresented: $tidyingUp, onDismiss: refreshReview) {
+                TidyUpView(skipped: $skipped, hidden: tidyHidden, open: { router.mindPath.append(EntityRoute(id: $0)) })
+            }
         }
         .environment(\.entityRouteReplacer, EntityRouteReplacer { loser, winner in
             router.replaceInMind(loser, with: winner)
@@ -110,9 +117,6 @@ struct MindView: View {
         })
         .task(id: refreshKey) { refresh() }
         .onChange(of: skipped) { refreshReview() }
-        .sheet(isPresented: $tidyingUp, onDismiss: refreshReview) {
-            TidyUpView(skipped: $skipped, hidden: tidyHidden, open: { router.mindPath.append(EntityRoute(id: $0)) })
-        }
         .onChange(of: router.mindFocusRequest?.token) {
             // Ending the replay refreshes, and the refresh takes the request.
             if player.isRunning { endReplay(finished: false) } else { takeFocusRequest() }

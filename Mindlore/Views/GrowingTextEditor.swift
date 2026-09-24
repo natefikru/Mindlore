@@ -579,7 +579,12 @@ struct GrowingTextEditor: UIViewRepresentable {
                 let range = FormattingStyle.paragraphRange(at: inserted.location, in: string)
                 let withNewline = NSRange(location: range.location, length: min(range.length + 1, string.length - range.location))
                 let paragraph = paragraph(at: inserted.location, in: textView)
-                let list = (storage.attribute(.paragraphStyle, at: min(range.location, max(0, string.length - 1)), effectiveRange: nil) as? NSParagraphStyle)?.textLists.first
+                // Read from the paragraph's first character, or the last one when the paragraph is
+                // the empty one at the end. Backspace over the only character leaves no character
+                // at all, and asking an empty storage for an attribute at 0 raises NSRangeException:
+                // that crash is what clearing a new entry by backspace did.
+                let probe = min(range.location, string.length - 1)
+                let list = probe >= 0 ? (storage.attribute(.paragraphStyle, at: probe, effectiveRange: nil) as? NSParagraphStyle)?.textLists.first : nil
                 FormattingStyle.style(withNewline, paragraph: paragraph, list: list, in: storage, fonts: fonts, palette: palette)
             }
             applyTypingAttributes(textView)
