@@ -77,6 +77,7 @@ struct GrowingTextEditor: UIViewRepresentable {
         // Selector observers are removed with the coordinator.
         NotificationCenter.default.addObserver(coordinator, selector: #selector(Coordinator.appWillResignActive), name: UIApplication.willResignActiveNotification, object: nil)
         NotificationCenter.default.addObserver(coordinator, selector: #selector(Coordinator.appDidBecomeActive), name: UIApplication.didBecomeActiveNotification, object: nil)
+        NotificationCenter.default.addObserver(coordinator, selector: #selector(Coordinator.inputModeChanged), name: UITextInputMode.currentInputModeDidChangeNotification, object: nil)
         return view
     }
 
@@ -196,6 +197,17 @@ struct GrowingTextEditor: UIViewRepresentable {
         private var typingInline: FormattingStyle.Inline = []
         // Set by the delegate before an edit, read after it to normalise what changed.
         private var pendingEdit: (range: NSRange, inserted: Int, crossesParagraphs: Bool)?
+        // What the system's dictation has written so far, normalised once it finishes. The
+        // microphone in the bar under a third-party keyboard (and the one on Apple's) switches the
+        // view into dictation, which streams its text in and revises it as it goes; restyling the
+        // storage or moving the selection under it makes UIKit treat the text as changed from
+        // outside and end dictation at once, which is what made the button look dead.
+        private var dictatedRange: NSRange?
+        private var dictationChangedUnseen = false
+
+        static func isDictating(_ textView: UITextView) -> Bool {
+            textView.textInputMode?.primaryLanguage == "dictation"
+        }
 
         init(_ parent: GrowingTextEditor) {
             self.parent = parent
@@ -244,6 +256,11 @@ struct GrowingTextEditor: UIViewRepresentable {
         func textViewDidChange(_ textView: UITextView) {
             // Always recorded, including while text is marked: inline predictions and dictation mark
             // text as you type, and skipping those would lose what was typed.
+            if Self.isDictating(textView) {
+                noteDictated(textView)
+                report(from: textView)
+                return
+            }
             normaliseAfterEdit(textView)
             syncSentinel(textView)
             report(from: textView)
@@ -259,7 +276,7 @@ struct GrowingTextEditor: UIViewRepresentable {
         }
 
         func textViewDidChangeSelection(_ textView: UITextView) {
-            guard textView.markedTextRange == nil else { return }
+            guard textView.markedTextRange == nil, !Self.isDictating(textView) else { return }
             // Never past the sentinel: typing goes in front of it, into its paragraph.
             let end = (Self.plain(textView.textStorage) as NSString).length
             if textView.selectedRange.length == 0, textView.selectedRange.location > end {
@@ -307,7 +324,55 @@ struct GrowingTextEditor: UIViewRepresentable {
             DiagnosticsLog.shared.record("editor.focusRestored")
         }
 
+        // MARK: Dictation
+
+        // Leaves the storage alone while dictation runs and remembers the span it touched, moved
+        // along by each later edit, so nothing it wrote goes without its paragraph's formatting.
+        private func noteDictated(_ textView: UITextView) {
+            guard let edit = pendingEdit else {
+                dictationChangedUnseen = true
+                return
+            }
+            pendingEdit = nil
+            let start = edit.range.location
+            var end = start + edit.inserted
+            if let previous = dictatedRange {
+                var previousEnd = NSMaxRange(previous)
+                if start <= previousEnd { previousEnd += edit.inserted - edit.range.length }
+                end = max(end, previousEnd)
+                dictatedRange = NSRange(location: min(start, previous.location), length: max(0, end - min(start, previous.location)))
+            } else {
+                dictatedRange = NSRange(location: start, length: edit.inserted)
+            }
+        }
+
+        @objc func inputModeChanged() {
+            // The input mode reports the switch back a moment after the notification.
+            DispatchQueue.main.async { [weak self] in self?.finishDictationIfEnded() }
+        }
+
+        // Once dictation has handed the keyboard back, what it wrote is normalised the way a
+        // typed edit is: its paragraphs re-marked, the sentinel kept in place, the result reported.
+        func finishDictationIfEnded() {
+            guard let view, dictatedRange != nil || dictationChangedUnseen, !Self.isDictating(view), view.markedTextRange == nil else { return }
+            let length = (view.textStorage.string as NSString).length
+            if let range = dictatedRange {
+                let location = min(range.location, length)
+                let clamped = NSRange(location: location, length: min(range.length, length - location))
+                pendingEdit = (clamped, clamped.length, true)
+                normaliseAfterEdit(view)
+            } else {
+                restyleAll()
+                applyTypingAttributes(view)
+            }
+            dictatedRange = nil
+            dictationChangedUnseen = false
+            syncSentinel(view)
+            report(from: view)
+        }
+
         func textViewDidEndEditing(_ textView: UITextView) {
+            finishDictationIfEnded()
             // Ended by UIKit while the app was away, not by the user: coming back restores it.
             resignedByUser = focusToRestore == nil
             bar.model.mention = nil
