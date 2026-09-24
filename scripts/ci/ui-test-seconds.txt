@@ -20,9 +20,7 @@
 32 GraphScreenshotTests/testDemoJournalList
 145 GraphScreenshotTests/testDemoJournalMind
 34 GraphScreenshotTests/testDraftedBioState
-48 GraphUITests/testAreaTileHighlightsItsEntities
 97 GraphUITests/testMindFocusesATappedNodeAndKeepsResponding
-68 GraphUITests/testMindLensesEntriesAndRegions
 47 GraphUITests/testMindReplayRunsAndEnds
 119 GraphUITests/testMindSearchOpenMergeAndUnmerge
 59 GraphUITests/testOpenAPersonSeeTheDraftedBioEditItAndOpenATag
@@ -53,3 +51,5 @@
 17 TodayUITests/testTappingTheWeekStripOpensReflect
 28 TodayUITests/testTodayShowsCardsAndADismissalOutlivesALaunch
 12 WelcomeUITests/testStartClosesTheWelcomeOntoAnEmptyJournal
+47 GraphUITests/testWindowChangesTheMapAndTheList
+38 GraphUITests/testWhatChangedFocusesAName

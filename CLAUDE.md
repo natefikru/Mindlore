@@ -287,8 +287,8 @@ every view and service resolves an entity by fetching its id, never by walking t
   phyllotaxis initial placement, many-body repulsion, link springs, centre gravity, and collision,
   each with a deterministic zero-distance fallback; sticky `pin`/`unpin` for a user's drag. It
   stays warm on demand: a drag raises `alphaTarget` so alpha holds instead of decaying, and
-  `update` swaps nodes and edges in place so a filter change moves the picture rather than
-  restarting it. `GraphCanvasView` is the `Canvas`/`TimelineView` drawing surface Mind embeds;
+  `update` swaps nodes and edges in place so a window or kind change moves the picture rather
+  than restarting it. `GraphCanvasView` is the `Canvas`/`TimelineView` drawing surface Mind embeds;
   `FrameTimeSampler` (`GraphCanvasModel.swift`) measures frame p50/p95 and work p95, and
   `graph.rendered` logs them with node/edge counts once per appearance, never per frame.
 - **Navigation.** `EntityRoute` carries an id, never an `Entity`, so a merge or prune while a page
@@ -298,43 +298,74 @@ every view and service resolves an entity by fetching its id, never by walking t
   `.environment(\.entityRouteReplacer, ...)` itself, or a merge made from inside it leaves a stale
   loser id on that stack's own path instead of redirecting to the winner; a view pushed into an
   existing stack (`EntityView` itself) inherits the enclosing stack's replacer for free.
-- **Mind** (`Views/Mind/`) is the second tab: one full-screen map of every browsable entity.
-  `GraphServices.mapSnapshot` reads the store once per `revision` into a `MindMapSnapshot`, and
-  `MindView.frame` (static, pure) turns snapshot plus `MindFilters` into nodes, edges, entry dots
-  and regions. `MindFilters` is kinds, a minimum mention count (1 below `largeJournal`, 60
-  entities, then 2), entry dots, and grouping by area. `MindRegions` puts each visible life area on
-  a fixed circle whose radius comes only from the snapshot's entity count, so it doesn't jitter
-  during replay. A `MindLens` (kind, mood, recency) changes paint only, never which nodes are on
-  the map. `MindReplayPlayer` plays first mention to now over 10 seconds in 100 ms steps and
-  publishes every fifth step, because publishing each one pushed frame p95 to 32 ms.
-  `SearchPanel` is Mind's own pull-up panel (not a system sheet, which would cover the tab bar and
-  the record accessory): search, one review question from `ReviewQueue` ("Which one?" before
-  "same person?", because it is about a sentence the user wrote; skips are session-only), the
-  area tiles, and every entity via `MindDirectory`, which counts open loose ends through merges
-  and keys its own refresh because closing a loose end doesn't bump `graph.revision`.
-  `EntityPeekCard` is the shared card for any name. Tests: `MindMapTests`, `MindRegionsTests`,
-  `MindFiltersTests`, `MindReplayTests`, `MindDirectoryTests`, `MindHaloTests`.
-- **Mind's materials (B7).** Liquid Glass goes on what floats: the top-bar controls (one
-  `GlassEffectContainer`, with a shared `glassEffectID` growing the play button into the replay's
-  date chip), the lens legend, and `MindPeekOverlay`'s wrapper. Glass never goes inside
-  `EntityPeekCard` itself, which is also presented as a partial-height sheet that iOS 26 already
-  draws as glass. `SearchPanel` is the one surface that changes by size: glass at `.peek`, where it
-  is a field floating over the map, and opaque Paper once it opens and holds rows, because the map
-  bleeding through behind the area tiles reads as smudge and the house rule says never glass on
-  list rows. Reflect's period control was looked at and left on `.regularMaterial`: it is a
-  full-width strip under an inline navigation bar, so glass there would sit on the bar's own glass.
-- **Mind's motion (B7).** `MindMap.haloed` picks the nodes a recent entry named (7 days, capped at
-  the 40 most mentioned) from the snapshot's links, so it needs no fetch and a replay's rings follow
-  the replay's own `asOf`. `GraphDrawCache` resolves them to indices; the canvas strokes one ring
-  path per colour bucket off one shared sine. The canvas used to pause when the simulation settled;
-  with rings on screen it slows to 12 fps instead, and `graph.rendered` carries the cost. The
-  recency lens turns the halo off, since it answers the same question over 30 days.
-  `BloomCurve` is the sampled stand-in for `Motion.bloom`: a `Canvas` has no transition system, so
-  `BloomTransition` cannot reach a node. Bloom fires only for a name that was not on the map before
-  an entry was written, never on the first build, a filter change, or a replay.
+- **Mind** (`Views/Mind/`) is the second tab: one full-screen map where each channel means one
+  thing (owner, 2026-09-23; the spec and its measurements are `tasks/mind-overhaul-spec.md`).
+  Colour is the name's life area inside the window (grey without one, or when the area is hidden
+  in Settings); shape is kind, a tag drawn as a hollow ring with a lighter label; size is entries
+  in the window; time is the window control at the top (`MindWindow`: Month, 3 months, Year, All;
+  3 months by default, remembered per launch, never a setting). Edges come only from the window's
+  entries. `GraphServices.mapSnapshot` reads the store once per `revision` into a
+  `MindMapSnapshot`, which also carries every non-draft entry's date (the denominator a share
+  needs); `MindView.frame` (static, pure) turns it into nodes, edges, and areas for the window and
+  the drawer's kind segment. A journal of `MindMap.largeJournal` (60) names or more draws a name
+  only with two mentions in the window; the drawer still lists it. The play button left of Month
+  (`MindReplayPlayer`) plays the whole journal, first mention to today, whatever the window, over
+  10 seconds in 100 ms steps, publishing every fifth step (publishing each pushed frame p95 to
+  32 ms), then hands the map back to the window; picking a window ends it there.
+- **`MindStats`** (`Graph/`, pure) is every number Mind shows for a window, computed once per
+  (revision, window) by `MindView` into `MindDrawer.Stats`, never per frame: entries per name,
+  its area (`EntityTally`), a 16-bucket sparkline over the window and the three before it, and
+  "what changed". Changes are by **share** of entries against the three windows before, so a
+  quiet month never makes everyone quieter: new (first mention inside the window, twice), back
+  (three earlier mentions, then silence of two windows or 45 days), more lately (three in the
+  window, tags four, double the earlier share, with an earlier mention), quieter (two a window
+  before, tags three, half the share or less). Tags are never new or back; nothing shows for All
+  or without a baseline; the author (`SettingsStore.userName`, by name or alias) is never listed.
+  Ranked by the shift in share times the larger count, capped at four. On the story journal three
+  months reads Greg quieter (1 of 42 entries, down from 22 of 155) and running more lately.
+  Windows are start-exclusive, so a window and its baseline never share an entry.
+- **The drawer.** `SearchPanel` is Mind's own pull-up panel (not a system sheet, which would
+  cover the tab bar and the record accessory): the search field, kind chips (All, People,
+  Places, Projects, Themes; Themes are tags, and organizations, events, and other show only under
+  All) that filter the list, the cards, and the map, then `MindChangesRow` ("What changed", tap
+  to focus, `mind.changeTapped`), `MindRankedRow` for every name the window holds (area dot, kind
+  glyph, `Sparkline`, count, change word, open threads; by count, then most recent), and a Tidy
+  up row. `MindDrawer` joins the window's numbers with `MindDirectory`'s rows, which count open
+  loose ends through merges and key their own refresh because closing a loose end doesn't bump
+  `graph.revision`. Searching ignores the window and ranks every name, hidden ones in their own
+  section. `TidyUpView` holds the `ReviewQueue` questions one at a time ("Which one?" before
+  "same person?", because it is about a sentence the user wrote; skips are session-only) and the
+  hidden names.
+- **The card and the page.** `EntityPeekCard` is the shared card for any name: half a year of
+  weekly bars with "last mentioned" in days, "Often with" names with the entries each shares, a
+  quieter themes line, open threads, and the bio's first line. It keeps its own narrow fetch,
+  since it also opens from the editor and Ask. Names and themes come from one
+  `GraphServices.mentionedWith` list split apart, because tags share the most entries with anyone
+  and crowded the people out (owner, 2026-09-23); `mentionedWith` ranks by
+  `EntityGraph.Edge.entries`, the entries whose part placement made the edge, so the card, the
+  page, and the map agree. `EntityView` stays a `Form` and leads with insight: the header (kind,
+  area, description), Presence (a bar per month across the journal, "87 entries · Oct 2025 to
+  Sep 2026 · busiest in November 2025"), Feeling (the moods its entries carried beside the
+  journal's usual, counted with `ReflectAggregator`, five or more entries with a mood only),
+  loose ends, Often with, entries, the map for a place, and Manage. Admin that doesn't navigate
+  (rename, kind, description, contact, place link, aliases, Hide) is behind the toolbar Edit in
+  `EntityEditView`; what pushes a route (merged rows with undo, Merge into, Show in Mind) stays on
+  the page, where the stack's destination and `entityRouteReplacer` are.
+- **Mind's materials and motion.** Liquid Glass goes on what floats: the top bar (one
+  `GlassEffectContainer`, a shared `glassEffectID` growing the play button into the replay's
+  date chip) and `MindPeekOverlay`'s wrapper. Glass never goes inside `EntityPeekCard`, which is
+  also presented as a partial-height sheet that iOS 26 already draws as glass. `SearchPanel` is
+  glass at `.peek`, a field floating over the map, and opaque Paper once it opens and holds rows,
+  because the house rule says never glass on list rows. Labels skip rather than print over a
+  higher-ranked one (`GraphLabels.unobstructed`), and the map recentres when the window changes.
+  `BloomCurve` is the sampled stand-in for `Motion.bloom`: a `Canvas` has no transition system.
+  Bloom fires only for a name that was not on the map before an entry was written, never on the
+  first build, a window or kind change, or a replay. The canvas pauses once the layout settles.
+  Tests: `MindStatsTests`, `MindDrawerTests`, `MindMapTests`, `MindReplayTests`,
+  `MindDirectoryTests`, `EntityPeekPresentationTests`, `EntityPagePresentationTests`.
 - **Diagnostics and privacy.** Every graph and `mind.*` event carries only ids, counts, kinds, and
   durations, never a name, alias, bio, or surface string; `AIDiagnosticsPrivacyTests` runs real
-  graph components, including a Mind render with every lens and a replay, against a sentinel
+  graph components, including a Mind frame, the stats, and a replay in every window, against a sentinel
   string used as every one of those fields and asserts it never reaches the log.
   `docs/privacy-coverage.md` maps every event in the app to the test that drives it, or says why
   none can.

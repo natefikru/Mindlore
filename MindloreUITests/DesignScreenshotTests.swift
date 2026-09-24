@@ -76,11 +76,6 @@ final class DesignScreenshotTests: XCTestCase {
             attach("\(tag)-mind-peek")
         }
 
-        if app.buttons["mindFilters"].exists {
-            app.buttons["mindFilters"].tap()
-            attach("\(tag)-mind-filters")
-            app.swipeDown(velocity: .fast)
-        }
 
         app.tabBars.buttons["Chat"].tap()
         attach("\(tag)-ask")
