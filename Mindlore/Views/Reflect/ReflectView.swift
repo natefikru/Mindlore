@@ -4,8 +4,23 @@ import SwiftUI
 // A scroll of weeks and months, newest first: the last `recentWeekCount` weeks in full, then
 // every month before that back to the journal's first entry, collapsed. Presented as a sheet from
 // Today's week strip, its own NavigationStack, no change to AppRouter or the tab bar. Not scoped
-// to whatever week the caller tapped from: this is one feed, always the same shape.
+// to whatever week the caller tapped from: this is one feed, always the same shape. A segmented
+// control in the bar switches to Loose ends (`ReflectLooseEndsView`), every loose end the journal
+// has raised, open or closed; the summaries stay the page it opens on.
 struct ReflectView: View {
+    enum Page: String, CaseIterable, Identifiable {
+        case summaries, looseEnds
+
+        var id: String { rawValue }
+
+        var title: String {
+            switch self {
+            case .summaries: "Summaries"
+            case .looseEnds: "Loose ends"
+            }
+        }
+    }
+
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
     @Environment(SettingsStore.self) private var settings
@@ -17,6 +32,7 @@ struct ReflectView: View {
     // Rows that loaded and found no summary, by period start. When every row is in here, the feed
     // says there is nothing to look back on rather than showing a blank sheet.
     @State private var emptyRows: Set<Date> = []
+    @State private var page: Page = .summaries
 
     var recentWeekCount = ReflectFeed.defaultRecentWeekCount
     // The presenter's chance to remember it should reopen Reflect once the seeded entry closes,
@@ -26,41 +42,62 @@ struct ReflectView: View {
     var body: some View {
         NavigationStack {
             Group {
-                if hasLoaded, allRowsEmpty {
-                    ContentUnavailableView(
-                        "Nothing to look back on yet",
-                        systemImage: "calendar",
-                        description: Text("A week shows up here once there's something to sum up.")
-                    )
-                    .paperBackground()
-                    .accessibilityIdentifier("reflectEmpty")
-                } else if hasLoaded {
-                    ScrollView {
-                        LazyVStack(alignment: .leading, spacing: 0) {
-                            ForEach(recentWeeks) { week in
-                                ReflectWeekSection(week: week, onTapItem: openEntry) { markEmpty(week.id, $0) }
-                            }
-                            ForEach(months) { month in
-                                ReflectMonthRow(month: month, onTapItem: openEntry) { markEmpty(month.id, $0) }
-                            }
-                        }
-                    }
-                    .paperBackground()
-                } else {
-                    ProgressView()
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                switch page {
+                case .summaries: summaries
+                case .looseEnds: ReflectLooseEndsView()
                 }
             }
             .navigationTitle("Reflect")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
+                ToolbarItem(placement: .principal) {
+                    Picker("Reflect", selection: $page) {
+                        ForEach(Page.allCases) { option in
+                            Text(option.title).tag(option)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                    .fixedSize()
+                    .accessibilityIdentifier("reflectPagePicker")
+                }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Done") { dismiss() }
                 }
             }
+            // On the stack, not on the summaries: switching to Loose ends and back must not
+            // reload the feed.
             .task { await load() }
-            .accessibilityIdentifier("reflectView")
         }
+    }
+
+    private var summaries: some View {
+        Group {
+            if hasLoaded, allRowsEmpty {
+                ContentUnavailableView(
+                    "Nothing to look back on yet",
+                    systemImage: "calendar",
+                    description: Text("A week shows up here once there's something to sum up.")
+                )
+                .paperBackground()
+                .accessibilityIdentifier("reflectEmpty")
+            } else if hasLoaded {
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 0) {
+                        ForEach(recentWeeks) { week in
+                            ReflectWeekSection(week: week, onTapItem: openEntry) { markEmpty(week.id, $0) }
+                        }
+                        ForEach(months) { month in
+                            ReflectMonthRow(month: month, onTapItem: openEntry) { markEmpty(month.id, $0) }
+                        }
+                    }
+                }
+                .paperBackground()
+            } else {
+                ProgressView()
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+        }
+        .accessibilityIdentifier("reflectView")
     }
 
     // Loaded once per appearance: the journal's first entry date decides how far back the feed

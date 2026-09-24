@@ -9,6 +9,8 @@ added three more (142) under view events: `editor.formatted`, `editor.checkboxTi
 `editor.nameTyped`. `feature/settings-sections` added `reminder.presented` (143), and `feature/import-and-redo` added
 `insights.redoAll`, `insights.redoStopped`, and `journal.imported` (146), all in the table.
 Chat's note writing added `ask.noteCreated` (147), in the Ask row.
+Reflect's Loose ends tab added `reflect.looseEnd` (148: the action and the status it left, both
+literals), driven with the sentinel as the loose end's text and its subject's name, in the table.
 Those two tests assert that the event was written as well as that the sentinel wasn't, which is
 what the instrumented run below establishes for the rest.
 
@@ -23,7 +25,7 @@ The instrumentation was reverted and never committed.
 To redo it: add a one-line append to `record`, run the tests below one at a time with
 `test-without-building`, and diff the union against the event list.
 
-## Covered: 78 events, driven by a sentinel test
+## Covered: 79 events, driven by a sentinel test
 
 | Test | Events it drives |
 |---|---|
@@ -36,6 +38,7 @@ To redo it: add a one-line append to `record`, run the tests below one at a time
 | `KeepTests/nothingTheCardLogsCarriesAWordTheUserSaid` | `keep.shown`, `keep.dismissed` |
 | `TrustDiagnosticsPrivacyTests/exportWipeAndLockNeverLogJournalText` | `journal.exported`, `journal.wiped`, `lock.locked`, `lock.unlock` |
 | `TodayTests/nothingTodayLogsCarriesAWordTheUserWrote` | `today.shown`, `today.dismissed` |
+| `ReflectLooseEndSourceTests/theLogSaysWhatWasDoneAndNeverWhatItWasAbout` | `reflect.looseEnd` |
 | `RecordingSessionTests/liveTextNeverReachesTheLog` | `live.availability`, `recording.expanded`, `recording.minimized` |
 | `RecordingSessionTests/takingAPromptMarksItAndLeavesItAloneForAFewDays` | `looseEnds.prompted` |
 | `IntentTests/theLogSaysWhichIntentAndNeverWhatWasAsked` | `intent.invoked` (the question is the sentinel) |
