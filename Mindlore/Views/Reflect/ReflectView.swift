@@ -115,7 +115,7 @@ struct ReflectView: View {
         // A jump that names a side is taken by the onChange below; the default never overrides it.
         if !pageDecided, router.reflectPageRequest == nil {
             pageDecided = true
-            page = LifeSignals.progress(LifeSource.facts(in: modelContext).entries).isEnough ? .life : .recaps
+            page = LifeSignals.progress(LifeSource.facts(in: modelContext).entries).canRead ? .life : .recaps
         }
         guard let earliest = ReflectSource.earliestEntryDate(in: modelContext) else {
             hasLoaded = true

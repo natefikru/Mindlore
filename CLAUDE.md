@@ -608,8 +608,10 @@ describes situations, never traits, and never diagnoses.
 
 - **`LifeSignals`** is the pure half (`nonisolated`, no SwiftData, the `ReflectAggregator` split),
   `LifeSource` fetches (non-draft entries with insights; mood only from journal entries; a loose
-  end takes its raising entry's areas and date; hidden tags, areas, and names never show). No
-  reading until 20 entries with insights span 21 days. Windows are Mind's (`MindWindow`, Month,
+  end takes its raising entry's areas and date; hidden tags, areas, and names never show). A
+  reading starts at 3 entries with insights, marked as an early read (`Reading.isEarly`, owner
+  2026-09-24: an empty page for weeks was no fun) until 20 entries span 21 days; every card keeps
+  its own floor either way. Windows are Mind's (`MindWindow`, Month,
   3 months, Year; start-exclusive). It gives the headline (the biggest area, a twin within 80%,
   a tone only on 8 moods and 0.25 off the baseline), the areas (3 entries to show, 3 moods for a
   height; share is of entries, so two-area entries let shares pass a whole), recurring tags (3

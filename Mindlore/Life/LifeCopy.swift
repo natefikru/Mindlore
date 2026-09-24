@@ -168,14 +168,13 @@ nonisolated enum LifeCopy {
         return line + "."
     }
 
+    static func early(_ progress: LifeSignals.Progress) -> String {
+        let entries = "\(progress.entries) \(progress.entries == 1 ? "entry" : "entries")"
+        return "An early read from \(entries). It gets sharper with a few weeks of journal, so some of it may shift."
+    }
+
     static func needsMore(_ progress: LifeSignals.Progress) -> String {
-        let entries = max(0, LifeSignals.minimumEntries - progress.entries)
-        let days = max(0, LifeSignals.minimumDays - progress.days)
-        if entries > 0 && days > 0 {
-            return "Life reads a few weeks of you. \(entries) more \(entries == 1 ? "entry" : "entries") and \(days) more \(days == 1 ? "day" : "days") of journal, and it starts."
-        } else if entries > 0 {
-            return "Life reads a few weeks of you. \(entries) more \(entries == 1 ? "entry" : "entries"), and it starts."
-        }
-        return "Life reads a few weeks of you. \(days) more \(days == 1 ? "day" : "days") of journal, and it starts."
+        let entries = max(0, LifeSignals.earlyMinimumEntries - progress.entries)
+        return "Write \(entries) more \(entries == 1 ? "entry" : "entries") and Life starts reading: where your writing goes, how it feels, and what keeps coming up."
     }
 }

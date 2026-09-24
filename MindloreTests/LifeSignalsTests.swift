@@ -24,13 +24,15 @@ struct LifeSignalsTests {
 
     // MARK: - Floors
 
-    @Test func noReadingUntilTwentyEntriesOverThreeWeeks() {
-        let tooFew = (0..<19).map { LifeSignals.EntryFact(date: daysAgo(Double($0) * 2)) }
-        #expect(LifeSignals.reading(entries: tooFew, threads: [], window: .quarter, now: now) == nil)
+    @Test func anEarlyReadingFromThreeEntriesAndAFullOneFromTwentyOverThreeWeeks() {
+        let two = (0..<2).map { LifeSignals.EntryFact(date: daysAgo(Double($0) + 1)) }
+        #expect(LifeSignals.reading(entries: two, threads: [], window: .quarter, now: now) == nil)
+        let three = (0..<3).map { LifeSignals.EntryFact(date: daysAgo(Double($0) + 1)) }
+        #expect(LifeSignals.reading(entries: three, threads: [], window: .quarter, now: now)?.isEarly == true)
         let tooShort = (0..<30).map { LifeSignals.EntryFact(date: daysAgo(Double($0) * 0.5)) }
         #expect(LifeSignals.progress(tooShort).days < LifeSignals.minimumDays)
-        #expect(LifeSignals.reading(entries: tooShort, threads: [], window: .quarter, now: now) == nil)
-        #expect(LifeSignals.reading(entries: padding, threads: [], window: .quarter, now: now) != nil)
+        #expect(LifeSignals.reading(entries: tooShort, threads: [], window: .quarter, now: now)?.isEarly == true)
+        #expect(LifeSignals.reading(entries: padding, threads: [], window: .quarter, now: now)?.isEarly == false)
     }
 
     @Test func anAreaNeedsThreeEntriesAndThreeMoodsForAHeight() {

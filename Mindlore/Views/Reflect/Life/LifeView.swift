@@ -49,6 +49,9 @@ struct LifeView: View {
                         .frame(maxWidth: .infinity, minHeight: 300)
                 } else if let reading {
                     header(reading)
+                    if reading.isEarly {
+                        LifeEarlyNote(progress: progress)
+                    }
                     LifeBubbleField(reading: reading, name: settings.name(of:)) { area in
                         openArea(LifeAreaRoute(area: area, window: window))
                     }
@@ -545,7 +548,7 @@ struct LifeNeedsMoreCard: View {
                     .foregroundStyle(Palette.ember)
             }
             .frame(width: 96, height: 96)
-            Text("Life is still reading")
+            Text("Life starts with a few entries")
                 .font(.title3.weight(.semibold))
             Text(LifeCopy.needsMore(progress))
                 .font(.subheadline)
@@ -560,8 +563,41 @@ struct LifeNeedsMoreCard: View {
     }
 
     private var fraction: CGFloat {
+        CGFloat(max(0.04, min(1, Double(progress.entries) / Double(LifeSignals.earlyMinimumEntries))))
+    }
+}
+
+// Over an early reading: what it is read from, and how far it is from a full one.
+struct LifeEarlyNote: View {
+    let progress: LifeSignals.Progress
+
+    var body: some View {
+        HStack(alignment: .center, spacing: 12) {
+            ZStack {
+                Circle().stroke(Color.secondary.opacity(0.15), lineWidth: 4)
+                Circle()
+                    .trim(from: 0, to: fraction)
+                    .stroke(Palette.ember, style: StrokeStyle(lineWidth: 4, lineCap: .round))
+                    .rotationEffect(.degrees(-90))
+            }
+            .frame(width: 28, height: 28)
+            .accessibilityHidden(true)
+            Text(LifeCopy.early(progress))
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Palette.ember.opacity(0.08), in: RoundedRectangle(cornerRadius: Corner.tile, style: .continuous))
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("lifeEarly")
+    }
+
+    // How far toward a full reading, entries and days together.
+    private var fraction: CGFloat {
         let entries = Double(progress.entries) / Double(LifeSignals.minimumEntries)
         let days = Double(progress.days) / Double(LifeSignals.minimumDays)
-        return CGFloat(max(0.04, min(1, min(entries, days))))
+        return CGFloat(max(0.05, min(1, min(entries, days))))
     }
 }

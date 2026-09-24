@@ -54,9 +54,13 @@ nonisolated enum LifeSignals {
 
     // MARK: - Floors
 
-    // A reading needs this much journal behind it, counted over every entry with insights.
+    // A full reading needs this much journal behind it, counted over every entry with insights.
+    // Below it, from `earlyMinimumEntries`, the reading is an early one: the same cards under their
+    // same floors, marked as early (owner, 2026-09-24: an empty page until the fourth week was no
+    // fun, and a little is more than nothing).
     static let minimumEntries = 20
     static let minimumDays = 21
+    static let earlyMinimumEntries = 3
     // An area shows with this many entries in the window, and gets a height with this many moods.
     static let areaMinimumEntries = 3
     static let areaMinimumMoods = 3
@@ -81,6 +85,7 @@ nonisolated enum LifeSignals {
         let entries: Int
         let days: Int
         var isEnough: Bool { entries >= LifeSignals.minimumEntries && days >= LifeSignals.minimumDays }
+        var canRead: Bool { entries >= LifeSignals.earlyMinimumEntries }
     }
 
     struct AreaReading: Sendable, Equatable, Identifiable {
@@ -178,6 +183,8 @@ nonisolated enum LifeSignals {
         let contrast: Contrast?
         let openThreads: Int
         var thinking: [Thinking] = []
+        // Read from less journal than a full reading needs.
+        var isEarly = false
     }
 
     // MARK: - Reading
@@ -190,8 +197,8 @@ nonisolated enum LifeSignals {
         return Progress(entries: entries.count, days: days)
     }
 
-    // nil until `progress` is enough. `entries` are every non-draft entry with insights, all
-    // time; `hidden` areas never appear.
+    // nil below `earlyMinimumEntries`; early until `progress` is enough. `entries` are every
+    // non-draft entry with insights, all time; `hidden` areas never appear.
     static func reading(
         entries: [EntryFact],
         threads: [ThreadFact],
@@ -200,7 +207,8 @@ nonisolated enum LifeSignals {
         hidden: Set<LifeArea> = [],
         calendar: Calendar = .current
     ) -> Reading? {
-        guard progress(entries).isEnough, let interval = window.interval(endingAt: now) else { return nil }
+        let progress = progress(entries)
+        guard progress.canRead, let interval = window.interval(endingAt: now) else { return nil }
         let inside = entries.filter { isInside($0.date, interval) }
         let before = window.interval(endingAt: interval.start).map { previous in entries.filter { isInside($0.date, previous) } } ?? []
         let base = baseline(entries, now: now)
@@ -221,7 +229,8 @@ nonisolated enum LifeSignals {
             followThrough: follow,
             contrast: contrast(follow),
             openThreads: threads.filter { $0.status == .open }.count,
-            thinking: thinking(entries, in: interval, hidden: hidden)
+            thinking: thinking(entries, in: interval, hidden: hidden),
+            isEarly: !progress.isEnough
         )
     }
 
