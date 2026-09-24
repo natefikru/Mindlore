@@ -31,7 +31,9 @@ struct TodayHeader: View {
             }
         }
         .padding(.top, 8)
-        .padding(.bottom, 16)
+        // Tight to the chips below: the list's own row spacing already separates them (owner,
+        // 2026-09-24: too much room between the card, its count, the chips, and Recent).
+        .padding(.bottom, 2)
         .frame(maxWidth: .infinity, alignment: .leading)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("todayHeader")
