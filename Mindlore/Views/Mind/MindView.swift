@@ -30,8 +30,14 @@ struct MindView: View {
     @State private var segment: EntitySearch.Segment = .all
     @State private var loadedKey: RefreshKey?
     @State private var drawerStats = MindDrawer.Stats.empty
-    // The replay plays the whole journal, first mention to today, whatever the window says
-    // (owner, 2026-09-23), then hands the map back to the window.
+    // Review questions left to answer, for the top bar's Tidy up button. Skips last the session and
+    // are shared with the drawer's sheet, so an answered or skipped question leaves the count.
+    @State private var reviewCount = 0
+    @State private var skipped: Set<String> = []
+    @State private var tidyingUp = false
+    @State private var tidyHidden: [EntitySearch.Row] = []
+    // The replay plays the window on screen, its start to today, and ends on the map it started
+    // from (owner, 2026-09-23).
     @State private var player = MindReplayPlayer()
     @State private var replayTask: Task<Void, Never>?
     @State private var replayAvailable = false
@@ -84,6 +90,7 @@ struct MindView: View {
                             stop: $panelStop,
                             available: available,
                             segment: $segment,
+                            skipped: $skipped,
                             stats: drawerStats,
                             select: { focus($0, source: .search) },
                             open: { router.mindPath.append(EntityRoute(id: $0)) }
@@ -105,6 +112,10 @@ struct MindView: View {
             trail.replace(loser, with: winner)
         })
         .task(id: refreshKey) { refresh() }
+        .onChange(of: skipped) { refreshReview() }
+        .sheet(isPresented: $tidyingUp, onDismiss: refreshReview) {
+            TidyUpView(skipped: $skipped, hidden: tidyHidden, open: { router.mindPath.append(EntityRoute(id: $0)) })
+        }
         .onChange(of: router.mindFocusRequest?.token) {
             // Ending the replay refreshes, and the refresh takes the request.
             if player.isRunning { endReplay(finished: false) } else { takeFocusRequest() }
@@ -219,6 +230,14 @@ struct MindView: View {
                     )
                     .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
                     windowControl
+                    // Up here rather than at the foot of the drawer, where nobody scrolled to it.
+                    if reviewCount > 0 {
+                        TidyUpButton(count: reviewCount, glass: glass) {
+                            tidyHidden = MindDirectory.rows(in: modelContext).hidden
+                            tidyingUp = true
+                        }
+                        .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
+                    }
                 }
             }
             .frame(height: Self.topBarHeight)
@@ -240,12 +259,12 @@ struct MindView: View {
     }
 
     // One glass capsule holding the four stretches; the chosen one sits in a tinted capsule that
-    // slides between them rather than jumping. During a replay nothing is chosen: the map is the
-    // whole journal, and picking a stretch ends the replay on it.
+    // slides between them rather than jumping. A replay plays the chosen one, so it stays chosen;
+    // tapping any stretch ends the replay on it.
     private var windowControl: some View {
         HStack(spacing: 2) {
             ForEach(MindWindow.allCases, id: \.self) { option in
-                let selected = option == window && !player.isRunning
+                let selected = option == window
                 Button {
                     window = option
                     endReplay(finished: false)
@@ -362,6 +381,7 @@ struct MindView: View {
     // The first load builds the simulation; every change after that updates it in place, so
     // surviving nodes keep their spots and new ones grow out of their neighbours.
     private func refresh() {
+        refreshReview()
         // During a replay the steps own the map; a graph change only re-reads its data.
         if player.isRunning {
             player.refetch()
@@ -370,7 +390,7 @@ struct MindView: View {
         let now = Date.now
         let key = refreshKey
         let snapshot = graph.mapSnapshot(in: modelContext)
-        replayAvailable = MindReplay(snapshot: snapshot, end: now) != nil
+        replayAvailable = MindReplay(snapshot: snapshot, window: window, end: now) != nil
         let frame = Self.frame(snapshot, window: window, segment: segment, visibleAreas: settings.visibleLifeAreas, asOf: now)
         // Only a change the journal made blooms; a window or kind change reveals names that are
         // not new.
@@ -391,6 +411,17 @@ struct MindView: View {
         }
         loadedKey = key
         takeFocusRequest()
+    }
+
+    // The same questions TidyUpView asks, counted. Every answer bumps the graph revision, which
+    // refreshes; a skip changes `skipped`, which calls this directly.
+    private func refreshReview() {
+        let count = ReviewQueue.questions(
+            suggestions: graph.editor.suggestions(in: modelContext),
+            unsure: graph.unsureLinks(in: modelContext),
+            skipped: skipped
+        ).count
+        if count != reviewCount { reviewCount = count }
     }
 
     // Puts a frame on the canvas. State is only written when it changed. `publish: false` moves
@@ -442,13 +473,14 @@ struct MindView: View {
 
     private func startReplay() {
         guard !player.isRunning,
-              player.start(now: .now, fetch: { graph.mapSnapshot(in: modelContext) })
+              player.start(now: .now, window: window, fetch: { graph.mapSnapshot(in: modelContext) })
         else { return }
         replayTask = Task { await runReplay() }
     }
 
-    // Steps the map every 100 ms off a monotonic clock until the replay's end: all time, as of
-    // each step's date, in the kind the drawer has chosen.
+    // Steps the map every 100 ms off a monotonic clock until the replay's end. The player's snapshot
+    // is already trimmed to the window, so each step is all of what it holds as of the step's date,
+    // in the kind the drawer has chosen.
     private func runReplay() async {
         let clock = ContinuousClock()
         let began = clock.now
@@ -472,6 +504,7 @@ struct MindView: View {
         replayTask?.cancel()
         replayTask = nil
         let steps = player.stepSeconds
+        let played = player.window
         let duration = player.startedAt.map { (ContinuousClock.now - $0).seconds } ?? 0
         player.stop()
         graph.recordMindReplayed(
@@ -479,6 +512,7 @@ struct MindView: View {
             durationMilliseconds: duration * 1000,
             stepP95Milliseconds: FrameTimeSampler.percentile(steps, 0.95).map { $0 * 1000 },
             finished: finished,
+            window: played,
             nodes: simulation?.nodeCount ?? 0
         )
         refresh()
@@ -489,6 +523,38 @@ private extension Duration {
     var seconds: Double {
         let parts = components
         return Double(parts.seconds) + Double(parts.attoseconds) / 1e18
+    }
+}
+
+// Tidy up's way in: a round glass button with the number of questions waiting. Mind only shows it
+// while there is at least one, so it never sits there saying zero.
+private struct TidyUpButton: View {
+    let count: Int
+    let glass: Namespace.ID
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: "sparkles")
+                .font(.body.weight(.semibold))
+                .frame(width: 40, height: 40)
+                .glassEffect(.regular.interactive(), in: Circle())
+                .glassEffectID("tidyUp", in: glass)
+                .overlay(alignment: .topTrailing) {
+                    Text(count > 99 ? "99+" : "\(count)")
+                        .font(.caption2.weight(.bold))
+                        .monospacedDigit()
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 5)
+                        .frame(minWidth: 18, minHeight: 18)
+                        .background(Palette.ember, in: Capsule())
+                        .offset(x: 4, y: -4)
+                }
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Tidy up")
+        .accessibilityValue(count == 1 ? "1 to check" : "\(count) to check")
+        .accessibilityIdentifier("mindTidyUp")
     }
 }
 

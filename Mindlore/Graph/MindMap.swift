@@ -33,19 +33,36 @@ nonisolated struct MindMapSnapshot: Sendable {
     // `entities` also holds names only notes and creative pieces carry, which never draw.
     let linkedEntityIDs: Set<UUID>
 
-    init(entities: [UUID: EntityInfo], links: [EntityGraph.LinkInput], entries: [UUID: EntryInfo], entryDates: [Date] = []) {
+    // `linkedEntityIDs` is derived from the links unless given, which only `since` does.
+    init(entities: [UUID: EntityInfo], links: [EntityGraph.LinkInput], entries: [UUID: EntryInfo], entryDates: [Date] = [], linkedEntityIDs: Set<UUID>? = nil) {
         self.entities = entities
         self.links = links
         self.entries = entries
         self.entryDates = entryDates
-        linkedEntityIDs = Set(links.map(\.entityID))
+        self.linkedEntityIDs = linkedEntityIDs ?? Set(links.map(\.entityID))
     }
 
     static let empty = MindMapSnapshot(entities: [:], links: [], entries: [:])
 
-    // Where a replay starts: the first mention that has already happened.
-    func earliestLinkDate(onOrBefore date: Date) -> Date? {
-        links.lazy.map(\.entryDate).filter { $0 <= date }.min()
+    // Where a replay starts: the first mention that has already happened, after `start` if given.
+    func earliestLinkDate(after start: Date? = nil, onOrBefore date: Date) -> Date? {
+        links.lazy.map(\.entryDate).filter { day in day <= date && start.map { day > $0 } ?? true }.min()
+    }
+
+    // Only what happened after `start`, start-exclusive like MindStats' windows. A replay of a
+    // window renders this as all time, so its last step is the window's own map without a fixed
+    // start having to be threaded through MindMap and MindStats. The names the whole journal
+    // carries stay (`entities`, `linkedEntityIDs`): the map's minimum mention count is sized on them,
+    // so trimming them would give a replay a lower bar than the map it ends on.
+    func since(_ start: Date?) -> MindMapSnapshot {
+        guard let start else { return self }
+        return MindMapSnapshot(
+            entities: entities,
+            links: links.filter { $0.entryDate > start },
+            entries: entries.filter { $0.value.date > start },
+            entryDates: entryDates.filter { $0 > start },
+            linkedEntityIDs: linkedEntityIDs
+        )
     }
 }
 

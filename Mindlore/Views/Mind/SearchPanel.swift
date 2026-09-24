@@ -3,8 +3,8 @@ import SwiftData
 import SwiftUI
 
 // Mind's pull-up panel: search and the kind chips, then what changed in the window, every name
-// the window holds ranked by how often it came up, and a Tidy up row for the review questions and
-// hidden names. Not a system sheet, which would cover the tab bar and the recording accessory.
+// the window holds ranked by how often it came up, and a row for the names the user hid. The review
+// questions are a button on Mind's top bar, where they get seen. Not a system sheet, which would cover the tab bar and the recording accessory.
 // Only the header drags the panel; the list below scrolls on its own, so the two gestures never
 // fight.
 struct SearchPanel: View {
@@ -35,6 +35,8 @@ struct SearchPanel: View {
     let available: CGFloat
     // The kind filter, owned by Mind because it filters the map as well as this list.
     @Binding var segment: EntitySearch.Segment
+    // Review questions skipped this session, owned by Mind, whose top bar counts them.
+    @Binding var skipped: Set<String>
     // The window's numbers, computed by Mind once per revision and window.
     let stats: MindDrawer.Stats
     let select: (UUID) -> Void
@@ -50,8 +52,6 @@ struct SearchPanel: View {
     @State private var rows = MindDirectory.Rows()
     @State private var ranked: [MindDrawer.RankedRow] = []
     @State private var cards: [MindDrawer.ChangeCard] = []
-    @State private var questionCount = 0
-    @State private var skipped: Set<String> = []
     @State private var showingTidyUp = false
     @State private var dragOffset: CGFloat = 0
     @State private var keyboardOverlap: CGFloat = 0
@@ -265,17 +265,15 @@ struct SearchPanel: View {
                     }
                 }
                 .listRowBackground(Color.clear)
-                if questionCount > 0 || !rows.hidden.isEmpty {
+                if !rows.hidden.isEmpty {
                     Button {
                         showingTidyUp = true
                     } label: {
                         HStack {
-                            Label("Tidy up", systemImage: "sparkles")
+                            Label("Hidden names", systemImage: "eye.slash")
                             Spacer()
-                            if questionCount > 0 {
-                                Text(questionCount == 1 ? "1 to check" : "\(questionCount) to check")
-                                    .foregroundStyle(.secondary)
-                            }
+                            Text("\(rows.hidden.count)")
+                                .foregroundStyle(.secondary)
                             Image(systemName: "chevron.right")
                                 .font(.caption.weight(.semibold))
                                 .foregroundStyle(.tertiary)
@@ -284,7 +282,7 @@ struct SearchPanel: View {
                     }
                     .buttonStyle(.plain)
                     .listRowBackground(Color.clear)
-                    .accessibilityIdentifier("mindTidyUp")
+                    .accessibilityIdentifier("mindHiddenNames")
                 }
                 // A row, not an overlay. Centred over the whole list it landed on top of the chips,
                 // which are still there and still tappable.
@@ -355,11 +353,6 @@ struct SearchPanel: View {
 
     private func refresh() {
         rows = MindDirectory.rows(in: modelContext)
-        questionCount = ReviewQueue.questions(
-            suggestions: graph.editor.suggestions(in: modelContext),
-            unsure: graph.unsureLinks(in: modelContext),
-            skipped: skipped
-        ).count
     }
 }
 

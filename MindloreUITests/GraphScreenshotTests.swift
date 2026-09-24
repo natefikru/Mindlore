@@ -84,9 +84,18 @@ final class GraphScreenshotTests: XCTestCase {
         }
         app.buttons["mindWindow-quarter"].tap()
         app.buttons["mindReplay"].tap()
-        sleep(5)
+        sleep(3)
         attach("mind-replay-midway")
-        sleep(7)
+        sleep(4)
+
+        // Tidy up sits on the top bar, which the full drawer covers, so it goes first.
+        let tidyUp = app.buttons["mindTidyUp"]
+        if tidyUp.waitForExistence(timeout: 3) {
+            tidyUp.tap()
+            sleep(2)
+            attach("mind-tidy-up")
+            app.buttons["tidyUpDone"].tap()
+        }
 
         grabber.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
             .press(forDuration: 0.05, thenDragTo: app.windows.firstMatch.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.05)))
@@ -96,16 +105,6 @@ final class GraphScreenshotTests: XCTestCase {
         sleep(1)
         attach("mind-drawer-people")
         app.buttons["mindKindChip-all"].tap()
-        let tidyUp = app.buttons["mindTidyUp"]
-        var swipes = 0
-        while !tidyUp.isHittable && swipes < 12 {
-            app.swipeUp()
-            swipes += 1
-        }
-        tidyUp.tap()
-        sleep(2)
-        attach("mind-tidy-up")
-        app.buttons["tidyUpDone"].tap()
 
         let field = app.textFields["mindSearchField"]
         field.tap()

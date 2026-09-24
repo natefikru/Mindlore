@@ -324,9 +324,13 @@ every view and service resolves an entity by fetching its id, never by walking t
   a quiet stretch (`entities` keeps every browsable name, so the drawer finds the author by name); `MindView.frame` (static, pure) turns it into nodes, edges, and areas for the window and
   the drawer's kind segment. A journal of `MindMap.largeJournal` (60) names or more draws a name
   only with two mentions in the window; the drawer still lists it. The play button left of Month
-  (`MindReplayPlayer`) plays the whole journal, first mention to today, whatever the window, over
-  10 seconds in 100 ms steps, publishing every fifth step (publishing each pushed frame p95 to
-  32 ms), then hands the map back to the window; picking a window ends it there.
+  (`MindReplayPlayer`) plays the window on screen (owner, 2026-09-23), from its start (or the
+  first mention, if the journal is younger) to today, over 6 seconds in 100 ms steps, publishing
+  every fifth step (publishing each pushed frame p95 to 32 ms). The player trims the snapshot at
+  the window's start (`MindMapSnapshot.since`, start-exclusive like the windows) and renders each
+  step as all time, so the last step is the window's own map (`MindReplayTests`); the window stays
+  selected while it plays, and picking any window ends it there. The date chip reads days for
+  Month and 3 months, months for Year and All; the haptic ticks on a month change only.
 - **`MindStats`** (`Graph/`, pure) is every number Mind shows for a window, computed once per
   (revision, window) by `MindView` into `MindDrawer.Stats`, never per frame: entries per name,
   its area (`EntityTally`), a 16-bucket sparkline over the window and the three before it, and
@@ -344,8 +348,11 @@ every view and service resolves an entity by fetching its id, never by walking t
   Places, Projects, Themes; Themes are tags, and organizations, events, and other show only under
   All) that filter the list, the cards, and the map, then `MindChangesRow` ("What changed", tap
   to focus, `mind.changeTapped`), `MindRankedRow` for every name the window holds (area dot, kind
-  glyph, `Sparkline`, count, change word, open threads; by count, then most recent), and a Tidy
-  up row. `MindDrawer` joins the window's numbers with `MindDirectory`'s rows, which count open
+  glyph, `Sparkline`, count, change word, open threads; by count, then most recent), and a
+  Hidden names row when anything is hidden. The review questions are a `TidyUpButton` on the map's
+  top bar with their count, shown only while there is one (owner, 2026-09-23: at the foot of the
+  drawer nobody scrolled to it); `MindView` owns the count and the session's skips, which the
+  drawer takes as a binding. The full drawer covers the top bar, so lower it to reach the button. `MindDrawer` joins the window's numbers with `MindDirectory`'s rows, which count open
   loose ends through merges and key their own refresh because closing a loose end doesn't bump
   `graph.revision`. Searching ignores the window and ranks every name, hidden ones in their own
   section. `TidyUpView` holds the `ReviewQueue` questions one at a time ("Which one?" before

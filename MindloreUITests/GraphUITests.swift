@@ -323,12 +323,10 @@ final class GraphUITests: XCTestCase {
         app.buttons["entityEditDone"].tap()
         goBack() // Sara's page -> map
 
-        // Choosing Tom lowered the panel; the grabber raises it, and Tidy up closes the list.
-        raisePanel()
+        // Tidy up is on the map's top bar, with the count, as soon as there is a question.
         let tidyUp = app.buttons["mindTidyUp"]
-        scrollToElement(tidyUp, in: app.descendants(matching: .any)["mindSearchPanel"])
-        XCTAssertTrue(tidyUp.exists)
-        XCTAssertTrue(tidyUp.label.contains("to check"), tidyUp.label)
+        XCTAssertTrue(tidyUp.waitForExistence(timeout: 5))
+        XCTAssertTrue((tidyUp.value as? String)?.contains("to check") == true, String(describing: tidyUp.value))
         tidyUp.tap()
         let notTheSame = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'reviewNotSame-'")).firstMatch
         XCTAssertTrue(notTheSame.waitForExistence(timeout: 5), "Sara and Sarah look alike enough to ask")
@@ -337,11 +335,12 @@ final class GraphUITests: XCTestCase {
         app.buttons["tidyUpDone"].tap()
 
         XCTAssertFalse(app.buttons["mindTidyUp"].waitForExistence(timeout: 3), "nothing left to tidy")
-        XCTAssertTrue(app.buttons["mindRow-Sara"].exists)
+        raisePanel()
+        XCTAssertTrue(app.buttons["mindRow-Sara"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.buttons["mindRow-Sarah"].exists)
     }
 
-    // Replay runs to the end on its own and hands back the same map.
+    // Replay plays the chosen window to the end on its own and hands back the same map.
     @MainActor
     func testMindReplayRunsAndEnds() throws {
         finishAndLeave()
@@ -352,8 +351,8 @@ final class GraphUITests: XCTestCase {
         play.tap()
         let stop = app.buttons["mindReplayStop"]
         XCTAssertTrue(stop.waitForExistence(timeout: 5))
-        XCTAssertFalse(app.buttons["mindWindow-quarter"].isSelected, "a replay plays all time, so no window is chosen")
-        XCTAssertTrue(play.waitForExistence(timeout: 20), "it ends on its own")
+        XCTAssertTrue(app.buttons["mindWindow-quarter"].isSelected, "a replay plays the chosen window, so it stays chosen")
+        XCTAssertTrue(play.waitForExistence(timeout: 15), "it ends on its own")
         waitFor("value BEGINSWITH 'nodes=3 '", on: canvas)
         XCTAssertTrue(app.buttons["mindWindow-quarter"].isSelected)
     }

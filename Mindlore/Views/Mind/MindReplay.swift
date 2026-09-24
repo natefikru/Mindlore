@@ -2,9 +2,11 @@ import Foundation
 import Observation
 import SwiftUI
 
-// Replay's clock: from the first mention to now over `duration` seconds, linearly.
+// Replay's clock: over `duration` seconds, linearly, from the start of the window on screen (or the
+// first mention, if the journal is younger than the window) to now. It plays the window the user
+// chose, not the whole journal (owner, 2026-09-23).
 nonisolated struct MindReplay: Equatable, Sendable {
-    static let duration: TimeInterval = 10
+    static let duration: TimeInterval = 6
     static let stepInterval: Duration = .milliseconds(100)
     // Every step moves the map; every fifth also refreshes names, colours, and labels.
     static let publishEvery = 5
@@ -16,13 +18,24 @@ nonisolated struct MindReplay: Equatable, Sendable {
     let start: Date
     let end: Date
     let duration: TimeInterval
+    let window: MindWindow
+    // The window's own start, which the snapshot is trimmed at. Nil for all time.
+    let since: Date?
 
-    // Nil when there is nothing to play: no mention yet, or none before `end`.
-    init?(snapshot: MindMapSnapshot, end: Date, duration: TimeInterval = MindReplay.duration) {
-        guard let start = snapshot.earliestLinkDate(onOrBefore: end), start < end, duration > 0 else { return nil }
+    // Nil when there is nothing to play: no mention in the window before `end`.
+    init?(snapshot: MindMapSnapshot, window: MindWindow = .all, end: Date, duration: TimeInterval = MindReplay.duration) {
+        let since = window.interval(endingAt: end)?.start
+        guard let first = snapshot.earliestLinkDate(after: since, onOrBefore: end), duration > 0 else { return nil }
+        // The window's start when the journal reaches back that far, so a quiet first fortnight
+        // plays as a quiet fortnight; otherwise the first mention, as all time does.
+        let journalStart = snapshot.earliestLinkDate(onOrBefore: end) ?? first
+        let start = since.map { max($0, journalStart) } ?? first
+        guard start < end else { return nil }
         self.start = start
         self.end = end
         self.duration = duration
+        self.window = window
+        self.since = since
     }
 
     func asOf(elapsed: TimeInterval) -> Date {
@@ -59,14 +72,14 @@ final class MindReplayPlayer {
 
     // Whether there was anything to play.
     @discardableResult
-    func start(now: Date, fetch: @escaping () -> MindMapSnapshot) -> Bool {
+    func start(now: Date, window: MindWindow = .all, fetch: @escaping () -> MindMapSnapshot) -> Bool {
         let snapshot = fetch()
-        guard let replay = MindReplay(snapshot: snapshot, end: now) else {
+        guard let replay = MindReplay(snapshot: snapshot, window: window, end: now) else {
             stop()
             return false
         }
         self.fetch = fetch
-        self.snapshot = snapshot
+        self.snapshot = snapshot.since(replay.since)
         self.replay = replay
         asOf = replay.start
         stepSeconds = []
@@ -87,9 +100,12 @@ final class MindReplayPlayer {
     }
 
     func refetch() {
-        guard isRunning, let fetch else { return }
-        snapshot = fetch()
+        guard isRunning, let fetch, let replay else { return }
+        snapshot = fetch().since(replay.since)
     }
+
+    // What the date chip reads: days for a stretch short enough that the month barely moves.
+    var window: MindWindow { replay?.window ?? .all }
 
     func stop() {
         isRunning = false
@@ -112,9 +128,18 @@ struct MindReplayControls: View {
     let glass: Namespace.ID
 
     // The month on screen. A tick fires when this changes, which is the one thing in a replay the
-    // user can both see and feel; a tick per 100 ms step would be a hundred buzzes in ten seconds.
+    // user can both see and feel; a tick per 100 ms step would be sixty buzzes in six seconds.
     private var month: String {
         player.asOf.map { $0.formatted(.dateTime.month(.abbreviated).year()) } ?? ""
+    }
+
+    // What the chip says. A month's replay would read "Sep 2026" the whole way through.
+    private var label: String {
+        guard let asOf = player.asOf else { return "" }
+        switch player.window {
+        case .month, .quarter: return asOf.formatted(.dateTime.day().month(.abbreviated))
+        case .year, .all: return month
+        }
     }
 
     var body: some View {
@@ -124,7 +149,7 @@ struct MindReplayControls: View {
                     HStack(spacing: 6) {
                         Image(systemName: "stop.fill")
                             .contentTransition(.symbolEffect(.replace))
-                        Text(month)
+                        Text(label)
                             .monospacedDigit()
                             .accessibilityIdentifier("mindReplayDate")
                     }
