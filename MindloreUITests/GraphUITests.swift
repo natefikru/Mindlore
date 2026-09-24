@@ -323,21 +323,17 @@ final class GraphUITests: XCTestCase {
         app.buttons["entityEditDone"].tap()
         goBack() // Sara's page -> map
 
-        // Searching raised the drawer to full, which covers the top bar, and it is still there
-        // after the page pops. A tap on Tidy up went to the drawer and the sheet never opened, so
-        // the drawer comes down to its middle stop first, as a person would.
-        raisePanel()
-
         // Tidy up is on the map's top bar, with the count, as soon as there is a question.
         let tidyUp = app.buttons["mindTidyUp"]
         XCTAssertTrue(tidyUp.waitForExistence(timeout: 5))
         XCTAssertTrue((tidyUp.value as? String)?.contains("to check") == true, String(describing: tidyUp.value))
         tidyUp.tap()
-        // The tree goes into the message because on CI it has failed after a push, sheets on the
-        // page, and a pop, and only the result bundle (which the log can't reach) said why.
+        // XCTest taps the middle of the button's accessibility frame, and says hittable from the
+        // accessibility tree, not from SwiftUI's hit test; this caught a Tidy up that only took
+        // touches on its glyph and badge.
         XCTAssertTrue(
             app.buttons["tidyUpDone"].waitForExistence(timeout: 5),
-            "Tidy up opens its sheet (button hittable: \(tidyUp.exists && tidyUp.isHittable))\n\(app.debugDescription)"
+            "Tidy up opens its sheet (button hittable: \(tidyUp.exists && tidyUp.isHittable))"
         )
         let notTheSame = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'reviewNotSame-'")).firstMatch
         XCTAssertTrue(notTheSame.waitForExistence(timeout: 5), "Sara and Sarah look alike enough to ask")

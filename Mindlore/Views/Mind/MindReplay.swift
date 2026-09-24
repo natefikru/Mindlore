@@ -156,6 +156,8 @@ struct MindReplayControls: View {
                     .font(.subheadline.weight(.semibold))
                     .padding(.horizontal, 12)
                     .frame(height: 44)
+                    // A plain button takes touches only where its label draws; glass doesn't count.
+                    .contentShape(Capsule())
                     .glassEffect(.regular.interactive(), in: Capsule())
                     .glassEffectID("replay", in: glass)
                 }

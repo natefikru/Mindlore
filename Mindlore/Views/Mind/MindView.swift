@@ -529,6 +529,10 @@ private struct TidyUpButton: View {
             Image(systemName: "sparkles")
                 .font(.body.weight(.semibold))
                 .frame(width: 44, height: 44)
+                // A plain button takes touches only where its label draws, and glass doesn't
+                // count: without this only the glyph and the badge were tappable, and a tap
+                // between them fell through to the map and cleared its focus.
+                .contentShape(Circle())
                 .glassEffect(.regular.interactive(), in: Circle())
                 .glassEffectID("tidyUp", in: glass)
                 .overlay(alignment: .topTrailing) {

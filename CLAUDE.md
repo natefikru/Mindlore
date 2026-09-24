@@ -377,7 +377,7 @@ every view and service resolves an entity by fetching its id, never by walking t
   Hidden names row when anything is hidden. The review questions are a `TidyUpButton` on the map's
   top bar with their count, shown only while there is one (owner, 2026-09-23: at the foot of the
   drawer nobody scrolled to it); `MindView` owns the count and the session's skips, which the
-  drawer takes as a binding. The full drawer covers the top bar, so lower it to reach the button. `MindDrawer` joins the window's numbers with `MindDirectory`'s rows, which count open
+  drawer takes as a binding. Even at full the drawer sits below the top bar. A plain-style glass button on the bar needs `.contentShape` over its whole 44pt shape: glass doesn't take touches, so Tidy up once answered only on its glyph and badge and a tap between them cleared the map's focus. `MindDrawer` joins the window's numbers with `MindDirectory`'s rows, which count open
   loose ends through merges and key their own refresh because closing a loose end doesn't bump
   `graph.revision`. Searching ignores the window and ranks every name, hidden ones in their own
   section. `TidyUpView` holds the `ReviewQueue` questions one at a time ("Which one?" before

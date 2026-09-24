@@ -88,7 +88,7 @@ final class GraphScreenshotTests: XCTestCase {
         attach("mind-replay-midway")
         sleep(4)
 
-        // Tidy up sits on the top bar, which the full drawer covers, so it goes first.
+        // Tidy up sits on the top bar.
         let tidyUp = app.buttons["mindTidyUp"]
         if tidyUp.waitForExistence(timeout: 3) {
             tidyUp.tap()
