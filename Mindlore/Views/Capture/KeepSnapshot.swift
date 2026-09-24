@@ -26,8 +26,11 @@ struct KeepSnapshot: Equatable {
     var closed: [Closed] = []
     // Loose ends this entry opened.
     var opened: [String] = []
-    // Names on the map: visible, unmerged, mentioned somewhere. Tags are not names.
+    // Names on the map: visible, unmerged, named in a journal entry. Tags are not names.
     var namesOnTheMap = 0
+    // Whether this entry is a journal entry, the only kind the map reads. A note or a creative
+    // piece puts nothing on it, so its card offers no way there.
+    var entryOnMap = true
 
     var newCount: Int { noticed.count(where: \.isNew) }
 
@@ -48,11 +51,14 @@ struct KeepSnapshot: Equatable {
             return current
         }
 
-        // Which entries mention each entity, after merges.
+        // Which entries mention each entity, after merges, and which of those the map reads.
+        let offMap = Set(((try? context.fetch(FetchDescriptor<Entry>(predicate: #Predicate { $0.isNote || $0.isCreative }))) ?? []).map(\.id))
         var entriesByRoot: [UUID: Set<UUID>] = [:]
+        var onMap: Set<UUID> = []
         for link in links {
             guard let entityID = link.entityID, let entry = link.entryID, let root = root(entityID) else { continue }
             entriesByRoot[root.id, default: []].insert(entry)
+            if !offMap.contains(entry) { onMap.insert(root.id) }
         }
 
         var snapshot = KeepSnapshot()
@@ -76,8 +82,9 @@ struct KeepSnapshot: Equatable {
         }
         snapshot.noticed = Array(snapshot.noticed.prefix(noticedLimit))
 
+        snapshot.entryOnMap = !offMap.contains(entryID)
         snapshot.namesOnTheMap = entities.count { entity in
-            entity.mergedIntoID == nil && !entity.hidden && entity.kind.isAName && !(entriesByRoot[entity.id] ?? []).isEmpty
+            entity.mergedIntoID == nil && !entity.hidden && entity.kind.isAName && onMap.contains(entity.id)
         }
 
         for looseEnd in LooseEnd.all(in: context) {

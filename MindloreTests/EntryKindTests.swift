@@ -53,8 +53,8 @@ struct EntryKindTests {
         #expect(poem.tags == ["nature"] && poem.summary == "A river walk.", "a theme is not a claim about a life")
     }
 
-    // A note is read like life, minus its mood: its names reach the map and its loose ends stay
-    // open, so "buy a gift for Sarah" on a list is still something a later entry can settle.
+    // A note is read like life, minus its mood: its names are kept (for search, entity pages, and
+    // Ask; the map reads journal entries only) and its loose ends stay open, so "buy a gift for Sarah" on a list is still something a later entry can settle.
     @Test func aNoteKeepsItsNamesAndLooseEndsAndCarriesNoMood() async throws {
         let harness = try InsightsHarness()
         harness.useGraph = true

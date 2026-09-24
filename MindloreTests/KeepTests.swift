@@ -57,6 +57,22 @@ struct KeepTests {
         #expect(snapshot(kept).namesOnTheMap == 2)
     }
 
+    // The map reads journal entries only: a name only a note carries isn't on it, and a note's
+    // card offers no way there.
+    @Test func theMapLineCountsJournalEntriesAndANoteHasNone() throws {
+        let (list, kept) = (try entry("Call Sam"), try entry())
+        list.kind = .note
+        try context.save()
+        let (maya, sam) = (try entity("Maya"), try entity("Sam"))
+        try link(list, sam)
+        try link(kept, maya)
+
+        #expect(snapshot(kept).entryOnMap)
+        #expect(snapshot(kept).namesOnTheMap == 1, "Sam is only in a note")
+        #expect(!snapshot(list).entryOnMap)
+        #expect(!snapshot(list).noticed.isEmpty, "the card still says what it noticed")
+    }
+
     @Test func aMergedNameShowsAsItsWinnerAndCountsTheWinnersHistory() throws {
         let (earlier, kept) = (try entry("Earlier"), try entry())
         let (winner, loser) = (try entity("Maya Chen"), try entity("Maya"))

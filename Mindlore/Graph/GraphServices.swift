@@ -377,8 +377,12 @@ final class GraphServices {
 
         let links = indexer.allLinks(in: context)
         let entryIDs = Set(links.compactMap(\.entryID))
+        // Journal entries only: a note or a creative piece keeps its links for search, entity
+        // pages, and Ask, but the map is the author's life. Dropping the entry here drops every
+        // link, part, area, and mood it would have brought, since `inputs` skips a link whose
+        // entry is missing.
         let fetched = ((try? context.fetch(FetchDescriptor<Entry>(predicate: #Predicate { entryIDs.contains($0.id) }))) ?? [])
-            .filter { !$0.isDeleted }
+            .filter { !$0.isDeleted && $0.kind == .journal }
         let partContexts = Self.partContexts(for: fetched)
         let entries = Dictionary(
             fetched
@@ -404,7 +408,7 @@ final class GraphServices {
         let browsable = Dictionary(uniqueKeysWithValues: entities.filter(\.isBrowsable).map {
             ($0.id, MindMapSnapshot.EntityInfo(id: $0.id, name: $0.name, kind: $0.kind, aliases: $0.aliases))
         })
-        let allEntries = (try? context.fetch(FetchDescriptor<Entry>(predicate: #Predicate { !$0.isDraft }))) ?? []
+        let allEntries = (try? context.fetch(FetchDescriptor<Entry>(predicate: #Predicate { !$0.isDraft && !$0.isNote && !$0.isCreative }))) ?? []
         let entryDates = allEntries.filter { !$0.isDeleted }.map(\.entryDate)
         return MindMapSnapshot(entities: browsable, links: inputs, entries: entries, entryDates: entryDates)
     }

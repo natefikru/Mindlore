@@ -20,9 +20,9 @@ struct MindView: View {
     @State private var areaOf: [UUID: LifeArea] = [:]
     @State private var areaGeneration = 0
     @State private var arrivedAt: [UUID: Date] = [:]
-    // Names the journal has at all, whatever the window does with them: what tells an empty
-    // journal apart from a quiet stretch.
-    @State private var browsableCount = 0
+    // Names a journal entry has at all, whatever the window does with them: what tells an empty
+    // map apart from a quiet stretch, and a name only notes carry from one the window hides.
+    @State private var journalNamed: Set<UUID> = []
     @State private var trail = FocusTrail()
     @State private var panelStop: SearchPanel.Stop = .half
     // Remembered for as long as the app runs, never saved as a setting (owner, 2026-09-23).
@@ -73,7 +73,7 @@ struct MindView: View {
                         if let focused = trail.current {
                             MindPeekOverlay(
                                 entityID: focused,
-                                onMap: simulation?.index(of: focused) != nil,
+                                mapHint: MindView.mapHint(for: focused, in: simulation, journalNamed: journalNamed),
                                 open: { router.mindPath.append($0) },
                                 dismiss: { trail.clear() }
                             )
@@ -161,7 +161,7 @@ struct MindView: View {
     // this stretch (or of this kind) has plenty; it only needs the window opened back up.
     @ViewBuilder
     private var emptyState: some View {
-        if browsableCount > 0 {
+        if !journalNamed.isEmpty {
             ContentUnavailableView {
                 Label("Nothing in this stretch", systemImage: "calendar")
             } description: {
@@ -349,7 +349,7 @@ struct MindView: View {
             snapshot,
             window: window,
             kinds: kinds,
-            minimumLinkCount: MindMap.minimumMentions(browsableCount: snapshot.entities.count),
+            minimumLinkCount: MindMap.minimumMentions(browsableCount: snapshot.linkedEntityIDs.count),
             asOf: asOf
         )
         let onMap = Set(data.nodes.map(\.id))
@@ -428,7 +428,7 @@ struct MindView: View {
             areaOf = frame.areaOf
             areaGeneration += 1
         }
-        if snapshot.entities.count != browsableCount { browsableCount = snapshot.entities.count }
+        if snapshot.linkedEntityIDs != journalNamed { journalNamed = snapshot.linkedEntityIDs }
 
         if let simulation {
             simulation.update(nodes: frame.nodes, edges: frame.edges)
@@ -492,10 +492,19 @@ private extension Duration {
     }
 }
 
+extension MindView {
+    // Nothing until the map has been built once, so a Show in Mind jump never flashes the wrong
+    // reason before the first refresh.
+    static func mapHint(for id: UUID, in simulation: GraphSimulation?, journalNamed: Set<UUID>) -> EntityPeekCard.MapHint? {
+        guard let simulation, simulation.index(of: id) == nil else { return nil }
+        return journalNamed.contains(id) ? .outsideView : .notInJournal
+    }
+}
+
 // The card over the map for the focused entity. Swiping it up opens the page, down dismisses.
 private struct MindPeekOverlay: View {
     let entityID: UUID
-    let onMap: Bool
+    let mapHint: EntityPeekCard.MapHint?
     let open: (EntityRoute) -> Void
     let dismiss: () -> Void
 
@@ -504,7 +513,7 @@ private struct MindPeekOverlay: View {
         // presented as a partial-height sheet (AskView, the editor), which iOS 26 already draws as
         // glass; giving the card itself glass would double it there. Over the map it is a plain
         // floating child with nothing under it but the canvas, which is what glass is for.
-        EntityPeekCard(route: EntityRoute(id: entityID), showsMapHint: !onMap, open: open)
+        EntityPeekCard(route: EntityRoute(id: entityID), mapHint: mapHint, open: open)
             .id(entityID)
             .frame(height: MindView.cardHeight)
             .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 24, style: .continuous))

@@ -164,7 +164,7 @@ struct KeepCard: View {
                     .transition(.bloom)
                     .accessibilityIdentifier("keepClosed")
                 }
-                if snapshot.namesOnTheMap > 0, let first = snapshot.noticed.first {
+                if snapshot.entryOnMap, snapshot.namesOnTheMap > 0, let first = snapshot.noticed.first {
                     Button { router.showInMind(first.id) } label: {
                         HStack {
                             Image(systemName: "circle.hexagongrid")
