@@ -30,6 +30,9 @@ struct GrowingTextEditor: UIViewRepresentable {
     // (a tap on the text being read) and at the end of the text otherwise.
     var focusAtEndToken: Int
     var focusOffset: Int? = nil
+    // False while something covers the journal (the app lock): focus the app took with it when it
+    // left waits until then, so a keyboard never opens over the lock cover.
+    var canRestoreFocus = true
     // The format bar goes away while a recording sits in the accessory: the two would stack.
     var showsFormatBar = true
     // Names to link while reading.
@@ -71,6 +74,9 @@ struct GrowingTextEditor: UIViewRepresentable {
         tap.delegate = coordinator
         view.addGestureRecognizer(tap)
         coordinator.load(text, formatting, into: view)
+        // Selector observers are removed with the coordinator.
+        NotificationCenter.default.addObserver(coordinator, selector: #selector(Coordinator.appWillResignActive), name: UIApplication.willResignActiveNotification, object: nil)
+        NotificationCenter.default.addObserver(coordinator, selector: #selector(Coordinator.appDidBecomeActive), name: UIApplication.didBecomeActiveNotification, object: nil)
         return view
     }
 
@@ -133,6 +139,8 @@ struct GrowingTextEditor: UIViewRepresentable {
         } else if isEditable && isFocused && !view.isFirstResponder && !coordinator.resignedByUser {
             view.becomeFirstResponder()
         }
+        // The lock lifting is an update, not an activation, so a focus held back for it comes here.
+        if canRestoreFocus { coordinator.restoreFocusIfNeeded() }
     }
 
     func sizeThatFits(_ proposal: ProposedViewSize, uiView: UITextView, context: Context) -> CGSize? {
@@ -161,6 +169,12 @@ struct GrowingTextEditor: UIViewRepresentable {
         // The keyboard went away by the user's hand (a drag on the scroll view, the Done button),
         // so a stale focus flag must not bring it straight back.
         var resignedByUser = false
+        // The selection the view was editing with when the app went inactive, until the app is
+        // back. A third-party keyboard's voice typing (Gboard's microphone key) switches to the
+        // keyboard's own app to record and then types into this view through the keyboard once
+        // the user comes back, so coming back must find the view still editing with the caret where
+        // it was. UIKit can end editing while the app is away; that is not the user's hand.
+        var focusToRestore: NSRange?
         // Carries the block of an empty last paragraph; see the note at the top of the file.
         static let sentinelKey = NSAttributedString.Key("mindlore.sentinel")
 
@@ -264,8 +278,38 @@ struct GrowingTextEditor: UIViewRepresentable {
             parent.onFocusChange(true)
         }
 
+        // Between the app going inactive and becoming active again, when nothing is restored.
+        private var appIsAway = false
+
+        @objc func appWillResignActive() {
+            appIsAway = true
+            // Not cleared when the view isn't editing: after a trip away with the app lock on, the
+            // Face ID sheet makes the app inactive again while the focus is still held back.
+            guard let view, view.isEditable, view.isFirstResponder else { return }
+            focusToRestore = view.selectedRange
+        }
+
+        @objc func appDidBecomeActive() {
+            appIsAway = false
+            guard parent.canRestoreFocus else { return }
+            restoreFocusIfNeeded()
+        }
+
+        func restoreFocusIfNeeded() {
+            guard let selection = focusToRestore, !appIsAway else { return }
+            focusToRestore = nil
+            guard let view, view.isEditable, !view.isFirstResponder, view.window != nil else { return }
+            let end = Self.plain(view.textStorage).utf16.count
+            let location = min(selection.location, end)
+            view.selectedRange = NSRange(location: location, length: min(selection.length, end - location))
+            resignedByUser = false
+            view.becomeFirstResponder()
+            DiagnosticsLog.shared.record("editor.focusRestored")
+        }
+
         func textViewDidEndEditing(_ textView: UITextView) {
-            resignedByUser = true
+            // Ended by UIKit while the app was away, not by the user: coming back restores it.
+            resignedByUser = focusToRestore == nil
             bar.model.mention = nil
             // A tag the text ends on has nothing typed after it; leaving the field completes it.
             let text = Self.plain(textView.textStorage)

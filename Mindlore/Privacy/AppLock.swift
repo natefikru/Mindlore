@@ -127,6 +127,12 @@ final class AppLock {
     }
 }
 
+// Never the key window: a cover that took key status could take the keyboard from the entry being
+// written, and nothing would give it back when the cover went. Taps still reach its Unlock button.
+private final class CoverWindow: UIWindow {
+    override var canBecomeKey: Bool { false }
+}
+
 // The window the cover lives in, above alerts, so nothing the app presents can sit on top of it.
 private final class LockWindow {
     private var window: UIWindow?
@@ -139,7 +145,7 @@ private final class LockWindow {
             return
         }
         guard let scene = UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }).first else { return }
-        let window = UIWindow(windowScene: scene)
+        let window = CoverWindow(windowScene: scene)
         window.windowLevel = .alert + 1
         let host = UIHostingController(rootView: LockCoverView(lock: lock))
         host.view.backgroundColor = .clear
