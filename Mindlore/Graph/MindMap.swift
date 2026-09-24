@@ -35,9 +35,23 @@ nonisolated struct MindMapSnapshot: Sendable {
 
     static let empty = MindMapSnapshot(entities: [:], links: [], entries: [:])
 
-    // Where a replay starts: the first mention that has already happened.
-    func earliestLinkDate(onOrBefore date: Date) -> Date? {
-        links.lazy.map(\.entryDate).filter { $0 <= date }.min()
+    // Where a replay starts: the first mention that has already happened, after `start` if given.
+    func earliestLinkDate(after start: Date? = nil, onOrBefore date: Date) -> Date? {
+        links.lazy.map(\.entryDate).filter { day in day <= date && start.map { day > $0 } ?? true }.min()
+    }
+
+    // Only what happened after `start`, start-exclusive like MindStats' windows. A replay of a
+    // window renders this as all time, so its last step is the window's own map without a fixed
+    // start having to be threaded through MindMap and MindStats. Entities stay: they are what the
+    // map's minimum mention count is sized on.
+    func since(_ start: Date?) -> MindMapSnapshot {
+        guard let start else { return self }
+        return MindMapSnapshot(
+            entities: entities,
+            links: links.filter { $0.entryDate > start },
+            entries: entries.filter { $0.value.date > start },
+            entryDates: entryDates.filter { $0 > start }
+        )
     }
 }
 

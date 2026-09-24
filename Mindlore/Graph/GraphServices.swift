@@ -536,11 +536,12 @@ final class GraphServices {
         diagnostics.record("mind.windowChanged", ["window": .string(window.rawValue), "nodes": .int(nodes)])
     }
 
-    func recordMindReplayed(steps: Int, durationMilliseconds: Double, stepP95Milliseconds: Double?, finished: Bool, nodes: Int) {
+    func recordMindReplayed(steps: Int, durationMilliseconds: Double, stepP95Milliseconds: Double?, finished: Bool, window: MindWindow = .all, nodes: Int) {
         var fields: [String: DiagnosticValue] = [
             "steps": .int(steps),
             "durationMilliseconds": .double(durationMilliseconds),
             "finished": .bool(finished),
+            "window": .string(window.rawValue),
             "nodes": .int(nodes),
         ]
         if let stepP95Milliseconds { fields["stepP95Milliseconds"] = .double(stepP95Milliseconds) }

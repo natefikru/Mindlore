@@ -350,14 +350,16 @@ struct AIDiagnosticsPrivacyTests {
             services.recordMindWindowChanged(window, nodes: frame.nodes.count)
         }
         services.recordMindChangeTapped(.quieter, kind: .person)
-        // The replay steps the whole journal over the same data.
-        let player = MindReplayPlayer()
-        player.start(now: .distantFuture) { services.mapSnapshot(in: context) }
-        if let step = player.step(elapsed: 5) {
-            _ = MindView.frame(step.snapshot, window: .all, segment: .all, visibleAreas: settings.visibleLifeAreas, asOf: step.asOf)
+        // The replay steps over the same data, for all time and trimmed to a window.
+        for window in [MindWindow.all, .quarter] {
+            let player = MindReplayPlayer()
+            #expect(player.start(now: .now.addingTimeInterval(60), window: window) { services.mapSnapshot(in: context) })
+            if let step = player.step(elapsed: 3) {
+                _ = MindView.frame(step.snapshot, window: .all, segment: .all, visibleAreas: settings.visibleLifeAreas, asOf: step.asOf)
+            }
+            player.stop()
         }
-        player.stop()
-        services.recordMindReplayed(steps: 100, durationMilliseconds: 10_000, stepP95Milliseconds: 3, finished: true, nodes: 2)
+        services.recordMindReplayed(steps: 60, durationMilliseconds: 6_000, stepP95Milliseconds: 3, finished: true, window: .quarter, nodes: 2)
 
         let contents = file.contents()
         #expect(contents.contains("ai.keySaved"))
