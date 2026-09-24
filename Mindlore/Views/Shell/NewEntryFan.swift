@@ -63,9 +63,18 @@ struct NewEntryFan: View {
                     }
                 }
                 if barFrame != .zero, !router.editorHasKeyboard {
+                    let space = geometry.frame(in: .global).origin
+                    let local = { (point: CGPoint) in CGPoint(x: point.x - space.x, y: point.y - space.y) }
                     plusButton
+                        .overlay(
+                            TouchSurface(
+                                began: { began(local($0), plus: plus) },
+                                moved: { moved(local($0), plus: plus) },
+                                ended: { ended(local($0), plus: plus) },
+                                cancelled: { cancelled() }
+                            )
+                        )
                         .position(plus)
-                        .gesture(drag(plus: plus, space: geometry.frame(in: .global).origin))
                 }
             }
             .animation(animation(), value: isOpen)
@@ -78,8 +87,8 @@ struct NewEntryFan: View {
 
     // Quicker than the app's bloom: the options have to be under the thumb before it starts to
     // slide, and at 0.6 seconds with a stagger they felt late (owner, 2026-09-24).
-    static let spring = Animation.spring(duration: 0.16, bounce: 0.2)
-    static let stagger = 0.01
+    static let spring = Animation.spring(duration: 0.12, bounce: 0.18)
+    static let stagger = 0.0
 
     private func animation(delay: Double = 0) -> Animation? {
         Motion.resolve(Self.spring, reduceMotion: reduceMotion).map { $0.delay(isOpen ? delay : 0) }
@@ -88,8 +97,9 @@ struct NewEntryFan: View {
     // Dims whatever is behind and takes any tap outside the options as a close.
     private var backdrop: some View {
         Rectangle()
-            .fill(.black.opacity(0.22))
-            .background(.ultraThinMaterial.opacity(0.6))
+            // A plain dim: a blur costs a frame or two to start on the phone, and the options have
+            // to be there the moment the finger lands.
+            .fill(.black.opacity(0.32))
             .contentShape(Rectangle())
             .onTapGesture { close() }
             .accessibilityLabel("Close")
@@ -164,33 +174,41 @@ struct NewEntryFan: View {
         option == .record && recording.status != .idle ? "waveform" : option.symbol
     }
 
-    // One gesture for the tap and the slide. The fan opens on touch-down; release decides.
-    private func drag(plus: CGPoint, space: CGPoint) -> some Gesture {
-        DragGesture(minimumDistance: 0, coordinateSpace: .global)
-            .onChanged { value in
-                let point = CGPoint(x: value.location.x - space.x, y: value.location.y - space.y)
-                if touch == nil {
-                    touch = Touch(openedFan: !isOpen)
-                    if !isOpen { router.showingNewEntryFan = true }
-                }
-                if NewEntryFanLayout.distance(point, plus) > NewEntryFanLayout.plusHitRadius {
-                    touch?.leftPlus = true
-                }
-                hovered = isOpen ? NewEntryFanLayout.option(at: point, plus: plus, options: options, extraLift: extraLift) : nil
-            }
-            .onEnded { value in
-                let point = CGPoint(x: value.location.x - space.x, y: value.location.y - space.y)
-                let current = touch
-                touch = nil
-                hovered = nil
-                // A jump (Siri, a notification) may have closed the fan under the finger.
-                guard isOpen, let current else { return }
-                switch NewEntryFanLayout.release(at: point, plus: plus, options: options, leftPlus: current.leftPlus, openedByThisTouch: current.openedFan, extraLift: extraLift) {
-                case .choose(let option): choose(option, by: "slide")
-                case .stayOpen: break
-                case .close: close()
-                }
-            }
+    // The touch on the +, taken the moment it lands. A SwiftUI gesture here waited for the tab
+    // bar's own gestures to give up first, which is the lag the owner felt before the options
+    // appeared (2026-09-24); `TouchSurface` gets touchesBegan straight from UIKit. Points come in
+    // window coordinates and are moved into this view's space.
+    private func began(_ point: CGPoint, plus: CGPoint) {
+        guard touch == nil else { return }
+        touch = Touch(openedFan: !isOpen)
+        if !isOpen { router.showingNewEntryFan = true }
+    }
+
+    private func moved(_ point: CGPoint, plus: CGPoint) {
+        guard touch != nil else { return }
+        if NewEntryFanLayout.distance(point, plus) > NewEntryFanLayout.plusHitRadius {
+            touch?.leftPlus = true
+        }
+        hovered = isOpen ? NewEntryFanLayout.option(at: point, plus: plus, options: options, extraLift: extraLift) : nil
+    }
+
+    private func ended(_ point: CGPoint, plus: CGPoint) {
+        let current = touch
+        touch = nil
+        hovered = nil
+        // A jump (Siri, a notification) may have closed the fan under the finger.
+        guard isOpen, let current else { return }
+        switch NewEntryFanLayout.release(at: point, plus: plus, options: options, leftPlus: current.leftPlus, openedByThisTouch: current.openedFan, extraLift: extraLift) {
+        case .choose(let option): choose(option, by: "slide")
+        case .stayOpen: break
+        case .close: close()
+        }
+    }
+
+    // The system took the touch (a scroll, an edge swipe): leave the fan as a tap would.
+    private func cancelled() {
+        touch = nil
+        hovered = nil
     }
 
     private func close() {
@@ -340,4 +358,56 @@ private struct FanWheel: View {
         }
     }
 
+}
+
+// A UIKit view that reports a touch the moment it lands, and follows it. touchesBegan arrives before
+// any gesture recognizer has decided anything, which a SwiftUI gesture on the + did not.
+private struct TouchSurface: UIViewRepresentable {
+    let began: (CGPoint) -> Void
+    let moved: (CGPoint) -> Void
+    let ended: (CGPoint) -> Void
+    let cancelled: () -> Void
+
+    func makeUIView(context: Context) -> SurfaceView {
+        let view = SurfaceView()
+        view.backgroundColor = .clear
+        view.isMultipleTouchEnabled = false
+        return view
+    }
+
+    func updateUIView(_ view: SurfaceView, context: Context) {
+        view.began = began
+        view.moved = moved
+        view.ended = ended
+        view.cancelled = cancelled
+    }
+
+    final class SurfaceView: UIView {
+        var began: (CGPoint) -> Void = { _ in }
+        var moved: (CGPoint) -> Void = { _ in }
+        var ended: (CGPoint) -> Void = { _ in }
+        var cancelled: () -> Void = {}
+
+        private func point(_ touches: Set<UITouch>) -> CGPoint? {
+            touches.first.map { $0.location(in: nil) }
+        }
+
+        override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
+            guard let point = point(touches) else { return }
+            began(point)
+            moved(point)
+        }
+
+        override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent?) {
+            if let point = point(touches) { moved(point) }
+        }
+
+        override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
+            if let point = point(touches) { ended(point) }
+        }
+
+        override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent?) {
+            cancelled()
+        }
+    }
 }
