@@ -150,7 +150,6 @@ struct LifePrioritiesPicker: View {
             }
         }
         .sensoryFeedback(Haptics.selected, trigger: settings.lifePriorities)
-        .onDisappear { settings.lifePrioritiesAsked = true }
     }
 
     private func toggle(_ area: LifeArea) {

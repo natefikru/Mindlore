@@ -108,6 +108,9 @@ struct EntryListView: View {
                     }
                 }
             }
+            // The grouped list's own top margin sat a band of empty paper between the inline title
+            // and the greeting (owner, 2026-09-24: the top took too much room).
+            .contentMargins(.top, 4, for: .scrollContent)
             .navigationTitle("Mindlore")
             // Inline: the large title took a band of the screen the greeting already fills (owner,
             // 2026-09-24).

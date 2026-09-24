@@ -55,17 +55,21 @@ nonisolated enum NewEntryFanLayout {
     }
 
     // Each option's centre, in the same space as `plus` (y grows downward).
-    static func centers(around plus: CGPoint, options: [Option]) -> [Option: CGPoint] {
+    // The recording strip sits between the bar and the arc while a recording runs, so the arc
+    // rises by about its height then.
+    static let accessoryLift: CGFloat = 58
+
+    static func centers(around plus: CGPoint, options: [Option], extraLift: CGFloat = 0) -> [Option: CGPoint] {
         var result: [Option: CGPoint] = [:]
         for (option, degrees) in zip(options, angles(count: options.count)) {
             let radians = degrees * .pi / 180
-            result[option] = CGPoint(x: plus.x + radius * cos(radians), y: plus.y - lift - radius * sin(radians))
+            result[option] = CGPoint(x: plus.x + radius * cos(radians), y: plus.y - lift - extraLift - radius * sin(radians))
         }
         return result
     }
 
-    static func option(at point: CGPoint, plus: CGPoint, options: [Option]) -> Option? {
-        let centers = centers(around: plus, options: options)
+    static func option(at point: CGPoint, plus: CGPoint, options: [Option], extraLift: CGFloat = 0) -> Option? {
+        let centers = centers(around: plus, options: options, extraLift: extraLift)
         return options
             .map { ($0, distance(point, centers[$0] ?? plus)) }
             .filter { $0.1 <= hitRadius }
@@ -81,8 +85,8 @@ nonisolated enum NewEntryFanLayout {
 
     // What letting go means. A touch that opened the fan and never left the + leaves it open for a
     // tap. A touch that began with the fan already open is a close, unless it ends on an option.
-    static func release(at point: CGPoint, plus: CGPoint, options: [Option], leftPlus: Bool, openedByThisTouch: Bool) -> Release {
-        if let option = option(at: point, plus: plus, options: options) { return .choose(option) }
+    static func release(at point: CGPoint, plus: CGPoint, options: [Option], leftPlus: Bool, openedByThisTouch: Bool, extraLift: CGFloat = 0) -> Release {
+        if let option = option(at: point, plus: plus, options: options, extraLift: extraLift) { return .choose(option) }
         guard openedByThisTouch else { return .close }
         return !leftPlus && distance(point, plus) <= plusHitRadius ? .stayOpen : .close
     }

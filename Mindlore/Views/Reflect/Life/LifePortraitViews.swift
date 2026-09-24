@@ -13,6 +13,7 @@ struct LifePortraitCard: View {
     @Environment(AppRouter.self) private var router
 
     let reading: LifeSignals.Reading
+    var onWritten: () -> Void = {}
 
     @State private var portrait: LifeWords.PortraitView?
     @State private var status: Status = .idle
@@ -213,6 +214,7 @@ struct LifePortraitCard: View {
         switch outcome {
         case .written(let written):
             portrait = written
+            onWritten()
             earlier = LifeWords.portraits(in: modelContext)
             status = .idle
         case .needsCloud: status = .needsCloud

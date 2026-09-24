@@ -25,6 +25,8 @@ struct NewEntryFan: View {
 
     private var isOpen: Bool { router.showingNewEntryFan }
 
+    private var extraLift: CGFloat { recording.showsAccessory ? NewEntryFanLayout.accessoryLift : 0 }
+
     private var options: [NewEntryFanLayout.Option] {
         NewEntryFanLayout.options(pagesAvailable: DocumentCameraView.isSupported || FakePages.isEnabled)
     }
@@ -35,7 +37,7 @@ struct NewEntryFan: View {
             // The + slot is the middle of five, so it is the bar's centre whatever width each slot
             // gets. In this view's own space.
             let plus = CGPoint(x: barFrame.midX - origin.x, y: barFrame.midY - origin.y)
-            let centers = NewEntryFanLayout.centers(around: plus, options: options)
+            let centers = NewEntryFanLayout.centers(around: plus, options: options, extraLift: extraLift)
             ZStack(alignment: .topLeading) {
                 if isOpen {
                     backdrop
@@ -160,7 +162,7 @@ struct NewEntryFan: View {
                 if NewEntryFanLayout.distance(point, plus) > NewEntryFanLayout.plusHitRadius {
                     touch?.leftPlus = true
                 }
-                hovered = isOpen ? NewEntryFanLayout.option(at: point, plus: plus, options: options) : nil
+                hovered = isOpen ? NewEntryFanLayout.option(at: point, plus: plus, options: options, extraLift: extraLift) : nil
             }
             .onEnded { value in
                 let point = CGPoint(x: value.location.x - space.x, y: value.location.y - space.y)
@@ -169,7 +171,7 @@ struct NewEntryFan: View {
                 hovered = nil
                 // A jump (Siri, a notification) may have closed the fan under the finger.
                 guard isOpen, let current else { return }
-                switch NewEntryFanLayout.release(at: point, plus: plus, options: options, leftPlus: current.leftPlus, openedByThisTouch: current.openedFan) {
+                switch NewEntryFanLayout.release(at: point, plus: plus, options: options, leftPlus: current.leftPlus, openedByThisTouch: current.openedFan, extraLift: extraLift) {
                 case .choose(let option): choose(option, by: "slide")
                 case .stayOpen: break
                 case .close: close()

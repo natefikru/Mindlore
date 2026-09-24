@@ -24,6 +24,9 @@ struct LifeView: View {
     @State private var facts: LifeSource.Facts?
     @State private var reading: LifeSignals.Reading?
     @State private var progress = LifeSignals.Progress(entries: 0, days: 0)
+    // A written portrait is the heart of the page and sits under the bubbles; until there is one,
+    // its placeholder waits at the end, below everything that stands without AI.
+    @State private var hasPortrait = false
 
     static let windows: [MindWindow] = [.month, .quarter, .year]
 
@@ -51,11 +54,16 @@ struct LifeView: View {
                         openArea(LifeAreaRoute(area: area, window: window))
                     }
                     LifePrioritiesCard(reading: reading)
+                    if hasPortrait {
+                        LifePortraitCard(reading: reading) { hasPortrait = true }
+                    }
                     cards(reading)
                     if let facts {
                         LifeExperimentCard(reading: reading, facts: facts)
                     }
-                    LifePortraitCard(reading: reading)
+                    if !hasPortrait {
+                        LifePortraitCard(reading: reading) { hasPortrait = true }
+                    }
                 } else {
                     LifeNeedsMoreCard(progress: progress)
                 }
@@ -197,6 +205,7 @@ struct LifeView: View {
     private func load() {
         let started = Date.now
         facts = LifeSource.facts(in: modelContext)
+        hasPortrait = LifeWords.portraitForThisMonth(in: modelContext) != nil
         recompute(animated: false)
         LifeDiagnostics.rendered(reading: reading, progress: progress, started: started)
     }
@@ -221,14 +230,20 @@ struct LifeBubbleField: View {
     @State private var appeared = false
 
     static let height: CGFloat = 320
+    // The axis lives in its own strip on the left, so no bubble can sit on its labels.
+    static let gutter: CGFloat = 50
 
     var body: some View {
         GeometryReader { geometry in
             let size = geometry.size
-            let bubbles = LifeBubbleLayout.layout(reading.areas, in: size)
+            let field = CGSize(width: max(0, size.width - Self.gutter), height: size.height)
+            let bubbles = LifeBubbleLayout.layout(reading.areas, in: field).map {
+                LifeBubbleLayout.Bubble(area: $0.area, center: CGPoint(x: $0.center.x + Self.gutter, y: $0.center.y), radius: $0.radius)
+            }
             let readings = Dictionary(uniqueKeysWithValues: reading.areas.map { ($0.area, $0) })
             ZStack(alignment: .topLeading) {
-                usualLine(width: size.width, y: size.height / 2)
+                usualLine(from: Self.gutter - 6, to: size.width, y: size.height / 2)
+                axisLabels(size: size)
                 ForEach(Array(bubbles.enumerated()), id: \.element.area) { index, bubble in
                     if let area = readings[bubble.area] {
                         bubbleView(bubble, reading: area)
@@ -238,8 +253,6 @@ struct LifeBubbleField: View {
                             .animation(Motion.resolve(Motion.bloom, reduceMotion: reduceMotion)?.delay(Double(index) * Motion.stagger), value: appeared)
                     }
                 }
-                // Over the bubbles, so a big one never hides which way is which.
-                axisLabels(size: size)
             }
         }
         .frame(height: Self.height)
@@ -251,10 +264,10 @@ struct LifeBubbleField: View {
         .accessibilityIdentifier("lifeBubbles")
     }
 
-    private func usualLine(width: CGFloat, y: CGFloat) -> some View {
+    private func usualLine(from start: CGFloat, to end: CGFloat, y: CGFloat) -> some View {
         Path { path in
-            path.move(to: CGPoint(x: 0, y: y))
-            path.addLine(to: CGPoint(x: width, y: y))
+            path.move(to: CGPoint(x: start, y: y))
+            path.addLine(to: CGPoint(x: end, y: y))
         }
         .stroke(Color.secondary.opacity(0.35), style: StrokeStyle(lineWidth: 1, dash: [4, 5]))
         .accessibilityHidden(true)
@@ -262,20 +275,22 @@ struct LifeBubbleField: View {
 
     private func axisLabels(size: CGSize) -> some View {
         ZStack(alignment: .topLeading) {
-            Label("Lighter", systemImage: "arrow.up")
-                .position(x: 34, y: 8)
-            Text("your usual")
-                .padding(.horizontal, 6)
-                .padding(.vertical, 2)
-                .background(Palette.card.opacity(0.9), in: Capsule())
-                .position(x: size.width - 36, y: size.height / 2)
-            Label("Heavier", systemImage: "arrow.down")
-                .position(x: 38, y: size.height - 8)
+            VStack(spacing: 2) {
+                Image(systemName: "arrow.up")
+                Text("Lighter")
+            }
+            .position(x: Self.gutter / 2 - 4, y: 18)
+            Text("Usual")
+                .position(x: Self.gutter / 2 - 4, y: size.height / 2)
+            VStack(spacing: 2) {
+                Text("Heavier")
+                Image(systemName: "arrow.down")
+            }
+            .position(x: Self.gutter / 2 - 4, y: size.height - 18)
         }
         .font(.caption2.weight(.medium))
         .foregroundStyle(.secondary)
         .allowsHitTesting(false)
-        .labelStyle(.titleAndIcon)
         .accessibilityHidden(true)
     }
 

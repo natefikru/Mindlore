@@ -24,6 +24,7 @@ nonisolated enum LifePrompts {
     static let areaBudgetOnDevice = 3_400
     static let areaMaxEntries = 40
     static let portraitDigestLines = 150
+    static let maxQuoteWords = 30
 
     // MARK: - An area's words
 
@@ -121,7 +122,10 @@ nonisolated enum LifePrompts {
         let cleaned = quote
             .trimmingCharacters(in: CharacterSet(charactersIn: "\"'“”‘’…. ").union(.whitespacesAndNewlines))
             .split(whereSeparator: \.isWhitespace).joined(separator: " ")
-        guard cleaned.split(separator: " ").count >= 4 else { return nil }
+        // A quote is a line, not a paragraph: the prompt asks for six to twenty-five words, and a
+        // long one (the on-device model returned forty-five) buries the page it's meant to anchor.
+        let words = cleaned.split(separator: " ").count
+        guard words >= 4, words <= maxQuoteWords else { return nil }
         let flat = text.split(whereSeparator: \.isWhitespace).joined(separator: " ")
         guard let range = flat.range(of: cleaned, options: [.caseInsensitive, .diacriticInsensitive]) else { return nil }
         return String(flat[range])
