@@ -125,6 +125,27 @@ struct RedoInsightsTests {
         #expect(!first.insightsPending && !second.insightsPending)
     }
 
+    // Deleted before its turn: it can never come up, so it counts as done and the run ends.
+    @Test func anEntryDeletedBeforeItsTurnDoesNotHangTheCount() async throws {
+        let harness = try InsightsHarness()
+        _ = try dated(harness, "first", day: 1)
+        let second = try dated(harness, "second", day: 2)
+        harness.generator.suspends = true
+
+        let run = Task { await harness.coordinator.redoAll(context: harness.context) }
+        await harness.generator.waitForRequest(number: 1)
+        harness.context.delete(second)
+        try harness.context.save()
+        harness.generator.answer(.success(InsightsHarness.fullResponse))
+        await run.value
+
+        #expect(harness.coordinator.redo == nil)
+        harness.generator.suspends = false
+        harness.generator.results = [.success(InsightsHarness.fullResponse)]
+        await harness.coordinator.redoAll(context: harness.context)
+        #expect(harness.generator.requests.count == 2, "a new redo can start")
+    }
+
     @Test func nothingEligibleStartsNothing() async throws {
         let harness = try InsightsHarness()
         let draft = try dated(harness, "half", day: 1)

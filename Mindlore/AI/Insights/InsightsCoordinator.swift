@@ -109,6 +109,19 @@ final class InsightsCoordinator {
                 }
             }
         } while needsAnotherPass
+        settleRedo(context: context)
+    }
+
+    // A redo entry that will never come up again (deleted before its turn, or no longer pending
+    // for any other reason) is finished here, or the count would never reach its total and a new
+    // redo could never start. One kept for the network stays pending and stays counted.
+    private func settleRedo(context: ModelContext) {
+        guard !redoIDs.isEmpty else { return }
+        let pending = Set(((try? context.fetch(FetchDescriptor<Entry>(predicate: #Predicate { $0.insightsPending }))) ?? []).map(\.id))
+        for id in redoIDs where !running.contains(id) && !pending.contains(id) {
+            manualRuns.remove(id)
+            finishRedo(id)
+        }
     }
 
     // Creates, retries, or replaces insights for one entry, whatever its history.
