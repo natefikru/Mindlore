@@ -23,6 +23,8 @@ struct MindChangesRow: View {
                 .padding(.horizontal, 16)
             }
         }
+        // Cards of a fixed width: past this the words overflowed them.
+        .dynamicTypeSize(...DynamicTypeSize.accessibility1)
     }
 
     private func cardView(_ card: MindDrawer.ChangeCard) -> some View {
@@ -100,6 +102,7 @@ struct MindRankedRow: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .dynamicTypeSize(...DynamicTypeSize.accessibility2)
     }
 
     private var countWords: String {

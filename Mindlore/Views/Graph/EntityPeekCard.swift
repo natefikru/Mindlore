@@ -9,7 +9,7 @@ struct EntityPeekSheet: View {
     @State private var detent: PresentationDetent = Self.cardDetent
 
     // Scaled with the text size, like MindView.cardHeight, so the card's content fits.
-    static var cardDetent: PresentationDetent { .height(min(UIFontMetrics.default.scaledValue(for: 220), 420)) }
+    static var cardDetent: PresentationDetent { .height(min(UIFontMetrics.default.scaledValue(for: 300), 520)) }
 
     var body: some View {
         NavigationStack(path: $path) {
@@ -26,11 +26,12 @@ struct EntityPeekSheet: View {
     }
 }
 
-// The glance: name, kind, the bio's first line, and how recently the journal mentions it. It
-// never calls pageOpened, so looking at a card never starts a bio draft.
+// The glance: name and kind, half a year of weekly bars with when it last came up, who it turns up
+// with and how often, what is still open about it, and the bio's first line. It never calls
+// pageOpened, so looking at a card never starts a bio draft.
 struct EntityPeekCard: View {
     let route: EntityRoute
-    // Mind shows a focused entity's card even when its filters leave the entity off the map.
+    // Mind shows a focused entity's card even when the window or kind leaves it off the map.
     var showsMapHint = false
     let open: (EntityRoute) -> Void
     @Environment(\.modelContext) private var modelContext
@@ -73,6 +74,24 @@ struct EntityPeekCard: View {
     @ViewBuilder
     private func content(id: UUID) -> some View {
         if let summary {
+            // Plain while it fits, so the overlay's swipe up and down keep working; scrolling
+            // only when a large text size makes the card taller than its frame. The text stops
+            // growing at the second accessibility size, where a name and three lines still fit.
+            ViewThatFits(in: .vertical) {
+                card(summary, id: id)
+                ScrollView { card(summary, id: id) }
+            }
+            .dynamicTypeSize(...DynamicTypeSize.accessibility2)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        } else if loaded {
+            gone
+        } else {
+            ProgressView()
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+    }
+
+    private func card(_ summary: EntityPeekPresentation.Summary, id: UUID) -> some View {
             VStack(alignment: .leading, spacing: 8) {
                 // Centre-aligned, not baseline-aligned: a square photo next to .title3 text would
                 // sit on the text's baseline and push the Open button down with it. The details
@@ -87,22 +106,50 @@ struct EntityPeekCard: View {
                     Spacer(minLength: 8)
                     Button("Open") { open(EntityRoute(id: id)) }
                         .buttonStyle(.borderedProminent)
+                        .fixedSize()
                         .accessibilityIdentifier("entityPeekOpen")
                 }
                 Text(details(summary))
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
+                    .lineLimit(3)
+                // Side by side when there is room, the words under the bars when there isn't.
+                ViewThatFits(in: .horizontal) {
+                    HStack(alignment: .bottom, spacing: 10) {
+                        presenceBars(summary)
+                        lastMentioned(summary)
+                    }
+                    VStack(alignment: .leading, spacing: 4) {
+                        presenceBars(summary)
+                        lastMentioned(summary)
+                    }
+                }
+                .accessibilityElement(children: .combine)
+                .accessibilityIdentifier("entityPeekPresence")
                 if showsMapHint {
-                    Text("Not on the map with these filters")
+                    Text("Not on the map in this stretch")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .accessibilityIdentifier("entityPeekOffMap")
                 }
-                if let looseEnd = summary.openLooseEnd {
-                    Label(looseEnd, systemImage: "circle.dashed")
+                if !summary.connections.isEmpty {
+                    Text(oftenWith(summary.connections))
                         .font(.subheadline)
-                        .lineLimit(1)
-                        .accessibilityLabel("Still open: \(looseEnd)")
+                        .lineLimit(3)
+                        .accessibilityIdentifier("entityPeekOftenWith")
+                }
+                if !summary.themes.isEmpty {
+                    Text("Themes: " + summary.themes.joined(separator: ", "))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                        .accessibilityIdentifier("entityPeekThemes")
+                }
+                if let looseEnd = summary.openLooseEnd {
+                    Label(summary.openLooseEndCount > 1 ? "\(summary.openLooseEndCount) open · \(looseEnd)" : looseEnd, systemImage: "circle.dashed")
+                        .font(.subheadline)
+                        .lineLimit(2)
+                        .accessibilityLabel(summary.openLooseEndCount > 1 ? "\(summary.openLooseEndCount) still open, the latest: \(looseEnd)" : "Still open: \(looseEnd)")
                         .accessibilityIdentifier("entityPeekLooseEnd")
                 }
                 if let bio = summary.bioFirstLine {
@@ -110,15 +157,23 @@ struct EntityPeekCard: View {
                         .lineLimit(2)
                         .accessibilityIdentifier("entityPeekBio")
                 }
-                Spacer(minLength: 0)
             }
             .padding(20)
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        } else if loaded {
-            gone
-        } else {
-            ProgressView()
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .frame(maxWidth: .infinity, alignment: .topLeading)
+    }
+
+    private func presenceBars(_ summary: EntityPeekPresentation.Summary) -> some View {
+        Sparkline(values: summary.series, color: summary.kind.color, recentCount: 4, accessibilityText: presence(summary))
+            .frame(width: 160, height: 22)
+    }
+
+    @ViewBuilder
+    private func lastMentioned(_ summary: EntityPeekPresentation.Summary) -> some View {
+        if let last = summary.lastMentioned {
+            Text("last mentioned \(EntityPeekPresentation.lastMentionedWords(last, now: .now))")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
         }
     }
 
@@ -127,13 +182,19 @@ struct EntityPeekCard: View {
     }
 
     private func details(_ summary: EntityPeekPresentation.Summary) -> String {
-        var parts = [summary.kind.label]
-        if let last = summary.lastMentioned {
-            parts.append("last mentioned \(last.formatted(date: .abbreviated, time: .omitted))")
-        }
         let count = summary.recentEntryCount
-        parts.append(count == 1 ? "1 entry in the last 30 days" : "\(count) entries in the last 30 days")
-        return parts.joined(separator: " · ")
+        let recent = count == 1 ? "1 entry in the last 30 days" : "\(count) entries in the last 30 days"
+        return "\(summary.kind.label) · \(recent)"
+    }
+
+    // "Often with Danny (14), Mom (9), Omar (6)": the entries each shares with this name.
+    private func oftenWith(_ connections: [EntityPeekPresentation.Connection]) -> String {
+        "Often with " + connections.map { "\($0.name) (\($0.entries))" }.joined(separator: ", ")
+    }
+
+    private func presence(_ summary: EntityPeekPresentation.Summary) -> String {
+        let total = summary.series.reduce(0, +)
+        return total == 1 ? "1 entry in the last six months" : "\(total) entries in the last six months"
     }
 }
 

@@ -116,6 +116,10 @@ story journal used for screenshots has parts.
   the whole journal, first mention to today, whatever the window, in the drawer's chosen kind,
   then returns to the window. Picking a window during a replay ends it there. `MindReplay`,
   `MindReplayTests`, and `mind.replayed` stay.
+- Phase 4: "Often with" lists names only (people, places, projects, and so on) and themes get
+  their own quieter line, on the card and the entity page alike, because tags share the most
+  entries with anyone and crowded out the people (owner, 2026-09-23). "Last mentioned" is said in
+  days ("today", "3 days ago"), never minutes.
 
 ## Phase 1: the numbers (pure, no UI)
 
@@ -236,8 +240,7 @@ the editor (`EntryEditorView.swift:259`) and Ask (`AskView.swift:113`), where Mi
 built one. `mentionedWith` is the query the entity page already runs, so its cost is known.
 `Views/Graph/EntityPeekCard.swift` lays them out: name and kind, the sparkline with "last
 mentioned 3 days ago", "Often with Danny (14), Mom (9), Omar (6)", open threads, bio line. The
-height math in `MindView.cardHeight` and `EntityPeekSheet`'s detent grows to fit, checked at the
-largest Dynamic Type size. Existing identifiers (`entityPeekCard`, `entityPeekOpen`,
+height math in `MindView.cardHeight` and `EntityPeekSheet`'s detent grows to fit. Existing identifiers (`entityPeekCard`, `entityPeekOpen`,
 `entityPeekLooseEnd`, `entityPeekBio`) stay. `EntityPeekPresentationTests` extended.
 
 ## Phase 5: the entity page
@@ -284,8 +287,8 @@ the enclosing stack's `navigationDestination` (`MindView.swift:98`, `EntryInsigh
   (`iPhone 17 mind`); UI tests only for the phase's own screens (owner rule), the full Graph UI
   set in Phase 6.
 - Screenshots on the regenerated story journal (`-seedStoryJournal -resetStoryJournal`) for every
-  window, both appearances, and the largest Dynamic Type size; looked at before calling a phase
-  done (lessons.md rule).
+  window and both appearances, at the default text size; looked at before calling a phase done
+  (lessons.md rule). No accessibility-size pass (owner, 2026-09-23).
 - Frame p95 from `graph.rendered` and refresh time on the story journal and on
   `-seedDemoJournal 300`, compared with today's.
 - Device: deploy and look at your own journal only after asking first.

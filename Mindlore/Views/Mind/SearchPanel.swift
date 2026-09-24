@@ -189,12 +189,15 @@ struct SearchPanel: View {
             .background(.fill.tertiary, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
             .padding(.horizontal, 16)
             .padding(.bottom, stop == .peek ? 12 : 4)
+            .dynamicTypeSize(...DynamicTypeSize.accessibility1)
             // The kind chips sit with the field, since they filter the search, the list, and the
             // map alike. In the list they scrolled away, and the half-open panel's edge used to
             // slice straight through them.
             if stop != .peek {
                 kindChips
                     .padding(.bottom, 8)
+                    // Five words in one row; past this they pushed Themes off the screen.
+                    .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
             }
         }
         .contentShape(Rectangle())

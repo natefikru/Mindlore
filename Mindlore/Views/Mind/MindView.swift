@@ -39,7 +39,7 @@ struct MindView: View {
 
     // Grows with the text size, or the peek card's name, details, and bio clip at accessibility
     // sizes. Capped so the map keeps some room.
-    static var cardHeight: CGFloat { min(UIFontMetrics.default.scaledValue(for: 200), 360) }
+    static var cardHeight: CGFloat { min(UIFontMetrics.default.scaledValue(for: 260), 460) }
     private static let topBarHeight: CGFloat = 52
     private static let crumbRowHeight: CGFloat = 36
 
