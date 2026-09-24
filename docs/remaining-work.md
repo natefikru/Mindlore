@@ -26,6 +26,9 @@ harder. Section 1 is first for that reason.
    `feature/reflect`; the device pass and doc updates (R4) are what's left before it merges.
 4. **Later**: text import, embeddings for Ask, typed relationships.
 5. **iCloud sync, the rest** (section 6), and **blocked**: a paid tier.
+6. **Other devices** (section 7): a watch sidekick, then a native Mac app, then a full native
+   iPad app with Apple Pencil, all on the same iCloud journal. The Mac and iPad wait on sync phases
+   3 to 5; the watch doesn't.
 
 Reflect after Phase B is the owner's call from 2026-09-19 ("so it's built on the new cards"). It
 can be pulled forward; nothing in B3 to B9 is a hard prerequisite for it.
@@ -191,7 +194,7 @@ graph maintenance pass (§4.4, refreshing stale bios) is not part of Reflect and
 
 Decided against, so not on this list: user-added life areas (the nine are fixed; rename and hide
 only), a multi-provider settings UI (the account plumbing stays a hidden seam), and 3D Mind (the
-spike was built and rejected on 2026-09-21; 2D ships).
+spike was built and rejected on 2026-09-21; 2D ships), and a web app (2026-09-23; see section 7).
 
 ## 5. Blocked
 
@@ -248,6 +251,27 @@ Known on the way: `#Predicate` with `relationship == nil` matched every row on t
 (add a new property and backfill instead); a synced store opened under a different or no iCloud
 account is purged with reason `AccountLogout`, including in the simulator. All three are in
 `tasks/lessons.md`. Phone store backups are in `~/Library/Mindlore-backups/`.
+
+## 7. Other devices: watch, Mac, iPad
+
+Decided 2026-09-23, not started, owner's order. Reasoning and scope: `tasks/platforms.md`. No web
+app. Every device shares the journal through SwiftData's CloudKit mirroring; the watch goes through
+the phone.
+
+- [ ] **Watch sidekick.** Record only: one button, a complication, an Action Button intent, Siri.
+      The file goes to the phone with `WCSession.transferFile`, lands in `Recordings/finished/`, and
+      `RecordingIngestor` makes the entry, so the watch never opens the store or touches iCloud.
+      Doesn't wait on sync. Needs a paired physical watch to test.
+- [ ] **Shared package.** Models and the SwiftData-free logic move into a local Swift package every
+      target links, so there is one schema. Before the Mac target exists.
+- [ ] **Mac.** Native SwiftUI macOS target on the same container. Gated on sync phases 3 to 5
+      (section 6). The editor's `UITextView` to `NSTextView` port is the biggest piece; also a Mac
+      recording path (no `AVAudioSession`), file and Continuity Camera import instead of VisionKit,
+      a sidebar shell, a Mac CI job.
+- [ ] **iPad.** The iOS target with iPad added and its own split-view layout reusing the Mac's, not
+      the phone stretched. Scribble in the editor, then ink pages: a PencilKit page stored as an
+      `EntryPage` plus its `PKDrawing` (a model change: schema flag, cktool check, Console deploy),
+      read by the existing page transcription. Keep iPad off until this step.
 
 ## TestFlight
 
