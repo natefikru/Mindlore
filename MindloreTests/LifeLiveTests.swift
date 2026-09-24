@@ -43,7 +43,14 @@ struct LifeLiveTests {
         }
     }
 
-    private static let banned = ["depress", "anxiety disorder", "adhd", "narcissis", "bipolar", "ocd", "ptsd", "diagnos", "you should", "you need to", "try to ", "consider "]
+    // Diagnoses, and advice in the forms it takes. Not "should" alone: reflecting the author's own
+    // "I should have done more" back to them is the point of the self-talk part, and the first
+    // live run was caught on exactly that.
+    private static let banned = [
+        "depress", "anxiety disorder", "adhd", "narcissis", "bipolar", "ocd", "ptsd", "diagnos",
+        "you should try", "you should consider", "you should talk", "you should set", "you need to",
+        "try to ", "consider ", "make sure", "remember to", "it might help", "it may help", "i recommend", "i suggest",
+    ]
 
     @Test func thePortraitCitesItsEntriesAndNeverDiagnosesOrAdvises() async throws {
         let planned = LifePrompts.portraitRequest(facts: "17 entries. Work is 40% of entries, heavier than your usual.", monthSummaries: [], entries: entries(), feedback: [], model: ProviderDefaults.textModel)
