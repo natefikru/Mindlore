@@ -182,7 +182,15 @@ struct MindloreApp: App {
                     .environment(sync)
                     .environment(recovery)
                     .task { sync.start() }
-                    .preferredColorScheme(settings.appearance.colorScheme)
+                    // On the windows themselves, not `.preferredColorScheme`: that modifier stamps its
+                    // scheme on every sheet it presents and never clears it when the choice goes back
+                    // to System, so an open Settings sheet stayed dark (owner, 2026-09-24).
+                    .onChange(of: settings.appearance, initial: true) { _, preference in
+                        AppearancePreference.apply(preference)
+                    }
+                    .onReceive(NotificationCenter.default.publisher(for: UIScene.didActivateNotification)) { _ in
+                        AppearancePreference.apply(settings.appearance)
+                    }
             case .failure(let error):
                 StoreErrorView(error: error)
             }
