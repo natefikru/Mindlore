@@ -507,9 +507,14 @@ struct AskDiagnosticsPrivacyTests {
         generator.results = [.success(#"{"answer":"Made \#(sentinel)","citations":[],"noteTitle":"Title \#(sentinel)","noteText":"- [ ] \#(sentinel)"}"#)]
         await ask.send("Make a note of \(sentinel)", in: context)
         #expect(ask.turns.last?.createdNoteID != nil, "the note has to have actually been made")
+        // And changed on the next turn. The note goes in first, after the one entry the last turn
+        // already handed out, so it is E2.
+        generator.results = [.success(#"{"answer":"Changed \#(sentinel)","citations":[],"noteTitle":"Title \#(sentinel)","noteText":"- [ ] \#(sentinel)\n- [ ] More \#(sentinel)","editNoteHandle":"E2"}"#)]
+        await ask.send("Add more \(sentinel) to that", in: context)
+        #expect(ask.turns.last?.editedNoteID != nil, "the note has to have actually been changed")
 
         let contents = file.contents()
-        for event in ["ask.answered", "ask.stopped", "ask.failed", "ask.conversationDeleted", "ask.indexed", "ask.retrieved", "ask.noteCreated"] {
+        for event in ["ask.answered", "ask.stopped", "ask.failed", "ask.conversationDeleted", "ask.indexed", "ask.retrieved", "ask.noteCreated", "ask.noteEdited"] {
             #expect(contents.contains(event), "\(event) was never exercised")
         }
         #expect(contents.contains(sentinel) == false)

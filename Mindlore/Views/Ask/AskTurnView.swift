@@ -60,9 +60,16 @@ struct AskTurnView: View {
             }
     }
 
-    // The cited entries, and the note this answer made, looked up together.
+    // The cited entries, and the note this answer made or changed, looked up together.
     private var referencedIDs: [UUID] {
-        turn.citedEntryIDs + (turn.createdNoteID.map { [$0] } ?? [])
+        turn.citedEntryIDs + [turn.createdNoteID, turn.editedNoteID].compactMap { $0 }
+    }
+
+    // A turn only carries one of these, and only when the note was actually written.
+    private var noteChip: (id: UUID, label: String, identifier: String)? {
+        if let id = turn.createdNoteID { return (id, "Note created", "askCreatedNote") }
+        if let id = turn.editedNoteID { return (id, "Note updated", "askUpdatedNote") }
+        return nil
     }
 
     @ViewBuilder
@@ -160,16 +167,16 @@ struct AskTurnView: View {
         }
     }
 
-    // The note the author asked for, one tap from the editor. Quiet like the source chips, and gone
-    // once the note is deleted: there is nothing left to open.
+    // The note the author asked for or asked to change, one tap from the editor. Quiet like the
+    // source chips, and gone once the note is deleted: there is nothing left to open.
     @ViewBuilder
     private var createdNote: some View {
-        if let id = turn.createdNoteID, let ref = refs[id] {
-            Button { openEntry(id) } label: {
+        if let chip = noteChip, let ref = refs[chip.id] {
+            Button { openEntry(chip.id) } label: {
                 HStack(spacing: 6) {
                     Image(systemName: EntryKind.note.symbol)
                         .font(.caption2)
-                    Text("Note created")
+                    Text(chip.label)
                         .font(.caption2)
                     Text(verbatim: ref.title)
                         .font(.caption2)
@@ -182,8 +189,8 @@ struct AskTurnView: View {
                 .background(.quaternary.opacity(0.25), in: Capsule())
             }
             .buttonStyle(.plain)
-            .accessibilityLabel(Text(verbatim: "Note created, \(ref.title)"))
-            .accessibilityIdentifier("askCreatedNote")
+            .accessibilityLabel(Text(verbatim: "\(chip.label), \(ref.title)"))
+            .accessibilityIdentifier(chip.identifier)
         }
     }
 

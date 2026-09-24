@@ -1,10 +1,10 @@
 import Foundation
 import SwiftData
 
-// The one thing Chat may write: a new note the author asked for (owner, 2026-09-24). Never a
-// journal entry or a creative piece, never a draft, and never a change to an entry that already
-// exists: the kind is set here, not taken from the model, and there is no path in here that
-// fetches an entry to change it.
+// What Chat may write (owner, 2026-09-24): a new note the author asked for, or a new version of a
+// note it was shown whole. Never a journal entry or a creative piece, never a draft, never a
+// delete. A new note's kind is set here, not taken from the model, and a change re-checks the
+// entry it lands on (isEditable) at the moment it is applied.
 //
 // The note's id is the id of the answer that made it. That is what lets a conversation reopened
 // from history find its note again without a field on AskMessage (a model change, and a CloudKit
@@ -50,6 +50,55 @@ enum AskNoteWriter {
         note.textGeneratedBy = generatedBy(providerLabel)
         note.title = String(request.title.prefix(maxTitleCharacters))
         context.insert(note)
+        return note
+    }
+
+    // The only entries Chat may change: a finished note Ask could send. Checked again when an edit
+    // lands, because the entry can have been re-filed, reopened as a draft, or deleted since the
+    // prompt went out.
+    static func isEditable(_ entry: Entry) -> Bool {
+        !entry.isDeleted && entry.kind == .note && !entry.isDraft && InsightsCoordinator.canRunAI(on: entry)
+    }
+
+    // A new version of a note, replacing its text whole, as a typed edit would. `sentText` is the
+    // text the model was shown: if the note changed since, the rewrite was made from something the
+    // author has already moved past, and applying it would undo their edit, so nothing is written.
+    // Nil when nothing was written, which is the only case in which no chip shows. The caller saves.
+    //
+    // Like a typed edit, it leaves contentRevision alone (that counter is for a page restart, and
+    // bumping it would throw away a title or insights run already on its way), and the insights go
+    // stale by their text hash, to be run again from the insights sheet. The previous text is not
+    // kept: there is nowhere to keep it without a model change.
+    @discardableResult
+    static func replace(
+        _ request: AskAnswerParser.NoteRequest,
+        id entryID: UUID,
+        sentText: String,
+        providerLabel: String,
+        now: Date,
+        in context: ModelContext
+    ) -> Entry? {
+        let descriptor = FetchDescriptor<Entry>(predicate: #Predicate { $0.id == entryID })
+        guard let note = ((try? context.fetch(descriptor)) ?? []).first(where: { !$0.isDeleted }),
+              isEditable(note), note.text == sentText else { return nil }
+        let parsed = MarkdownCodec.parse(String(request.text.prefix(maxTextCharacters)))
+        guard !parsed.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
+        let title = String(request.title.prefix(maxTitleCharacters))
+        let newTitle = title.isEmpty ? note.title : title
+        // A rewrite identical to what is there changed nothing, and must not say it did.
+        guard parsed.text != note.text || parsed.formatting != note.formatting || newTitle != note.title else { return nil }
+
+        note.text = parsed.text
+        note.formatting = parsed.formatting
+        if newTitle != note.title {
+            note.title = newTitle
+            note.titleWasGenerated = false
+        }
+        // The words on the page are now the model's, written at the author's request.
+        note.textWasGenerated = true
+        note.textGeneratedBy = generatedBy(providerLabel)
+        note.textEditedByUser = false
+        note.updatedAt = now
         return note
     }
 }

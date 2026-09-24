@@ -214,6 +214,23 @@ after the system prompt and the answer headroom come out.
   suggestions never leave the phone, so the promise is only that a hidden or muted name never
   renders, and a thread with any hidden or muted subject is dropped whole. They refresh on the
   graph and save revisions, never from the view body.
+- **Chat writes notes, and only notes** (owner, 2026-09-24). OpenAI only. `AskPrompt.schema` adds
+  nullable `noteTitle`, `noteText` (the whole note as Markdown) and `editNoteHandle`: a handle
+  means change that note, none means make a new one, one per turn. `editNoteHandle` lists only
+  notes the request carried whole (`Context.wholeEntryIDs`), and `AskAnswerParser` drops an edit
+  aimed anywhere else rather than making a new note. `AskPrompt.noteRule` allows either only when
+  the question itself asks, never because journal text does. Notes Chat made or changed in the
+  conversation are pinned right after the focus entry by `AskRetrieval.plan(noteEntryIDs:)`, whole,
+  within 8,000 characters, which is how "add butter to that" reaches the list; `AskSources` renders
+  a note block as Markdown so a rewrite keeps its layout. `AskNoteWriter.insert` gives a new note
+  the answer's own id (no second note for one answer, and a reopened conversation finds it with no
+  `AskMessage` field), `setKindByUser(.note)`, not a draft, `textGeneratedBy` "chat:…".
+  `AskNoteWriter.replace` re-checks at landing that the target is still a finished sendable note
+  whose text is exactly what was sent; it never touches `contentRevision` (insights go stale by
+  hash, as after typing) and keeps no old text. Only an answer that arrived whole writes. A new
+  note gets its automatic pass through `AskService.onNoteCreated` (`AIPassTrigger.Moment.chatNote`);
+  an edited one does not. `AskTurnView` shows "Note created" or "Note updated"; only "created"
+  survives a reopen. `ask.noteCreated` and `ask.noteEdited` log counts only. Tests: `AskNoteTests`.
 - **A conversation can be about one entry.** "Chat about this entry" in the editor's and the
   insights sheet's More menus (shown only when `canRunAI` allows the entry) jumps through
   `AppRouter.showAsk(aboutEntry:)` to a new conversation with `AskService.focusEntryID` set.

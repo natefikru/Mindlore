@@ -11,6 +11,7 @@ added three more (142) under view events: `editor.formatted`, `editor.checkboxTi
 Chat's note writing added `ask.noteCreated` (147), in the Ask row.
 Reflect's Loose ends tab added `reflect.looseEnd` (148: the action and the status it left, both
 literals), driven with the sentinel as the loose end's text and its subject's name, in the table.
+Chat's note editing added `ask.noteEdited` (149), in the Ask row.
 Those two tests assert that the event was written as well as that the sentinel wasn't, which is
 what the instrumented run below establishes for the rest.
 
@@ -25,14 +26,14 @@ The instrumentation was reverted and never committed.
 To redo it: add a one-line append to `record`, run the tests below one at a time with
 `test-without-building`, and diff the union against the event list.
 
-## Covered: 79 events, driven by a sentinel test
+## Covered: 80 events, driven by a sentinel test
 
 | Test | Events it drives |
 |---|---|
 | `DiagnosticsPrivacyTests/entryTextNeverReachesTheLog` | `save.completed`, `ingest.completed`, `transcription.started`, `transcription.completed`, `transcription.failed` |
 | `AIDiagnosticsPrivacyTests/aiPathsNeverLogTextKeysOrProviderBodies` | `ai.keySaved`, `ai.connectionTested`, `settings.changed`, `pages.transcription.started`, `pages.transcription.pageCompleted`, `pages.transcription.completed`, `insights.requested`, `insights.started`, `insights.completed`, `insights.failed`, `insights.skipped`, `looseEnds.written`, `looseEnds.faded`, `title.started`, `title.failed`, `graph.indexed`, `graph.entityEdited`, `graph.renameRewrote`, `graph.hidden`, `graph.resurfacingMuted`, `graph.suggestionDismissed`, `graph.merged`, `graph.unmerged`, `graph.repointed`, `graph.nameAdded`, `graph.nameRemoved`, `graph.contactLinked`, `graph.contactUnlinked`, `graph.contactAccess`, `graph.placeLinked`, `graph.placeUnlinked`, `graph.rendered`, `mind.reviewAnswered`, `mind.focused`, `mind.windowChanged`, `mind.changeTapped`, `mind.replayed` |
 | `AIEdgePathDiagnosticsPrivacyTests/unhappyAIPathsNeverLogTextOrKeys` (new) | `ai.pass`, `ai.offline`, `ai.keyRemoved`, `insights.unavailable`, `insights.stale`, `insights.discarded`, `title.unavailable`, `title.held`, `cleanup.held`, `cleanup.applied` (held, applied on close), `title.discarded`, `title.completed`, `pages.transcription.unavailable`, `pages.transcription.failed` |
-| `AskDiagnosticsPrivacyTests/askNeverLogsTheQuestionTheEntriesOrTheAnswer` | `ask.indexed`, `ask.retrieved`, `ask.answered`, `ask.stopped`, `ask.failed`, `ask.conversationDeleted`, `ask.noteCreated` |
+| `AskDiagnosticsPrivacyTests/askNeverLogsTheQuestionTheEntriesOrTheAnswer` | `ask.indexed`, `ask.retrieved`, `ask.answered`, `ask.stopped`, `ask.failed`, `ask.conversationDeleted`, `ask.noteCreated`, `ask.noteEdited` |
 | `CloudTranscriptionIntegrationTests/keyAndProviderErrorBodiesNeverReachTheLog` | `ai.error`, `transcription.fallback` (plus `ai.keySaved`, `ai.connectionTested`, `transcription.*` above) |
 | `BioDiagnosticsPrivacyTests/draftingNeverLogsNamesExcerptsOrBios` | `graph.bioDrafted`, `graph.bioFailed` |
 | `KeepTests/nothingTheCardLogsCarriesAWordTheUserSaid` | `keep.shown`, `keep.dismissed` |
