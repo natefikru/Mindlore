@@ -72,7 +72,7 @@ struct GraphSimulationTests {
         #expect(simulation.settled)
     }
 
-    @Test func threeHundredNodesSettleWithinBudget() {
+    @Test(.enabled(if: TestHost.runsSlowTests)) func threeHundredNodesSettleWithinBudget() {
         let nodes = makeNodes(300)
         let simulation = GraphSimulation(nodes: nodes, edges: [])
         var ticks = 0
@@ -142,7 +142,7 @@ struct GraphSimulationTests {
         #expect(lastDelta < 1.0)
     }
 
-    @Test func threeHundredNodesActuallyConverge() {
+    @Test(.enabled(if: TestHost.runsSlowTests)) func threeHundredNodesActuallyConverge() {
         let nodes = makeNodes(300)
         let simulation = GraphSimulation(nodes: nodes, edges: [])
         var previous = nodes.compactMap { simulation.position(of: $0.id) }
@@ -467,7 +467,7 @@ struct GraphSimulationTests {
 // The simulation over the real 300-entry demo graph, the one the device gate measures.
 @MainActor
 struct DemoGraphSimulationTests {
-    @Test func theDemoGraphSettlesWithFinitePositions() throws {
+    @Test(.enabled(if: TestHost.runsSlowTests)) func theDemoGraphSettlesWithFinitePositions() throws {
         let container = try ModelContainerFactory.make(.inMemory)
         let context = container.mainContext
         try DemoJournal.seedIfEmpty(count: 300, in: context, now: Date(timeIntervalSince1970: 1_800_000_000))

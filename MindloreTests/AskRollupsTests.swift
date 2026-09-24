@@ -199,7 +199,7 @@ struct AskRollupsTests {
 
     // MARK: - What reserving room for these costs
 
-    @Test func theEstimateKnowsAboutTheYearPath() {
+    @Test(.enabled(if: TestHost.runsSlowTests)) func theEstimateKnowsAboutTheYearPath() {
         // Twenty-four month lines and thirty-six months are not the same cost, and reserving as
         // though they were is how the year path came to be unreachable.
         #expect(AskRollups.estimatedCharacters(monthCount: 0) == 0)

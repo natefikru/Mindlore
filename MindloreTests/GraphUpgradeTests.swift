@@ -14,7 +14,7 @@ struct GraphUpgradeTests {
 
     // The first launch for a journal ten times the size. Printed rather than tightly bounded:
     // the simulator's speed says little about a phone's, and the number is what matters.
-    @Test func aLargeJournalIsIndexedInReasonableTime() throws {
+    @Test(.enabled(if: TestHost.runsSlowTests)) func aLargeJournalIsIndexedInReasonableTime() throws {
         let harness = try GraphHarness()
         let tags = (0..<60).map { "tag \($0)" }
         let names = (0..<200).map { "Person Number \($0)" }
@@ -53,7 +53,7 @@ struct ChunkedSweepTests {
     }
 
     // The launch path has to build exactly the graph the one-pass sweep does.
-    @Test func chunkedAndOnePassSweepsBuildTheSameGraph() async throws {
+    @Test(.enabled(if: TestHost.runsSlowTests)) func chunkedAndOnePassSweepsBuildTheSameGraph() async throws {
         try journal(250)
         let other = try GraphHarness()
         for index in 0..<250 {

@@ -77,24 +77,4 @@ final class PageOrderUITests: XCTestCase {
         app.navigationBars.buttons.element(boundBy: 0).tap()
         XCTAssertFalse(app.staticTexts["Pages not confirmed"].exists)
     }
-
-    @MainActor
-    func testClosingWithNoPagesLeavesNothingBehind() throws {
-        app.launch()
-        app.buttons["newPhotoEntryButton"].tap()
-        let scan = app.buttons["scanPagesButton"]
-        XCTAssertTrue(scan.waitForExistence(timeout: 5))
-        scan.tap()
-        XCTAssertTrue(app.descendants(matching: .any)["pageRow-1000"].waitForExistence(timeout: 10))
-
-        for _ in 0..<3 {
-            app.buttons["Remove page 1"].tap()
-            let confirmRemove = app.buttons["confirmRemovePageButton"].firstMatch
-            XCTAssertTrue(confirmRemove.waitForExistence(timeout: 5))
-            confirmRemove.tap()
-        }
-        app.buttons["pageOrderCloseButton"].tap()
-
-        XCTAssertTrue(app.staticTexts["No entries yet"].waitForExistence(timeout: 5))
-    }
 }

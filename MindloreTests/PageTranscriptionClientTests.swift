@@ -108,7 +108,7 @@ struct PageImageProcessorTests {
         #expect(orientation == 1)
     }
 
-    @Test func heicFromThePhotoLibraryIsReadable() throws {
+    @Test(.enabled(if: TestHost.runsSlowTests)) func heicFromThePhotoLibraryIsReadable() throws {
         guard let heic = try? encodedImage(width: 1_200, height: 900, type: .heic) else { return }
         let processed = try PageImageProcessor.process(heic)
         #expect(processed.pixelWidth == 1_200)

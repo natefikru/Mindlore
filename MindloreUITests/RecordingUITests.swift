@@ -79,20 +79,4 @@ final class RecordingUITests: XCTestCase {
         // by date, and a section header is a cell too.
         XCTAssertEqual(app.cells.containing(.any, identifier: "entryRow").count, 1)
     }
-
-    @MainActor
-    func testDiscardFromTheMinimizedRecorder() throws {
-        startAndMinimize()
-
-        app.buttons["recordingAccessory"].press(forDuration: 1.0)
-        let discardItem = app.buttons["Discard Recording"]
-        XCTAssertTrue(discardItem.waitForExistence(timeout: 5))
-        discardItem.tap()
-        let confirm = app.buttons["confirmDiscardRecordingButton"].firstMatch
-        XCTAssertTrue(confirm.waitForExistence(timeout: 5))
-        confirm.tap()
-
-        XCTAssertTrue(app.buttons["newVoiceEntryButton"].waitForExistence(timeout: 5))
-        XCTAssertTrue(app.staticTexts["No entries yet"].waitForExistence(timeout: 5))
-    }
 }

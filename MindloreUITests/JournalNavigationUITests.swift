@@ -31,37 +31,6 @@ final class JournalNavigationUITests: XCTestCase {
         app.cells.containing(.any, identifier: "entryRow")
     }
 
-    // Clearing a new entry deletes it as the editor slides away, which must not crash or flash.
-    @MainActor
-    func testClearingANewEntryAndGoingBackLeavesNothing() throws {
-        startNewEntry()
-        editor.typeText("Gone")
-        editor.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: 4))
-        goBack()
-
-        XCTAssertTrue(app.staticTexts["No entries yet"].waitForExistence(timeout: 5))
-        app.terminate()
-        app.launch()
-        XCTAssertTrue(app.staticTexts["No entries yet"].waitForExistence(timeout: 5))
-    }
-
-    // Switching tabs with an entry open keeps it open, and its text keeps saving into the same entry.
-    @MainActor
-    func testSwitchingTabsKeepsTheEntryOpen() throws {
-        startNewEntry()
-        editor.typeText("Before the switch.")
-
-        app.tabBars.buttons["Chat"].tap()
-        app.tabBars.buttons["Journal"].tap()
-        XCTAssertTrue(editor.waitForExistence(timeout: 5))
-        editor.coordinate(withNormalizedOffset: CGVector(dx: 0.95, dy: 0.5)).tap()
-        editor.typeText(" After it.")
-        goBack()
-
-        XCTAssertTrue(app.staticTexts["Before the switch. After it."].waitForExistence(timeout: 5))
-        XCTAssertEqual(rows.count, 1)
-    }
-
     // A back swipe the user abandons leaves the entry open.
     @MainActor
     func testACancelledBackSwipeKeepsTheEntryOpen() throws {

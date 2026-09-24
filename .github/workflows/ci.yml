@@ -1,20 +1,27 @@
-# Build once, then five test jobs at once: unit, and the UI suite split four ways. Five is the free
-# plan's limit of concurrent macOS jobs, so none of them queues.
+# One required path on every push, and everything slow once a night.
 #
-#   build  compiles the app and both test bundles for the simulator (about two minutes) and
+#   build  compiles the app and both test bundles for the simulator (about three minutes) and
 #          hands the products to the test jobs.
 #   unit   every pull request and push to main. The only required check. Leaves out the suites
-#          that call real OpenAI.
-#   live   those suites, with the key: after unit, on its runner. Advisory.
-#   ui     every push to main, a pull request labeled "ui" (dispatched by ui-label.yml as a run of
-#          its own, with skip_unit), and manual runs. Advisory: a failed
-#          shard is red on its own job, and continue-on-error keeps it out of the run's result.
-#          Each shard asks scripts/ci/ui-shards.sh for its tests, balanced by measured time.
+#          that call real OpenAI and, except at night, the fourteen slow tests
+#          (TestHost.runsSlowTests: seeds, 300-node simulations, timing budgets).
+#   live   the suites that call real OpenAI, with the key. Nightly, on a PR's "live" label, and
+#          by hand. They judge a live model's answers, which vary from call to call.
+#   ui     the UI suite in three shards. Nightly, on a PR's "ui" label, and by hand. Each shard
+#          asks scripts/ci/ui-shards.sh for its tests, balanced by measured time.
+#
+# A pull request's run is build then unit. live and ui used to ride along (live after unit on
+# every run, ui on every push to main), which made every run about twenty minutes and had each
+# merge hold four of the account's five macOS runners for twenty more, queueing every pull
+# request behind it. The measurements are in tasks/ci-speed.md.
+#
+# At night live and ui are not continue-on-error, so a failure turns the run red and GitHub emails
+# about it. From a label or by hand they stay advisory. The nightly run is skipped when main has
+# not moved since the last one that passed.
 #
 # Why one build and not one per job: each job building for itself while its simulator booted in
 # the background was tried, and the boot fought the compiler for the runner's three cores, so
-# builds took 6.5 to 11.5 minutes instead of 4. A fresh simulator's boot and first launch cost
-# a few minutes wherever they happen; they are cheapest on a runner that isn't also compiling.
+# builds took 6.5 to 11.5 minutes instead of 4.
 #
 # A manual run with "only" set (for example "PageOrderUITests/testScanReorderRemoveAndConfirmPages",
 # several separated by spaces) skips unit and runs just those UI tests on one runner.
@@ -25,22 +32,30 @@ name: CI
 
 on:
   # No "labeled": a label-only run would skip its jobs, a skipped job counts as a passed required
-  # check, and Dependabot labels every PR it opens. The "ui" label works through ui-label.yml.
+  # check, and Dependabot labels every PR it opens. The "ui" and "live" labels work through
+  # ui-label.yml.
   pull_request:
   push:
     branches: [main]
+  schedule:
+    # 07:00 UTC, three in the morning Eastern.
+    - cron: "0 7 * * *"
   workflow_dispatch:
     inputs:
       ui:
         description: Run the UI suite
         type: boolean
         default: true
-      skip_unit:
-        description: Skip the unit and live jobs (ui-label.yml sets this; the PR's own run has them)
+      live:
+        description: Run the live OpenAI suites
         type: boolean
-        default: false
-      skip_screenshots:
-        description: Leave out the *ScreenshotTests classes (ui-label.yml sets this for a PR)
+        default: true
+      slow:
+        description: Include the slow unit tests
+        type: boolean
+        default: true
+      skip_unit:
+        description: Skip the unit job (ui-label.yml sets this; the PR's own run has it)
         type: boolean
         default: false
       only:
@@ -48,24 +63,51 @@ on:
         type: string
         default: ""
 
-# A new push cancels the run in flight. A pull request's own run and the UI run ui-label.yml
-# dispatches for it have different refs (the PR's merge ref, the branch), so neither cancels the
-# other.
+# A new run cancels the one in flight with the same event and ref: a push to a pull request
+# cancels that PR's older run (its merge ref), a push to main cancels main's older run, and a
+# re-dispatched label run cancels the one before it. The event is in the group so a push to main
+# never cancels the nightly run, and a PR's own run never cancels its label run.
 concurrency:
-  group: ci-${{ github.ref }}
+  group: ci-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: true
 
 env:
   XCODE_VERSION: "26.6"
-  UI_SHARDS: 4
+  UI_SHARDS: 3
   MINDLORE_SIM_NAME: iPhone 17
   MINDLORE_SIM_OS: "26.5"
   MINDLORE_DERIVED_DATA: ${{ github.workspace }}/build/DerivedData
   MINDLORE_RESULTS: ${{ github.workspace }}/build/results
 
 jobs:
+  # Nightly only: nothing to do when main is where the last passing nightly run left it.
+  nightly-gate:
+    name: Anything new on main
+    if: github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+    outputs:
+      run: ${{ steps.check.outputs.run }}
+    steps:
+      - id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          last="$(gh run list --repo "$GITHUB_REPOSITORY" --workflow ci.yml --event schedule \
+            --branch main --status success --limit 1 --json headSha -q '.[0].headSha // ""')"
+          if [ "$last" = "$GITHUB_SHA" ]; then
+            echo "main is still at $GITHUB_SHA, which a nightly run already passed."
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          fi
+
   build:
     name: Build for testing
+    needs: nightly-gate
+    # The gate is skipped on every event but the schedule, and a skipped need would skip this too.
+    if: ${{ !cancelled() && (needs.nightly-gate.result == 'skipped' || needs.nightly-gate.outputs.run == 'true') }}
     runs-on: macos-26
     timeout-minutes: 30
     steps:
@@ -92,7 +134,10 @@ jobs:
   unit:
     name: Unit tests
     needs: build
-    if: inputs.only == '' && inputs.skip_unit != true
+    # Every job after build says !cancelled() and checks build itself: without a status function
+    # GitHub adds success(), which also looks past build at the skipped nightly gate and skips this
+    # job, and a skipped "Unit tests" counts as a passed required check.
+    if: ${{ !cancelled() && needs.build.result == 'success' && inputs.only == '' && inputs.skip_unit != true }}
     runs-on: macos-26
     timeout-minutes: 30
     steps:
@@ -108,8 +153,11 @@ jobs:
       - name: Unpack test products
         run: mkdir -p "$MINDLORE_DERIVED_DATA" && tar -xzf test-products.tgz -C "$MINDLORE_DERIVED_DATA"
 
-      # No OpenAI key here: the suites that call it run in the live job below.
+      # No OpenAI key here: the suites that call it run in the live job. The slow tests run at
+      # night and when a manual run asks for them.
       - name: Run unit tests
+        env:
+          TEST_RUNNER_MINDLORE_SLOW: ${{ (github.event_name == 'schedule' || inputs.slow) && '1' || '' }}
         run: scripts/ci/test.sh unit
 
       - name: Keep the result bundle
@@ -120,14 +168,11 @@ jobs:
           path: build/results/unit.xcresult
           retention-days: 7
 
-  # The suites that call real OpenAI, left out of the unit job because they judge a live model's
-  # answers, which vary from call to call (each has failed a run with no code change). Advisory,
-  # like ui, and started after unit so it takes unit's runner instead of queuing for a sixth.
   live:
     name: Live OpenAI tests
-    needs: [build, unit]
-    if: ${{ !cancelled() && needs.build.result == 'success' && inputs.only == '' && inputs.skip_unit != true }}
-    continue-on-error: true
+    needs: build
+    if: ${{ !cancelled() && needs.build.result == 'success' && (github.event_name == 'schedule' || inputs.live) }}
+    continue-on-error: ${{ github.event_name != 'schedule' }}
     runs-on: macos-26
     timeout-minutes: 30
     steps:
@@ -159,18 +204,15 @@ jobs:
   ui:
     name: UI tests (shard ${{ matrix.shard }})
     needs: build
-    # A pull request's UI run is dispatched by ui-label.yml, never part of the PR's own run.
-    if: >-
-      github.event_name == 'push' ||
-      (github.event_name == 'workflow_dispatch' && (inputs.ui || inputs.only != ''))
-    continue-on-error: true
+    if: ${{ !cancelled() && needs.build.result == 'success' && (github.event_name == 'schedule' || inputs.ui || inputs.only != '') }}
+    continue-on-error: ${{ github.event_name != 'schedule' }}
     runs-on: macos-26
     timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
-        # One runner for a manual "only" run, otherwise one per shard.
-        shard: ${{ fromJSON(inputs.only != '' && '[1]' || '[1, 2, 3, 4]') }}
+        # One runner for a manual "only" run, otherwise one per shard (UI_SHARDS).
+        shard: ${{ fromJSON(inputs.only != '' && '[1]' || '[1, 2, 3]') }}
     steps:
       - uses: actions/checkout@v7
 
@@ -179,15 +221,11 @@ jobs:
         env:
           ONLY: ${{ inputs.only }}
           SHARD: ${{ matrix.shard }}
-          SKIP_SCREENSHOTS: ${{ inputs.skip_screenshots }}
         run: |
-          # A pull request's UI run leaves out the screenshot classes; main and manual runs keep them.
           if [ -n "$ONLY" ]; then
             classes="$ONLY"
           else
-            flag=""
-            [ "$SKIP_SCREENSHOTS" = "true" ] && flag="--skip-screenshots"
-            classes="$(scripts/ci/ui-shards.sh "$UI_SHARDS" $flag --shard "$SHARD")"
+            classes="$(scripts/ci/ui-shards.sh "$UI_SHARDS" --shard "$SHARD")"
           fi
           echo "Shard $SHARD: ${classes:-nothing}"
           echo "classes=$classes" >> "$GITHUB_OUTPUT"

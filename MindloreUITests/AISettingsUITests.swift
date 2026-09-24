@@ -78,8 +78,8 @@ final class AISettingsUITests: XCTestCase {
     }
 
     // Scoped to the tab bar on purpose: app.buttons["Settings"] also matches the tab item, so an
-    // unscoped tap cannot tell a tab from a toolbar gear. See SettingsTabUITests. Then into AI,
-    // which is its own screen under the root.
+    // unscoped tap cannot tell a tab from a toolbar gear. Then into AI, which is its own screen
+    // under the root.
     private func openSettings() {
         let settings = app.tabBars.buttons["Settings"]
         XCTAssertTrue(settings.waitForExistence(timeout: 5))

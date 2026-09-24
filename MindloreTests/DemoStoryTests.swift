@@ -126,7 +126,7 @@ struct DemoStoryTests {
         #expect((360...366).contains(Calendar.current.dateComponents([.day], from: first, to: last).day ?? 0))
     }
 
-    @Test func seedingWritesTheJournalTheGraphAndTheLooseEnds() throws {
+    @Test(.enabled(if: TestHost.runsSlowTests)) func seedingWritesTheJournalTheGraphAndTheLooseEnds() throws {
         let context = container.mainContext
         #expect(try DemoStory.seedIfEmpty(in: context, now: now) == 200)
 
@@ -154,7 +154,7 @@ struct DemoStoryTests {
 
     // Fading runs between entries the way daily launches would, so a thread the story settles
     // late has to still be open by then: resolved, not quietly faded first.
-    @Test func everyThreadTheStorySettlesIsResolvedNotFaded() throws {
+    @Test(.enabled(if: TestHost.runsSlowTests)) func everyThreadTheStorySettlesIsResolvedNotFaded() throws {
         let context = container.mainContext
         try DemoStory.seedIfEmpty(in: context, now: now)
         let story = try DemoStory.entries()

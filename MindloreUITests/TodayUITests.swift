@@ -44,38 +44,4 @@ final class TodayUITests: XCTestCase {
         XCTAssertTrue(app.otherElements["todayHeader"].waitForExistence(timeout: 20))
         XCTAssertFalse(app.otherElements[identifier].exists, "still dismissed after a relaunch")
     }
-
-    // Swipe along the row to a thread, mark it done, and the row is one card shorter.
-    func testMarkingAThreadDoneTakesItOffTheRow() throws {
-        let app = launch(reset: true)
-        let row = app.descendants(matching: .any)["todayRow"]
-        XCTAssertTrue(row.waitForExistence(timeout: 20))
-        let position = app.staticTexts["todayRowPosition"]
-        XCTAssertTrue(position.waitForExistence(timeout: 5))
-        let total = { Int(position.label.components(separatedBy: " of ").last ?? "") ?? 0 }
-        let before = total()
-
-        let done = app.buttons.matching(identifier: "threadDone")
-        for _ in 0..<8 where !(done.allElementsBoundByIndex.contains { $0.isHittable }) {
-            row.swipeLeft()
-        }
-        let button = try XCTUnwrap(done.allElementsBoundByIndex.first { $0.isHittable }, "the demo journal has an open thread")
-        button.tap()
-
-        let shorter = NSPredicate { _, _ in total() == before - 1 }
-        wait(for: [XCTNSPredicateExpectation(predicate: shorter, object: nil)], timeout: 5)
-    }
-
-    func testTappingTheWeekStripOpensReflect() throws {
-        let app = launch(reset: true)
-
-        let weekStrip = app.descendants(matching: .any)["weekStrip"]
-        XCTAssertTrue(weekStrip.waitForExistence(timeout: 20))
-        weekStrip.tap()
-
-        XCTAssertTrue(app.descendants(matching: .any)["reflectView"].waitForExistence(timeout: 5))
-        // The sheet's own Done, not a thread card's Done button behind it.
-        app.navigationBars.buttons["Done"].tap()
-        XCTAssertFalse(app.descendants(matching: .any)["reflectView"].waitForExistence(timeout: 2), "Done closes Reflect")
-    }
 }

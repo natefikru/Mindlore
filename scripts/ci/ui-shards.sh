@@ -1,8 +1,8 @@
 #!/bin/bash
 # Split the UI tests into N shards of about equal running time.
 #
-#   scripts/ci/ui-shards.sh 4                                 every shard, one line each
-#   scripts/ci/ui-shards.sh 4 --skip-screenshots --shard 2    shard 2 only, what a CI job asks for
+#   scripts/ci/ui-shards.sh 3               every shard, one line each
+#   scripts/ci/ui-shards.sh 3 --shard 2     shard 2 only, what a CI job asks for
 #
 # The unit of work is one test method (Class/testMethod), not a class. Every UI test launches the
 # app fresh, so splitting a class costs nothing, and GraphUITests alone runs over eleven minutes on
@@ -12,19 +12,14 @@
 # and dealt heaviest first to whichever shard is lightest. Tests are found by scanning
 # MindloreUITests/*.swift for `func test...`, so a new test joins a shard on the next run with
 # nothing registered. The class name is the file name, a convention in this repo.
-#
-# --skip-screenshots leaves out the *ScreenshotTests classes, which exist to produce pictures for a
-# person to look at. CI passes it for a pull request's run; pushes to main and manual runs keep them.
 
 set -euo pipefail
 
-count="${1:-4}"
+count="${1:-3}"
 shift || true
-skip_screenshots=false
 only_shard=""
 while [ $# -gt 0 ]; do
   case "$1" in
-    --skip-screenshots) skip_screenshots=true ;;
     --shard) only_shard="$2"; shift ;;
     *) echo "unknown option $1" >&2; exit 2 ;;
   esac
@@ -33,9 +28,9 @@ done
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 
-/usr/bin/python3 - "$root" "$count" "$skip_screenshots" "$only_shard" <<'EOF'
+/usr/bin/python3 - "$root" "$count" "$only_shard" <<'EOF'
 import glob, os, re, sys
-root, count, skip_screenshots, only_shard = sys.argv[1], int(sys.argv[2]), sys.argv[3] == "true", sys.argv[4]
+root, count, only_shard = sys.argv[1], int(sys.argv[2]), sys.argv[3]
 
 seconds = {}
 timings = os.path.join(root, "scripts/ci/ui-test-seconds.txt")
@@ -48,8 +43,6 @@ if os.path.exists(timings):
 tests = []
 for path in sorted(glob.glob(os.path.join(root, "MindloreUITests/*.swift"))):
     cls = os.path.basename(path)[:-len(".swift")]
-    if skip_screenshots and cls.endswith("ScreenshotTests"):
-        continue
     for name in re.findall(r"func (test\w+)\s*\(", open(path).read()):
         test = f"{cls}/{name}"
         tests.append((seconds.get(test, 60), test))
