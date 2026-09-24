@@ -116,3 +116,12 @@ Comments: `EntryKind.swift` (header, the `keeps*` comment), `Entry.swift` near `
 - A Creative or Notes view of the map (owner: not planned).
 - Rewriting stored links on a kind change: the filter is at read time; nothing stored changes.
 - Which labels tags get (tags still compete for label slots).
+
+## Built (2026-09-23, PR #60)
+
+- One change from the plan: `snapshot.entities` stays whole rather than trimmed to journal-linked
+  names, and the snapshot carries `linkedEntityIDs` for the map's size and empty state. That keeps
+  `MindStats.authorIDs` working without a special case for the author.
+- The peek's reason is `EntityPeekCard.MapHint` (`outsideView`, `notInJournal`), chosen by
+  `MindView.mapHint`, which says nothing until the map has been built once.
+- A focused tag's ring is drawn at twice the pin's radius, 1.5pt.
