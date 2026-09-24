@@ -25,9 +25,7 @@ final class PageOrderUITests: XCTestCase {
     @MainActor
     func testScanReorderRemoveAndConfirmPages() throws {
         app.launch()
-        let newPhotos = app.buttons["newPhotoEntryButton"]
-        XCTAssertTrue(newPhotos.waitForExistence(timeout: 5))
-        newPhotos.tap()
+        app.startNewPages()
 
         // Nothing opens by itself: the screen waits with both ways to add pages.
         let scan = app.buttons["scanPagesButton"]

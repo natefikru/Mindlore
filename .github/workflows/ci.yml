@@ -5,9 +5,10 @@
 #   unit   every pull request and push to main. The only required check. Leaves out the suites
 #          that call real OpenAI and, except at night, the fourteen slow tests
 #          (TestHost.runsSlowTests: seeds, 300-node simulations, timing budgets).
-#   live   the suites that call real OpenAI, with the key. Nightly, on a PR's "live" label, and
-#          by hand. They judge a live model's answers, which vary from call to call.
-#   ui     the UI suite in three shards. Nightly, on a PR's "ui" label, and by hand. Each shard
+#   live   the suites that call real OpenAI, with the key. Nightly, on a PR's "live" label (in
+#          the PR's own run, off the same build), and by hand. They judge a live model's answers, which vary from call to call.
+#   ui     the UI suite in three shards. Nightly, on a PR's "ui" label (in the PR's own run),
+#          and by hand. Each shard
 #          asks scripts/ci/ui-shards.sh for its tests, balanced by measured time.
 #
 # A pull request's run is build then unit. live and ui used to ride along (live after unit on
@@ -32,8 +33,10 @@ name: CI
 
 on:
   # No "labeled": a label-only run would skip its jobs, a skipped job counts as a passed required
-  # check, and Dependabot labels every PR it opens. The "ui" and "live" labels work through
-  # ui-label.yml.
+  # check, and Dependabot labels every PR it opens. A push to a PR carrying "ui" or "live" runs
+  # those jobs in this, the PR's own run, off its one build; ui-label.yml dispatches a run only at
+  # the moment a label is added, when there is no push to ride on. Dispatching on every push as
+  # well had two runs building the same commit at once (owner, 2026-09-24).
   pull_request:
   push:
     branches: [main]
@@ -171,7 +174,7 @@ jobs:
   live:
     name: Live OpenAI tests
     needs: build
-    if: ${{ !cancelled() && needs.build.result == 'success' && (github.event_name == 'schedule' || inputs.live) }}
+    if: ${{ !cancelled() && needs.build.result == 'success' && (github.event_name == 'schedule' || inputs.live || (github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'live'))) }}
     continue-on-error: ${{ github.event_name != 'schedule' }}
     runs-on: macos-26
     timeout-minutes: 30
@@ -204,7 +207,7 @@ jobs:
   ui:
     name: UI tests (shard ${{ matrix.shard }})
     needs: build
-    if: ${{ !cancelled() && needs.build.result == 'success' && (github.event_name == 'schedule' || inputs.ui || inputs.only != '') }}
+    if: ${{ !cancelled() && needs.build.result == 'success' && (github.event_name == 'schedule' || inputs.ui || inputs.only != '' || (github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'ui'))) }}
     continue-on-error: ${{ github.event_name != 'schedule' }}
     runs-on: macos-26
     timeout-minutes: 45

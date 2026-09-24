@@ -42,7 +42,8 @@ struct InsightsPromptBuilderTests {
         let plan = InsightsPromptBuilder.plan(text: "I walked to the river.", source: .voice, sections: InsightSections(), vocabulary: .init(tags: ["work", "family"]), model: "gpt-test")
         let properties = try schemaProperties(plan)
 
-        #expect(Set(properties.keys) == ["entryKind", "summary", "primaryMood", "secondaryMoods", "lifeAreas", "tags", "mentions", "looseEnds", "sections", "cleanedText"])
+        #expect(Set(properties.keys) == ["entryKind", "summary", "primaryMood", "secondaryMoods", "lifeAreas", "tags", "mentions", "looseEnds", "sections", "cleanedText", "thinkingPatterns"])
+        #expect(plan.asksForThinking)
         // Not nullable: every entry gets a mood, with neutral as the fallback.
         #expect((properties["primaryMood"]?["enum"] as? [Any])?.count == Mood.allCases.count)
         #expect(properties["primaryMood"]?["type"] as? String == "string")
@@ -825,5 +826,23 @@ struct InsightsInputCapTests {
 
         #expect(plan.request.user.count == InsightsPromptBuilder.maxInputCharacters)
         #expect(long.count > InsightsPromptBuilder.maxInputCharacters)
+    }
+}
+
+struct ThinkingPatternInsightsTests {
+    @Test func patternsAreAskedOnlyOfTheCloudWithMoodsAndParsedCapped() throws {
+        let cloud = InsightsPromptBuilder.plan(text: "I always ruin everything.", source: .typed, sections: InsightSections(), vocabulary: .empty, model: "m")
+        #expect(cloud.asksForThinking)
+        let onDevice = InsightsPromptBuilder.plan(text: "I always ruin everything.", source: .typed, sections: InsightSections(), vocabulary: .empty, model: "m", budget: .onDevice)
+        #expect(!onDevice.asksForThinking)
+        var noMoods = InsightSections()
+        noMoods.moods = false
+        #expect(!InsightsPromptBuilder.plan(text: "x", source: .typed, sections: noMoods, vocabulary: .empty, model: "m").asksForThinking)
+
+        let answer = #"{"entryKind": "life", "summary": "A hard day.", "primaryMood": "sad", "thinkingPatterns": ["allOrNothing", "nonsense", "harshSelfTalk", "allOrNothing", "mindReading", "catastrophizing"]}"#
+        var result = try InsightsPromptBuilder.parse(answer, plan: cloud)
+        #expect(result.thinking == [.allOrNothing, .harshSelfTalk, .mindReading])
+        result.restrict(to: .note)
+        #expect(result.thinking.isEmpty, "a note says nothing about how its author talks to themselves")
     }
 }

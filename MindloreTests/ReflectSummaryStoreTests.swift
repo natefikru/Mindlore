@@ -106,6 +106,30 @@ struct ReflectSummaryStoreTests {
         .success(#"{"summary":"\#(body)","prompt":"ask?"}"#)
     }
 
+    @Test func aBurstOfChangesRewritesTheRunningWeekOnceInTheBackground() async throws {
+        let week = utc.dateInterval(of: .weekOfYear, for: .now)!
+        entry("something this week", on: min(.now, week.start.addingTimeInterval(3_600)))
+        try context.save()
+        let fake = FakeTextGenerator()
+        fake.results = [reply("Busy week.")]
+        for _ in 0..<5 {
+            ReflectSummaryStore.scheduleCurrentWeekRefresh(resolve: resolve(fake), voice: { .default }, isEditing: { false }, quiet: .milliseconds(20), calendar: utc, in: context)
+        }
+        await ReflectSummaryStore.pendingRefresh?.value
+        #expect(fake.requests.count == 1)
+        #expect(ReflectSummaryStore.summary(kind: .week, periodStart: week.start, in: context)?.items.first?.body == "Busy week.")
+    }
+
+    @Test func theBackgroundRewriteWaitsWhileAnEditorIsOpen() async throws {
+        let week = utc.dateInterval(of: .weekOfYear, for: .now)!
+        entry("something this week", on: min(.now, week.start.addingTimeInterval(3_600)))
+        try context.save()
+        let fake = FakeTextGenerator()
+        ReflectSummaryStore.scheduleCurrentWeekRefresh(resolve: resolve(fake), voice: { .default }, isEditing: { true }, quiet: .milliseconds(20), calendar: utc, in: context)
+        await ReflectSummaryStore.pendingRefresh?.value
+        #expect(fake.requests.isEmpty)
+    }
+
     @Test func theRunningWeekIsRewrittenWhenItsEntriesChange() async throws {
         let week = utc.dateInterval(of: .weekOfYear, for: .now)!
         entry("first thing this week", on: week.start)

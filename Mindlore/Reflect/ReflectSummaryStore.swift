@@ -127,6 +127,30 @@ enum ReflectSummaryStore {
         return created
     }
 
+    // Rewrites the running week's summary shortly after its entries stop changing, so Recaps already
+    // has it when it's opened and nobody watches it change (owner, 2026-09-24). Each call restarts
+    // the wait; the rewrite itself asks the model only if the week's entries really changed
+    // (`generateIfNeeded`'s fingerprint), so a burst of saves is one request at most.
+    private(set) static var pendingRefresh: Task<Void, Never>?
+    static let refreshQuiet: Duration = .seconds(45)
+
+    static func scheduleCurrentWeekRefresh(
+        resolve: @escaping () -> Result<AskProvider, AIJobFailure>,
+        voice: @escaping () -> PromptVoice,
+        isEditing: @escaping () -> Bool,
+        quiet: Duration = refreshQuiet,
+        calendar: Calendar = .current,
+        in context: ModelContext
+    ) {
+        pendingRefresh?.cancel()
+        pendingRefresh = Task {
+            try? await Task.sleep(for: quiet)
+            guard !Task.isCancelled, !isEditing(),
+                  let week = calendar.dateInterval(of: .weekOfYear, for: .now) else { return }
+            await generateIfNeeded(kind: .week, interval: week, resolve: resolve, voice: voice(), calendar: calendar, in: context)
+        }
+    }
+
     // The launch sweep's own scope: only the week and the month that most recently closed.
     // Nothing older is swept here (a launch isn't the place to backfill a year of history); the
     // lazy path in the feed covers everything else.

@@ -27,6 +27,8 @@ struct ReflectWeekSection: View {
     @State private var dismissedIDs: Set<String> = []
     @State private var moodCounts: [MoodCategory: Int] = [:]
     @State private var hasLoaded = false
+    // A rewrite running behind the summary already on screen.
+    @State private var refreshing = false
 
     private var periodKey: String { ReflectDismissal.periodKey(kind: .week, periodStart: week.interval.start) }
     private var visibleItems: [ReflectQueueItem] { items.filter { !dismissedIDs.contains($0.id) } }
@@ -63,6 +65,11 @@ struct ReflectWeekSection: View {
                         Text("So far")
                             .font(.caption)
                             .foregroundStyle(.secondary)
+                    }
+                    if refreshing {
+                        ProgressView()
+                            .controlSize(.mini)
+                            .accessibilityLabel("Updating")
                     }
                 }
                 ReflectMoodChipStrip(moodCounts: moodCounts)
@@ -103,6 +110,16 @@ struct ReflectWeekSection: View {
         dismissedIDs = settings.dismissedReflectItems(for: periodKey)
         moodCounts = ReflectSource.period(week.interval, in: modelContext).moodCounts
 
+        // Whatever is cached shows at once, even while the week is being rewritten behind it: the
+        // old summary with a small spinner beats a blank row with a big one (owner, 2026-09-24).
+        // Usually there is nothing to wait for, since RootView rewrites the running week in the
+        // background after its entries change.
+        if let cached = ReflectSummaryStore.summary(kind: .week, periodStart: week.interval.start, in: modelContext) {
+            items = cached.items
+            hasLoaded = true
+        }
+        refreshing = hasLoaded
+        defer { refreshing = false }
         // The running week too: its summary is rewritten whenever its entries have changed.
         let summary = await ReflectSummaryStore.generateIfNeeded(
             kind: .week,
@@ -111,7 +128,8 @@ struct ReflectWeekSection: View {
             voice: settings.promptVoice,
             in: modelContext
         )
-        items = summary?.items ?? []
+        // A failed rewrite keeps what was on screen.
+        if let summary { items = summary.items } else if !hasLoaded { items = [] }
         hasLoaded = true
     }
 

@@ -77,7 +77,7 @@ struct IntentTests {
     @Test func newEntryOpensANewEntryInJournal() throws {
         let log = Log()
         let router = router(log)
-        router.tab = .mind
+        router.select(.mind)
 
         IntentHandler.handle(.newEntry, recording: try RecordingSessionHarness().session, router: router)
 

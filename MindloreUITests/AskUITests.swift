@@ -21,7 +21,7 @@ final class AskUITests: XCTestCase {
     // One finished entry with its insights, so the journal has an entry, a tag, and Sarah in it.
     private func writeTheRiverEntry() {
         app.launch()
-        app.buttons["newEntryButton"].tap()
+        app.startNewWrittenEntry()
         let editor = app.textViews["entryEditor"]
         XCTAssertTrue(editor.waitForExistence(timeout: 5))
         wait(for: [expectation(for: NSPredicate(format: "isHittable == true"), evaluatedWith: editor)], timeout: 5)

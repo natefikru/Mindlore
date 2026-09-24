@@ -35,6 +35,8 @@ final class SettingsStore {
         static let customInsightPrompts = "customInsightPrompts"
         static let lifeAreaNames = "lifeAreaNames"
         static let hiddenLifeAreas = "hiddenLifeAreas"
+        static let lifePriorities = "lifePriorities"
+        static let lifePrioritiesAsked = "lifePrioritiesAsked"
         static let journalVoice = "journalVoice"
         static let appearance = "appearance"
         static let journalFont = "journalFont"
@@ -224,6 +226,23 @@ final class SettingsStore {
         didSet { writeJSON(hiddenLifeAreas, Key.hiddenLifeAreas) }
     }
 
+    // Up to three areas the user said matter most right now, as raw values, in the order picked.
+    // Life measures where the writing goes against them. The user's own choice, so only the change
+    // is logged.
+    var lifePriorities: [String] {
+        didSet { writeJSON(lifePriorities, Key.lifePriorities) }
+    }
+
+    // Internal state, never a control: Life asked once, so its question card doesn't come back
+    // after "Not now". Settings' Your journal can still set the areas.
+    var lifePrioritiesAsked: Bool {
+        didSet { write(lifePrioritiesAsked, Key.lifePrioritiesAsked) }
+    }
+
+    var priorityAreas: [LifeArea] {
+        lifePriorities.compactMap(LifeArea.init(rawValue:))
+    }
+
     var journalVoice: JournalVoice { didSet { write(journalVoice.rawValue, Key.journalVoice, logged: .string(journalVoice.rawValue)) } }
 
     var appearance: AppearancePreference {
@@ -387,6 +406,8 @@ final class SettingsStore {
         customInsightPrompts = json(Key.customInsightPrompts, [])
         lifeAreaNames = json(Key.lifeAreaNames, [:])
         hiddenLifeAreas = json(Key.hiddenLifeAreas, [])
+        lifePriorities = json(Key.lifePriorities, [])
+        lifePrioritiesAsked = bool(Key.lifePrioritiesAsked, false)
         journalVoice = string(Key.journalVoice).flatMap(JournalVoice.init(rawValue:)) ?? .first
         appearance = string(Key.appearance).flatMap(AppearancePreference.init(rawValue:)) ?? .system
         journalFont = string(Key.journalFont).flatMap(JournalFont.init(rawValue:)) ?? .serif

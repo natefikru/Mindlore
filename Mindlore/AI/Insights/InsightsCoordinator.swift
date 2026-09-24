@@ -334,6 +334,7 @@ final class InsightsCoordinator {
         insights.cleanedTextSkippedReasonRaw = plan.cleanedTextSkippedReason
         insights.sections = result.sections
         insights.customResults = result.custom
+        insights.thinkingPatterns = result.thinking
         insights.sentTagCount = plan.vocabularySent.tags.count
         insights.sentNameCount = plan.vocabularySent.named.count
         insights.sentLooseEndCount = plan.vocabularySent.looseEnds.filter { !$0.own }.count

@@ -1,28 +1,16 @@
 import SwiftData
 import SwiftUI
 
-// A scroll of weeks and months, newest first: the last `recentWeekCount` weeks in full, then
-// every month before that back to the journal's first entry, collapsed. Presented as a sheet from
-// Today's week strip, its own NavigationStack, no change to AppRouter or the tab bar. Not scoped
-// to whatever week the caller tapped from: this is one feed, always the same shape. A segmented
-// control in the bar switches to Loose ends (`ReflectLooseEndsView`), every loose end the journal
-// has raised, open or closed; the summaries stay the page it opens on.
+// The Reflect tab (owner, 2026-09-24): a segmented control over its sides. Life (`LifeView`) is
+// what keeps happening and how it has felt; it is the side Reflect opens on once it has enough
+// journal to read, and Recaps until then. Recaps is a scroll of
+// weeks and months, newest first: the last `recentWeekCount` weeks in full, then every month before
+// that back to the journal's first entry, collapsed. Loose ends (`ReflectLooseEndsView`) is every
+// loose end the journal has raised, open ones pinned on top. Today's week strip jumps here on
+// Recaps through `AppRouter.showReflect`.
 struct ReflectView: View {
-    enum Page: String, CaseIterable, Identifiable {
-        case summaries, looseEnds
-
-        var id: String { rawValue }
-
-        var title: String {
-            switch self {
-            case .summaries: "Summaries"
-            case .looseEnds: "Loose ends"
-            }
-        }
-    }
-
     @Environment(\.modelContext) private var modelContext
-    @Environment(\.dismiss) private var dismiss
+    @Environment(AppRouter.self) private var router
     @Environment(SettingsStore.self) private var settings
     @Environment(ProviderAccountStore.self) private var accounts
     @State private var earliestEntryDate: Date?
@@ -32,27 +20,34 @@ struct ReflectView: View {
     // Rows that loaded and found no summary, by period start. When every row is in here, the feed
     // says there is nothing to look back on rather than showing a blank sheet.
     @State private var emptyRows: Set<Date> = []
-    @State private var page: Page = .summaries
+    @State private var page: ReflectPage = .recaps
+    // Decided once, at the first load: Life when it has a reading, else Recaps. A jump that names a
+    // side wins over it.
+    @State private var pageDecided = false
+    @State private var lifeWindow: MindWindow = .quarter
+    @State private var path: [LifeAreaRoute] = []
 
     var recentWeekCount = ReflectFeed.defaultRecentWeekCount
-    // The presenter's chance to remember it should reopen Reflect once the seeded entry closes,
-    // rather than leaving the user on the Journal list with no way back to where they were.
-    var onOpenEntry: (String) -> Void = { _ in }
+
+    private var pages: [ReflectPage] { ReflectPage.allCases }
 
     var body: some View {
-        NavigationStack {
+        NavigationStack(path: $path) {
             Group {
                 switch page {
-                case .summaries: summaries
+                case .life:
+                    LifeView(window: $lifeWindow, openArea: { path.append($0) }, showLooseEnds: { page = .looseEnds })
+                case .recaps: summaries
                 case .looseEnds: ReflectLooseEndsView()
                 }
             }
+            .navigationDestination(for: LifeAreaRoute.self) { LifeAreaView(route: $0) }
             .navigationTitle("Reflect")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .principal) {
                     Picker("Reflect", selection: $page) {
-                        ForEach(Page.allCases) { option in
+                        ForEach(pages) { option in
                             Text(option.title).tag(option)
                         }
                     }
@@ -60,13 +55,18 @@ struct ReflectView: View {
                     .fixedSize()
                     .accessibilityIdentifier("reflectPagePicker")
                 }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Done") { dismiss() }
-                }
             }
             // On the stack, not on the summaries: switching to Loose ends and back must not
             // reload the feed.
             .task { await load() }
+            .onChange(of: router.reflectPageRequest, initial: true) {
+                if let requested = router.consumeReflectPage() {
+                    page = requested
+                    pageDecided = true
+                    path = []
+                }
+            }
+            .sensoryFeedback(Haptics.selected, trigger: page)
         }
     }
 
@@ -112,6 +112,11 @@ struct ReflectView: View {
             textUsable: AIServices.textUsable(settings: settings, accounts: accounts),
             onDeviceAvailable: FoundationModelsAvailability.isAvailable
         )
+        // A jump that names a side is taken by the onChange below; the default never overrides it.
+        if !pageDecided, router.reflectPageRequest == nil {
+            pageDecided = true
+            page = LifeSignals.progress(LifeSource.facts(in: modelContext).entries).canRead ? .life : .recaps
+        }
         guard let earliest = ReflectSource.earliestEntryDate(in: modelContext) else {
             hasLoaded = true
             return
@@ -139,8 +144,9 @@ struct ReflectView: View {
         if empty { emptyRows.insert(id) } else { emptyRows.remove(id) }
     }
 
+    // The recap's question, as a hint in a new entry; closing it comes back here.
     private func openEntry(_ item: ReflectQueueItem) {
-        onOpenEntry(item.prompt)
+        router.showNewEntry(startingText: item.prompt, returningTo: .reflect)
     }
 }
 

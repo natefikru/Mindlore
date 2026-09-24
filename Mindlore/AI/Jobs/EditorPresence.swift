@@ -17,6 +17,9 @@ final class EditorPresence {
         counts[id] = count > 1 ? count - 1 : nil
     }
 
+    // Any editor at all, for background work that should wait until nobody is typing.
+    var anyOpen: Bool { !counts.isEmpty }
+
     func isOpen(_ id: UUID) -> Bool {
         counts[id] != nil
     }

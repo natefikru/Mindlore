@@ -17,10 +17,22 @@ final class ReflectUITests: XCTestCase {
         return app
     }
 
-    private func openReflect(_ app: XCUIApplication) {
-        let weekStrip = app.descendants(matching: .any)["weekStrip"]
-        XCTAssertTrue(weekStrip.waitForExistence(timeout: 20))
-        weekStrip.tap()
+    // Through the tab on the first launch and through Today's week strip on the second, so both
+    // ways in stay covered.
+    private func openReflect(_ app: XCUIApplication, fromWeekStrip: Bool = false) {
+        if fromWeekStrip {
+            let weekStrip = app.descendants(matching: .any)["weekStrip"]
+            XCTAssertTrue(weekStrip.waitForExistence(timeout: 20))
+            weekStrip.tap()
+        } else {
+            let tab = app.tabBars.buttons["Reflect"]
+            XCTAssertTrue(tab.waitForExistence(timeout: 20))
+            tab.tap()
+            // The tab opens on Life once the journal is big enough; the recaps are a side over.
+            let recaps = app.buttons["Recaps"].firstMatch
+            XCTAssertTrue(recaps.waitForExistence(timeout: 10))
+            recaps.tap()
+        }
         let reflectView = app.descendants(matching: .any)["reflectView"]
         XCTAssertTrue(reflectView.waitForExistence(timeout: 5))
         // A LazyVStack's rows can exist visually before XCTest's accessibility tree walker
@@ -50,7 +62,7 @@ final class ReflectUITests: XCTestCase {
 
         app.terminate()
         app = launch(reset: false)
-        openReflect(app)
+        openReflect(app, fromWeekStrip: true)
 
         XCTAssertFalse(app.buttons[identifier].waitForExistence(timeout: 5), "still dismissed after a relaunch")
     }

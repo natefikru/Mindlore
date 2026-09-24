@@ -31,7 +31,7 @@ final class ReadModeUITests: XCTestCase {
     // Writes and finishes an entry, waits for its insights, and reopens it from the list.
     private func finishAndReopen() {
         app.launch()
-        app.buttons["newEntryButton"].tap()
+        app.startNewWrittenEntry()
         typeAtEnd("Met Sarah by the river and felt calm about the move.")
         app.buttons["finishEntryButton"].tap()
         XCTAssertTrue(app.buttons["insightsReadyButton"].waitForExistence(timeout: 90))

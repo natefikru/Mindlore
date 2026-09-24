@@ -231,6 +231,9 @@ enum JournalImport {
         for record in records.reflectSummaries where !summaryIDs.contains(record.id) && !periods.contains("\(record.periodKindRaw)|\(record.periodStart.timeIntervalSince1970)") {
             let restored = ReflectSummary(kind: ReflectSummaryKind(rawValue: record.periodKindRaw) ?? .week, periodStart: record.periodStart, generatedAt: record.generatedAt, items: [])
             restored.id = record.id
+            // The kind as it was written: Life's rows (`life.*`) aren't week or month, and the
+            // initializer's fallback would file them as weeks.
+            restored.periodKindRaw = record.periodKindRaw
             restored.itemsData = record.itemsData
             restored.sourceFingerprint = record.sourceFingerprint
             context.insert(restored)

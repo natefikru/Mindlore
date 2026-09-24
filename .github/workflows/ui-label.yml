@@ -1,8 +1,10 @@
-# Runs the UI suite for a pull request carrying the "ui" label, and the live OpenAI suites for one
-# carrying "live": when a label is added, and on every push to a labeled PR after that.
+# Runs the UI suite for a pull request when the "ui" label is added, and the live OpenAI suites when
+# "live" is. Only at that moment: every later push to the labeled PR runs those jobs inside the PR's
+# own CI run (ci.yml reads the labels), so a push never starts two runs building the same commit
+# (owner, 2026-09-24).
 #
 # It dispatches CI on the PR's branch with skip_unit, so those jobs run as a run of their own
-# (their checks still land on the PR's head commit) while the PR's own run keeps build and unit.
+# (their checks still land on the PR's head commit).
 # Why not a "labeled" trigger on ci.yml itself: a run for any other label would skip its jobs, a
 # skipped job counts as a passed required check, and Dependabot labels every PR it opens. This job
 # runs on Ubuntu, outside the five-job macOS limit, and does nothing for other labels or for a PR
@@ -12,7 +14,7 @@ name: UI and live on label
 
 on:
   pull_request:
-    types: [labeled, synchronize, opened, reopened]
+    types: [labeled]
 
 permissions:
   actions: write
@@ -21,10 +23,7 @@ jobs:
   dispatch:
     if: >-
       github.event.pull_request.head.repo.full_name == github.repository &&
-      ((github.event.action == 'labeled' && contains(fromJSON('["ui", "live"]'), github.event.label.name)) ||
-       (github.event.action != 'labeled' &&
-        (contains(github.event.pull_request.labels.*.name, 'ui') ||
-         contains(github.event.pull_request.labels.*.name, 'live'))))
+      contains(fromJSON('["ui", "live"]'), github.event.label.name)
     runs-on: ubuntu-latest
     steps:
       - name: Dispatch on ${{ github.head_ref }}

@@ -29,6 +29,8 @@ struct RootView: View {
     @Environment(ProviderAccountStore.self) private var accounts
     @State private var confirmingDiscard = false
     @State private var showingWelcome = false
+    // The welcome screen's Add a key.
+    @State private var showingAISettings = false
     private let context: ModelContext
 
     init(container: ModelContainer, settings: SettingsStore, accounts: ProviderAccountStore) {
@@ -151,24 +153,34 @@ struct RootView: View {
     }
 
     var body: some View {
-        TabView(selection: $router.tab) {
+        // The + never becomes the selected tab: picking it opens the fan (`AppRouter.select`).
+        TabView(selection: Binding(get: { router.tab }, set: { router.select($0) })) {
             Tab("Journal", systemImage: "book", value: AppTab.journal) {
                 EntryListView()
             }
             Tab("Mind", systemImage: "circle.hexagongrid", value: AppTab.mind) {
                 MindView()
             }
+            // Drawn over by NewEntryFan's own +; this tab is its slot and its VoiceOver button.
+            Tab("New", systemImage: "plus", value: AppTab.newEntry) {
+                Color.clear
+            }
+            Tab("Reflect", systemImage: "leaf", value: AppTab.reflect) {
+                ReflectView()
+            }
             Tab("Chat", systemImage: "bubble.left.and.bubble.right", value: AppTab.ask) {
                 AskView()
             }
-            Tab("Settings", systemImage: "gearshape", value: AppTab.settings) {
-                SettingsView()
-            }
+        }
+        .overlay {
+            NewEntryFan()
+                .environment(router)
+                .environment(recording)
         }
         // The accessory and the recorder are handed the session directly rather than relying on
         // the environment below reaching their separate hosting.
-        // Only while a recording runs, so it follows the user across tabs. Record itself sits in
-        // Journal's toolbar.
+        // Only while a recording runs, so it follows the user across tabs. Record itself is in the
+        // tab bar's + fan.
         .tabViewBottomAccessory(isEnabled: recording.showsAccessory) {
             RecordAccessory(session: recording) { confirmingDiscard = true }
         }
@@ -186,6 +198,9 @@ struct RootView: View {
             }
         }
         .sensoryFeedback(Haptics.recordStop, trigger: recording.isFinishing) { _, finishing in finishing }
+        .sheet(isPresented: $showingAISettings) {
+            AISettingsSheet()
+        }
         .confirmationDialog("Discard this recording?", isPresented: $confirmingDiscard, titleVisibility: .visible) {
             Button("Discard Recording", role: .destructive) { recording.discard() }
                 .accessibilityIdentifier("confirmDiscardRecordingButton")
@@ -226,6 +241,7 @@ struct RootView: View {
         .task {
             await ingestor.ingestAll(in: .standard, context: context)
             await transcription.processQueue(context: context)
+            refreshThisWeek()
         }
         .task {
             await pageTranscription.processQueue(context: context)
@@ -246,6 +262,12 @@ struct RootView: View {
             if LooseEnd.fade(in: context) > 0 {
                 try? context.saveStampingEntries()
             }
+            // "loose ends" as a tag, from before parsing refused it (owner, 2026-09-24).
+            if BlockedTagSweep.run(in: context) > 0 {
+                graph.indexer.recount(in: context)
+                try? context.saveStampingEntries()
+                graph.sweepFinished()
+            }
             // Non-blocking: the most recent week and month either already have a cached summary
             // (an instant return) or are worth one request each, neither of which titles and
             // insights below should wait on.
@@ -258,6 +280,7 @@ struct RootView: View {
             }
             await titles.processQueue(context: context)
             await insights.processQueue(context: context)
+            refreshThisWeek()
         }
         .overlay {
             if showingWelcome {
@@ -265,7 +288,7 @@ struct RootView: View {
                     onStart: { closeWelcome() },
                     onAddKey: {
                         closeWelcome()
-                        router.showSettings()
+                        showingAISettings = true
                     }
                 )
                 .transition(.opacity)
@@ -282,6 +305,9 @@ struct RootView: View {
             // asked about again on every launch.
             if !showingWelcome { settings.welcomeSeen = true }
         }
+        // Every edit, a recording's text arriving, and a title landing move the running week, so its
+        // summary is rewritten in the background once things go quiet.
+        .onChange(of: saver.revision) { refreshThisWeek() }
         .onChange(of: scenePhase) { _, phase in
             DiagnosticsLog.shared.record("app.scenePhase", ["phase": .string(String(describing: phase))])
             lock.sceneChanged(to: phase)
@@ -330,6 +356,15 @@ struct RootView: View {
     }
 
     // A reminder iOS won't show is switched off rather than left looking on. Settings says why.
+    private func refreshThisWeek() {
+        ReflectSummaryStore.scheduleCurrentWeekRefresh(
+            resolve: { AIServices.askGenerator(settings: settings, accounts: accounts) },
+            voice: { settings.promptVoice },
+            isEditing: { presence.anyOpen },
+            in: context
+        )
+    }
+
     private func rescheduleReminder() async {
         let outcome = await reminder.reschedule(
             enabled: settings.reminderEnabled,

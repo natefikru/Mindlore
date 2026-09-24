@@ -25,6 +25,10 @@ struct SearchPanel: View {
     static var peekHeight: CGFloat { min(UIFontMetrics.default.scaledValue(for: 76), 120) }
     static let fullTopGap: CGFloat = 60
     static let edgeFade: CGFloat = 32
+    // Room under the last row once the list is scrolled to its end: past the fade, plus a row's
+    // worth, so the last name rests in plain sight above the tab bar rather than inside the fade,
+    // where it read as covered (owner, 2026-09-24).
+    static let endRoom: CGFloat = edgeFade + 64
     // How far past its first and last stops the panel gives, and so how much taller than `.full`
     // it is laid out, so pulling it past the top never lifts its bottom edge off the tab bar.
     static let overscroll: CGFloat = 80
@@ -264,7 +268,7 @@ struct SearchPanel: View {
             keyboardOverlap: keyboardOverlap,
             // The panel is laid out taller than what shows at this stop; the rows below the visible
             // edge must still be able to scroll up into view.
-            bottomMargin: Self.edgeFade + max(0, Self.layoutHeight(available: available) - Self.height(for: stop, available: available)),
+            bottomMargin: Self.endRoom + max(0, Self.layoutHeight(available: available) - Self.height(for: stop, available: available)),
             tapCard: { card in
                 graph.recordMindChangeTapped(card.change.kind, kind: card.kind)
                 select(card.id)

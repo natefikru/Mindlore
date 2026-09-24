@@ -66,9 +66,9 @@ struct AppRouterTests {
         let router = router(log)
         router.journalPath = [JournalRoute(entryID: UUID())]
 
-        router.tab = .mind
-        router.tab = .ask
-        router.tab = .journal
+        router.select(.mind)
+        router.select(.ask)
+        router.select(.journal)
         #expect(log.opened.count == 1)
         #expect(log.closed.isEmpty)
     }
@@ -78,7 +78,7 @@ struct AppRouterTests {
         let router = router(log)
         let open = UUID(), shown = UUID()
         router.journalPath = [JournalRoute(entryID: open)]
-        router.tab = .mind
+        router.select(.mind)
         let token = router.dismissPresentationsToken
 
         router.showEntry(shown)
@@ -192,27 +192,114 @@ struct AppRouterMindTests {
         #expect(router.consumeMindFocus() == sarah)
     }
 
-    @Test func showSettingsSelectsSettingsClosesSheetsAndLeavesJournalAlone() {
+    @Test func thePlusOpensTheFanAndNeverBecomesTheTab() {
+        let router = AppRouter(opened: { _ in }, closed: { _ in })
+        for tab in [AppTab.journal, .mind, .reflect, .ask] {
+            router.select(tab)
+            router.select(.newEntry)
+            #expect(router.tab == tab)
+            #expect(router.showingNewEntryFan)
+            router.select(.newEntry)
+            #expect(!router.showingNewEntryFan, "a second tap on the + closes it")
+        }
+    }
+
+    @Test func pickingAnotherTabClosesTheFan() {
+        let router = AppRouter(opened: { _ in }, closed: { _ in })
+        router.select(.newEntry)
+        router.select(.mind)
+        #expect(router.tab == .mind)
+        #expect(!router.showingNewEntryFan)
+    }
+
+    @Test func everyJumpClosesTheFan() {
+        let router = AppRouter(opened: { _ in }, closed: { _ in })
+        let jumps: [(AppRouter) -> Void] = [
+            { $0.showEntry(UUID()) },
+            { $0.showNewEntry() },
+            { $0.showNewPages() },
+            { $0.showAsk(question: nil) },
+            { $0.showInMind(UUID()) },
+            { $0.showReflect(.looseEnds) },
+        ]
+        for jump in jumps {
+            router.showingNewEntryFan = true
+            jump(router)
+            #expect(!router.showingNewEntryFan)
+        }
+    }
+
+    @Test func showNewPagesSwitchesToJournalLeavesItsPathAndWaitsForCovers() {
         let router = AppRouter(opened: { _ in }, closed: { _ in })
         let open = UUID()
         router.journalPath = [JournalRoute(entryID: open)]
-        let token = router.dismissPresentationsToken
+        router.select(.mind)
+        router.setCover("recorder", open: true)
+        router.showNewPages()
+        #expect(router.newPagesRequest == 0)
+        #expect(router.tab == .mind)
 
-        router.showSettings()
-
-        #expect(router.tab == .settings)
-        #expect(router.dismissPresentationsToken == token + 1)
+        router.setCover("recorder", open: false)
+        #expect(router.newPagesRequest == 1)
+        #expect(router.tab == .journal)
         #expect(router.journalPath == [JournalRoute(entryID: open)])
     }
 
-    @Test func showSettingsWaitsForCovers() {
+    @Test func showReflectSwitchesAndLeavesThePageForReflectOnce() {
         let router = AppRouter(opened: { _ in }, closed: { _ in })
-        router.setCover("pageOrder", open: true)
-        router.showSettings()
+        let token = router.dismissPresentationsToken
+        router.showReflect(.looseEnds)
+        #expect(router.tab == .reflect)
+        #expect(router.dismissPresentationsToken == token + 1)
+        #expect(router.consumeReflectPage() == .looseEnds)
+        #expect(router.consumeReflectPage() == nil)
+    }
+
+    @Test func anEntryOpenedFromReflectReturnsThereWhenItCloses() {
+        let router = AppRouter(opened: { _ in }, closed: { _ in })
+        router.select(.reflect)
+        router.showNewEntry(startingText: "How was the week?", returningTo: .reflect)
         #expect(router.tab == .journal)
 
+        router.journalPath = []
+        #expect(router.tab == .reflect)
+        #expect(router.returnTab == nil)
+
+        let read = UUID()
+        router.showEntry(read, forReading: true, returningTo: .reflect)
+        router.journalPath.removeAll()
+        #expect(router.tab == .reflect)
+    }
+
+    @Test func aTabPickedByHandCancelsTheReturn() {
+        let router = AppRouter(opened: { _ in }, closed: { _ in })
+        router.showNewEntry(returningTo: .reflect)
+        router.select(.mind)
+        router.journalPath = []
+        #expect(router.tab == .mind, "a move the user made is never overridden")
+        #expect(router.returnTab == nil)
+    }
+
+    @Test func anotherJumpCancelsTheReturn() {
+        let router = AppRouter(opened: { _ in }, closed: { _ in })
+        router.showNewEntry(returningTo: .reflect)
+        let other = UUID()
+        router.showEntry(other)
+        #expect(router.returnTab == nil)
+        router.journalPath = []
+        #expect(router.tab == .journal)
+    }
+
+    @Test func aReturnWaitsBehindACoverWithItsJump() {
+        let router = AppRouter(opened: { _ in }, closed: { _ in })
+        router.select(.reflect)
+        router.setCover("pageOrder", open: true)
+        router.showNewEntry(startingText: "Prompt", returningTo: .reflect)
+        #expect(router.tab == .reflect)
         router.setCover("pageOrder", open: false)
-        #expect(router.tab == .settings)
+        #expect(router.tab == .journal)
+        router.journalPath = []
+        #expect(router.tab == .reflect)
     }
 
     @Test func replacingInMindSwapsTheLastLoser() {

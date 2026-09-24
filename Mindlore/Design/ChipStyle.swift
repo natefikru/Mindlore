@@ -8,6 +8,9 @@ struct ChipStyle: ViewModifier {
 
     func body(content: Content) -> some View {
         content
+            // A chip's icon sits close to its word; the system label's gap made each chip read as
+            // two things (owner, 2026-09-24).
+            .labelStyle(ChipLabelStyle())
             .font(.caption.weight(.medium))
             .padding(.horizontal, 10)
             .padding(.vertical, 5)
@@ -24,5 +27,14 @@ struct ChipStyle: ViewModifier {
 extension View {
     func chip(tint: Color? = nil, selected: Bool = false) -> some View {
         modifier(ChipStyle(tint: tint, selected: selected))
+    }
+}
+
+struct ChipLabelStyle: LabelStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        HStack(spacing: 5) {
+            configuration.icon
+            configuration.title
+        }
     }
 }

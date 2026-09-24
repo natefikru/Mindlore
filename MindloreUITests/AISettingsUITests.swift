@@ -77,13 +77,9 @@ final class AISettingsUITests: XCTestCase {
         XCTAssertFalse(app.buttons["Test connection"].exists)
     }
 
-    // Scoped to the tab bar on purpose: app.buttons["Settings"] also matches the tab item, so an
-    // unscoped tap cannot tell a tab from a toolbar gear. Then into AI, which is its own screen
-    // under the root.
+    // Settings is a sheet from Journal's gear. Then into AI, which is its own screen under the root.
     private func openSettings() {
-        let settings = app.tabBars.buttons["Settings"]
-        XCTAssertTrue(settings.waitForExistence(timeout: 5))
-        settings.tap()
+        app.openSettingsSheet()
         let ai = app.buttons["aiSettingsLink"]
         XCTAssertTrue(ai.waitForExistence(timeout: 5))
         ai.tap()

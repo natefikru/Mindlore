@@ -26,6 +26,8 @@ struct EntryInsightsView: View {
     @State private var chips = EntityChipIndex.empty
     @State private var added: [GraphServices.AddedName] = []
     @State private var addingName = false
+    // Over this sheet, so turning AI on and closing Settings comes straight back here.
+    @State private var showingAISettings = false
     @State private var repointing: Repointing?
     @State private var startedOnOpen = false
 
@@ -122,6 +124,9 @@ struct EntryInsightsView: View {
                 chips = graph.chipIndex(for: entry.id, in: modelContext)
                 added = graph.addedNames(for: entry, in: modelContext)
             }
+            .sheet(isPresented: $showingAISettings) {
+                AISettingsSheet()
+            }
             .sheet(isPresented: $addingName) {
                 AddNameView(entry: entry)
             }
@@ -206,7 +211,7 @@ struct EntryInsightsView: View {
     private var statusAction: some View {
         switch state {
         case .aiOff, .missingKey:
-            Button("Open AI settings") { router.showSettings() }
+            Button("Open AI settings") { showingAISettings = true }
                 .buttonStyle(.borderedProminent)
                 .accessibilityIdentifier("openAISettingsButton")
         case .awaitingApproval:

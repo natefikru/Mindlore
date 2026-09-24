@@ -12,6 +12,10 @@ Chat's note writing added `ask.noteCreated` (147), in the Ask row.
 Reflect's Loose ends tab added `reflect.looseEnd` (148: the action and the status it left, both
 literals), driven with the sentinel as the loose end's text and its subject's name, in the table.
 Chat's note editing added `ask.noteEdited` (149), in the Ask row.
+Reflect's Life side added `life.rendered`, `life.areaOpened`, `life.areaWords`, `life.portrait`,
+`life.feedback`, and `life.experiment` (155), driven in the table with the sentinel as entry
+text, a tag, an area's own name, the model's answer, and the author's note; and the + fan added
+`newEntry.chosen` (156: two literals), under view events.
 Those two tests assert that the event was written as well as that the sentinel wasn't, which is
 what the instrumented run below establishes for the rest.
 
@@ -26,7 +30,7 @@ The instrumentation was reverted and never committed.
 To redo it: add a one-line append to `record`, run the tests below one at a time with
 `test-without-building`, and diff the union against the event list.
 
-## Covered: 80 events, driven by a sentinel test
+## Covered: 86 events, driven by a sentinel test
 
 | Test | Events it drives |
 |---|---|
@@ -47,12 +51,13 @@ To redo it: add a one-line append to `record`, run the tests below one at a time
 | `DailyReminderTests/theLogCarriesCountsOnly` | `reminder.permission`, `reminder.scheduled` (no user text ever reaches the reminder, so there is no sentinel to feed; the test checks both are written and that not even the fixed notification line is) |
 | `JournalImportTests/theLogCarriesCountsOnly` | `journal.imported` (names, a loose end, and entry text from a real import are the sentinels) |
 | `RedoInsightsTests/theLogCarriesCountsOnly` | `insights.redoAll`, `insights.redoStopped` (entry text is the sentinel) |
+| `LifeDiagnosticsPrivacyTests/lifeNeverLogsEntryTextTagsNamesAnswersOrNotes` | `life.rendered`, `life.areaOpened`, `life.areaWords`, `life.portrait`, `life.feedback`, `life.experiment` |
 | `DailyReminderTests/thePresenterShowsOnlyTheReminder` | `reminder.presented` (fired from the system's delegate callback, which no test can drive; the event carries one fixed bool, and the test covers the filter that decides it) |
 
 Of the 32 events added since `main`, 30 are in this table. The other two are `demo.seeded` and
 `demo.seedFailed`, covered below.
 
-## Not driven: 75 events, each with a reason
+## Not driven: 76 events, each with a reason
 
 For each of these, every field at every call site was read. A field is either a typed number or
 bool, an `.id(UUID)`, `.errorCode` (domain and code), a string literal, an enum's `rawValue` or
@@ -73,7 +78,7 @@ for fields derived from user data at runtime. These events have none.
 developer's `-diagnosticsRun` argument), `app.scenePhase`, `recovery.moved` (UUID file names),
 `store.openFailed`, `store.entryDatesRepaired`, `store.entryDateRepairFailed`, `store.linksRepaired`, `store.linkRepairFailed`, `editor.closed`,
 `entry.created`, `entry.finished`, `entry.deleted` (source is an enum),
-`editor.editFromReadTap` (an id), `editor.focusRestored` (no fields), `editor.formatted` (an id), `editor.checkboxTicked` (two
+`newEntry.chosen` (the option and whether it was a tap or a slide, both literals), `editor.editFromReadTap` (an id), `editor.focusRestored` (no fields), `editor.formatted` (an id), `editor.checkboxTicked` (two
 bools), `editor.nameTyped` (an id, a literal for the kind of link, a bool; never the name or the
 tag), `entryDate.changed`,
 `entryDate.dismissed`, `cleanup.applied`, `cleanup.dismissed`, `cleanup.reverted`,

@@ -1,8 +1,8 @@
 import SwiftData
 import SwiftUI
 
-// Reflect's Loose ends tab: every loose end the journal has raised, open or closed, newest first by
-// the day of the entry that raised it, grouped by month (`ReflectLooseEnds`). An open one can be
+// Reflect's Loose ends tab: every open loose end pinned at the top, then the closed ones newest first
+// by the day of the entry that raised it, grouped by month (`ReflectLooseEnds.layout`). An open one can be
 // marked done or let go, the two choices Today's thread card offers; a closed one can be reopened.
 // A plain ScrollView over Paper, like the summaries beside it, not a List.
 struct ReflectLooseEndsView: View {
@@ -33,7 +33,7 @@ struct ReflectLooseEndsView: View {
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 0) {
                         filterChips
-                        if months.isEmpty {
+                        if layout.isEmpty {
                             Text(filter == .open ? "Nothing open right now." : "Nothing closed yet.")
                                 .font(.callout)
                                 .foregroundStyle(.secondary)
@@ -41,7 +41,10 @@ struct ReflectLooseEndsView: View {
                                 .padding(.vertical, 24)
                                 .accessibilityIdentifier("reflectLooseEndsFilteredEmpty")
                         }
-                        ForEach(months) { month in
+                        if !layout.open.isEmpty {
+                            openSection(layout.open)
+                        }
+                        ForEach(layout.months) { month in
                             monthSection(month)
                         }
                     }
@@ -56,8 +59,8 @@ struct ReflectLooseEndsView: View {
         .sensoryFeedback(Haptics.looseEndClosed, trigger: closed)
     }
 
-    private var months: [ReflectLooseEnds.Month] {
-        ReflectLooseEnds.months(items, filter: filter)
+    private var layout: ReflectLooseEnds.Layout {
+        ReflectLooseEnds.layout(items, filter: filter)
     }
 
     private var filterChips: some View {
@@ -81,6 +84,23 @@ struct ReflectLooseEndsView: View {
         .sensoryFeedback(Haptics.selected, trigger: filter)
     }
 
+    private func openSection(_ open: [ReflectLooseEnds.Item]) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Text("Open")
+                .font(.subheadline.weight(.medium))
+                .foregroundStyle(Palette.ember)
+                .padding(.horizontal, 16)
+                .padding(.top, 12)
+                .padding(.bottom, 4)
+                .accessibilityAddTraits(.isHeader)
+                .accessibilityIdentifier("reflectLooseEndsOpenHeader")
+            ForEach(open) { item in
+                row(item, underOpen: true)
+            }
+            Divider().padding(.leading, 16)
+        }
+    }
+
     private func monthSection(_ month: ReflectLooseEnds.Month) -> some View {
         VStack(alignment: .leading, spacing: 0) {
             Text(ReflectLooseEnds.monthTitle(month.start))
@@ -97,7 +117,7 @@ struct ReflectLooseEndsView: View {
         }
     }
 
-    private func row(_ item: ReflectLooseEnds.Item) -> some View {
+    private func row(_ item: ReflectLooseEnds.Item, underOpen: Bool = false) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 10) {
             // The shape carries the status; the colour only repeats it.
             Image(systemName: ReflectLooseEnds.symbol(item.status))
@@ -109,7 +129,8 @@ struct ReflectLooseEndsView: View {
                     .journalText(.body)
                     .foregroundStyle(item.isOpen ? Palette.ink : Color.secondary)
                     .multilineTextAlignment(.leading)
-                Text("\(ReflectLooseEnds.statusTitle(item.status)) \u{00B7} \(ReflectLooseEnds.detail(item))")
+                // Under the Open heading the status goes without saying.
+                Text(underOpen ? ReflectLooseEnds.detail(item) : "\(ReflectLooseEnds.statusTitle(item.status)) \u{00B7} \(ReflectLooseEnds.detail(item))")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 if !item.subjects.isEmpty {
@@ -179,10 +200,10 @@ struct ReflectLooseEndsView: View {
         load()
     }
 
-    // Leaves Reflect for the entry, in read mode, the way a search result opens one. The router's
-    // jump closes this sheet.
+    // Leaves Reflect for the entry, in read mode, the way a search result opens one; closing the
+    // entry comes back here.
     private func openEntry(_ id: UUID) {
         guard ReflectLooseEndSource.entryExists(id, in: modelContext) else { return }
-        router.showEntry(id, forReading: true)
+        router.showEntry(id, forReading: true, returningTo: .reflect)
     }
 }

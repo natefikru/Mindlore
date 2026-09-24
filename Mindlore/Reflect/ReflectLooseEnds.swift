@@ -112,6 +112,36 @@ nonisolated enum ReflectLooseEnds {
         return months
     }
 
+    // What the list shows: every open one pinned above the months, then the closed ones by the month
+    // they were raised in. An open thread is the one thing on this page asking for something, so it
+    // never sits under a year of settled ones (owner, 2026-09-24).
+    struct Layout: Equatable, Sendable {
+        let open: [Item]
+        let months: [Month]
+
+        var isEmpty: Bool { open.isEmpty && months.isEmpty }
+    }
+
+    static func layout(_ items: [Item], filter: Filter = .all, calendar: Calendar = .current) -> Layout {
+        let open = filter.admits(.open) ? openFirst(items.filter(\.isOpen)) : []
+        let closed = filter == .open ? [] : items.filter { !$0.isOpen }
+        return Layout(open: open, months: months(closed, filter: filter, calendar: calendar))
+    }
+
+    // Open ones by what needs attention first: a due date, soonest first, then the newest raised.
+    static func openFirst(_ items: [Item]) -> [Item] {
+        let newest = ordered(items)
+        let rank = Dictionary(uniqueKeysWithValues: newest.enumerated().map { ($1.id, $0) })
+        return newest.sorted { first, second in
+            switch (first.dueDate, second.dueDate) {
+            case let (a?, b?) where a != b: return a < b
+            case (.some, nil): return true
+            case (nil, .some): return false
+            default: return rank[first.id, default: 0] < rank[second.id, default: 0]
+            }
+        }
+    }
+
     // MARK: - Copy
 
     static func statusTitle(_ status: LooseEndStatus) -> String {

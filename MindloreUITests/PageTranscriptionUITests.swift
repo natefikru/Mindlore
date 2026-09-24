@@ -45,7 +45,7 @@ final class PageTranscriptionUITests: XCTestCase {
     @MainActor
     func testTranscribeReviewApproveAndRestartPages() throws {
         app.launch()
-        app.buttons["newPhotoEntryButton"].tap()
+        app.startNewPages()
         let scan = app.buttons["scanPagesButton"]
         XCTAssertTrue(scan.waitForExistence(timeout: 5))
         scan.tap()

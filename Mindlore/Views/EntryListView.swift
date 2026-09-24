@@ -18,10 +18,10 @@ struct EntryListView: View {
     // clears the areas, and picking an area clears it. Journal is what the list is, so it has none.
     @State private var shownKind: EntryKind?
     @State private var today = Today()
-    @State private var showingReflect = false
-    // Set right before a Reflect card jumps to a new entry, so leaving that entry (back or Done)
-    // returns to Reflect instead of dumping the user on the Journal list they never asked for.
-    @State private var returnToReflectAfterEntry = false
+    @State private var showingSettings = false
+    // Past the top of the list: the wordmark tucks into a small one.
+    @State private var scrolledDown = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(RecordingSession.self) private var recording
     @Environment(InsightsCoordinator.self) private var insightsCoordinator
     @State private var undo = UndoQueue()
@@ -55,7 +55,7 @@ struct EntryListView: View {
                         mute: muteFromToday,
                         act: actOnThread,
                         openEntry: { router.showEntry($0, forReading: true) },
-                        openReflect: { showingReflect = true }
+                        openReflect: { router.showReflect(.recaps) }
                     )
                         .listRowInsets(EdgeInsets())
                         .listRowBackground(Color.clear)
@@ -111,32 +111,75 @@ struct EntryListView: View {
                     }
                 }
             }
+            // The grouped list's own top margin sat a band of empty paper between the inline title
+            // and the greeting (owner, 2026-09-24: the top took too much room).
+            .contentMargins(.top, 4, for: .scrollContent)
+            .listSectionSpacing(.compact)
+            // The soft top edge iOS 26 fades content under the bar with; this list was getting the
+            // hard one, an opaque band with a line that hid the entries under it (owner,
+            // 2026-09-24).
+            .scrollEdgeEffectStyle(.soft, for: .top)
+            // And a fade of its own, from the page's colour at the very top to clear below the
+            // bar, so scrolled entries melt into the top on a phone as they do in the simulator
+            // (owner, 2026-09-24). Only once scrolled: at rest nothing sits under the bar.
+            .overlay(alignment: .top) {
+                GeometryReader { geometry in
+                    LinearGradient(
+                        stops: [
+                            .init(color: Palette.paper, location: 0),
+                            .init(color: Palette.paper.opacity(0.85), location: 0.45),
+                            .init(color: Palette.paper.opacity(0), location: 1),
+                        ],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                    .frame(height: geometry.safeAreaInsets.top + 36)
+                    .ignoresSafeArea(edges: .top)
+                    .opacity(scrolledDown ? 1 : 0)
+                    .animation(.easeOut(duration: 0.2), value: scrolledDown)
+                }
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
+            }
+            .onScrollGeometryChange(for: Bool.self) { geometry in
+                geometry.contentOffset.y + geometry.contentInsets.top > 24
+            } action: { _, scrolled in
+                scrolledDown = scrolled
+            }
+            // The name as a wordmark on the bar's leading side, level with the gear, so the row the
+            // gear sits in isn't an empty band above the greeting (owner, 2026-09-24). The system
+            // title stays for the back button and VoiceOver's screen name, not drawn.
             .navigationTitle("Mindlore")
+            .toolbarTitleDisplayMode(.inline)
+            .toolbar(removing: .title)
             .navigationDestination(for: JournalRoute.self) { route in
                 JournalEntryDestination(route: route)
             }
             .toolbar {
-                // Voice sits outermost, in the easiest-to-reach position. A running recording shows in
-                // the tab bar's accessory.
-                ToolbarItemGroup(placement: .topBarTrailing) {
-                    if DocumentCameraView.isSupported || FakePages.isEnabled {
-                        Button("Photograph Pages", systemImage: "camera") { pageOrder = .new }
-                            .accessibilityIdentifier("newPhotoEntryButton")
-                    }
-                    newTypedEntryButton
-                    Button("New Voice Entry", systemImage: "mic") { recording.begin() }
-                        .disabled(recording.status != .idle)
-                        .accessibilityIdentifier("newVoiceEntryButton")
+                // Starting an entry lives in the tab bar's + (NewEntryFan), so the only button up here
+                // is Settings, which left the tab bar (owner, 2026-09-24).
+                ToolbarItem(placement: .topBarLeading) {
+                    // Title-sized at the top of the list, tucked small into the corner once it
+                    // scrolls, so it never covers the entries (owner, 2026-09-24).
+                    Text("Mindlore")
+                        .font(scrolledDown ? .headline.weight(.semibold) : .title2.weight(.bold))
+                        .foregroundStyle(scrolledDown ? Color.secondary : Palette.ink)
+                        .animation(Motion.resolve(.snappy(duration: 0.25), reduceMotion: reduceMotion), value: scrolledDown)
+                        .fixedSize()
+                        .accessibilityAddTraits(.isHeader)
+                        .accessibilityIdentifier("journalWordmark")
                 }
+                .sharedBackgroundVisibility(.hidden)
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Settings", systemImage: "gearshape") { showingSettings = true }
+                        .accessibilityIdentifier("settingsButton")
+                }
+            }
+            .sheet(isPresented: $showingSettings) {
+                SettingsView()
             }
             .sheet(item: $insightsEntry) { entry in
                 EntryInsightsView(entry: entry)
-            }
-            .sheet(isPresented: $showingReflect) {
-                ReflectView(onOpenEntry: { prompt in
-                    returnToReflectAfterEntry = true
-                    router.showNewEntry(startingText: prompt)
-                })
             }
             .fullScreenCover(item: $pageOrder) { target in
                 switch target {
@@ -154,20 +197,17 @@ struct EntryListView: View {
             }
             .onChange(of: router.dismissPresentationsToken) {
                 insightsEntry = nil
-                showingReflect = false
+                showingSettings = false
+            }
+            // The fan's Pages, from any tab: the page cover lives here.
+            .onChange(of: router.newPagesRequest) {
+                pageOrder = .new
             }
             // Deleted from the editor's menu: the editor has already left the path, and the
             // delete waits here behind the same Undo a swipe gets.
             .onChange(of: router.entryDeletionRequest, initial: true) {
                 guard let id = router.consumeEntryDeletion() else { return }
                 scheduleDelete([id], reason: "editor")
-            }
-            // The entry a Reflect card opened has closed (back or Done): return to Reflect rather
-            // than leaving the user on the plain Journal list.
-            .onChange(of: router.journalPath) { _, path in
-                guard path.isEmpty, returnToReflectAfterEntry else { return }
-                returnToReflectAfterEntry = false
-                showingReflect = true
             }
         }
     }
@@ -277,11 +317,6 @@ struct EntryListView: View {
             .padding(.vertical, 3)
     }
 
-    private var newTypedEntryButton: some View {
-        Button("New Written Entry", systemImage: "square.and.pencil") { router.journalPath.append(.new()) }
-            .accessibilityIdentifier("newEntryButton")
-    }
-
     private var activeAreas: Set<LifeArea> {
         JournalFilter.active(pickedAreas, hidden: settings.hiddenLifeAreas)
     }
@@ -362,9 +397,15 @@ struct EntryListView: View {
                     .accessibilityIdentifier(kind == .creative ? "creativeFilter" : "kindFilter-\(kind.rawValue)")
                 }
             }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 4)
+            .padding(.horizontal, 16 + UnclippedListRow.groupedInset)
+            .padding(.vertical, 2)
         }
+        // Chips scroll out to the screen's edges rather than stopping at the list's margin: the row
+        // reaches past the grouped list's inset on both sides, and its content starts back in line
+        // with the cards above (owner, 2026-09-24).
+        .padding(.horizontal, -UnclippedListRow.groupedInset)
+        .scrollClipDisabled()
+        .unclippedListRow()
         .sensoryFeedback(Haptics.selected, trigger: pickedAreas)
     }
 

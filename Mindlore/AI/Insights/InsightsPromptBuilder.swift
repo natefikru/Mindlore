@@ -30,6 +30,7 @@ nonisolated struct InsightsRequestPlan: Sendable {
     let asksForWrittenDate: Bool
     var asksForLifeAreas = false
     var asksForSections = false
+    var asksForThinking = false
     // Exactly what went into the prompt after section toggles, cleaning, and caps, so the
     // disclosure screen can say what was sent rather than what the journal holds today.
     var vocabularySent: InsightsPromptBuilder.JournalVocabulary = .empty
@@ -78,6 +79,7 @@ nonisolated struct InsightsResult: Equatable, Sendable {
     var custom: [CustomInsightResult] = []
     var kind: EntryKind = .journal
     var sections: [EntrySection] = []
+    var thinking: [ThinkingPattern] = []
 
     var creative: Bool {
         get { kind == .creative }
@@ -99,6 +101,8 @@ nonisolated struct InsightsResult: Equatable, Sendable {
         if !kind.keepsMentions { mentions = [] }
         if !kind.keepsLooseEnds { looseEnds = LooseEndResult() }
         if !kind.keepsSections { sections = [] }
+        // How the author talks about themselves is read only from an account of their own life.
+        if !kind.keepsMoods { thinking = [] }
     }
 }
 
@@ -211,6 +215,16 @@ nonisolated enum InsightsPromptBuilder {
         return String(collapsed.prefix(maxVocabularyItemCharacters))
     }
 
+    // Tags that are never kept, however the model spells them. "loose ends" became a label on
+    // nearly every note (owner, 2026-09-24): it names the app's own feature, not a topic, and a
+    // tag on everything groups nothing.
+    static let blockedTags: Set<String> = ["looseend", "looseends"]
+
+    static func isBlockedTag(_ tag: String) -> Bool {
+        let letters = tag.lowercased().filter { $0.isLetter }
+        return blockedTags.contains(letters)
+    }
+
     private static func listed(_ items: [String], cap: Int) -> [String] {
         var seen: Set<String> = []
         return items.compactMap(promptSafe).filter { seen.insert($0.lowercased()).inserted }.prefix(cap).map { $0 }
@@ -267,8 +281,8 @@ nonisolated enum InsightsPromptBuilder {
             """ + "\n" + areas)
         }
         if sections.tags {
-            properties.append(.init("tags", .array(.string(), description: "One to \(maxTags) short lowercase labels for grouping entries with others, like running or renovation. More specific than life areas; never repeat a life area as a tag" + (budget.examples ? "." : ", and never a person's name."))))
-            sent.tags = listed(vocabulary.tags, cap: budget.existingTags)
+            properties.append(.init("tags", .array(.string(), description: "One to \(maxTags) short lowercase labels for grouping entries with others, like running or renovation. More specific than life areas; never repeat a life area as a tag, never \"loose ends\"" + (budget.examples ? "." : ", and never a person's name."))))
+            sent.tags = listed(vocabulary.tags.filter { !isBlockedTag($0) }, cap: budget.existingTags)
             if !sent.tags.isEmpty {
                 guidance.append("Tags already used in this journal, one per line. Reuse one when it fits instead of inventing a near-duplicate.\n" + sent.tags.map { "- \($0)" }.joined(separator: "\n"))
             }
@@ -380,6 +394,14 @@ nonisolated enum InsightsPromptBuilder {
             guidance.append(Self.sectionsRule)
         }
 
+        // How the author talks about themselves, for Life. Cloud only, with the moods, since both
+        // read the author's inner weather; empty for most entries by design.
+        let asksForThinking = budget.sections && sections.moods
+        if asksForThinking {
+            let meanings = ThinkingPattern.allCases.map { "\($0.rawValue) (\($0.meaning))" }.joined(separator: "; ")
+            properties.append(.init("thinkingPatterns", .array(.enumeration(ThinkingPattern.allCases.map(\.rawValue)), description: "Only for an account of the author's own life. Thinking patterns clearly present in how the author talks about themselves or their situation: \(meanings). At most three. Empty unless clearly there; most entries have none.")))
+        }
+
         // Speech-to-text and handwriting both produce punctuation worth fixing; typed text is the
         // user's own keystrokes and is never rewritten.
         var skippedReason: String?
@@ -433,7 +455,7 @@ nonisolated enum InsightsPromptBuilder {
             schemaName: "journal_insights",
             maxOutputTokens: budget.maxOutputTokens ?? min(16_000, 3_000 + (asksForCleanedText ? text.count / 2 : 0))
         )
-        return InsightsRequestPlan(request: request, customKeys: customKeys, customKeyOrder: customKeyOrder, cleanedTextSkippedReason: skippedReason, asksForCleanedText: asksForCleanedText, asksForWrittenDate: asksForWrittenDate, asksForLifeAreas: sections.lifeAreas, asksForSections: asksForSections, vocabularySent: sent, looseEndHandles: handles, ownLooseEndIDs: ownIDs)
+        return InsightsRequestPlan(request: request, customKeys: customKeys, customKeyOrder: customKeyOrder, cleanedTextSkippedReason: skippedReason, asksForCleanedText: asksForCleanedText, asksForWrittenDate: asksForWrittenDate, asksForLifeAreas: sections.lifeAreas, asksForSections: asksForSections, asksForThinking: asksForThinking, vocabularySent: sent, looseEndHandles: handles, ownLooseEndIDs: ownIDs)
     }
 
     static func day(_ date: Date, calendar: Calendar) -> String {
@@ -510,7 +532,7 @@ nonisolated enum InsightsPromptBuilder {
         // The entry's own tags first, then what its parts added, so a long entry's later topics
         // still reach the list; the cap stays the entry's.
         let sectionTags = result.sections.flatMap(\.tags)
-        result.tags = Array(unique((strings("tags") + sectionTags).map { $0.lowercased() }).filter { !areaNames.contains($0) }.prefix(maxTags))
+        result.tags = Array(unique((strings("tags") + sectionTags).map { $0.lowercased() }).filter { !areaNames.contains($0) && !Self.isBlockedTag($0) }.prefix(maxTags))
         result.looseEnds = looseEnds(in: json, plan: plan, calendar: calendar)
 
         var mentions: [Mention] = []
@@ -532,6 +554,13 @@ nonisolated enum InsightsPromptBuilder {
         }
         if plan.asksForWrittenDate {
             result.writtenDate = string("writtenDate").flatMap { EntryDates.parseDay($0, calendar: calendar) }
+        }
+        if plan.asksForThinking {
+            var thinking: [ThinkingPattern] = []
+            for pattern in strings("thinkingPatterns").compactMap(ThinkingPattern.init(rawValue:)) where !thinking.contains(pattern) {
+                thinking.append(pattern)
+            }
+            result.thinking = Array(thinking.prefix(ThinkingPattern.maxPerEntry))
         }
         result.custom = plan.customKeyOrder.compactMap { key in
             guard let prompt = plan.customKeys[key], let content = string(key) else { return nil }
@@ -589,7 +618,7 @@ nonisolated enum InsightsPromptBuilder {
             }
             section.areasRaw = Array(areas.prefix(LifeArea.maxPerEntry))
             section.tags = Array(unique(((item["tags"] as? [Any]) ?? []).compactMap { ($0 as? String)?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
-                .filter { !$0.isEmpty && !areaNames.contains($0) }).prefix(maxSectionTags))
+                .filter { !$0.isEmpty && !areaNames.contains($0) && !Self.isBlockedTag($0) }).prefix(maxSectionTags))
             // Kept as written and as grounded, the way mentions are: a mention of "Sarah Kim" is
             // cut back to the entry's "Sarah", and the link that part must be found by is "Sarah".
             let listed = Array(unique(((item["names"] as? [Any]) ?? []).compactMap { ($0 as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) }

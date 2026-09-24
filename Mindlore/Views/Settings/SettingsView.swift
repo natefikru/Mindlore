@@ -1,6 +1,6 @@
 import SwiftUI
 
-// The Settings tab: five rows, each its own screen (owner, 2026-09-23), because one Form of eight
+// Settings, a sheet from Journal's gear (owner, 2026-09-24: it left the tab bar): five rows, each its own screen (owner, 2026-09-23), because one Form of eight
 // sections ran past two screens. Still organised by what a setting touches, not which subsystem
 // owns it: life areas and the name you are written by are journal concepts that work with AI off,
 // so they live under Your journal rather than inside AI. Each row carries the one value worth
@@ -11,6 +11,7 @@ struct SettingsView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(EntrySaver.self) private var saver
     @Environment(GraphServices.self) private var graph
+    @Environment(\.dismiss) private var dismiss
     @State private var entries = 0
 
     var body: some View {
@@ -36,6 +37,12 @@ struct SettingsView: View {
             }
             .paperBackground()
             .navigationTitle("Settings")
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") { dismiss() }
+                        .accessibilityIdentifier("settingsDone")
+                }
+            }
             .task(id: JournalTotals.Fingerprint(saver: saver.revision, graph: graph.revision, stamped: JournalSaves.revision)) {
                 entries = JournalTotals.entryCount(in: modelContext)
             }
@@ -73,3 +80,21 @@ struct SettingsView: View {
 
 // No #Preview: every screen behind these rows reads half the app's environment, and a preview that
 // has to build it is worth less than the screenshot test that drives the real thing.
+
+// The AI screen on its own, for the "Open AI settings" buttons on the insights sheet and Mind's
+// empty state: they are about AI, so they open there rather than on the list of five.
+struct AISettingsSheet: View {
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            AISettingsView()
+                .toolbar {
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button("Done") { dismiss() }
+                            .accessibilityIdentifier("settingsDone")
+                    }
+                }
+        }
+    }
+}

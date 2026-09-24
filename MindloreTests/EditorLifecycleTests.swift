@@ -71,7 +71,7 @@ struct EditorLifecycleTests {
 
         router.journalPath = [JournalRoute(entryID: entry.id)]
         #expect(!entry.automaticAIPassUsed)
-        router.tab = .mind
+        router.select(.mind)
         #expect(presence.isOpen(entry.id))
         #expect(!entry.automaticAIPassUsed)
 

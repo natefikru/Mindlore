@@ -147,6 +147,7 @@ private final class LockWindow {
         guard let scene = UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }).first else { return }
         let window = CoverWindow(windowScene: scene)
         window.windowLevel = .alert + 1
+        window.overrideUserInterfaceStyle = AppearancePreference.appliedStyle
         let host = UIHostingController(rootView: LockCoverView(lock: lock))
         host.view.backgroundColor = .clear
         window.rootViewController = host

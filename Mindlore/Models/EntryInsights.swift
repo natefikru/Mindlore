@@ -63,7 +63,29 @@ final class EntryInsights {
         set { sectionsData = newValue.isEmpty ? nil : try? JSONEncoder().encode(newValue) }
     }
 
+    // The custom prompts' answers, without the thinking patterns stored beside them.
     var customResults: [CustomInsightResult] {
+        get { storedCustom.filter { $0.promptID != ThinkingPattern.storageID } }
+        set { storedCustom = newValue.filter { $0.promptID != ThinkingPattern.storageID } + storedCustom.filter { $0.promptID == ThinkingPattern.storageID } }
+    }
+
+    // How the author talked about themselves in this entry (`ThinkingPattern`), kept in
+    // `customCardsData` under a reserved id rather than a field of its own.
+    var thinkingPatterns: [ThinkingPattern] {
+        get {
+            storedCustom.first { $0.promptID == ThinkingPattern.storageID }?.content
+                .split(separator: ",").compactMap { ThinkingPattern(rawValue: String($0)) } ?? []
+        }
+        set {
+            var all = storedCustom.filter { $0.promptID != ThinkingPattern.storageID }
+            if !newValue.isEmpty {
+                all.append(CustomInsightResult(promptID: ThinkingPattern.storageID, name: "thinkingPatterns", content: newValue.map(\.rawValue).joined(separator: ",")))
+            }
+            storedCustom = all
+        }
+    }
+
+    private var storedCustom: [CustomInsightResult] {
         get { customCardsData.flatMap { try? JSONDecoder().decode([CustomInsightResult].self, from: $0) } ?? [] }
         set { customCardsData = newValue.isEmpty ? nil : try? JSONEncoder().encode(newValue) }
     }
