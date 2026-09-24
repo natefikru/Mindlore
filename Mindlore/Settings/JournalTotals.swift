@@ -25,6 +25,21 @@ struct JournalTotals: Equatable {
     var threadsClosed = 0
     var conversations = 0
 
+    // What the Settings root shows beside About, re-read on every save while Settings is open, so a
+    // count rather than the full pass below, which only About itself runs.
+    static func entryCount(in context: ModelContext) -> Int {
+        (try? context.fetchCount(FetchDescriptor<Entry>(predicate: #Predicate { !$0.isDraft }))) ?? 0
+    }
+
+    // Every save changes one of these, so a screen showing totals keys its refresh off them. Never a
+    // count, which an add and a delete can return to where it was; `JournalSaves.revision` rides
+    // along for the coordinators that save straight through `saveStampingEntries`.
+    struct Fingerprint: Equatable {
+        let saver: Int
+        let graph: Int
+        let stamped: Int
+    }
+
     static func count(in context: ModelContext, calendar: Calendar = .current) -> JournalTotals {
         var totals = JournalTotals()
 
@@ -37,10 +52,12 @@ struct JournalTotals: Equatable {
             totals.firstDay = min(totals.firstDay ?? entry.entryDate, entry.entryDate)
             totals.words += wordCount(entry.text)
             totals.bySource[entry.source, default: 0] += 1
-            totals.pages += entry.pages?.count ?? 0
             totals.byKind[entry.kind, default: 0] += 1
         }
         totals.days = days.count
+        // Counted, not walked: a page's thumbnail is stored inline, so faulting every page through
+        // `entry.pages` would read every thumbnail to count them. A photo entry is never a draft.
+        totals.pages = (try? context.fetchCount(FetchDescriptor<EntryPage>(predicate: #Predicate { $0.entry != nil }))) ?? 0
 
         // People, places and the rest, as Mind would show them: a merged loser is the winner's alias,
         // a hidden one was asked to go away, and a tag is a label rather than a name.

@@ -23,6 +23,22 @@ struct JournalTotalsTests {
         try context.save()
 
         #expect(JournalTotals.count(in: context).entries == 2)
+        #expect(JournalTotals.entryCount(in: context) == 2, "the root's cheap count agrees")
+    }
+
+    @Test func pagesAreCountedAcrossEntries() throws {
+        let container = try ModelContainerFactory.make(.inMemory)
+        let context = container.mainContext
+        let entry = Entry(source: .photo, text: "Two pages")
+        context.insert(entry)
+        for index in 0..<2 {
+            let page = EntryPage(index: index, imageData: nil, thumbnailData: nil, pixelWidth: 1, pixelHeight: 1, origin: .camera)
+            context.insert(page)
+            page.entry = entry
+        }
+        try context.save()
+
+        #expect(JournalTotals.count(in: context).pages == 2)
     }
 
     @Test func namesLeaveOutMergedHiddenAndTags() throws {

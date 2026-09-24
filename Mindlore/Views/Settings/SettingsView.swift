@@ -11,17 +11,7 @@ struct SettingsView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(EntrySaver.self) private var saver
     @Environment(GraphServices.self) private var graph
-    @State private var totals = JournalTotals()
-
-    // Today's fingerprint, minus the day: `saver` and `graph` are observable and redraw this view
-    // when they move, and `JournalSaves.revision` rides along for the coordinators that save
-    // straight through `saveStampingEntries`. Never a count, which an add and a delete can return
-    // to where it was.
-    private struct TotalsFingerprint: Equatable {
-        let saver: Int
-        let graph: Int
-        let stamped: Int
-    }
+    @State private var entries = 0
 
     var body: some View {
         NavigationStack {
@@ -40,14 +30,14 @@ struct SettingsView: View {
                         TodaySettingsView()
                     }
                     row("About", symbol: "info.circle", value: entriesSummary, id: "aboutSettingsLink") {
-                        AboutSettingsView(totals: totals)
+                        AboutSettingsView()
                     }
                 }
             }
             .paperBackground()
             .navigationTitle("Settings")
-            .task(id: TotalsFingerprint(saver: saver.revision, graph: graph.revision, stamped: JournalSaves.revision)) {
-                totals = JournalTotals.count(in: modelContext)
+            .task(id: JournalTotals.Fingerprint(saver: saver.revision, graph: graph.revision, stamped: JournalSaves.revision)) {
+                entries = JournalTotals.entryCount(in: modelContext)
             }
         }
     }
@@ -77,7 +67,7 @@ struct SettingsView: View {
     }
 
     private var entriesSummary: String {
-        totals.entries == 1 ? "1 entry" : "\(totals.entries) entries"
+        entries == 1 ? "1 entry" : "\(entries) entries"
     }
 }
 

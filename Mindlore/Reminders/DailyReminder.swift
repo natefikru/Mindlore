@@ -141,8 +141,9 @@ final class DailyReminder {
             }
         }
         next = first
-        // Today's slot was still ahead, and only the entry took it away.
-        skippedToday = todayHasEntry && ReminderPlan.dates(
+        // Today's slot was still ahead, and only the entry took it away. Only said of a week that was
+        // actually scheduled, so a total failure never reads as a skip.
+        skippedToday = first != nil && todayHasEntry && ReminderPlan.dates(
             now: now, minutesAfterMidnight: minutesAfterMidnight, todayHasEntry: false, calendar: calendar
         ).first.map { calendar.isDate($0, inSameDayAs: now) } == true
         center.removePendingRequests(withIdentifiers: Array(Self.identifiers.dropFirst(dates.count)))

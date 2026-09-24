@@ -161,6 +161,16 @@ struct DailyReminderTests {
         #expect(!reminder.skippedToday)
     }
 
+    // Nothing scheduled is not a skip, even on a day with an entry.
+    @Test func aWeekThatFailedToScheduleIsNotASkip() async {
+        let center = FakeNotificationCenter()
+        center.addsBeforeSuspension = 0
+        let reminder = DailyReminder(center: center, diagnostics: .disabled)
+        await reminder.reschedule(enabled: true, minutesAfterMidnight: nine, todayHasEntry: true, now: date(2026, 9, 21, hour: 13), calendar: utc)
+        #expect(reminder.next == nil)
+        #expect(!reminder.skippedToday)
+    }
+
     @Test func offAndNotAllowedScheduleNothingToShow() async {
         let center = FakeNotificationCenter()
         let reminder = DailyReminder(center: center, diagnostics: .disabled)

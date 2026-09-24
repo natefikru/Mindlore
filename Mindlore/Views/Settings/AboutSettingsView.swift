@@ -4,7 +4,10 @@ import SwiftUI
 // Reflect's). `JournalTotals` holds the rule: counts, never averages or streaks. A row whose count
 // is zero is left out rather than shown as a nought.
 struct AboutSettingsView: View {
-    let totals: JournalTotals
+    @Environment(\.modelContext) private var modelContext
+    @Environment(EntrySaver.self) private var saver
+    @Environment(GraphServices.self) private var graph
+    @State private var totals = JournalTotals()
 
     var body: some View {
         Form {
@@ -54,6 +57,11 @@ struct AboutSettingsView: View {
         .paperBackground()
         .navigationTitle("About")
         .navigationBarTitleDisplayMode(.inline)
+        // The full pass reads every entry's text, so it runs here, while About is on screen, and
+        // not on the root, which only needs the entry count.
+        .task(id: JournalTotals.Fingerprint(saver: saver.revision, graph: graph.revision, stamped: JournalSaves.revision)) {
+            totals = JournalTotals.count(in: modelContext)
+        }
     }
 
     private static let nameKinds: [(EntityKind, String)] = [
