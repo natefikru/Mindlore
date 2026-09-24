@@ -30,9 +30,12 @@ nonisolated enum EntityGraph {
         // How lately they shared one: the decayed weight of the most recent shared entry alone,
         // 0...1, so a drawing can tell "often, long ago" from "once, yesterday".
         let recency: Double
+        // How many entries the pair shares, counted by the same part placement that decided the
+        // edge exists, so "often with" says a number the map's own edges agree with.
+        let entries: Int
 
         // Canonical order so the same pair is never emitted twice under swapped ids.
-        init(_ first: UUID, _ second: UUID, weight: Double, recency: Double = 1) {
+        init(_ first: UUID, _ second: UUID, weight: Double, recency: Double = 1, entries: Int = 1) {
             if first.uuidString < second.uuidString {
                 a = first
                 b = second
@@ -42,6 +45,7 @@ nonisolated enum EntityGraph {
             }
             self.weight = weight
             self.recency = recency
+            self.entries = entries
         }
 
         struct Key: Hashable {
@@ -60,6 +64,7 @@ nonisolated enum EntityGraph {
 
         var totals: [Edge.Key: Double] = [:]
         var latest: [Edge.Key: Double] = [:]
+        var shared: [Edge.Key: Int] = [:]
         for (_, entryLinks) in byEntry {
             guard let entryDate = entryLinks.first?.entryDate else { continue }
             // One entity can arrive through several links (a merge, a tag and a name); its parts
@@ -94,11 +99,12 @@ nonisolated enum EntityGraph {
                     let edge = Edge(distinctIDs[i], distinctIDs[j], weight: 0)
                     totals[edge.key, default: 0] += weight
                     latest[edge.key] = max(latest[edge.key] ?? 0, weight)
+                    shared[edge.key, default: 0] += 1
                 }
             }
         }
 
-        return totals.map { key, weight in Edge(key.a, key.b, weight: weight, recency: latest[key] ?? 0) }
+        return totals.map { key, weight in Edge(key.a, key.b, weight: weight, recency: latest[key] ?? 0, entries: shared[key] ?? 0) }
     }
 
     static func neighbourhood(of id: UUID, in edges: [Edge], depth: Int) -> Set<UUID> {

@@ -22,7 +22,7 @@ nonisolated enum EntitySearch {
             case .people: "People"
             case .places: "Places"
             case .projects: "Projects"
-            case .tags: "Tags"
+            case .tags: "Themes"
             }
         }
 

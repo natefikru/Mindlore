@@ -1,13 +1,6 @@
 import QuartzCore
 import SwiftUI
 
-struct GraphRegion: Identifiable, Equatable {
-    let id: String
-    let name: String
-    let point: SIMD2<Double>
-    let color: Color
-}
-
 // Mind's force-graph drawing surface. Touches no model type: everything it draws comes from the simulation itself and a namer closure, the
 // same "stay free of SwiftData" shape EntityChipIndex's consumers already follow.
 //
@@ -21,25 +14,18 @@ struct GraphCanvasView: View {
     var version: Int = 0
     let namer: (UUID) -> String?
     @Binding var focusedID: UUID?
-    // A group to bring forward (an area tile's entities); the rest fade while nothing is focused.
-    var highlightedIDs: Set<UUID>?
-    // Names the highlighted group; the camera flies to the group only when this changes, not
-    // when the group's members do (a replay step, a filter change).
-    var highlightGroup: String?
-    // A lens's colours (nil: kind colours), and its name for the accessibility value.
-    var paint: GraphPaint?
-    // Life-area names drawn faintly at their spots while the map groups by area.
-    var regions: [GraphRegion] = []
-    // Entities a recent entry named. They breathe: a ring outside the node, rising and falling on
-    // one shared sine. Empty turns the halo off, which is what the recency lens does, since that
-    // lens is already saying this and saying it better.
-    var haloedIDs: Set<UUID> = []
+    // Each node's life area in the window; colour always means area. `areaGeneration` is bumped
+    // with every new map so the draw cache never compares the dictionary.
+    var areaOf: [UUID: LifeArea] = [:]
+    var areaGeneration = 0
     // Nodes that have just joined the map, against the moment they joined: they scale and fade up
     // out of the spot the simulation put them in. The caller decides what counts as joining; see
     // `MindView.show`.
     var arrivedAt: [UUID: Date] = [:]
-    var lens: MindLens = .kind
-    // A replay is moving the map: keep drawing, and measure it.
+    // Bumped by the caller when the whole picture changed (Mind's window): with nothing focused,
+    // the camera comes back to the layout's middle in what the overlays leave uncovered.
+    var recentreToken = 0
+    // A replay is moving the map: keep drawing between its steps.
     var animating = false
     // Whether a focus that leaves the simulation is cleared. Mind keeps it, since a search result
     // can be focused while it's filtered off the map.
@@ -47,8 +33,6 @@ struct GraphCanvasView: View {
     // What overlays cover, so a focused node lands in the middle of what's left.
     var visibleInsets = EdgeInsets()
     var onNavigate: (UUID) -> Void = { _ in }
-    // A tapped entry dot. Dots never take focus.
-    var onOpenEntry: (UUID) -> Void = { _ in }
     // Called once per appearance with what the device gate reads.
     var onRendered: (GraphRenderStats) -> Void = { _ in }
     // Set here rather than by the caller: applied from outside, it lands on the hidden canvas as
@@ -62,7 +46,6 @@ struct GraphCanvasView: View {
 
     private enum SymbolID: Hashable {
         case label(UUID)
-        case region(String)
     }
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -72,10 +55,6 @@ struct GraphCanvasView: View {
     @State private var activity = Activity()
     @State private var isIdle = false
     @State private var size: CGSize = .zero
-    // UI tests only: where the first entry dot sits once the layout settles, so a test can tap it
-    // through the real hit rule.
-    @State private var entryDot: SIMD2<Double>?
-    private static let reportsEntryDot = ProcessInfo.processInfo.arguments.contains(StoreLocation.uiTestingArgument)
     @State private var activityToken = 0
     @State private var dragTarget: DragTarget?
     // Where the finger was last frame (a pan applies deltas, so a simultaneous pinch's own pan
@@ -89,47 +68,45 @@ struct GraphCanvasView: View {
     @GestureState private var pinchLive = false
 
     private static let focusDim = 0.15
-    private static let highlightDim = 0.3
     private static let neutralOpacity = 0.6
-    private static let regionOpacity = 0.8
+    // A tag's name is lighter than a person's or a place's, the way its node is only a ring.
+    private static let ringLabelOpacity = 0.6
+    private static let ringWidth = 1.5
+
+    private var currentPlan: GraphDrawPlan {
+        cache.plan(for: simulation, focusedID: focusedID, areaOf: areaOf, areaGeneration: areaGeneration)
+    }
 
     var body: some View {
-        let plan = cache.plan(for: simulation, focusedID: focusedID, highlighted: highlightedIDs, paint: paint, haloed: haloedIDs)
+        let plan = currentPlan
         let labelIDs = labelSymbolIDs(plan)
-        // The canvas stops ticking once the simulation settles, which is why a map that has stopped
-        // moving costs nothing. A halo has to keep breathing through exactly that, so an idle map
-        // with rings on it slows down instead of stopping: a 2.4 s breath at 12 fps is smooth, and
-        // the frame's work is one sine plus a stroke per colour bucket. `graph.rendered` carries the
-        // measurement. Nothing to breathe, or Reduce Motion, and it pauses as before.
-        let breathing = !plan.haloNodes.isEmpty && !reduceMotion
-        let idleInterval: Double? = isIdle && breathing ? 1.0 / 12.0 : nil
 
         GeometryReader { geometry in
             let center = SIMD2(Double(geometry.size.width) / 2, Double(geometry.size.height) / 2)
 
-            TimelineView(.animation(minimumInterval: idleInterval, paused: isIdle && !breathing)) { _ in
+            // The canvas stops ticking once the simulation settles, so a map that has stopped
+            // moving costs nothing.
+            TimelineView(.animation(paused: isIdle)) { _ in
                 Canvas { context, _ in
                     let frameStart = CACurrentMediaTime()
                     simulation.tick()
                     camera.advance(now: frameStart)
-                    draw(in: &context, center: center, plan: cache.plan(for: simulation, focusedID: focusedID, highlighted: highlightedIDs, paint: paint, haloed: haloedIDs))
+                    draw(in: &context, center: center, plan: currentPlan)
                     sampler.record(
                         frameStart: frameStart,
                         workSeconds: CACurrentMediaTime() - frameStart,
                         interacting: !activity.reported && (activity.gestureActive || camera.isFlying)
                     )
                 } symbols: {
+                    // Capped: at accessibility sizes a caption grew to headline size and every
+                    // name sat on top of the nodes around it. Zoom is how a map gets bigger text;
+                    // search and the card read every name at full size.
                     ForEach(labelIDs, id: \.self) { id in
                         if let name = namer(id) {
                             Text(name).font(.caption2).tag(SymbolID.label(id))
                         }
                     }
-                    ForEach(regions) { region in
-                        Text(region.name)
-                            .font(.headline)
-                            .foregroundStyle(region.color)
-                            .tag(SymbolID.region(region.id))
-                    }
+                    .dynamicTypeSize(...DynamicTypeSize.xLarge)
                 }
             }
             .contentShape(Rectangle())
@@ -162,26 +139,21 @@ struct GraphCanvasView: View {
             flyToFocus()
             wake()
         }
-        .onChange(of: highlightedIDs) { wake() }
-        .onChange(of: highlightGroup) { flyToHighlight() }
-        .onChange(of: regions.map(\.id)) { _, ids in
-            if !ids.isEmpty, focusedID == nil { fitRegions() }
+        .onChange(of: areaGeneration) { wake() }
+        .onChange(of: animating) { _, on in
+            activity.animating = on
+            wake()
+        }
+        .onChange(of: recentreToken) {
+            // Gravity pulls the layout toward the origin, so the origin is its middle.
+            guard focusedID == nil else { return }
+            camera.fly(to: .zero, now: CACurrentMediaTime(), offset: visibleCenterOffset, zoom: camera.zoom)
             wake()
         }
         .onChange(of: version) {
             if clearsMissingFocus, let focusedID, simulation.index(of: focusedID) == nil {
                 self.focusedID = nil
             }
-            wake()
-        }
-        .onChange(of: animating) { _, on in
-            if on {
-                // A fresh sample, so a replay is measured even after earlier touches reported.
-                activity = Activity(appearedAt: CACurrentMediaTime(), measuresSettle: false)
-                activity.measuresReplay = true
-                sampler = FrameTimeSampler()
-            }
-            activity.animating = on
             wake()
         }
         .onChange(of: dragLive) { _, live in
@@ -195,7 +167,6 @@ struct GraphCanvasView: View {
             // return visit to an already settled graph reports none.
             activity = Activity(appearedAt: CACurrentMediaTime(), measuresSettle: !simulation.settled)
             activity.animating = animating
-            activity.measuresReplay = animating
             sampler = FrameTimeSampler()
             // A canvas built with a focus already set (a jump into Mind) centres it too; without
             // one, the first appearance centres the layout in the uncovered part.
@@ -213,48 +184,15 @@ struct GraphCanvasView: View {
         .task(id: activityToken) { await watch() }
     }
 
-    // Entities and entry dots are counted apart, so `nodes=` means the same with dots on or off.
-    // Tests match its start and its end (`focused=`), so new fields go in the middle.
+    // Tests match its start (`nodes=`) and its end (`focused=`), so new fields go in the middle.
     private func accessibilityValue(_ plan: GraphDrawPlan) -> String {
-        let entries = simulation.nodes.lazy.filter(\.isEntry).count
-        let highlighted = plan.hasFocus ? 0 : plan.highlightedNodes?.count ?? 0
-        return "nodes=\(simulation.nodeCount - entries) highlighted=\(highlighted) entries=\(entries) lens=\(lens.rawValue) replay=\(animating ? "on" : "off")\(entryDotValue.map { " entryDot=\($0)" } ?? "") focused=\(focusedID.flatMap(namer) ?? "none")"
-    }
-
-    // The dot's canvas point, normalized to the accessibility element's frame (the visible part
-    // of the map) at the insets in force now, so moving the panel never leaves it stale.
-    private var entryDotValue: String? {
-        let width = Double(size.width - visibleInsets.leading - visibleInsets.trailing)
-        let height = Double(size.height - visibleInsets.top - visibleInsets.bottom)
-        guard let entryDot, width > 0, height > 0 else { return nil }
-        return String(format: "%.4f,%.4f", (entryDot.x - Double(visibleInsets.leading)) / width, (entryDot.y - Double(visibleInsets.top)) / height)
+        "nodes=\(simulation.nodeCount) rings=\(plan.ringNodes.count) focused=\(focusedID.flatMap(namer) ?? "none")"
     }
 
     private func flyToFocus() {
         guard let focusedID, let position = simulation.position(of: focusedID) else { return }
         camera.fly(to: position, now: CACurrentMediaTime(), offset: visibleCenterOffset)
     }
-
-    // A tile tap brings its group into view at the current zoom. Focus says more, so it wins.
-    private func flyToHighlight() {
-        guard focusedID == nil, let highlightedIDs,
-              let point = GraphHitTest.centroid(of: highlightedIDs, in: simulation)
-        else { return }
-        camera.fly(to: point, now: CACurrentMediaTime(), offset: visibleCenterOffset, zoom: camera.zoom)
-    }
-
-    // Grouping spreads the map over a circle of area spots; zoom out so all of them show.
-    private func fitRegions() {
-        let extent = regions.map { ($0.point * $0.point).sum().squareRoot() }.max() ?? 0
-        let width = Double(size.width - visibleInsets.leading - visibleInsets.trailing)
-        let height = Double(size.height - visibleInsets.top - visibleInsets.bottom)
-        guard extent > 0, width > 0, height > 0 else { return }
-        let zoom = min(1, min(width, height) / (2 * (extent + GraphCanvasView.regionMargin)))
-        camera.fly(to: .zero, now: CACurrentMediaTime(), offset: visibleCenterOffset, zoom: zoom)
-    }
-
-    private static let regionLabelOffset: Double = 90
-    private static let regionMargin: Double = 120
 
     private var visibleCenterOffset: SIMD2<Double> {
         SIMD2(
@@ -272,8 +210,7 @@ struct GraphCanvasView: View {
 
     private func color(_ fill: GraphFill) -> Color {
         switch fill {
-        case .kind(let kind): kind.color
-        case .slot(let slot): paint.flatMap { $0.palette.indices.contains(slot) ? $0.palette[slot] : nil } ?? .gray
+        case .area(let area): area.color
         case .neutral: .gray
         }
     }
@@ -291,8 +228,7 @@ struct GraphCanvasView: View {
 
         // Edges: one path per style bucket, lit edges in their own paths per width.
         let buckets = GraphEdgeStyle.bucketCount
-        // A second set of slots holds edges that leave a highlighted group, drawn fainter.
-        var edgePaths = Array(repeating: Path(), count: 2 * buckets * buckets)
+        var edgePaths = Array(repeating: Path(), count: buckets * buckets)
         var litPaths = Array(repeating: Path(), count: buckets)
         for (position, pair) in simulation.edgeIndices.enumerated() {
             let style = plan.edgeStyles[position]
@@ -300,42 +236,19 @@ struct GraphCanvasView: View {
                 litPaths[style.widthBucket].move(to: point(pair.a))
                 litPaths[style.widthBucket].addLine(to: point(pair.b))
             } else {
-                let outside = !dimmed && !(plan.isHighlighted(pair.a) && plan.isHighlighted(pair.b))
-                let slot = (outside ? buckets * buckets : 0) + style.widthBucket * buckets + style.opacityBucket
+                let slot = style.widthBucket * buckets + style.opacityBucket
                 edgePaths[slot].move(to: point(pair.a))
                 edgePaths[slot].addLine(to: point(pair.b))
             }
         }
         let edgeFade = dimmed ? Self.focusDim : 1
         for (slot, path) in edgePaths.enumerated() where !path.isEmpty {
-            let local = slot % (buckets * buckets)
-            let fade = slot >= buckets * buckets ? Self.focusDim : edgeFade
-            let style = GraphEdgeStyle(widthBucket: local / buckets, opacityBucket: local % buckets)
-            context.stroke(path, with: .color(.secondary.opacity(style.opacity * fade)), lineWidth: style.lineWidth)
+            let style = GraphEdgeStyle(widthBucket: slot / buckets, opacityBucket: slot % buckets)
+            context.stroke(path, with: .color(.secondary.opacity(style.opacity * edgeFade)), lineWidth: style.lineWidth)
         }
         for (width, path) in litPaths.enumerated() where !path.isEmpty {
             let style = GraphEdgeStyle(widthBucket: width, opacityBucket: 0)
             context.stroke(path, with: .color(.primary.opacity(0.9)), lineWidth: style.lineWidth + 1)
-        }
-
-        // The Breathe halo, under everything else so the node itself stays crisp on top. One sine
-        // for the whole frame, one path per colour bucket: a week that touched forty names costs a
-        // handful of strokes, not forty gradients. Under Reduce Motion the phase is fixed and the
-        // ring simply sits there, which is what `Motion.resolve` means by returning nil for a
-        // repeating animation.
-        if !plan.haloNodes.isEmpty {
-            let phase = reduceMotion ? 0 : sin(CACurrentMediaTime() * 2 * .pi / Motion.breatheSeconds)
-            var rings: [GraphFill: Path] = [:]
-            for index in plan.haloNodes {
-                // A node the focus or a lens has already pushed back does not breathe over the top
-                // of being pushed back.
-                if plan.fadedNodes.contains(index) { continue }
-                if dimmed && !plan.litNodes.contains(index) { continue }
-                rings[plan.fills[index], default: Path()].addEllipse(in: circle(index, scale: 1.5 + 0.18 * phase))
-            }
-            for (fill, path) in rings {
-                context.stroke(path, with: .color(color(fill).opacity(0.30 + 0.10 * phase)), lineWidth: 1.5)
-            }
         }
 
         // Glow behind the lit nodes: a gradient fill, no blur filter.
@@ -353,10 +266,12 @@ struct GraphCanvasView: View {
             )
         }
 
-        // Nodes: one path per colour and strength, dimmest first so lit nodes sit on top.
+        // Nodes: one path per colour, strength, and shape, dimmest first so lit nodes sit on top.
+        // A tag is a ring, stroked; everything else is filled.
         struct Bucket: Hashable {
             let fill: GraphFill
             let opacity: Double
+            let ring: Bool
         }
         // Nodes that arrived in the last 0.6 s, as indices. Usually one; an entry that named five
         // new people is five. Resolved here rather than per node, since the lookup is by id.
@@ -374,49 +289,50 @@ struct GraphCanvasView: View {
             var opacity = 1.0
             if dimmed && !plan.litNodes.contains(index) {
                 opacity = Self.focusDim
-            } else if !dimmed && !plan.isHighlighted(index) {
-                opacity = Self.highlightDim
             }
-            if plan.fadedNodes.contains(index) { opacity *= GraphPaint.fadedOpacity }
             var scale = 1.0
             if let elapsed = blooming[index] {
                 scale = BloomCurve.scale(at: elapsed, reduceMotion: reduceMotion)
                 opacity *= BloomCurve.opacity(at: elapsed)
             }
-            nodePaths[Bucket(fill: plan.fills[index], opacity: opacity), default: Path()].addEllipse(in: circle(index, scale: scale))
+            let ring = plan.ringNodes.contains(index)
+            // A ring's stroke sits inside the node's radius, so a tag and a name of one size match.
+            let rect = circle(index, scale: scale)
+            nodePaths[Bucket(fill: plan.fills[index], opacity: opacity, ring: ring), default: Path()]
+                .addEllipse(in: ring ? rect.insetBy(dx: Self.ringWidth / 2, dy: Self.ringWidth / 2) : rect)
         }
         for (bucket, path) in nodePaths.sorted(by: { $0.key.opacity < $1.key.opacity }) {
-            let base = color(bucket.fill)
-            context.fill(path, with: .color(base.opacity(bucket.opacity * (bucket.fill == .neutral ? Self.neutralOpacity : 1))))
+            let shading = GraphicsContext.Shading.color(color(bucket.fill).opacity(bucket.opacity * (bucket.fill == .neutral ? Self.neutralOpacity : 1)))
+            if bucket.ring {
+                context.stroke(path, with: shading, lineWidth: Self.ringWidth)
+            } else {
+                context.fill(path, with: shading)
+            }
         }
         if let focusedIndex = plan.focusedIndex {
             context.stroke(Path(ellipseIn: circle(focusedIndex)), with: .color(.primary), lineWidth: 2.5)
         }
 
-        // Area names sit over the nodes, since they're the map's legend while it groups by area.
-        for region in regions {
-            guard let resolved = context.resolveSymbol(id: SymbolID.region(region.id)) else { continue }
-            // Just outside the cluster, away from the middle.
-            let length = (region.point * region.point).sum().squareRoot()
-            let outward = length > 0 ? region.point / length * Self.regionLabelOffset : SIMD2(0, -Self.regionLabelOffset)
-            let at = camera.screen(region.point + outward, center: center)
-            var regionContext = context
-            regionContext.opacity = Self.regionOpacity
-            regionContext.draw(resolved, at: CGPoint(x: at.x, y: at.y))
-        }
-
         // Labels: a zoom-sized prefix of the ranked list, fading by rank, dimmed outside the focus.
+        // A label that would land on a higher-ranked one is skipped rather than drawn over it.
         let budget = GraphLabels.budget(zoom: zoom)
+        var placed: [(index: Int, rank: Int, symbol: GraphicsContext.ResolvedSymbol, at: CGPoint)] = []
+        var frames: [CGRect] = []
         for (rank, index) in plan.rankedLabels.prefix(budget).enumerated() {
             guard let resolved = context.resolveSymbol(id: SymbolID.label(nodes[index].id)) else { continue }
-            var opacity = GraphLabels.opacity(rank: rank, budget: budget)
-            if dimmed && !plan.litNodes.contains(index) { opacity *= Self.focusDim }
-            if !dimmed && !plan.isHighlighted(index) { opacity *= Self.highlightDim }
-            if plan.fadedNodes.contains(index) { opacity *= GraphPaint.fadedOpacity }
+            let r = simulation.radius(at: index) * zoom
+            let at = CGPoint(x: screen[index].x, y: screen[index].y - r - 10)
+            let size = resolved.size
+            frames.append(CGRect(x: at.x - size.width / 2, y: at.y - size.height / 2, width: size.width, height: size.height))
+            placed.append((index, rank, resolved, at))
+        }
+        for (label, visible) in zip(placed, GraphLabels.unobstructed(frames)) where visible {
+            var opacity = GraphLabels.opacity(rank: label.rank, budget: budget)
+            if dimmed && !plan.litNodes.contains(label.index) { opacity *= Self.focusDim }
+            if plan.ringNodes.contains(label.index) { opacity *= Self.ringLabelOpacity }
             var labelContext = context
             labelContext.opacity = opacity
-            let r = simulation.radius(at: index) * zoom
-            labelContext.draw(resolved, at: CGPoint(x: screen[index].x, y: screen[index].y - r - 10))
+            labelContext.draw(label.symbol, at: label.at)
         }
     }
 
@@ -433,15 +349,15 @@ struct GraphCanvasView: View {
         let measuresSettle: Bool
         var settleSeconds: Double?
         var reported = false
-        // Set while a replay runs; `measuresReplay` marks a sample that started with one.
-        var animating = false
-        var measuresReplay = false
 
         init(appearedAt: TimeInterval = CACurrentMediaTime(), measuresSettle: Bool = true) {
             self.appearedAt = appearedAt
             self.measuresSettle = measuresSettle
             lastActive = appearedAt
         }
+
+        // Set while a replay runs.
+        var animating = false
 
         // Anything that keeps the canvas drawing besides the layout's own motion.
         var gestureActive: Bool { dragging || pinching || animating }
@@ -462,7 +378,6 @@ struct GraphCanvasView: View {
             let settled = simulation.settled
             let active = GraphRedraw.isActive(settled: settled, gestureActive: activity.gestureActive, flying: camera.isFlying)
             if active { activity.lastActive = now }
-            if settled, !camera.isFlying, Self.reportsEntryDot { noteEntryDot() }
             if settled, activity.measuresSettle, activity.settleSeconds == nil {
                 activity.settleSeconds = now - activity.appearedAt
             }
@@ -475,15 +390,6 @@ struct GraphCanvasView: View {
         }
     }
 
-    private func noteEntryDot() {
-        var point: SIMD2<Double>?
-        if let dot = simulation.nodes.firstIndex(where: \.isEntry), size.width > 0, size.height > 0 {
-            let center = SIMD2(Double(size.width) / 2, Double(size.height) / 2)
-            point = camera.screen(simulation.position(at: dot), center: center)
-        }
-        if point != entryDot { entryDot = point }
-    }
-
     private func report() {
         guard !activity.reported else { return }
         activity.reported = true
@@ -494,10 +400,7 @@ struct GraphCanvasView: View {
             frameSamples: sampler.intervals.count,
             frameP50Milliseconds: FrameTimeSampler.percentile(sampler.intervals, 0.5).map { $0 * 1000 },
             frameP95Milliseconds: FrameTimeSampler.percentile(sampler.intervals, 0.95).map { $0 * 1000 },
-            workP95Milliseconds: FrameTimeSampler.percentile(sampler.workTimes, 0.95).map { $0 * 1000 },
-            entryNodes: simulation.nodes.lazy.filter(\.isEntry).count,
-            lens: lens,
-            replay: activity.measuresReplay
+            workP95Milliseconds: FrameTimeSampler.percentile(sampler.workTimes, 0.95).map { $0 * 1000 }
         ))
     }
 
@@ -505,13 +408,13 @@ struct GraphCanvasView: View {
 
     private func nodeHit(_ point: SIMD2<Double>, center: SIMD2<Double>) -> GraphSimulation.Node? {
         let nodes = simulation.nodes
-        let index = GraphHitTest.node(at: point, count: nodes.count, isEntry: { nodes[$0].isEntry }) { index in
+        let index = GraphHitTest.node(at: point, count: nodes.count) { index in
             (camera.screen(simulation.position(at: index), center: center), simulation.radius(at: index) * camera.zoom)
         }
         return index.map { nodes[$0] }
     }
 
-    // A tapped edge focuses its better-connected end, or its entity end when the other is a dot.
+    // A tapped edge focuses its better-connected end.
     private func edgeHit(_ point: SIMD2<Double>, center: SIMD2<Double>) -> UUID? {
         let pairs = simulation.edgeIndices
         let segments = pairs.map { pair in
@@ -542,7 +445,7 @@ struct GraphCanvasView: View {
                 if dragTarget == nil {
                     camera.cancelFlight()
                     let start = Self.vector(value.startLocation)
-                    if !activity.pinching, let hit = nodeHit(start, center: center), !hit.isEntry,
+                    if !activity.pinching, let hit = nodeHit(start, center: center),
                        let position = simulation.position(of: hit.id) {
                         dragTarget = .node(hit.id)
                         grabOffset = position - camera.world(start, center: center)
@@ -605,9 +508,7 @@ struct GraphCanvasView: View {
                 let point = Self.vector(value.location)
                 if let hit = nodeHit(point, center: center) {
                     let id = hit.id
-                    if hit.isEntry {
-                        onOpenEntry(id)
-                    } else if focusedID == id {
+                    if focusedID == id {
                         onNavigate(id)
                     } else {
                         focusedID = id
@@ -625,8 +526,7 @@ struct GraphCanvasView: View {
             .sequenced(before: DragGesture(minimumDistance: 0, coordinateSpace: .local))
             .onEnded { value in
                 guard case .second(true, let drag?) = value,
-                      let hit = nodeHit(Self.vector(drag.location), center: center),
-                      !hit.isEntry
+                      let hit = nodeHit(Self.vector(drag.location), center: center)
                 else { return }
                 let id = hit.id
                 simulation.unpin(id)

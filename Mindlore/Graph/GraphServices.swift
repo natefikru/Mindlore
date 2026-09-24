@@ -402,9 +402,11 @@ final class GraphServices {
         }
 
         let browsable = Dictionary(uniqueKeysWithValues: entities.filter(\.isBrowsable).map {
-            ($0.id, MindMapSnapshot.EntityInfo(id: $0.id, name: $0.name, kind: $0.kind))
+            ($0.id, MindMapSnapshot.EntityInfo(id: $0.id, name: $0.name, kind: $0.kind, aliases: $0.aliases))
         })
-        return MindMapSnapshot(entities: browsable, links: inputs, entries: entries)
+        let allEntries = (try? context.fetch(FetchDescriptor<Entry>(predicate: #Predicate { !$0.isDraft }))) ?? []
+        let entryDates = allEntries.filter { !$0.isDeleted }.map(\.entryDate)
+        return MindMapSnapshot(entities: browsable, links: inputs, entries: entries, entryDates: entryDates)
     }
 
     // Entries the insights divided into two or more parts, each with the text its offsets were
@@ -529,14 +531,9 @@ final class GraphServices {
         diagnostics.record("mind.focused", ["source": .string(source.rawValue), "onMap": .bool(onMap)])
     }
 
-    func recordMindFiltersChanged(kinds: Int, minimum: Int, entries: Bool, regions: Bool, nodes: Int) {
-        diagnostics.record("mind.filtersChanged", [
-            "kinds": .int(kinds),
-            "minimum": .int(minimum),
-            "entries": .bool(entries),
-            "regions": .bool(regions),
-            "nodes": .int(nodes),
-        ])
+    // The window control moved. Its raw value and how many nodes the new map drew, nothing more.
+    func recordMindWindowChanged(_ window: MindWindow, nodes: Int) {
+        diagnostics.record("mind.windowChanged", ["window": .string(window.rawValue), "nodes": .int(nodes)])
     }
 
     func recordMindReplayed(steps: Int, durationMilliseconds: Double, stepP95Milliseconds: Double?, finished: Bool, nodes: Int) {
@@ -550,25 +547,20 @@ final class GraphServices {
         diagnostics.record("mind.replayed", fields)
     }
 
-    func recordMindEntryOpened() {
-        diagnostics.record("mind.entryOpened", [:])
-    }
-
-    func recordMindLensChanged(_ lens: String) {
-        diagnostics.record("mind.lensChanged", ["lens": .string(lens)])
+    // A "what changed" card was tapped: which kind of change and what kind of name, never which.
+    func recordMindChangeTapped(_ change: MindStats.Change.Kind, kind: EntityKind) {
+        diagnostics.record("mind.changeTapped", ["change": .string(change.rawValue), "kind": .string(kind.rawValue)])
     }
 
     // Logged once per graph screen appearance, never per frame: the first settle after the
     // screen appeared, and frame-interval and draw-work percentiles over up to 5 seconds of
     // interaction, which is what the Phase A device gate reads.
-    func recordGraphRendered(_ stats: GraphRenderStats) {
+    func recordGraphRendered(_ stats: GraphRenderStats, window: MindWindow) {
         var fields: [String: DiagnosticValue] = [
             "nodes": .int(stats.nodes),
             "edges": .int(stats.edges),
             "frameSamples": .int(stats.frameSamples),
-            "entryNodes": .int(stats.entryNodes),
-            "lens": .string(stats.lens.rawValue),
-            "replay": .bool(stats.replay),
+            "window": .string(window.rawValue),
         ]
         let optional: [(String, Double?)] = [
             ("settleMilliseconds", stats.settleMilliseconds),
@@ -589,6 +581,8 @@ final class GraphServices {
         let name: String
         let kind: EntityKind
         let weight: Double
+        // Entries the two share, placed by parts the way the map's edges are.
+        let entries: Int
     }
 
     // "Mentioned with" on an entity page. Resolves merges and hidden entities against one
@@ -633,16 +627,24 @@ final class GraphServices {
         }
 
         let edges = EntityGraph.build(links: inputs)
-        let touching = edges.compactMap { edge -> (UUID, Double)? in
-            if edge.a == subjectRoot.id { return (edge.b, edge.weight) }
-            if edge.b == subjectRoot.id { return (edge.a, edge.weight) }
+        let touching = edges.compactMap { edge -> (id: UUID, edge: EntityGraph.Edge)? in
+            if edge.a == subjectRoot.id { return (edge.b, edge) }
+            if edge.b == subjectRoot.id { return (edge.a, edge) }
             return nil
         }
 
+        // Most shared entries first, the number the card and the page print; the decayed weight
+        // breaks a tie toward whoever shared one more lately.
         return touching
-            .sorted { $0.1 > $1.1 }
+            .sorted { lhs, rhs in
+                if lhs.edge.entries != rhs.edge.entries { return lhs.edge.entries > rhs.edge.entries }
+                if lhs.edge.weight != rhs.edge.weight { return lhs.edge.weight > rhs.edge.weight }
+                return lhs.id.uuidString < rhs.id.uuidString
+            }
             .prefix(limit)
-            .compactMap { id, weight in byID[id].map { CoOccurrence(id: $0.id, name: $0.name, kind: $0.kind, weight: weight) } }
+            .compactMap { id, edge in
+                byID[id].map { CoOccurrence(id: $0.id, name: $0.name, kind: $0.kind, weight: edge.weight, entries: edge.entries) }
+            }
     }
 
     // MARK: - Bios

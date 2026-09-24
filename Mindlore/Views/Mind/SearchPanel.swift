@@ -2,9 +2,11 @@ import Combine
 import SwiftData
 import SwiftUI
 
-// Mind's pull-up panel: search, one review question, the area tiles, and every entity. Not a
-// system sheet, which would cover the tab bar and the recording accessory. Only the header drags
-// the panel; the list below scrolls on its own, so the two gestures never fight.
+// Mind's pull-up panel: search and the kind chips, then what changed in the window, every name
+// the window holds ranked by how often it came up, and a Tidy up row for the review questions and
+// hidden names. Not a system sheet, which would cover the tab bar and the recording accessory.
+// Only the header drags the panel; the list below scrolls on its own, so the two gestures never
+// fight.
 struct SearchPanel: View {
     enum Stop: String, CaseIterable {
         case peek, half, full
@@ -31,7 +33,10 @@ struct SearchPanel: View {
 
     @Binding var stop: Stop
     let available: CGFloat
-    @Binding var highlightedArea: LifeArea?
+    // The kind filter, owned by Mind because it filters the map as well as this list.
+    @Binding var segment: EntitySearch.Segment
+    // The window's numbers, computed by Mind once per revision and window.
+    let stats: MindDrawer.Stats
     let select: (UUID) -> Void
     let open: (UUID) -> Void
 
@@ -42,15 +47,15 @@ struct SearchPanel: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Query private var looseEnds: [LooseEnd]
     @State private var query = ""
-    @State private var segment: EntitySearch.Segment = .all
     @State private var rows = MindDirectory.Rows()
-    @State private var question: ReviewQueue.Question?
-    @State private var questionDate: Date?
+    @State private var ranked: [MindDrawer.RankedRow] = []
+    @State private var cards: [MindDrawer.ChangeCard] = []
+    @State private var questionCount = 0
     @State private var skipped: Set<String> = []
+    @State private var showingTidyUp = false
     @State private var dragOffset: CGFloat = 0
     @State private var keyboardOverlap: CGFloat = 0
     @State private var panelBottom: CGFloat = 0
-    @State private var showsHidden = false
     @FocusState private var fieldFocused: Bool
 
     private var searching: Bool {
@@ -63,6 +68,12 @@ struct SearchPanel: View {
 
     private var hiddenResults: [EntitySearch.Row] {
         EntitySearch.rank(EntitySearch.filter(rows.hidden, segment: segment, query: query), query: query)
+    }
+
+    private struct ContentKey: Equatable {
+        let rows: [EntitySearch.Row]
+        let stats: MindDrawer.Stats
+        let segment: EntitySearch.Segment
     }
 
     private var refreshKey: MindDirectory.RefreshKey {
@@ -121,6 +132,14 @@ struct SearchPanel: View {
             if focused { stop = .full }
         }
         .task(id: refreshKey) { refresh() }
+        // Joined here, not in `body`: a drag re-renders the panel every frame.
+        .task(id: ContentKey(rows: rows.visible, stats: stats, segment: segment)) {
+            ranked = MindDrawer.ranked(rows.visible, stats: stats, segment: segment)
+            cards = MindDrawer.cards(rows.visible, stats: stats, segment: segment)
+        }
+        .sheet(isPresented: $showingTidyUp, onDismiss: refresh) {
+            TidyUpView(skipped: $skipped, hidden: rows.hidden, open: open)
+        }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("mindSearchPanel")
         .accessibilityValue("stop=\(stop.rawValue)")
@@ -142,7 +161,7 @@ struct SearchPanel: View {
             HStack(spacing: 8) {
                 Image(systemName: "magnifyingglass")
                     .foregroundStyle(.secondary)
-                TextField("Search people, places, tags", text: $query)
+                TextField("Search people, places, themes", text: $query)
                     .focused($fieldFocused)
                     .submitLabel(.search)
                     .autocorrectionDisabled()
@@ -170,19 +189,15 @@ struct SearchPanel: View {
             .background(.fill.tertiary, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
             .padding(.horizontal, 16)
             .padding(.bottom, stop == .peek ? 12 : 4)
-            // The search's scope, so it sits with the field. In the list it scrolled with the
-            // tiles, and the half-open panel's edge used to slice straight through it.
+            .dynamicTypeSize(...DynamicTypeSize.accessibility1)
+            // The kind chips sit with the field, since they filter the search, the list, and the
+            // map alike. In the list they scrolled away, and the half-open panel's edge used to
+            // slice straight through them.
             if stop != .peek {
-                Picker("Show", selection: $segment) {
-                    ForEach(EntitySearch.Segment.allCases, id: \.self) { segment in
-                        Text(segment.title)
-                            .accessibilityIdentifier("mindSegment-\(segment.title)")
-                            .tag(segment)
-                    }
-                }
-                .pickerStyle(.segmented)
-                .padding(.horizontal, 16)
-                .padding(.bottom, 8)
+                kindChips
+                    .padding(.bottom, 8)
+                    // Five words in one row; past this they pushed Themes off the screen.
+                    .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
             }
         }
         .contentShape(Rectangle())
@@ -199,55 +214,90 @@ struct SearchPanel: View {
         )
     }
 
+    private var kindChips: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 6) {
+                ForEach(EntitySearch.Segment.allCases, id: \.self) { option in
+                    let selected = option == segment
+                    Button {
+                        segment = option
+                    } label: {
+                        Text(option.title)
+                            .chip(tint: selected ? Palette.ember : nil, selected: selected)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier("mindKindChip-\(option.rawValue)")
+                    .accessibilityAddTraits(selected ? .isSelected : [])
+                }
+            }
+            .padding(.horizontal, 16)
+        }
+        .sensoryFeedback(.selection, trigger: segment)
+    }
+
     // MARK: - Content
 
     private var content: some View {
         List {
-            if !searching {
-                if let question {
-                    ReviewCard(question: question, entryDate: questionDate, names: namesByID, answer: answer)
-                        .listRowBackground(Color.clear)
-                        .listRowSeparator(.hidden)
-                }
-                areaTiles
+            if searching {
+                searchResults
+            } else {
+                if !cards.isEmpty {
+                    MindChangesRow(cards: cards) { card in
+                        graph.recordMindChangeTapped(card.change.kind, kind: card.kind)
+                        select(card.id)
+                    }
+                    .listRowInsets(EdgeInsets(top: 4, leading: 0, bottom: 8, trailing: 0))
                     .listRowBackground(Color.clear)
                     .listRowSeparator(.hidden)
-            }
-            Section {
-                ForEach(results) { row in
-                    EntityRowButton(row: row) { choose(row.id) }
-                        .accessibilityIdentifier("mindRow-\(row.name)")
                 }
-                // A row, not an overlay. Centred over the whole list it landed on top of the area
-                // tiles and the segmented picker, which are still there and still tappable: two
-                // sentences printed across a working screen. Only the searching case below can
-                // own the list, because the tiles are hidden while searching.
-                if results.isEmpty, hiddenResults.isEmpty, !searching, rows.visible.isEmpty, rows.hidden.isEmpty {
+                Section {
+                    ForEach(ranked) { row in
+                        MindRankedRow(row: row, areaName: row.area.map(settings.name(of:))) { choose(row.id) }
+                            .accessibilityIdentifier("mindRow-\(row.name)")
+                    }
+                    if ranked.isEmpty, !rows.visible.isEmpty {
+                        Text("No names in this stretch. Search still finds every one.")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                            .listRowSeparator(.hidden)
+                            .accessibilityIdentifier("mindDrawerEmptyWindow")
+                    }
+                }
+                .listRowBackground(Color.clear)
+                if questionCount > 0 || !rows.hidden.isEmpty {
+                    Button {
+                        showingTidyUp = true
+                    } label: {
+                        HStack {
+                            Label("Tidy up", systemImage: "sparkles")
+                            Spacer()
+                            if questionCount > 0 {
+                                Text(questionCount == 1 ? "1 to check" : "\(questionCount) to check")
+                                    .foregroundStyle(.secondary)
+                            }
+                            Image(systemName: "chevron.right")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(.tertiary)
+                        }
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .listRowBackground(Color.clear)
+                    .accessibilityIdentifier("mindTidyUp")
+                }
+                // A row, not an overlay. Centred over the whole list it landed on top of the chips,
+                // which are still there and still tappable.
+                if rows.visible.isEmpty, rows.hidden.isEmpty {
                     ContentUnavailableView(
                         "No names yet",
                         systemImage: "person.2",
                         description: Text("AI insights pull the people, places, and projects out of your entries.")
                     )
                     .listRowSeparator(.hidden)
+                    .listRowBackground(Color.clear)
                     .accessibilityIdentifier("mindDirectoryEmpty")
                 }
-            }
-            .listRowBackground(Color.clear)
-
-            if !hiddenResults.isEmpty {
-                Section {
-                    DisclosureGroup(isExpanded: $showsHidden) {
-                        ForEach(hiddenResults) { row in
-                            EntityRowButton(row: row) { open(row.id) }
-                                .accessibilityIdentifier("mindHiddenRow-\(row.name)")
-                        }
-                    } label: {
-                        Text("Hidden (\(hiddenResults.count))")
-                            .foregroundStyle(.secondary)
-                    }
-                    .accessibilityIdentifier("mindHiddenSection")
-                }
-                .listRowBackground(Color.clear)
             }
         }
         .listStyle(.plain)
@@ -274,42 +324,25 @@ struct SearchPanel: View {
         }
     }
 
-    private var areaTiles: some View {
-        LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 3), spacing: 8) {
-            ForEach(settings.visibleLifeAreas, id: \.self) { area in
-                let selected = highlightedArea == area
-                Button {
-                    highlightedArea = selected ? nil : area
-                } label: {
-                    VStack(spacing: 4) {
-                        Image(systemName: area.symbol)
-                            .foregroundStyle(area.color)
-                        Text(settings.name(of: area))
-                            .font(.caption)
-                            .lineLimit(2)
-                            .multilineTextAlignment(.center)
-                    }
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 10)
-                    .background(
-                        selected ? AnyShapeStyle(area.color.opacity(0.25)) : AnyShapeStyle(.fill.tertiary),
-                        in: RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    )
-                    .overlay {
-                        if selected {
-                            RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(area.color, lineWidth: 1.5)
-                        }
-                    }
-                }
-                .buttonStyle(.plain)
-                .accessibilityIdentifier("areaTile-\(area.rawValue)")
-                .accessibilityAddTraits(selected ? .isSelected : [])
+    // Searching ignores the window: every name, hidden ones last, ranked by how well they match.
+    @ViewBuilder
+    private var searchResults: some View {
+        Section {
+            ForEach(results) { row in
+                EntityRowButton(row: row) { choose(row.id) }
+                    .accessibilityIdentifier("mindRow-\(row.name)")
             }
         }
-    }
-
-    private var namesByID: [UUID: String] {
-        Dictionary((rows.visible + rows.hidden).map { ($0.id, $0.name) }, uniquingKeysWith: { first, _ in first })
+        .listRowBackground(Color.clear)
+        if !hiddenResults.isEmpty {
+            Section("Hidden") {
+                ForEach(hiddenResults) { row in
+                    EntityRowButton(row: row) { open(row.id) }
+                        .accessibilityIdentifier("mindHiddenRow-\(row.name)")
+                }
+            }
+            .listRowBackground(Color.clear)
+        }
     }
 
     // MARK: - Actions
@@ -320,33 +353,13 @@ struct SearchPanel: View {
         select(id)
     }
 
-    private func answer(_ question: ReviewQueue.Question, _ answer: GraphServices.ReviewAnswer) {
-        if answer == .skip {
-            skipped.insert(question.id)
-        }
-        saver.flush()
-        graph.answer(question, with: answer, in: modelContext)
-        // A real answer bumps graph.revision, which refreshes; a skip doesn't.
-        if answer == .skip {
-            refresh()
-        }
-    }
-
     private func refresh() {
         rows = MindDirectory.rows(in: modelContext)
-        question = ReviewQueue.next(
+        questionCount = ReviewQueue.questions(
             suggestions: graph.editor.suggestions(in: modelContext),
             unsure: graph.unsureLinks(in: modelContext),
             skipped: skipped
-        )
-        if case .whichOne(let unsure) = question {
-            let entryID = unsure.mention.entryID
-            var descriptor = FetchDescriptor<Entry>(predicate: #Predicate { $0.id == entryID })
-            descriptor.fetchLimit = 1
-            questionDate = (try? modelContext.fetch(descriptor))?.first?.entryDate
-        } else {
-            questionDate = nil
-        }
+        ).count
     }
 }
 
@@ -385,60 +398,5 @@ private struct EntityRowButton: View {
     private var detail: String {
         guard let last = row.lastMentioned else { return row.kind.label }
         return "\(row.kind.label) · last mentioned \(last.formatted(.relative(presentation: .named)))"
-    }
-}
-
-// One question at a time from the review queue, answered with one tap.
-private struct ReviewCard: View {
-    let question: ReviewQueue.Question
-    let entryDate: Date?
-    let names: [UUID: String]
-    let answer: (ReviewQueue.Question, GraphServices.ReviewAnswer) -> Void
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            switch question {
-            case .same(let a, let b):
-                Text("Are **\(names[a] ?? "these")** and **\(names[b] ?? "these")** the same?")
-                HStack {
-                    Button("Same") { answer(question, .same) }
-                        .buttonStyle(.borderedProminent)
-                        .accessibilityIdentifier("reviewSame-\(a)")
-                    Button("Not the same") { answer(question, .notSame) }
-                        .buttonStyle(.bordered)
-                        .accessibilityIdentifier("reviewNotSame-\(a)")
-                    Spacer()
-                    skip
-                }
-            case .whichOne(let unsure):
-                if let entryDate {
-                    Text("\u{201C}\(unsure.mention.surface)\u{201D} in your entry from \(entryDate.formatted(date: .abbreviated, time: .omitted)): which one?")
-                } else {
-                    Text("Which one did you mean by \u{201C}\(unsure.mention.surface)\u{201D}?")
-                }
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack {
-                        ForEach(unsure.candidates) { candidate in
-                            Button(candidate.name) { answer(question, .whichOne(candidate.id)) }
-                                .buttonStyle(.bordered)
-                                .accessibilityIdentifier("whichOneCandidate-\(candidate.name)")
-                        }
-                        skip
-                    }
-                }
-            }
-        }
-        .font(.subheadline)
-        .padding(14)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.fill.tertiary, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-        .accessibilityElement(children: .contain)
-        .accessibilityIdentifier("mindReviewCard")
-    }
-
-    private var skip: some View {
-        Button("Skip") { answer(question, .skip) }
-            .buttonStyle(.borderless)
-            .accessibilityIdentifier("reviewSkip")
     }
 }

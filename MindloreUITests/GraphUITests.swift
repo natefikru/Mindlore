@@ -39,6 +39,18 @@ final class GraphUITests: XCTestCase {
 
     private var canvas: XCUIElement { app.descendants(matching: .any)["mindGraphCanvas"] }
 
+    // Drags the panel up to its middle stop; a tap on the grabber only reaches its accessibility
+    // action, which XCUITest's tap doesn't trigger.
+    private func raisePanel() {
+        let grabber = app.descendants(matching: .any)["mindPanelGrabber"]
+        XCTAssertTrue(grabber.waitForExistence(timeout: 5))
+        grabber.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+            .press(forDuration: 0.05, thenDragTo: app.windows.firstMatch.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.45)))
+    }
+
+    // The page and the Edit sheet over it both show the description.
+    private var bioText: XCUIElement { app.staticTexts.matching(identifier: "entityBio").firstMatch }
+
     private func openMind() {
         app.tabBars.buttons["Mind"].tap()
         XCTAssertTrue(canvas.waitForExistence(timeout: 5))
@@ -84,7 +96,8 @@ final class GraphUITests: XCTestCase {
     // until it's scrolled into view.
     private func scrollToElement(_ element: XCUIElement, in container: XCUIElement, maxSwipes: Int = 6) {
         var swipes = 0
-        while !element.exists && swipes < maxSwipes {
+        // Hittable, not just present: a Form row can exist under the tab bar.
+        while !(element.exists && element.isHittable) && swipes < maxSwipes {
             container.swipeUp()
             swipes += 1
         }
@@ -114,11 +127,11 @@ final class GraphUITests: XCTestCase {
 
         let page = app.descendants(matching: .any)["entityPage"]
         XCTAssertTrue(page.waitForExistence(timeout: 5))
-        let drafted = app.staticTexts["entityBioDrafted"]
-        if !drafted.waitForExistence(timeout: 10) {
-            FileManager.default.createFile(atPath: "/tmp/graphui-dump2.txt", contents: Data(app.debugDescription.utf8))
-        }
-        XCTAssertTrue(drafted.exists, "the stub answers the entity_bio request directly")
+        XCTAssertTrue(bioText.waitForExistence(timeout: 10), "the stub answers the entity_bio request directly")
+
+        // The description's controls live under Edit, with the AI mark.
+        app.buttons["entityEdit"].tap()
+        XCTAssertTrue(app.staticTexts["entityBioDrafted"].waitForExistence(timeout: 5))
 
         // Editing the bio clears the AI mark.
         let editButton = app.buttons["entityBioEdit"]
@@ -130,7 +143,7 @@ final class GraphUITests: XCTestCase {
         field.typeText(" (edited)")
         app.buttons["entityBioSave"].tap()
         XCTAssertFalse(app.staticTexts["entityBioDrafted"].waitForExistence(timeout: 3))
-        XCTAssertTrue(app.staticTexts["entityBio"].label.contains("(edited)"))
+        XCTAssertTrue(bioText.label.contains("(edited)"))
 
         // Adding another name.
         app.buttons["entityAddAlias"].tap()
@@ -139,6 +152,8 @@ final class GraphUITests: XCTestCase {
         aliasAlert.textFields.firstMatch.typeText("Sar")
         aliasAlert.buttons["Add"].tap()
         XCTAssertTrue(app.staticTexts["Sar"].waitForExistence(timeout: 5))
+        app.buttons["entityEditDone"].tap()
+        XCTAssertTrue(bioText.label.contains("(edited)"), "the page shows the edited description")
 
         goBack() // entity page -> insights sheet
         let tagChip = app.buttons["entityChip-tag-river"]
@@ -159,12 +174,15 @@ final class GraphUITests: XCTestCase {
         let sarahChipAgain = app.buttons["entityChip-person-Sarah"]
         scrollToElement(sarahChipAgain, in: app.scrollViews["insightsSheet"])
         sarahChipAgain.tap()
-        XCTAssertTrue(app.staticTexts["entityBio"].waitForExistence(timeout: 5))
-        XCTAssertTrue(app.staticTexts["entityBio"].label.contains("(edited)"))
+        XCTAssertTrue(bioText.waitForExistence(timeout: 5))
+        XCTAssertTrue(bioText.label.contains("(edited)"))
+        app.buttons["entityEdit"].tap()
+        XCTAssertTrue(bioText.waitForExistence(timeout: 5))
         XCTAssertFalse(app.staticTexts["entityBioDrafted"].exists)
     }
     // The stub's entry puts Sarah, Tom, and the river tag on the map, all with one mention, which a
-    // young journal shows by default. Focus by tapping, drag and pinch, clear, and filter.
+    // young journal shows by default. Focus by tapping, drag and pinch, clear, then the window and
+    // a kind chip.
     @MainActor
     func testMindFocusesATappedNodeAndKeepsResponding() throws {
         finishAndLeave()
@@ -191,13 +209,21 @@ final class GraphUITests: XCTestCase {
         waitFor("value ENDSWITH 'focused=none'", on: canvas)
         XCTAssertFalse(app.descendants(matching: .any)["entityPeekCard"].waitForExistence(timeout: 2))
 
-        // Switching people off drops Sarah and Tom without replacing the canvas.
-        app.buttons["mindFilters"].tap()
-        let people = app.switches["mindKind-person"]
-        XCTAssertTrue(people.waitForExistence(timeout: 5))
-        people.coordinate(withNormalizedOffset: CGVector(dx: 0.95, dy: 0.5)).tap()
-        app.buttons["Done"].tap()
-        waitFor("value BEGINSWITH 'nodes=1 '", on: canvas)
+        // Today's entry is inside every window, so each one keeps the three.
+        for window in ["month", "year", "all", "quarter"] {
+            app.buttons["mindWindow-\(window)"].tap()
+            waitFor("value BEGINSWITH 'nodes=3 '", on: canvas)
+        }
+        XCTAssertTrue(app.buttons["mindWindow-quarter"].isSelected)
+
+        // Themes alone leaves the river tag, drawn as a ring, without replacing the canvas.
+        raisePanel()
+        let themes = app.buttons["mindKindChip-tags"]
+        XCTAssertTrue(themes.waitForExistence(timeout: 5))
+        themes.tap()
+        waitFor("value BEGINSWITH 'nodes=1 rings=1 '", on: canvas)
+        app.buttons["mindKindChip-all"].tap()
+        waitFor("value BEGINSWITH 'nodes=3 '", on: canvas)
     }
 
     // Search, the card, the page, an entry preview, a merge that refocuses the map on the winner,
@@ -220,7 +246,7 @@ final class GraphUITests: XCTestCase {
 
         app.buttons["entityPeekOpen"].tap()
         XCTAssertTrue(app.descendants(matching: .any)["entityPage"].waitForExistence(timeout: 5))
-        XCTAssertTrue(app.staticTexts["entityBioDrafted"].waitForExistence(timeout: 10), "opening the page drafts the bio")
+        XCTAssertTrue(bioText.waitForExistence(timeout: 10), "opening the page drafts the bio")
         XCTAssertTrue(app.descendants(matching: .any)["entityLooseEnds"].waitForExistence(timeout: 5))
         let summary = app.buttons["entityEntriesSummary"]
         scrollToElement(summary, in: app.collectionViews.firstMatch)
@@ -278,8 +304,8 @@ final class GraphUITests: XCTestCase {
         XCTAssertTrue(search("Tom").waitForExistence(timeout: 5), "unmerge restored Tom")
     }
 
-    // The review card: a suggestion appears when two names look alike, "Not the same" dismisses
-    // it, and both stay.
+    // Tidy up: a suggestion appears when two names look alike, "Not the same" dismisses it, and
+    // both stay.
     @MainActor
     func testReviewCardNotTheSameRemovesThePair() throws {
         finishAndLeave()
@@ -287,85 +313,32 @@ final class GraphUITests: XCTestCase {
         openPage("Tom")
 
         // Renaming Tom to "Sara" makes him look like Sarah, so a suggestion appears.
+        app.buttons["entityEdit"].tap()
         app.buttons["entityRename"].tap()
         let renameField = app.textFields["entityRenameField"]
         XCTAssertTrue(renameField.waitForExistence(timeout: 5))
         renameField.doubleTap()
         renameField.typeText("Sara")
         app.buttons["entityRenameSave"].tap()
+        app.buttons["entityEditDone"].tap()
         goBack() // Sara's page -> map
 
-        // Choosing Tom cleared the search and lowered the panel; focusing the field raises it.
-        app.textFields["mindSearchField"].tap()
+        // Choosing Tom lowered the panel; the grabber raises it, and Tidy up closes the list.
+        raisePanel()
+        let tidyUp = app.buttons["mindTidyUp"]
+        scrollToElement(tidyUp, in: app.descendants(matching: .any)["mindSearchPanel"])
+        XCTAssertTrue(tidyUp.exists)
+        XCTAssertTrue(tidyUp.label.contains("to check"), tidyUp.label)
+        tidyUp.tap()
         let notTheSame = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'reviewNotSame-'")).firstMatch
         XCTAssertTrue(notTheSame.waitForExistence(timeout: 5), "Sara and Sarah look alike enough to ask")
         notTheSame.tap()
+        XCTAssertTrue(app.staticTexts["tidyUpNothing"].waitForExistence(timeout: 5))
+        app.buttons["tidyUpDone"].tap()
 
-        let stillAsked = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'reviewNotSame-'")).firstMatch
-        XCTAssertFalse(stillAsked.waitForExistence(timeout: 3))
+        XCTAssertFalse(app.buttons["mindTidyUp"].waitForExistence(timeout: 3), "nothing left to tidy")
         XCTAssertTrue(app.buttons["mindRow-Sara"].exists)
         XCTAssertTrue(app.buttons["mindRow-Sarah"].exists)
-    }
-
-    // An area tile brings its entities forward; a second tap clears it. The stub files the entry
-    // under Friends.
-    @MainActor
-    func testAreaTileHighlightsItsEntities() throws {
-        finishAndLeave()
-        openMind()
-        waitFor("value BEGINSWITH 'nodes=3 '", on: canvas)
-        XCTAssertTrue((canvas.value as? String)?.contains("highlighted=0") == true)
-
-        let friends = app.buttons["areaTile-friends"]
-        XCTAssertTrue(friends.waitForExistence(timeout: 5))
-        friends.tap()
-        waitFor("value CONTAINS 'highlighted=3'", on: canvas)
-        friends.tap()
-        waitFor("value CONTAINS 'highlighted=0'", on: canvas)
-    }
-
-    // Lenses recolour without touching the node set; the entry dot and area grouping come from
-    // the filters; a tap on the dot opens the entry for reading on Journal.
-    @MainActor
-    func testMindLensesEntriesAndRegions() throws {
-        finishAndLeave()
-        openMind()
-        waitFor("value BEGINSWITH 'nodes=3 '", on: canvas)
-
-        app.buttons["mindLens"].tap()
-        app.buttons["Mood around"].tap()
-        waitFor("value CONTAINS 'lens=mood'", on: canvas)
-        XCTAssertTrue(app.descendants(matching: .any)["mindLensLegend"].waitForExistence(timeout: 5))
-        app.buttons["mindLens"].tap()
-        app.buttons["Recent"].tap()
-        waitFor("value CONTAINS 'lens=recency'", on: canvas)
-        app.buttons["mindLens"].tap()
-        app.buttons["Kinds"].tap()
-        waitFor("value CONTAINS 'lens=kind'", on: canvas)
-        XCTAssertFalse(app.descendants(matching: .any)["mindLensLegend"].exists)
-
-        app.buttons["mindFilters"].tap()
-        for id in ["mindShowEntries", "mindGroupByArea"] {
-            let toggle = app.switches[id]
-            XCTAssertTrue(toggle.waitForExistence(timeout: 5))
-            toggle.coordinate(withNormalizedOffset: CGVector(dx: 0.95, dy: 0.5)).tap()
-        }
-        app.buttons["Done"].tap()
-        waitFor("value BEGINSWITH 'nodes=3 ' AND value CONTAINS 'entries=1'", on: canvas)
-
-        // Lowered, the panel covers as little of the map as it can; the canvas reports the dot's
-        // spot once the regrouped layout settles.
-        let panel = app.descendants(matching: .any)["mindSearchPanel"]
-        let grabber = panel.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.02))
-        grabber.press(forDuration: 0.1, thenDragTo: grabber.withOffset(CGVector(dx: 0, dy: 500)))
-        waitFor("value == 'stop=peek'", on: panel)
-        waitFor("value CONTAINS 'entryDot='", on: canvas, timeout: 20)
-        let value = try XCTUnwrap(canvas.value as? String)
-        let token = try XCTUnwrap(value.split(separator: " ").first { $0.hasPrefix("entryDot=") })
-        let parts = token.dropFirst("entryDot=".count).split(separator: ",").compactMap { Double($0) }
-        XCTAssertEqual(parts.count, 2)
-        canvas.coordinate(withNormalizedOffset: CGVector(dx: parts[0], dy: parts[1])).tap()
-        XCTAssertTrue(app.descendants(matching: .any)["entryReadText"].waitForExistence(timeout: 5), "the dot opened its entry for reading")
     }
 
     // Replay runs to the end on its own and hands back the same map.
@@ -377,11 +350,12 @@ final class GraphUITests: XCTestCase {
         let play = app.buttons["mindReplay"]
         waitFor("isEnabled == true", on: play)
         play.tap()
-        waitFor("value CONTAINS 'replay=on'", on: canvas)
-        XCTAssertTrue(app.buttons["mindReplayStop"].exists)
-        waitFor("value CONTAINS 'replay=off'", on: canvas, timeout: 20)
+        let stop = app.buttons["mindReplayStop"]
+        XCTAssertTrue(stop.waitForExistence(timeout: 5))
+        XCTAssertFalse(app.buttons["mindWindow-quarter"].isSelected, "a replay plays all time, so no window is chosen")
+        XCTAssertTrue(play.waitForExistence(timeout: 20), "it ends on its own")
         waitFor("value BEGINSWITH 'nodes=3 '", on: canvas)
-        XCTAssertTrue(play.exists)
+        XCTAssertTrue(app.buttons["mindWindow-quarter"].isSelected)
     }
 
     // From an entry's read view: the name's card, its page, then Show in Mind. Mind opens focused
@@ -408,5 +382,51 @@ final class GraphUITests: XCTestCase {
 
         app.tabBars.buttons["Journal"].tap()
         XCTAssertTrue(readText.waitForExistence(timeout: 5), "the entry is still open on Journal")
+    }
+
+    // The story journal: a year with a cast, where each window holds a different map and list.
+    private func launchStory() {
+        app.launchArguments = ["-seedStoryJournal", "-resetStoryJournal"]
+        app.launchEnvironment = [:]
+        app.launch()
+        let mind = app.tabBars.buttons["Mind"]
+        XCTAssertTrue(mind.waitForExistence(timeout: 90))
+        mind.tap()
+        XCTAssertTrue(canvas.waitForExistence(timeout: 30))
+    }
+
+    private var firstRankedRow: XCUIElement {
+        app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'mindRow-'")).firstMatch
+    }
+
+    // A shorter window draws fewer names and ranks the list by its own counts.
+    @MainActor
+    func testWindowChangesTheMapAndTheList() throws {
+        launchStory()
+        app.buttons["mindWindow-all"].tap()
+        waitFor("value BEGINSWITH 'nodes='", on: canvas)
+        sleep(2)
+        let allNodes = try XCTUnwrap(canvas.graphNodeCount)
+        XCTAssertTrue(firstRankedRow.waitForExistence(timeout: 5))
+        let allTop = firstRankedRow.label
+
+        app.buttons["mindWindow-month"].tap()
+        XCTAssertTrue(app.buttons["mindWindow-month"].isSelected)
+        waitFor("NOT (value BEGINSWITH %@)", "nodes=\(allNodes) ", on: canvas, timeout: 10)
+        let monthNodes = try XCTUnwrap(canvas.graphNodeCount)
+        XCTAssertLessThan(monthNodes, allNodes)
+        XCTAssertNotEqual(firstRankedRow.label, allTop, "the list counts the month, not all time")
+    }
+
+    // A "what changed" card focuses its name on the map, the way a row does.
+    @MainActor
+    func testWhatChangedFocusesAName() throws {
+        launchStory()
+        let card = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'mindChange-'")).firstMatch
+        XCTAssertTrue(card.waitForExistence(timeout: 10), "three months of the story has changes to show")
+        let name = String(card.identifier.dropFirst("mindChange-".count))
+        card.tap()
+        waitFor("value ENDSWITH %@", "focused=\(name)", on: canvas)
+        XCTAssertTrue(app.descendants(matching: .any)["entityPeekCard"].waitForExistence(timeout: 5))
     }
 }

@@ -58,6 +58,25 @@ struct EntityGraphTests {
         #expect(abs(edges[0].weight - 2.0) < 0.0001)
     }
 
+    // The count follows part placement: an entry where the two sit in different parts shares
+    // nothing, so it adds neither weight nor an entry.
+    @Test func edgeEntriesCountOnlyEntriesWhosePlacementConnects() {
+        let together = UUID(), alsoTogether = UUID(), apart = UUID(), noParts = UUID()
+        let a = UUID(), b = UUID()
+        let edges = EntityGraph.build(links: [
+            .init(entryID: together, entityID: a, entryDate: now, parts: [0]),
+            .init(entryID: together, entityID: b, entryDate: now, parts: [0, 1]),
+            .init(entryID: alsoTogether, entityID: a, entryDate: now, parts: [1]),
+            .init(entryID: alsoTogether, entityID: b, entryDate: now, parts: [1]),
+            .init(entryID: apart, entityID: a, entryDate: now, parts: [0]),
+            .init(entryID: apart, entityID: b, entryDate: now, parts: [1]),
+            link(noParts, a, now), link(noParts, b, now), link(noParts, a, now),
+        ], asOf: now)
+        #expect(edges.count == 1)
+        #expect(edges[0].entries == 3)
+        #expect(abs(edges[0].weight - 3.0) < 0.0001)
+    }
+
     @Test func duplicateEntityInOneEntryDoesNotSelfPairOrInflate() {
         let entry = UUID()
         let a = UUID(), b = UUID()

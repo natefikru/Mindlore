@@ -2,8 +2,10 @@ import SwiftData
 import SwiftUI
 
 // The Mind tab: the whole journal's map, full screen, with a search panel pulled up from the
-// bottom. Tapping a node or a result focuses it and shows its card; the trail of focuses is the
-// breadcrumb row. Entity pages push onto the router's Mind path.
+// bottom. Each channel means one thing: colour is life area, shape is kind (a tag is a ring), size
+// is how many entries in the window name it, and the window control at the top is time. Tapping a
+// node or a result focuses it and shows its card; the trail of focuses is the breadcrumb row.
+// Entity pages push onto the router's Mind path.
 struct MindView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.modelContext) private var modelContext
@@ -15,39 +17,43 @@ struct MindView: View {
     @State private var simulation: GraphSimulation?
     @State private var version = 0
     @State private var names: [UUID: String] = [:]
-    @State private var filters = MindFilters()
-    @State private var loadedFilters: MindFilters?
     @State private var areaOf: [UUID: LifeArea] = [:]
-    @State private var entryAreas: [UUID: [LifeArea]] = [:]
-    @State private var regionLabels: [GraphRegion] = []
-    @State private var haloed: Set<UUID> = []
+    @State private var areaGeneration = 0
     @State private var arrivedAt: [UUID: Date] = [:]
-    // Entities the journal has at all, whatever the filters do with them: what tells an empty
-    // journal apart from a filtered-out one.
+    // Names the journal has at all, whatever the window does with them: what tells an empty
+    // journal apart from a quiet stretch.
     @State private var browsableCount = 0
-    @State private var highlightedArea: LifeArea?
     @State private var trail = FocusTrail()
     @State private var panelStop: SearchPanel.Stop = .half
-    @State private var showingFilters = false
-    @State private var lens: MindLens = .kind
-    @State private var paint: GraphPaint?
-    @State private var paintGeneration = 0
+    // Remembered for as long as the app runs, never saved as a setting (owner, 2026-09-23).
+    @State private var window = MindWindow.default
+    @State private var segment: EntitySearch.Segment = .all
+    @State private var loadedKey: RefreshKey?
+    @State private var drawerStats = MindDrawer.Stats.empty
+    // The replay plays the whole journal, first mention to today, whatever the window says
+    // (owner, 2026-09-23), then hands the map back to the window.
     @State private var player = MindReplayPlayer()
     @State private var replayTask: Task<Void, Never>?
     @State private var replayAvailable = false
-    // The top bar's controls share one glass container, so three lenses a few points apart sample
-    // once and blend instead of stacking. The namespace is what lets the replay control morph
-    // between its round button and its wider date chip rather than being replaced by it.
     @Namespace private var glass
 
     // Grows with the text size, or the peek card's name, details, and bio clip at accessibility
     // sizes. Capped so the map keeps some room.
-    static var cardHeight: CGFloat { min(UIFontMetrics.default.scaledValue(for: 200), 360) }
+    static var cardHeight: CGFloat { min(UIFontMetrics.default.scaledValue(for: 260), 460) }
     private static let topBarHeight: CGFloat = 52
+    private static let crumbRowHeight: CGFloat = 36
 
     private struct RefreshKey: Equatable {
-        let filters: MindFilters
         let revision: Int
+        let window: MindWindow
+        let segment: EntitySearch.Segment
+        let visibleAreas: [LifeArea]
+        // Who the author is, so "what changed" never lists them.
+        let userName: String
+    }
+
+    private var refreshKey: RefreshKey {
+        RefreshKey(revision: graph.revision, window: window, segment: segment, visibleAreas: settings.visibleLifeAreas, userName: settings.userName)
     }
 
     var body: some View {
@@ -59,12 +65,8 @@ struct MindView: View {
                 ZStack(alignment: .bottom) {
                     graphLayer(available: available, safeArea: safeArea)
                         .ignoresSafeArea()
-                    VStack(spacing: 4) {
+                    VStack(spacing: 0) {
                         topBar
-                        if lens != .kind {
-                            MindLensLegend(lens: lens, paint: paint)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                        }
                         Spacer(minLength: 0)
                     }
                     VStack(spacing: 8) {
@@ -81,7 +83,8 @@ struct MindView: View {
                         SearchPanel(
                             stop: $panelStop,
                             available: available,
-                            highlightedArea: $highlightedArea,
+                            segment: $segment,
+                            stats: drawerStats,
                             select: { focus($0, source: .search) },
                             open: { router.mindPath.append(EntityRoute(id: $0)) }
                         )
@@ -101,7 +104,7 @@ struct MindView: View {
             router.replaceInMind(loser, with: winner)
             trail.replace(loser, with: winner)
         })
-        .task(id: RefreshKey(filters: filters, revision: graph.revision)) { refresh() }
+        .task(id: refreshKey) { refresh() }
         .onChange(of: router.mindFocusRequest?.token) {
             // Ending the replay refreshes, and the refresh takes the request.
             if player.isRunning { endReplay(finished: false) } else { takeFocusRequest() }
@@ -109,20 +112,6 @@ struct MindView: View {
         // Nor from under a pushed page.
         .onChange(of: router.mindPath.isEmpty) { _, empty in
             if !empty { endReplay(finished: false) }
-        }
-        .onChange(of: router.dismissPresentationsToken) { showingFilters = false }
-        .onChange(of: lens) {
-            repaint()
-            graph.recordMindLensChanged(lens.rawValue)
-        }
-        // Hiding an area in Settings removes its tile, which would leave no way to clear it.
-        .onChange(of: settings.visibleLifeAreas) { _, visible in
-            if let area = highlightedArea, !visible.contains(area) { highlightedArea = nil }
-            if filters.groupsByArea { refresh() }
-        }
-        .sheet(isPresented: $showingFilters) {
-            MindFiltersView(filters: $filters)
-                .presentationDetents([.medium, .large])
         }
     }
 
@@ -145,21 +134,15 @@ struct MindView: View {
                         }
                     }
                 ),
-                highlightedIDs: highlightedIDs,
-                highlightGroup: highlightedArea?.rawValue,
-                paint: paint,
-                regions: regionLabels,
-                // The recency lens already colours by how lately a name came up, over thirty days
-                // rather than seven. Two answers to the same question on one map is one too many.
-                haloedIDs: lens == .recency ? [] : haloed,
+                areaOf: areaOf,
+                areaGeneration: areaGeneration,
                 arrivedAt: arrivedAt,
-                lens: lens,
+                recentreToken: MindWindow.allCases.firstIndex(of: window) ?? 0,
                 animating: player.isRunning,
                 clearsMissingFocus: false,
                 visibleInsets: visibleInsets(available: available, safeArea: safeArea),
                 onNavigate: { router.mindPath.append(EntityRoute(id: $0)) },
-                onOpenEntry: { openEntry($0) },
-                onRendered: { graph.recordGraphRendered($0) },
+                onRendered: { graph.recordGraphRendered($0, window: window) },
                 accessibilityIdentifier: "mindGraphCanvas"
             )
             .overlay {
@@ -174,23 +157,24 @@ struct MindView: View {
     }
 
     // Two ways for the map to be blank, and they need opposite things said to them. An empty
-    // journal has nothing to draw and the only fix is writing something. A journal whose nodes are
-    // all filtered out used to draw an empty screen with a panel on it and no explanation at all.
+    // journal has nothing to draw and the only fix is writing something. A journal with nothing in
+    // this stretch (or of this kind) has plenty; it only needs the window opened back up.
     @ViewBuilder
     private var emptyState: some View {
         if browsableCount > 0 {
             ContentUnavailableView {
-                Label("Nothing matches these filters", systemImage: "line.3.horizontal.decrease")
+                Label("Nothing in this stretch", systemImage: "calendar")
             } description: {
-                Text("Search still finds everything the map leaves out.")
+                Text("Search still finds every name.")
             } actions: {
-                // Back to this journal's own default, minimum included: a minimum set too high is
-                // the likeliest reason the map went blank, so a clear that kept it would do
-                // nothing and look broken.
-                Button("Clear filters") {
-                    filters = MindFilters(minimumMentions: MindFilters.defaultMinimum(browsableCount: browsableCount))
+                if window != .all {
+                    Button("Show all time") { window = .all }
+                        .accessibilityIdentifier("mindShowAllTime")
                 }
-                    .accessibilityIdentifier("mindClearFilters")
+                if segment != .all {
+                    Button("Show every kind") { segment = .all }
+                        .accessibilityIdentifier("mindShowEveryKind")
+                }
             }
             .accessibilityIdentifier("mindEmptyState")
         } else if !AIServices.insightsUsable(settings: settings, accounts: accounts) {
@@ -219,8 +203,25 @@ struct MindView: View {
         }
     }
 
+    // Play and the window control, centred, with room on the right for a button later (Reflect's
+    // Numbers), and the breadcrumbs on their own row beneath once there are two. One glass
+    // container, so the play button growing into the replay's date chip blends with the control.
     private var topBar: some View {
-        HStack(alignment: .center, spacing: 8) {
+        VStack(spacing: 0) {
+            GlassEffectContainer(spacing: 8) {
+                HStack(spacing: 8) {
+                    MindReplayControls(
+                        player: player,
+                        available: replayAvailable,
+                        play: startReplay,
+                        stop: { endReplay(finished: false) },
+                        glass: glass
+                    )
+                    .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
+                    windowControl
+                }
+            }
+            .frame(height: Self.topBarHeight)
             if trail.ids.count > 1 {
                 ScrollViewReader { proxy in
                     ScrollView(.horizontal, showsIndicators: false) {
@@ -233,48 +234,50 @@ struct MindView: View {
                     }
                     .onChange(of: trail.current) { proxy.scrollTo(trail.current, anchor: .trailing) }
                 }
+                .frame(height: Self.crumbRowHeight)
             }
-            Spacer(minLength: 0)
-            GlassEffectContainer(spacing: 8) {
-                HStack(spacing: 8) {
-                    MindReplayControls(
-                        player: player,
-                        available: replayAvailable,
-                        play: startReplay,
-                        stop: { endReplay(finished: false) },
-                        glass: glass
-                    )
-                    Menu {
-                        Picker("Color by", selection: $lens) {
-                            ForEach(MindLens.allCases, id: \.self) { lens in
-                                Label(lens.title, systemImage: lens.symbol)
-                                    .accessibilityIdentifier("mindLens-\(lens.rawValue)")
+        }
+    }
+
+    // One glass capsule holding the four stretches; the chosen one sits in a tinted capsule that
+    // slides between them rather than jumping. During a replay nothing is chosen: the map is the
+    // whole journal, and picking a stretch ends the replay on it.
+    private var windowControl: some View {
+        HStack(spacing: 2) {
+            ForEach(MindWindow.allCases, id: \.self) { option in
+                let selected = option == window && !player.isRunning
+                Button {
+                    window = option
+                    endReplay(finished: false)
+                } label: {
+                    Text(option.title)
+                        .font(.subheadline.weight(selected ? .semibold : .regular))
+                        .foregroundStyle(selected ? .primary : .secondary)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 7)
+                        .background {
+                            if selected {
+                                Capsule()
+                                    .fill(.tint.opacity(0.22))
+                                    .matchedGeometryEffect(id: "selectedWindow", in: glass)
                             }
                         }
-                    } label: {
-                        Image(systemName: "paintpalette")
-                            .font(.body.weight(.semibold))
-                            .frame(width: 40, height: 40)
-                            .glassEffect(.regular.interactive(), in: Circle())
-                    }
-                    .accessibilityLabel("Color by")
-                    .accessibilityIdentifier("mindLens")
-                    Button {
-                        showingFilters = true
-                    } label: {
-                        Image(systemName: "line.3.horizontal.decrease")
-                            .font(.body.weight(.semibold))
-                            .symbolEffect(.bounce, value: filters)
-                            .frame(width: 40, height: 40)
-                            .glassEffect(.regular.interactive(), in: Circle())
-                    }
-                    .accessibilityLabel("Filters")
-                    .accessibilityIdentifier("mindFilters")
                 }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("mindWindow-\(option.rawValue)")
+                .accessibilityAddTraits(selected ? .isSelected : [])
             }
-            .padding(.trailing, 12)
         }
-        .frame(height: Self.topBarHeight)
+        .padding(3)
+        .glassEffect(.regular.interactive(), in: Capsule())
+        // Four words across one row: past the largest standard size they truncated to "M…" and
+        // "Y…". VoiceOver and Large Content Viewer still read the full titles.
+        .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
+        .animation(Motion.resolve(.snappy, reduceMotion: reduceMotion), value: window)
+        .sensoryFeedback(.selection, trigger: window)
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Time")
+        .accessibilityIdentifier("mindWindow")
     }
 
     private func crumb(_ id: UUID) -> some View {
@@ -296,18 +299,12 @@ struct MindView: View {
         .accessibilityIdentifier("mindCrumb-\(name)")
     }
 
-    private var highlightedIDs: Set<UUID>? {
-        highlightedArea.map { area in
-            Set(areaOf.compactMap { $0.value == area ? $0.key : nil })
-                .union(entryAreas.compactMap { $0.value.contains(area) ? $0.key : nil })
-        }
-    }
-
     // In the canvas's own space, which runs under the status bar and the tab bar.
     private func visibleInsets(available: CGFloat, safeArea: EdgeInsets) -> EdgeInsets {
         let card = trail.current == nil ? 0 : Self.cardHeight + 8
+        let crumbs = trail.ids.count > 1 ? Self.crumbRowHeight : 0
         return EdgeInsets(
-            top: safeArea.top + Self.topBarHeight,
+            top: safeArea.top + Self.topBarHeight + crumbs,
             leading: 0,
             bottom: safeArea.bottom + SearchPanel.height(for: panelStop, available: available) + card,
             trailing: 0
@@ -336,36 +333,30 @@ struct MindView: View {
 
     // MARK: - Data
 
-    // What the map shows at one moment: the live map, or one replay step.
+    // What the map shows for one window and kind.
     struct Frame {
         var nodes: [GraphSimulation.Node]
         var edges: [EntityGraph.Edge]
         var names: [UUID: String]
+        // Only the nodes on the map, and only areas the user hasn't hidden: a hidden area's names
+        // draw neutral rather than in a colour the rest of the app no longer shows.
         var areaOf: [UUID: LifeArea]
-        var entryAreas: [UUID: [LifeArea]]
-        var regions: [UUID: SIMD2<Double>]
     }
 
-    static func frame(_ snapshot: MindMapSnapshot, filters: MindFilters, visibleAreas: [LifeArea], asOf: Date) -> Frame {
-        let data = MindMap.graph(snapshot, kinds: filters.kinds, minimumLinkCount: filters.minimumMentions, asOf: asOf)
-        var nodes = data.nodes
-        var edges = data.edges
-        var entryAreas: [UUID: [LifeArea]] = [:]
-        if filters.showsEntries {
-            let dots = MindMap.entryNodes(snapshot, onMap: Set(nodes.map(\.id)), asOf: asOf)
-            nodes += dots.nodes
-            edges += dots.edges
-            for dot in dots.nodes {
-                entryAreas[dot.id] = snapshot.entries[dot.id]?.areas ?? []
-            }
-        }
-        let areaOf = MindMap.primaryAreas(snapshot, asOf: asOf)
-        var regions: [UUID: SIMD2<Double>] = [:]
-        if filters.groupsByArea {
-            let points = MindRegions.points(visible: visibleAreas, entityCount: snapshot.entities.count)
-            regions = MindRegions.nodePoints(nodes: nodes, areaOf: areaOf, entryAreas: entryAreas, points: points)
-        }
-        return Frame(nodes: nodes, edges: edges, names: data.names, areaOf: areaOf, entryAreas: entryAreas, regions: regions)
+    static func frame(_ snapshot: MindMapSnapshot, window: MindWindow, segment: EntitySearch.Segment, visibleAreas: [LifeArea], asOf: Date) -> Frame {
+        let kinds = segment == .all ? nil : Set(EntityKind.allCases.filter(segment.includes))
+        let data = MindMap.graph(
+            snapshot,
+            window: window,
+            kinds: kinds,
+            minimumLinkCount: MindMap.minimumMentions(browsableCount: snapshot.entities.count),
+            asOf: asOf
+        )
+        let onMap = Set(data.nodes.map(\.id))
+        let visible = Set(visibleAreas)
+        let areaOf = MindStats.areas(snapshot, window: window, asOf: asOf)
+            .filter { onMap.contains($0.key) && visible.contains($0.value) }
+        return Frame(nodes: data.nodes, edges: data.edges, names: data.names, areaOf: areaOf)
     }
 
     // The first load builds the simulation; every change after that updates it in place, so
@@ -377,54 +368,47 @@ struct MindView: View {
             return
         }
         let now = Date.now
+        let key = refreshKey
         let snapshot = graph.mapSnapshot(in: modelContext)
         replayAvailable = MindReplay(snapshot: snapshot, end: now) != nil
-        if loadedFilters == nil {
-            let minimum = MindFilters.defaultMinimum(browsableCount: snapshot.entities.count)
-            if minimum != filters.minimumMentions {
-                filters.minimumMentions = minimum
-            }
-        }
-        let frame = Self.frame(snapshot, filters: filters, visibleAreas: settings.visibleLifeAreas, asOf: now)
-        show(frame, snapshot: snapshot, asOf: now, blooms: loadedFilters == filters)
+        let frame = Self.frame(snapshot, window: window, segment: segment, visibleAreas: settings.visibleLifeAreas, asOf: now)
+        // Only a change the journal made blooms; a window or kind change reveals names that are
+        // not new.
+        let sameView = loadedKey.map { $0.window == key.window && $0.segment == key.segment } ?? false
+        show(frame, snapshot: snapshot, blooms: sameView)
+        let stats = MindDrawer.Stats.make(snapshot, window: window, asOf: now, excluding: MindStats.authorIDs(named: settings.userName, in: snapshot))
+        if stats != drawerStats { drawerStats = stats }
 
         let directory = EntityDirectory(in: modelContext)
         trail.normalize(root: directory.root(of:), exists: { directory.entity($0).map { !$0.isDeleted } ?? false })
-        // A focused entity off the map (filtered, or under the minimum) still needs its crumb name.
+        // A focused entity off the map (another stretch, another kind) still needs its crumb name.
         for id in trail.ids where names[id] == nil {
             names[id] = directory.entity(id)?.name
         }
 
-        if let loadedFilters, loadedFilters != filters {
-            graph.recordMindFiltersChanged(
-                kinds: filters.kinds.count,
-                minimum: filters.minimumMentions,
-                entries: filters.showsEntries,
-                regions: filters.groupsByArea,
-                nodes: frame.nodes.count
-            )
+        if let loadedKey, loadedKey.window != key.window {
+            graph.recordMindWindowChanged(key.window, nodes: frame.nodes.count)
         }
-        loadedFilters = filters
+        loadedKey = key
         takeFocusRequest()
     }
 
     // Puts a frame on the canvas. State is only written when it changed. `publish: false` moves
     // the simulation alone: a replay step's view-state writes re-render all of Mind, which on the
     // phone pushed frame p95 to 32 ms at ten steps a second, so a replay publishes twice a second.
-    private func show(_ frame: Frame, snapshot: MindMapSnapshot, asOf: Date, publish: Bool = true, blooms: Bool = false) {
+    private func show(_ frame: Frame, snapshot: MindMapSnapshot, publish: Bool = true, blooms: Bool) {
         if !publish, let simulation {
-            simulation.update(nodes: frame.nodes, edges: frame.edges, regions: frame.regions)
+            simulation.update(nodes: frame.nodes, edges: frame.edges)
             return
         }
         // Bloom is the app noticing something, so it fires for the one case the user caused: a
         // name that was not on the map before an entry was written. Not on the first build, where
-        // three hundred nodes arriving at once is a firework rather than a notice; not on a filter
-        // change, where the stepper reveals nodes that are not new; and not during a replay, which
-        // adds nodes by construction and is already its own animation. `blooms` carries the last
-        // two, the `simulation` check the first.
+        // three hundred nodes arriving at once is a firework rather than a notice, and not on a
+        // window or kind change, which reveals nodes that are not new. `blooms` carries the
+        // second, the `simulation` check the first.
         if blooms, let simulation {
             let known = Set(simulation.nodes.map(\.id))
-            let arrived = frame.nodes.filter { !known.contains($0.id) && !$0.isEntry }
+            let arrived = frame.nodes.filter { !known.contains($0.id) }
             if !arrived.isEmpty {
                 let now = Date.now
                 // Better-connected first, one Motion.stagger apart, on the rare entry that brings
@@ -440,48 +424,18 @@ struct MindView: View {
             names[id] = self.names[id]
         }
         if names != self.names { self.names = names }
-        if frame.areaOf != areaOf { areaOf = frame.areaOf }
-        if frame.entryAreas != entryAreas { entryAreas = frame.entryAreas }
-        let labels = regionLabels(snapshot)
-        if labels != regionLabels { regionLabels = labels }
-        // Taken at the frame's own date, so a replay's rings follow the replay.
-        let rings = MindMap.haloed(snapshot, asOf: asOf)
-        if rings != haloed { haloed = rings }
+        if frame.areaOf != areaOf {
+            areaOf = frame.areaOf
+            areaGeneration += 1
+        }
         if snapshot.entities.count != browsableCount { browsableCount = snapshot.entities.count }
 
         if let simulation {
-            simulation.update(nodes: frame.nodes, edges: frame.edges, regions: frame.regions)
+            simulation.update(nodes: frame.nodes, edges: frame.edges)
             if version != simulation.topologyVersion { version = simulation.topologyVersion }
         } else {
-            simulation = GraphSimulation(nodes: frame.nodes, edges: frame.edges, regions: frame.regions)
+            simulation = GraphSimulation(nodes: frame.nodes, edges: frame.edges)
         }
-        repaint(snapshot, asOf: asOf)
-    }
-
-    private func regionLabels(_ snapshot: MindMapSnapshot) -> [GraphRegion] {
-        guard filters.groupsByArea else { return [] }
-        let points = MindRegions.points(visible: settings.visibleLifeAreas, entityCount: snapshot.entities.count)
-        return LifeArea.allCases.compactMap { area in
-            points[area].map { GraphRegion(id: area.rawValue, name: settings.name(of: area), point: $0, color: area.color) }
-        }
-    }
-
-    // Rebuilds the lens paint for what the simulation holds now, at the replay's date while one
-    // runs. Only a paint that differs is written, so a replay step doesn't re-render Mind.
-    private func repaint(_ snapshot: MindMapSnapshot? = nil, asOf: Date? = nil) {
-        guard let simulation else { return }
-        if lens == .kind {
-            if paint != nil { paint = nil }
-            return
-        }
-        let snapshot = snapshot ?? graph.mapSnapshot(in: modelContext)
-        let onMap = Set(simulation.nodes.lazy.filter { !$0.isEntry }.map(\.id))
-        let date = asOf ?? player.asOf ?? .now
-        guard let new = lens.paint(snapshot, onMap: onMap, asOf: date, generation: paintGeneration + 1),
-              !(paint?.sameColours(as: new) ?? false)
-        else { return }
-        paintGeneration += 1
-        paint = new
     }
 
     // MARK: - Replay
@@ -493,15 +447,16 @@ struct MindView: View {
         replayTask = Task { await runReplay() }
     }
 
-    // Steps the map every 100 ms off a monotonic clock until the replay's end.
+    // Steps the map every 100 ms off a monotonic clock until the replay's end: all time, as of
+    // each step's date, in the kind the drawer has chosen.
     private func runReplay() async {
         let clock = ContinuousClock()
         let began = clock.now
         while !Task.isCancelled {
             let stepStart = clock.now
             guard let step = player.step(elapsed: (stepStart - began).seconds) else { return }
-            let frame = Self.frame(step.snapshot, filters: filters, visibleAreas: settings.visibleLifeAreas, asOf: step.asOf)
-            show(frame, snapshot: step.snapshot, asOf: step.asOf, publish: MindReplay.publishes(step: player.stepSeconds.count) || step.finished)
+            let frame = Self.frame(step.snapshot, window: .all, segment: segment, visibleAreas: settings.visibleLifeAreas, asOf: step.asOf)
+            show(frame, snapshot: step.snapshot, publish: MindReplay.publishes(step: player.stepSeconds.count) || step.finished, blooms: false)
             player.noteStep(seconds: (clock.now - stepStart).seconds)
             if step.finished {
                 endReplay(finished: true)
@@ -511,7 +466,7 @@ struct MindView: View {
         }
     }
 
-    // Every way out comes through here, once: the map goes back to today in place.
+    // Every way out comes through here, once: the map goes back to the window in place.
     private func endReplay(finished: Bool) {
         guard player.isRunning else { return }
         replayTask?.cancel()
@@ -528,14 +483,12 @@ struct MindView: View {
         )
         refresh()
     }
+}
 
-    // A tapped entry dot opens the entry on the Journal tab, for reading when it's finished.
-    private func openEntry(_ id: UUID) {
-        guard let entry = try? modelContext.fetch(FetchDescriptor<Entry>(predicate: #Predicate { $0.id == id })).first,
-              !entry.isDeleted
-        else { return }
-        router.showEntry(id, forReading: EntryReadMode.opensForReading(entry, automationStartedAt: settings.automationStartedAt))
-        graph.recordMindEntryOpened()
+private extension Duration {
+    var seconds: Double {
+        let parts = components
+        return Double(parts.seconds) + Double(parts.attoseconds) / 1e18
     }
 }
 
@@ -566,68 +519,5 @@ private struct MindPeekOverlay: View {
                         }
                     }
             )
-    }
-}
-
-private struct MindFiltersView: View {
-    @Binding var filters: MindFilters
-    @Environment(\.dismiss) private var dismiss
-
-    var body: some View {
-        NavigationStack {
-            Form {
-                Section {
-                    Toggle(isOn: $filters.showsEntries) {
-                        Label("Entries", systemImage: "circle.fill")
-                    }
-                    .accessibilityIdentifier("mindShowEntries")
-                    Toggle(isOn: $filters.groupsByArea) {
-                        Label("Group by life area", systemImage: "square.grid.3x3")
-                    }
-                    .accessibilityIdentifier("mindGroupByArea")
-                } header: {
-                    Text("Also")
-                } footer: {
-                    Text("Entries show as small grey dots beside what they mention. Tap one to read it.")
-                }
-                Section("Show") {
-                    ForEach(EntityKind.allCases, id: \.self) { kind in
-                        Toggle(isOn: Binding(
-                            get: { filters.kinds.contains(kind) },
-                            set: { on in
-                                if on { filters.kinds.insert(kind) } else { filters.kinds.remove(kind) }
-                            }
-                        )) {
-                            Label(kind.heading, systemImage: kind.symbol)
-                        }
-                        .accessibilityIdentifier("mindKind-\(kind.rawValue)")
-                    }
-                }
-                Section {
-                    Stepper(
-                        filters.minimumMentions == 1 ? "At least 1 mention" : "At least \(filters.minimumMentions) mentions",
-                        value: $filters.minimumMentions,
-                        in: 1...20
-                    )
-                    .accessibilityIdentifier("mindMinimumMentions")
-                } footer: {
-                    Text("Search still finds everything the map leaves out.")
-                }
-            }
-            .navigationTitle("Map filters")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Done") { dismiss() }
-                }
-            }
-        }
-    }
-}
-
-private extension Duration {
-    var seconds: Double {
-        let parts = components
-        return Double(parts.seconds) + Double(parts.attoseconds) / 1e18
     }
 }

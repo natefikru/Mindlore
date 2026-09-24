@@ -133,12 +133,12 @@ struct EntityPagePresentationTests {
     // MARK: - Mentioned with
 
     @Test func coOccurrenceRowsPreservesOrder() {
-        let tom = GraphServices.CoOccurrence(id: a, name: "Tom", kind: .person, weight: 2)
-        let ana = GraphServices.CoOccurrence(id: b, name: "Ana", kind: .person, weight: 1)
+        let tom = GraphServices.CoOccurrence(id: a, name: "Tom", kind: .person, weight: 2, entries: 2)
+        let ana = GraphServices.CoOccurrence(id: b, name: "Ana", kind: .person, weight: 1, entries: 1)
 
         #expect(P.coOccurrenceRows([tom, ana]) == [
-            .init(id: a, name: "Tom", kind: .person),
-            .init(id: b, name: "Ana", kind: .person),
+            .init(id: a, name: "Tom", kind: .person, entries: 2),
+            .init(id: b, name: "Ana", kind: .person, entries: 1),
         ])
     }
 
@@ -191,5 +191,62 @@ struct EntityPageLooseEndTests {
         let split = EntityPagePresentation.looseEnds([old, recent, settled, faded, other], about: sarah) { $0 == sara ? sarah : $0 }
         #expect(split.open == [recent.id, old.id])
         #expect(split.earlier == [faded.id, settled.id])
+    }
+
+    // MARK: - Presence, feeling, area
+
+    private typealias P = EntityPagePresentation
+
+    @Test func namesAndThemesSplitInOrder() {
+        let rows: [P.CoOccurrenceRow] = [
+            .init(id: UUID(), name: "dating", kind: .tag, entries: 43),
+            .init(id: UUID(), name: "Mom", kind: .person, entries: 11),
+            .init(id: UUID(), name: "texting", kind: .tag, entries: 9),
+            .init(id: UUID(), name: "Café Olmo", kind: .place, entries: 7),
+        ]
+        let split = P.partners(rows)
+        #expect(split.names.map(\.name) == ["Mom", "Café Olmo"])
+        #expect(split.themes.map(\.name) == ["dating", "texting"])
+    }
+
+    @Test func presenceHasAMonthPerJournalMonthAndSaysItsBusiest() throws {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "UTC")!
+        func day(_ y: Int, _ m: Int, _ d: Int) -> Date { calendar.date(from: DateComponents(year: y, month: m, day: d, hour: 12))! }
+        let presence = try #require(P.presence(
+            entryDates: [day(2025, 11, 2), day(2025, 11, 20), day(2025, 11, 28), day(2026, 1, 5), day(2026, 3, 1), day(2026, 5, 1)],
+            journalStart: day(2025, 10, 10),
+            now: day(2026, 3, 15),
+            calendar: calendar
+        ))
+        #expect(presence.months == [0, 3, 0, 1, 0, 1], "October to March; May is in the future")
+        #expect(presence.total == 5)
+        #expect(P.presenceWords(presence, calendar: calendar) == "5 entries · Nov 2025 to Mar 2026 · busiest in November 2025")
+
+        let oneMonth = try #require(P.presence(entryDates: [day(2026, 3, 1), day(2026, 3, 2)], journalStart: day(2026, 3, 1), now: day(2026, 3, 15), calendar: calendar))
+        #expect(oneMonth.busiest == nil)
+        #expect(P.presenceWords(oneMonth, calendar: calendar) == "2 entries · Mar 2026")
+        #expect(P.presence(entryDates: [], journalStart: nil, now: day(2026, 3, 15), calendar: calendar) == nil)
+    }
+
+    @Test func feelingNeedsFiveMoodsAndReadsAsCounts() throws {
+        let usual: [MoodCategory: Int] = [.calm: 40, .anxious: 10, .joyful: 30]
+        #expect(P.feeling(moods: [.anxious, .anxious, .calm, nil, nil, nil], usual: usual) == nil, "three with a mood is not a pattern")
+
+        let feeling = try #require(P.feeling(moods: [.anxious, .anxious, .anxious, .anxious, .calm, nil, .low], usual: usual))
+        #expect(feeling.total == 6)
+        #expect(feeling.rows.map(\.mood) == [.anxious, .calm, .low])
+        #expect(P.feelingWords(feeling.rows[0], total: feeling.total, usualTotal: feeling.usualTotal) == "Anxious in 4 of 6 · usually 1 in 8")
+        #expect(P.feelingWords(feeling.rows[2], total: feeling.total, usualTotal: feeling.usualTotal) == "Low in 1 of 6 · rarely otherwise")
+    }
+
+    @Test func thePagesAreaIsTheMostCommonAcrossItsEntries() {
+        let id = UUID()
+        let at = Date(timeIntervalSince1970: 0)
+        let entries: [(id: UUID, date: Date, areas: [LifeArea])] = [
+            (UUID(), at, [.work]), (UUID(), at.addingTimeInterval(10), [.work, .friends]), (UUID(), at.addingTimeInterval(20), [.love]),
+        ]
+        #expect(P.primaryArea(entries, entityID: id) == .work)
+        #expect(P.primaryArea([], entityID: id) == nil)
     }
 }

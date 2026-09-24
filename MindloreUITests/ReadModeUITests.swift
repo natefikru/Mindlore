@@ -81,7 +81,7 @@ final class ReadModeUITests: XCTestCase {
 
         app.buttons["entityPeekOpen"].tap()
         XCTAssertTrue(app.descendants(matching: .any)["entityPage"].waitForExistence(timeout: 5))
-        XCTAssertTrue(app.staticTexts["entityBioDrafted"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.staticTexts["entityBio"].waitForExistence(timeout: 10))
 
         // Back on the card, the drafted bio shows.
         app.navigationBars["Sarah"].buttons.element(boundBy: 0).tap()

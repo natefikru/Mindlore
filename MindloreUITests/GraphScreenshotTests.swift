@@ -55,80 +55,82 @@ final class GraphScreenshotTests: XCTestCase {
         attach("journal-filter-two")
     }
 
-    // The 300-entry demo journal on the Mind tab at rest, with the panel up, focused, and zoomed,
-    // for looking at by eye. The demo seed only runs outside -uiTesting, so this launch uses the
-    // demo store alone.
+    // The story journal on the Mind tab: the map per window, a replay, a focus, the drawer, Tidy
+    // up, the card, the entity page, and its Edit sheet, for looking at by eye. Run it once in
+    // light and once in dark.
     @MainActor
     func testDemoJournalMind() throws {
-        app.launchArguments = ["-seedDemoJournal", "300"]
+        app.launchArguments = ["-seedStoryJournal", "-resetStoryJournal"]
         app.launchEnvironment = [:]
         app.launch()
 
         let mind = app.tabBars.buttons["Mind"]
-        XCTAssertTrue(mind.waitForExistence(timeout: 60))
+        XCTAssertTrue(mind.waitForExistence(timeout: 90))
         mind.tap()
 
         let canvas = app.descendants(matching: .any)["mindGraphCanvas"]
-        XCTAssertTrue(canvas.waitForExistence(timeout: 10))
-        XCTAssertGreaterThan(canvas.graphNodeCount ?? 0, 50)
-        sleep(6)
-        attach("mind-rest-panel-half")
+        XCTAssertTrue(canvas.waitForExistence(timeout: 30))
+        XCTAssertGreaterThan(canvas.graphNodeCount ?? 0, 20)
+        sleep(5)
+        attach("mind-drawer-half")
 
-        app.buttons["areaTile-work"].tap()
-        sleep(2)
-        attach("mind-area-work")
-        app.buttons["areaTile-work"].tap()
-
-        let field = app.textFields["mindSearchField"]
-        field.tap()
-        field.typeText("Sarah")
-        sleep(1)
-        attach("mind-search-keyboard")
-        let row = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'mindRow-Sarah'")).firstMatch
-        XCTAssertTrue(row.waitForExistence(timeout: 5))
-        row.tap()
-        XCTAssertTrue(app.descendants(matching: .any)["entityPeekCard"].waitForExistence(timeout: 5))
-        sleep(2)
-        attach("mind-focused-card")
-
-        canvas.pinch(withScale: 2, velocity: 1)
-        sleep(2)
-        attach("mind-zoomed")
-
-        // A5b: the lenses, entry dots, area regions, and a replay mid-run, zoomed back out.
-        canvas.pinch(withScale: 0.4, velocity: -1)
-        canvas.coordinate(withNormalizedOffset: CGVector(dx: 0.03, dy: 0.2)).tap()
-        for (lens, name) in [("Mood around", "mind-lens-mood"), ("Recent", "mind-lens-recent")] {
-            app.buttons["mindLens"].tap()
-            app.buttons[lens].tap()
-            sleep(2)
-            attach(name)
+        let grabber = app.descendants(matching: .any)["mindPanelGrabber"]
+        grabber.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+            .press(forDuration: 0.05, thenDragTo: app.windows.firstMatch.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.98)))
+        for window in ["month", "quarter", "year", "all"] {
+            app.buttons["mindWindow-\(window)"].tap()
+            sleep(5)
+            attach("mind-window-\(window)")
         }
-        app.buttons["mindLens"].tap()
-        app.buttons["Kinds"].tap()
-
-        app.buttons["mindFilters"].tap()
-        let entries = app.switches["mindShowEntries"]
-        XCTAssertTrue(entries.waitForExistence(timeout: 5))
-        entries.coordinate(withNormalizedOffset: CGVector(dx: 0.95, dy: 0.5)).tap()
-        app.buttons["Done"].tap()
-        sleep(6)
-        attach("mind-entries")
-
-        app.buttons["mindFilters"].tap()
-        let regions = app.switches["mindGroupByArea"]
-        XCTAssertTrue(regions.waitForExistence(timeout: 5))
-        entries.coordinate(withNormalizedOffset: CGVector(dx: 0.95, dy: 0.5)).tap()
-        regions.coordinate(withNormalizedOffset: CGVector(dx: 0.95, dy: 0.5)).tap()
-        app.buttons["Done"].tap()
-        sleep(8)
-        attach("mind-regions")
-
+        app.buttons["mindWindow-quarter"].tap()
         app.buttons["mindReplay"].tap()
         sleep(5)
         attach("mind-replay-midway")
         sleep(7)
-        attach("mind-replay-done")
+
+        grabber.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+            .press(forDuration: 0.05, thenDragTo: app.windows.firstMatch.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.05)))
+        sleep(1)
+        attach("mind-drawer-full")
+        app.buttons["mindKindChip-people"].tap()
+        sleep(1)
+        attach("mind-drawer-people")
+        app.buttons["mindKindChip-all"].tap()
+        let tidyUp = app.buttons["mindTidyUp"]
+        var swipes = 0
+        while !tidyUp.isHittable && swipes < 12 {
+            app.swipeUp()
+            swipes += 1
+        }
+        tidyUp.tap()
+        sleep(2)
+        attach("mind-tidy-up")
+        app.buttons["tidyUpDone"].tap()
+
+        let field = app.textFields["mindSearchField"]
+        field.tap()
+        field.typeText("Maya")
+        let row = app.buttons["mindRow-Maya"]
+        XCTAssertTrue(row.waitForExistence(timeout: 5))
+        row.tap()
+        XCTAssertTrue(app.descendants(matching: .any)["entityPeekCard"].waitForExistence(timeout: 5))
+        sleep(3)
+        attach("mind-focused-card")
+
+        app.buttons["entityPeekOpen"].tap()
+        XCTAssertTrue(app.descendants(matching: .any)["entityPage"].waitForExistence(timeout: 5))
+        sleep(2)
+        attach("entity-page-top")
+        app.collectionViews.firstMatch.swipeUp()
+        sleep(1)
+        attach("entity-page-middle")
+        app.collectionViews.firstMatch.swipeUp()
+        app.collectionViews.firstMatch.swipeUp()
+        sleep(1)
+        attach("entity-page-bottom")
+        app.buttons["entityEdit"].tap()
+        sleep(1)
+        attach("entity-edit")
     }
 
     @MainActor
@@ -150,10 +152,10 @@ final class GraphScreenshotTests: XCTestCase {
         attach("insights-sheet-lower")
         scrollToChip("entityChip-person-Sarah")
         app.buttons["entityChip-person-Sarah"].tap()
-        XCTAssertTrue(app.staticTexts["entityBioDrafted"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.staticTexts["entityBio"].waitForExistence(timeout: 10))
+        attach("entity-page")
+        app.buttons["entityEdit"].tap()
+        XCTAssertTrue(app.staticTexts["entityBioDrafted"].waitForExistence(timeout: 5))
         attach("drafted-bio")
-        app.collectionViews.firstMatch.swipeUp()
-        sleep(1)
-        attach("entity-page-lower")
     }
 }
