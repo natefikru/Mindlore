@@ -98,3 +98,19 @@ struct LifeSourceTests {
         #expect(people.first?.entries == 2, "the merged name's entry counts for the winner")
     }
 }
+
+@MainActor
+struct ThinkingPatternStorageTests {
+    @Test func patternsRideBesideCustomResultsWithoutShowingAsOne() {
+        let insights = EntryInsights()
+        let prompt = CustomInsightResult(promptID: UUID(), name: "Gratitude", content: "The coffee")
+        insights.customResults = [prompt]
+        insights.thinkingPatterns = [.allOrNothing, .harshSelfTalk]
+        #expect(insights.customResults == [prompt])
+        #expect(insights.thinkingPatterns == [.allOrNothing, .harshSelfTalk])
+        insights.customResults = []
+        #expect(insights.thinkingPatterns == [.allOrNothing, .harshSelfTalk], "clearing the cards keeps the patterns")
+        insights.thinkingPatterns = []
+        #expect(insights.customCardsData == nil)
+    }
+}

@@ -291,6 +291,9 @@ nonisolated enum LifePrompts {
         if let contrast = reading.contrast {
             lines.append("- Loose ends: \(LifeCopy.contrast(contrast, name: name))")
         }
+        for item in reading.thinking {
+            lines.append("- How they talk about themselves: \(item.pattern.meaning), in \(item.entries) entries\(item.mostly.map { ", mostly about \(name($0))" } ?? "").")
+        }
         if !priorities.isEmpty {
             lines.append("- They said these matter most right now: \(LifeCopy.listed(priorities.map { name($0.area) })).")
         }

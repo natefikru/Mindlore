@@ -149,6 +149,12 @@ nonisolated enum LifeCopy {
         return line
     }
 
+    static func thinking(_ thinking: LifeSignals.Thinking, window: MindWindow, name: Name) -> String {
+        var line = "In \(thinking.entries) entries \(windowPhrase(window))"
+        if let area = thinking.mostly { line += ", mostly about \(name(area))" }
+        return line + "."
+    }
+
     static func needsMore(_ progress: LifeSignals.Progress) -> String {
         let entries = max(0, LifeSignals.minimumEntries - progress.entries)
         let days = max(0, LifeSignals.minimumDays - progress.days)

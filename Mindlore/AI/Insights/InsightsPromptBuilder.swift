@@ -30,6 +30,7 @@ nonisolated struct InsightsRequestPlan: Sendable {
     let asksForWrittenDate: Bool
     var asksForLifeAreas = false
     var asksForSections = false
+    var asksForThinking = false
     // Exactly what went into the prompt after section toggles, cleaning, and caps, so the
     // disclosure screen can say what was sent rather than what the journal holds today.
     var vocabularySent: InsightsPromptBuilder.JournalVocabulary = .empty
@@ -78,6 +79,7 @@ nonisolated struct InsightsResult: Equatable, Sendable {
     var custom: [CustomInsightResult] = []
     var kind: EntryKind = .journal
     var sections: [EntrySection] = []
+    var thinking: [ThinkingPattern] = []
 
     var creative: Bool {
         get { kind == .creative }
@@ -99,6 +101,8 @@ nonisolated struct InsightsResult: Equatable, Sendable {
         if !kind.keepsMentions { mentions = [] }
         if !kind.keepsLooseEnds { looseEnds = LooseEndResult() }
         if !kind.keepsSections { sections = [] }
+        // How the author talks about themselves is read only from an account of their own life.
+        if !kind.keepsMoods { thinking = [] }
     }
 }
 
@@ -390,6 +394,14 @@ nonisolated enum InsightsPromptBuilder {
             guidance.append(Self.sectionsRule)
         }
 
+        // How the author talks about themselves, for Life. Cloud only, with the moods, since both
+        // read the author's inner weather; empty for most entries by design.
+        let asksForThinking = budget.sections && sections.moods
+        if asksForThinking {
+            let meanings = ThinkingPattern.allCases.map { "\($0.rawValue) (\($0.meaning))" }.joined(separator: "; ")
+            properties.append(.init("thinkingPatterns", .array(.enumeration(ThinkingPattern.allCases.map(\.rawValue)), description: "Only for an account of the author's own life. Thinking patterns clearly present in how the author talks about themselves or their situation: \(meanings). At most three. Empty unless clearly there; most entries have none.")))
+        }
+
         // Speech-to-text and handwriting both produce punctuation worth fixing; typed text is the
         // user's own keystrokes and is never rewritten.
         var skippedReason: String?
@@ -443,7 +455,7 @@ nonisolated enum InsightsPromptBuilder {
             schemaName: "journal_insights",
             maxOutputTokens: budget.maxOutputTokens ?? min(16_000, 3_000 + (asksForCleanedText ? text.count / 2 : 0))
         )
-        return InsightsRequestPlan(request: request, customKeys: customKeys, customKeyOrder: customKeyOrder, cleanedTextSkippedReason: skippedReason, asksForCleanedText: asksForCleanedText, asksForWrittenDate: asksForWrittenDate, asksForLifeAreas: sections.lifeAreas, asksForSections: asksForSections, vocabularySent: sent, looseEndHandles: handles, ownLooseEndIDs: ownIDs)
+        return InsightsRequestPlan(request: request, customKeys: customKeys, customKeyOrder: customKeyOrder, cleanedTextSkippedReason: skippedReason, asksForCleanedText: asksForCleanedText, asksForWrittenDate: asksForWrittenDate, asksForLifeAreas: sections.lifeAreas, asksForSections: asksForSections, asksForThinking: asksForThinking, vocabularySent: sent, looseEndHandles: handles, ownLooseEndIDs: ownIDs)
     }
 
     static func day(_ date: Date, calendar: Calendar) -> String {
@@ -542,6 +554,13 @@ nonisolated enum InsightsPromptBuilder {
         }
         if plan.asksForWrittenDate {
             result.writtenDate = string("writtenDate").flatMap { EntryDates.parseDay($0, calendar: calendar) }
+        }
+        if plan.asksForThinking {
+            var thinking: [ThinkingPattern] = []
+            for pattern in strings("thinkingPatterns").compactMap(ThinkingPattern.init(rawValue:)) where !thinking.contains(pattern) {
+                thinking.append(pattern)
+            }
+            result.thinking = Array(thinking.prefix(ThinkingPattern.maxPerEntry))
         }
         result.custom = plan.customKeyOrder.compactMap { key in
             guard let prompt = plan.customKeys[key], let content = string(key) else { return nil }

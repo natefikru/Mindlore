@@ -137,6 +137,30 @@ struct LifeView: View {
             }
             .accessibilityIdentifier("lifeChanges")
         }
+        if !reading.thinking.isEmpty {
+            LifeCard(title: "How you talk to yourself", symbol: "text.bubble", tint: .indigo) {
+                VStack(alignment: .leading, spacing: 14) {
+                    ForEach(reading.thinking) { item in
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(item.pattern.title)
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundStyle(Palette.ink)
+                            Text(item.pattern.sounds)
+                                .font(.subheadline)
+                                .foregroundStyle(.secondary)
+                            Text(LifeCopy.thinking(item, window: reading.window, name: name))
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        .accessibilityElement(children: .combine)
+                    }
+                    Text("Habits of a sentence, not facts about you. Noticing one is usually enough to loosen it.")
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
+                }
+            }
+            .accessibilityIdentifier("lifeThinking")
+        }
         if !reading.followThrough.isEmpty || reading.openThreads > 0 {
             LifeCard(title: "Loose ends", symbol: "circle.dashed", tint: Palette.ember) {
                 VStack(alignment: .leading, spacing: 14) {

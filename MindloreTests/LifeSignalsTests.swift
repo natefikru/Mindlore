@@ -247,3 +247,24 @@ struct LifePrioritiesTests {
         #expect(LifeCopy.priorities(fine, window: .quarter, name: name) == "Your writing these three months follows what you said matters: Work and Family.")
     }
 }
+
+struct LifeThinkingTests {
+    private let now = Date(timeIntervalSince1970: 1_790_000_000)
+
+    @Test func aPatternCountsFromThreeEntriesAndNamesTheAreaThatLeads() {
+        let interval = DateInterval(start: now.addingTimeInterval(-90 * 86_400), end: now)
+        var facts: [LifeSignals.EntryFact] = []
+        for day in 0..<4 {
+            let area: LifeArea = day < 3 ? .work : .home
+            facts.append(LifeSignals.EntryFact(date: now.addingTimeInterval(-Double(day + 1) * 86_400), areas: [area], thinking: [ThinkingPattern.harshSelfTalk]))
+        }
+        for day in 0..<2 {
+            facts.append(LifeSignals.EntryFact(date: now.addingTimeInterval(-Double(day + 1) * 86_400), thinking: [ThinkingPattern.mindReading]))
+        }
+        let found = LifeSignals.thinking(facts, in: interval)
+        #expect(found.map(\.pattern) == [ThinkingPattern.harshSelfTalk], "two is under the floor")
+        #expect(found.first?.entries == 4)
+        #expect(found.first?.mostly == .work)
+        #expect(LifeCopy.thinking(found[0], window: .quarter, name: \.defaultName) == "In 4 entries these three months, mostly about Work.")
+    }
+}

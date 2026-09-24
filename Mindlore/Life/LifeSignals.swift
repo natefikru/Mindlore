@@ -20,13 +20,16 @@ nonisolated enum LifeSignals {
         // which is every note and creative piece.
         let valence: Int?
         let tags: [String]
+        // How the author talked about themselves in it (journal entries, cloud insights only).
+        let thinking: [ThinkingPattern]
 
-        init(id: UUID = UUID(), date: Date, areas: [LifeArea] = [], valence: Int? = nil, tags: [String] = []) {
+        init(id: UUID = UUID(), date: Date, areas: [LifeArea] = [], valence: Int? = nil, tags: [String] = [], thinking: [ThinkingPattern] = []) {
             self.id = id
             self.date = date
             self.areas = areas
             self.valence = valence
             self.tags = tags
+            self.thinking = thinking
         }
     }
 
@@ -174,6 +177,7 @@ nonisolated enum LifeSignals {
         let followThrough: [FollowThrough]
         let contrast: Contrast?
         let openThreads: Int
+        var thinking: [Thinking] = []
     }
 
     // MARK: - Reading
@@ -216,7 +220,8 @@ nonisolated enum LifeSignals {
             changes: changes(now: areas, before: previousAreas, skipping: Set(quiet.map(\.area))),
             followThrough: follow,
             contrast: contrast(follow),
-            openThreads: threads.filter { $0.status == .open }.count
+            openThreads: threads.filter { $0.status == .open }.count,
+            thinking: thinking(entries, in: interval, hidden: hidden)
         )
     }
 
@@ -407,6 +412,38 @@ nonisolated enum LifeSignals {
         let total = reading.areas.map(\.share).reduce(0, +)
         let even = visibleCount > 0 ? max(total, 1) / Double(visibleCount) : 0
         return picked.prefix(maxPriorities).map { Priority(area: $0, share: shares[$0] ?? 0, even: even) }
+    }
+
+    // MARK: - How you talk to yourself
+
+    static let thinkingMinimumEntries = 3
+    static let maxThinking = 3
+
+    struct Thinking: Sendable, Equatable, Identifiable {
+        let pattern: ThinkingPattern
+        let entries: Int
+        // The area most of those entries were filed under, when one leads.
+        let mostly: LifeArea?
+
+        var id: ThinkingPattern { pattern }
+    }
+
+    static func thinking(_ entries: [EntryFact], in interval: DateInterval, hidden: Set<LifeArea> = []) -> [Thinking] {
+        var byPattern: [ThinkingPattern: [EntryFact]] = [:]
+        for entry in entries where isInside(entry.date, interval) {
+            for pattern in Set(entry.thinking) { byPattern[pattern, default: []].append(entry) }
+        }
+        let found: [Thinking] = byPattern.compactMap { pattern, facts in
+            guard facts.count >= thinkingMinimumEntries else { return nil }
+            var areas: [LifeArea: Int] = [:]
+            for fact in facts { for area in Set(fact.areas) where !hidden.contains(area) { areas[area, default: 0] += 1 } }
+            let top = areas.max { $0.value != $1.value ? $0.value < $1.value : $0.key.rawValue > $1.key.rawValue }
+            // An area "leads" when at least half of the entries share it.
+            let mostly = top.flatMap { $0.value * 2 >= facts.count ? $0.key : nil }
+            return Thinking(pattern: pattern, entries: facts.count, mostly: mostly)
+        }
+        let ranked = found.sorted { $0.entries != $1.entries ? $0.entries > $1.entries : $0.pattern.rawValue < $1.pattern.rawValue }
+        return Array(ranked.prefix(maxThinking))
     }
 
     // MARK: - Something to try

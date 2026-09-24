@@ -24,7 +24,8 @@ enum LifeSource {
                 date: entry.entryDate,
                 areas: insights?.areas ?? [],
                 valence: entry.kind.keepsMoods ? insights?.primaryMood?.category.valence : nil,
-                tags: (insights?.tags ?? []).filter { !hiddenTags.contains($0.lowercased()) }
+                tags: (insights?.tags ?? []).filter { !hiddenTags.contains($0.lowercased()) },
+                thinking: entry.kind.keepsMoods ? (insights?.thinkingPatterns ?? []) : []
             )
         }
         let areasByEntry = Dictionary(entryFacts.map { ($0.id, $0.areas) }, uniquingKeysWith: { first, _ in first })
