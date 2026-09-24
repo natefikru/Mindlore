@@ -80,6 +80,8 @@ final class AppRouter {
     private(set) var tab: AppTab = .journal
     // The + tab's fan of ways to start an entry. Open over whatever tab is showing.
     var showingNewEntryFan = false
+    // The editor has the keyboard: the tab bar steps away, and the + drawn over it goes with it.
+    var editorHasKeyboard = false
     var journalPath: [JournalRoute] = [] {
         didSet { reportChanges(from: oldValue) }
     }
@@ -169,6 +171,10 @@ final class AppRouter {
     func select(_ picked: AppTab) {
         if picked == .newEntry {
             showingNewEntryFan.toggle()
+            // Written back unchanged so the tab bar, which may already have moved its selection to
+            // the + (a tap that reached the bar itself), redraws on the tab that is really showing.
+            let showing = tab
+            tab = showing
             return
         }
         showingNewEntryFan = false

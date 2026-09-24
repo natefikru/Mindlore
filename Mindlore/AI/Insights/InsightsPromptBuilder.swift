@@ -211,6 +211,16 @@ nonisolated enum InsightsPromptBuilder {
         return String(collapsed.prefix(maxVocabularyItemCharacters))
     }
 
+    // Tags that are never kept, however the model spells them. "loose ends" became a label on
+    // nearly every note (owner, 2026-09-24): it names the app's own feature, not a topic, and a
+    // tag on everything groups nothing.
+    static let blockedTags: Set<String> = ["looseend", "looseends"]
+
+    static func isBlockedTag(_ tag: String) -> Bool {
+        let letters = tag.lowercased().filter { $0.isLetter }
+        return blockedTags.contains(letters)
+    }
+
     private static func listed(_ items: [String], cap: Int) -> [String] {
         var seen: Set<String> = []
         return items.compactMap(promptSafe).filter { seen.insert($0.lowercased()).inserted }.prefix(cap).map { $0 }
@@ -267,8 +277,8 @@ nonisolated enum InsightsPromptBuilder {
             """ + "\n" + areas)
         }
         if sections.tags {
-            properties.append(.init("tags", .array(.string(), description: "One to \(maxTags) short lowercase labels for grouping entries with others, like running or renovation. More specific than life areas; never repeat a life area as a tag" + (budget.examples ? "." : ", and never a person's name."))))
-            sent.tags = listed(vocabulary.tags, cap: budget.existingTags)
+            properties.append(.init("tags", .array(.string(), description: "One to \(maxTags) short lowercase labels for grouping entries with others, like running or renovation. More specific than life areas; never repeat a life area as a tag, never \"loose ends\"" + (budget.examples ? "." : ", and never a person's name."))))
+            sent.tags = listed(vocabulary.tags.filter { !isBlockedTag($0) }, cap: budget.existingTags)
             if !sent.tags.isEmpty {
                 guidance.append("Tags already used in this journal, one per line. Reuse one when it fits instead of inventing a near-duplicate.\n" + sent.tags.map { "- \($0)" }.joined(separator: "\n"))
             }
@@ -510,7 +520,7 @@ nonisolated enum InsightsPromptBuilder {
         // The entry's own tags first, then what its parts added, so a long entry's later topics
         // still reach the list; the cap stays the entry's.
         let sectionTags = result.sections.flatMap(\.tags)
-        result.tags = Array(unique((strings("tags") + sectionTags).map { $0.lowercased() }).filter { !areaNames.contains($0) }.prefix(maxTags))
+        result.tags = Array(unique((strings("tags") + sectionTags).map { $0.lowercased() }).filter { !areaNames.contains($0) && !Self.isBlockedTag($0) }.prefix(maxTags))
         result.looseEnds = looseEnds(in: json, plan: plan, calendar: calendar)
 
         var mentions: [Mention] = []
@@ -589,7 +599,7 @@ nonisolated enum InsightsPromptBuilder {
             }
             section.areasRaw = Array(areas.prefix(LifeArea.maxPerEntry))
             section.tags = Array(unique(((item["tags"] as? [Any]) ?? []).compactMap { ($0 as? String)?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
-                .filter { !$0.isEmpty && !areaNames.contains($0) }).prefix(maxSectionTags))
+                .filter { !$0.isEmpty && !areaNames.contains($0) && !Self.isBlockedTag($0) }).prefix(maxSectionTags))
             // Kept as written and as grounded, the way mentions are: a mention of "Sarah Kim" is
             // cut back to the entry's "Sarah", and the link that part must be found by is "Sarah".
             let listed = Array(unique(((item["names"] as? [Any]) ?? []).compactMap { ($0 as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) }

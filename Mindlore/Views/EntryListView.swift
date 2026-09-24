@@ -109,13 +109,16 @@ struct EntryListView: View {
                 }
             }
             .navigationTitle("Mindlore")
+            // Inline: the large title took a band of the screen the greeting already fills (owner,
+            // 2026-09-24).
+            .navigationBarTitleDisplayMode(.inline)
             .navigationDestination(for: JournalRoute.self) { route in
                 JournalEntryDestination(route: route)
             }
             .toolbar {
                 // Starting an entry lives in the tab bar's + (NewEntryFan), so the only button up here
                 // is Settings, which left the tab bar (owner, 2026-09-24).
-                ToolbarItem(placement: .topBarLeading) {
+                ToolbarItem(placement: .topBarTrailing) {
                     Button("Settings", systemImage: "gearshape") { showingSettings = true }
                         .accessibilityIdentifier("settingsButton")
                 }

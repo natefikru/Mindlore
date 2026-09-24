@@ -43,13 +43,17 @@ struct NewEntryFan: View {
                 }
                 ForEach(Array(options.enumerated()), id: \.element) { index, option in
                     if isOpen, let center = centers[option] {
+                        // Offset, not `.position`: position stretches the button's frame over the
+                        // whole screen, and a tap aimed at its middle landed on the backdrop.
                         optionButton(option)
-                            .position(center)
+                            .fixedSize()
+                            .alignmentGuide(.leading) { $0[HorizontalAlignment.center] - center.x }
+                            .alignmentGuide(.top) { $0[VerticalAlignment.center] - center.y }
                             .transition(.popOut(from: CGPoint(x: plus.x - center.x, y: plus.y - center.y), reduceMotion: reduceMotion))
                             .animation(animation(delay: Double(index) * Motion.stagger), value: isOpen)
                     }
                 }
-                if barFrame != .zero {
+                if barFrame != .zero, !router.editorHasKeyboard {
                     plusButton
                         .position(plus)
                         .gesture(drag(plus: plus, space: geometry.frame(in: .global).origin))
@@ -102,13 +106,14 @@ struct NewEntryFan: View {
     private func optionButton(_ option: NewEntryFanLayout.Option) -> some View {
         let lifted = hovered == option
         return Button {
-            choose(option)
+            choose(option, by: "tap")
         } label: {
-            VStack(spacing: 6) {
-                Image(systemName: optionSymbol(option))
+            Image(systemName: optionSymbol(option))
                     .font(.system(size: 22, weight: .medium))
                     .foregroundStyle(option == .record ? Color.white : Palette.ink)
                     .frame(width: NewEntryFanLayout.optionDiameter, height: NewEntryFanLayout.optionDiameter)
+                    // Glass takes no touches of its own: without this only the glyph was tappable.
+                    .contentShape(Circle())
                     .background {
                         if option == .record {
                             Circle().fill(Palette.ember.gradient)
@@ -116,11 +121,16 @@ struct NewEntryFan: View {
                     }
                     .glassEffect(option == .record ? .regular.tint(Palette.ember) : .regular.interactive(), in: Circle())
                     .shadow(color: .black.opacity(0.12), radius: 8, y: 3)
-                Text(optionTitle(option))
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.white)
-                    .shadow(color: .black.opacity(0.35), radius: 3)
-            }
+                    // Hangs under the circle rather than stacking with it, so the button's frame
+                    // is the circle and its centre is the option's place on the arc.
+                    .overlay(alignment: .bottom) {
+                        Text(optionTitle(option))
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.white)
+                            .shadow(color: .black.opacity(0.35), radius: 3)
+                            .fixedSize()
+                            .offset(y: 22)
+                    }
             .scaleEffect(lifted ? 1.14 : 1)
             .animation(Motion.resolve(Motion.carry, reduceMotion: reduceMotion), value: lifted)
         }
@@ -160,7 +170,7 @@ struct NewEntryFan: View {
                 // A jump (Siri, a notification) may have closed the fan under the finger.
                 guard isOpen, let current else { return }
                 switch NewEntryFanLayout.release(at: point, plus: plus, options: options, leftPlus: current.leftPlus, openedByThisTouch: current.openedFan) {
-                case .choose(let option): choose(option)
+                case .choose(let option): choose(option, by: "slide")
                 case .stayOpen: break
                 case .close: close()
                 }
@@ -171,7 +181,8 @@ struct NewEntryFan: View {
         router.showingNewEntryFan = false
     }
 
-    private func choose(_ option: NewEntryFanLayout.Option) {
+    private func choose(_ option: NewEntryFanLayout.Option, by gesture: String) {
+        DiagnosticsLog.shared.record("newEntry.chosen", ["option": .string(option.rawValue), "by": .string(gesture)])
         close()
         switch option {
         case .write: router.showNewEntry()

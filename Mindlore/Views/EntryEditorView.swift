@@ -150,6 +150,11 @@ struct EntryEditorView: View {
         .background(Palette.paper.ignoresSafeArea())
         .navigationTitle(title)
         .navigationBarTitleDisplayMode(.inline)
+        // The keyboard is glass in iOS 26 and the tab bar showed through it while typing (owner,
+        // 2026-09-24), so the bar steps away while the text view has the keyboard.
+        .toolbar(editorFocused ? .hidden : .visible, for: .tabBar)
+        .onChange(of: editorFocused, initial: true) { _, focused in router.editorHasKeyboard = focused }
+        .onDisappear { router.editorHasKeyboard = false }
         .toolbar {
             if let entry {
                 ToolbarItemGroup(placement: .topBarTrailing) {

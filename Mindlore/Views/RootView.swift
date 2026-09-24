@@ -261,6 +261,12 @@ struct RootView: View {
             if LooseEnd.fade(in: context) > 0 {
                 try? context.saveStampingEntries()
             }
+            // "loose ends" as a tag, from before parsing refused it (owner, 2026-09-24).
+            if BlockedTagSweep.run(in: context) > 0 {
+                graph.indexer.recount(in: context)
+                try? context.saveStampingEntries()
+                graph.sweepFinished()
+            }
             // Non-blocking: the most recent week and month either already have a cached summary
             // (an instant return) or are worth one request each, neither of which titles and
             // insights below should wait on.

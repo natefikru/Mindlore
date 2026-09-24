@@ -240,6 +240,13 @@ struct MindView: View {
                     }
                 }
             }
+            // Tidy up is the bar's last control, so its corner is the container's.
+            .overlay(alignment: .topTrailing) {
+                if reviewCount > 0 {
+                    TidyUpBadge(count: reviewCount)
+                        .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
+                }
+            }
             .frame(height: Self.topBarHeight)
             if trail.ids.count > 1 {
                 ScrollViewReader { proxy in
@@ -523,6 +530,26 @@ private extension Duration {
 
 // Tidy up's way in: a round glass button with the number of questions waiting. Mind only shows it
 // while there is at least one, so it never sits there saying zero.
+// Tidy up's count. Drawn over the bar's GlassEffectContainer rather than inside it: the container
+// renders its glass above anything a glassy view carries, and the badge sat behind the button
+// (owner, 2026-09-24).
+private struct TidyUpBadge: View {
+    let count: Int
+
+    var body: some View {
+        Text(count > 99 ? "99+" : "\(count)")
+            .font(.caption2.weight(.bold))
+            .monospacedDigit()
+            .foregroundStyle(.white)
+            .padding(.horizontal, 5)
+            .frame(minWidth: 18, minHeight: 18)
+            .background(Palette.ember, in: Capsule())
+            .offset(x: 4, y: -4)
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
+    }
+}
+
 private struct TidyUpButton: View {
     let count: Int
     let glass: Namespace.ID
@@ -534,21 +561,11 @@ private struct TidyUpButton: View {
                 .font(.body.weight(.semibold))
                 .frame(width: 44, height: 44)
                 // A plain button takes touches only where its label draws, and glass doesn't
-                // count: without this only the glyph and the badge were tappable, and a tap
-                // between them fell through to the map and cleared its focus.
+                // count: without this only the glyph was tappable, and a tap beside it fell
+                // through to the map and cleared its focus.
                 .contentShape(Circle())
                 .glassEffect(.regular.interactive(), in: Circle())
                 .glassEffectID("tidyUp", in: glass)
-                .overlay(alignment: .topTrailing) {
-                    Text(count > 99 ? "99+" : "\(count)")
-                        .font(.caption2.weight(.bold))
-                        .monospacedDigit()
-                        .foregroundStyle(.white)
-                        .padding(.horizontal, 5)
-                        .frame(minWidth: 18, minHeight: 18)
-                        .background(Palette.ember, in: Capsule())
-                        .offset(x: 4, y: -4)
-                }
         }
         .buttonStyle(.plain)
         .accessibilityLabel("Tidy up")
