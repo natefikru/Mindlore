@@ -521,7 +521,19 @@ struct GrowingTextEditor: UIViewRepresentable {
                     list = (textView.textStorage.attribute(.paragraphStyle, at: range.location, effectiveRange: nil) as? NSParagraphStyle)?.textLists.first
                 }
             }
-            textView.typingAttributes = FormattingStyle.typingAttributes(paragraph: paragraph, inline: typingInline, list: list, fonts: fonts, palette: palette)
+            let attributes = FormattingStyle.typingAttributes(paragraph: paragraph, inline: typingInline, list: list, fonts: fonts, palette: palette)
+            // Only when something UIKit keeps would change (it drops the custom keys anyway): a
+            // needless reset mid-dictation is one more outside change under it.
+            let kept: [NSAttributedString.Key] = [.font, .foregroundColor, .paragraphStyle, .strikethroughStyle]
+            let current = textView.typingAttributes
+            let unchanged = kept.allSatisfy { key in
+                switch (current[key] as? NSObject, attributes[key] as? NSObject) {
+                case (nil, nil): true
+                case let (lhs?, rhs?): lhs.isEqual(rhs)
+                default: false
+                }
+            }
+            if !unchanged { textView.typingAttributes = attributes }
         }
 
         // After UIKit applied an edit: the characters it inserted carry no custom keys, so the
@@ -535,6 +547,18 @@ struct GrowingTextEditor: UIViewRepresentable {
             pendingEdit = nil
             guard textView.markedTextRange == nil else { return }
             let inserted = NSRange(location: edit.range.location, length: min(edit.inserted, max(0, string.length - edit.range.location)))
+            // Plain words into a plain paragraph already carry what UIKit's typing attributes gave
+            // them, which is all this would write. Leaving the storage untouched there is what
+            // keeps Apple's dictation running: on its keyboard it streams text in with the keyboard
+            // still up (the input mode never reads "dictation"), and any write to the storage
+            // under it ends it.
+            if typingInline.isEmpty, !edit.crossesParagraphs {
+                let current = paragraph(at: inserted.location, in: textView)
+                if current.block == nil, current.indent == 0 {
+                    applyTypingAttributes(textView)
+                    return
+                }
+            }
             if inserted.length > 0 {
                 FormattingStyle.setInline(typingInline, in: inserted, of: storage, fonts: fonts, block: nil)
             }
