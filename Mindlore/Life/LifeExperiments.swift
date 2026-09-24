@@ -37,7 +37,8 @@ enum LifeExperiments {
     static func all(in context: ModelContext) -> [Experiment] {
         LifeWords.rows(kind, in: context).compactMap { row in
             guard let item = row.items.first, let subject = decode(item.title), let state = State(rawValue: item.body) else { return nil }
-            return Experiment(id: row.id, subject: subject, state: state, since: row.periodStart, looseEndID: UUID(uuidString: item.id))
+            // Only an accepted one made a loose end; a declined one's item id is just an id.
+            return Experiment(id: row.id, subject: subject, state: state, since: row.periodStart, looseEndID: state == .trying ? UUID(uuidString: item.id) : nil)
         }
     }
 
@@ -47,20 +48,20 @@ enum LifeExperiments {
     }
 
     @discardableResult
-    static func accept(_ suggestion: LifeSignals.Suggestion, threadText: String, now: Date = .now, calendar: Calendar = .current, in context: ModelContext) -> LooseEnd {
+    static func accept(_ suggestion: LifeSignals.Suggestion, threadText: String, now: Date = .now, calendar: Calendar = .current, in context: ModelContext, diagnostics: DiagnosticsLog = .shared) -> LooseEnd {
         let due = calendar.dateInterval(of: .weekOfYear, for: now).map { $0.end.addingTimeInterval(-1) } ?? now.addingTimeInterval(6 * 86_400)
         let thread = LooseEnd(text: threadText, sourceEntryID: UUID(), sourceEntryDate: now, dueDate: due)
         // No entry raised it: Life did, at the author's yes.
         thread.sourceEntryID = nil
         context.insert(thread)
         insert(suggestion.subject, state: .trying, looseEndID: thread.id, now: now, in: context)
-        DiagnosticsLog.shared.record("life.experiment", ["accepted": .bool(true), "subject": .string(suggestion.subject.isTag ? "tag" : "area")])
+        diagnostics.record("life.experiment", ["accepted": .bool(true), "subject": .string(suggestion.subject.isTag ? "tag" : "area")])
         return thread
     }
 
-    static func decline(_ subject: LifeSignals.Suggestion.Subject, now: Date = .now, in context: ModelContext) {
+    static func decline(_ subject: LifeSignals.Suggestion.Subject, now: Date = .now, in context: ModelContext, diagnostics: DiagnosticsLog = .shared) {
         insert(subject, state: .declined, looseEndID: nil, now: now, in: context)
-        DiagnosticsLog.shared.record("life.experiment", ["accepted": .bool(false), "subject": .string(subject.isTag ? "tag" : "area")])
+        diagnostics.record("life.experiment", ["accepted": .bool(false), "subject": .string(subject.isTag ? "tag" : "area")])
     }
 
     private static func insert(_ subject: LifeSignals.Suggestion.Subject, state: State, looseEndID: UUID?, now: Date, in context: ModelContext) {

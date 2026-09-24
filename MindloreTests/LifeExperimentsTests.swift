@@ -83,6 +83,7 @@ struct LifeExperimentsTests {
     @Test func decliningRemembersSoItIsNotOfferedAgain() {
         LifeExperiments.decline(.area(.play), in: context)
         #expect(LifeExperiments.offered(in: context) == [.area(.play)])
+        #expect(LifeExperiments.all(in: context).first?.looseEndID == nil, "a declined one made no loose end")
         #expect(LooseEnd.all(in: context).isEmpty)
     }
 

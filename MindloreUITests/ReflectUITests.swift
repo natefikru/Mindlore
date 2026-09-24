@@ -28,6 +28,10 @@ final class ReflectUITests: XCTestCase {
             let tab = app.tabBars.buttons["Reflect"]
             XCTAssertTrue(tab.waitForExistence(timeout: 20))
             tab.tap()
+            // The tab opens on Life once the journal is big enough; the recaps are a side over.
+            let recaps = app.buttons["Recaps"].firstMatch
+            XCTAssertTrue(recaps.waitForExistence(timeout: 10))
+            recaps.tap()
         }
         let reflectView = app.descendants(matching: .any)["reflectView"]
         XCTAssertTrue(reflectView.waitForExistence(timeout: 5))

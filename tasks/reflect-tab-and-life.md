@@ -5,11 +5,11 @@ continuously; the owner is asked only before the merge.
 
 - [x] Phase 0: open loose ends pinned on top, Mind's drawer list room at its end, olive tags
 - [x] Phase 1: the shell (tabs, + fan, Settings gear, Reflect as a tab)
-- [ ] Phase 2: Life from the numbers
-- [ ] Phase 3: the values question
-- [ ] Phase 4: words (AI phrasing, quotes, area paragraphs, monthly portrait, feedback)
-- [ ] Phase 5: experiments that become loose ends
-- [ ] Phase 6: self-talk patterns
+- [x] Phase 2: Life from the numbers
+- [x] Phase 3: the values question
+- [x] Phase 4: words (AI phrasing, quotes, area paragraphs, monthly portrait, feedback)
+- [x] Phase 5: experiments that become loose ends
+- [x] Phase 6: self-talk patterns
 - [ ] Phase 7: review, docs, UI tests, a look in light and dark
 
 ## Phase 0 (owner, 2026-09-24)
@@ -219,7 +219,29 @@ entry). No generated paragraph yet.
 - UI: one test on the story journal that opens Reflect, sees Life's bubbles, opens an area page.
 - A look at it on `-seedStoryJournal` in the simulator, light and dark.
 
-## Phases 3 to 6 (planned in detail when their turn comes)
+## Phases 3 to 6, as built (2026-09-24)
+
+Owner additions during the build: "loose ends" is never kept as a tag (parsing refuses every
+spelling, a launch sweep cleaned existing entries); Mind's Tidy up badge draws over the bar's glass;
+tags are dusty mauve after olive was turned down; the gear is at the top right with an inline
+title; the tab bar and the + step away while the editor has the keyboard.
+
+- **No CloudKit schema change anywhere.** Life's words, feedback, and experiments are
+  `ReflectSummary` rows under `life.*` kinds; thinking patterns ride in `customCardsData` under a
+  reserved id. So the merge doesn't wait on a Console deploy. Move them to their own fields at the
+  next deliberate schema change.
+- **Dropped: AI phrasing of the cards.** The templated sentences already say the numbers in plain
+  words; a model rewording them adds a request and risk to the "code finds, model words" rule and
+  nothing a reader would notice. The model writes only what code can't: an area's paragraph and
+  quotes, and the portrait.
+- **Experiments** are chosen by code from lighter against heavier weeks, a tag preferred over an
+  area, and word themselves by template. The loose end has no source entry.
+- **Thinking patterns** are asked with the moods, cloud only; older entries gain them through Redo
+  insights.
+
+The original sketch of these phases follows.
+
+### Sketch
 
 3. **The values question.** `SettingsStore.lifeTopAreas` (a setting with a control, under Your
    journal and asked once on Life). Adds the gap card: a chosen area at under half the share of an

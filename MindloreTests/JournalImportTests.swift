@@ -125,6 +125,11 @@ struct JournalImportTests {
         context.insert(AskMessage(conversationID: conversation.id, index: 1, role: .assistant, text: "Calm.", citedEntryIDs: [voice.id], providerLabel: "openai", sentEntryIDs: [voice.id], sentCharacters: 30, matchedCount: 1))
 
         context.insert(ReflectSummary(kind: .week, periodStart: date(7), generatedAt: date(14), items: [], sourceFingerprint: "fp"))
+        // A Life row keeps its own kind through the round trip, not the week the initializer
+        // would fall back to.
+        let portrait = ReflectSummary(kind: .month, periodStart: date(30), generatedAt: date(31), items: [ReflectQueueItem(id: "lifts:0", source: .generated, title: "lifts", body: "Runs.", prompt: "", entryIDs: [UUID()])])
+        portrait.periodKindRaw = LifeWords.portraitKind
+        context.insert(portrait)
         try context.saveStampingEntries(except: [voice.persistentModelID, photo.persistentModelID, draft.persistentModelID])
         return Fixture(voice: voice, photo: photo, maya: maya, sam: sam)
     }
