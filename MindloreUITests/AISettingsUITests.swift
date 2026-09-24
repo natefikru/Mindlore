@@ -19,10 +19,7 @@ final class AISettingsUITests: XCTestCase {
         app.launch()
         openSettings()
 
-        // Use AI is a row on the Settings root now, not inside an AI screen.
         let toggle = app.switches["aiEnabledToggle"]
-        // Below the fold under Privacy and data; the list only draws rows as they scroll in.
-        for _ in 0..<4 where !toggle.exists || !toggle.isHittable { app.swipeUp() }
         XCTAssertTrue(toggle.waitForExistence(timeout: 5))
         XCTAssertEqual(toggle.value as? String, "0")
 
@@ -53,13 +50,10 @@ final class AISettingsUITests: XCTestCase {
         app.terminate()
         app.launch()
         openSettings()
-        for _ in 0..<4 where !app.switches["aiEnabledToggle"].exists { app.swipeUp() }
         XCTAssertTrue(app.switches["aiEnabledToggle"].waitForExistence(timeout: 5))
         XCTAssertEqual(app.switches["aiEnabledToggle"].value as? String, "1")
-        // The root's own row reports the key without opening it. It sits below the fold, and a
-        // lazily drawn list has no row there until it is scrolled to.
+        // The AI screen's own row reports the key without opening it.
         let keyLink = app.buttons["aiKeyLink"]
-        for _ in 0..<4 where !keyLink.exists { app.swipeUp() }
         XCTAssertTrue(keyLink.waitForExistence(timeout: 5))
         XCTAssertTrue(keyLink.label.contains("Saved"))
 
@@ -84,11 +78,15 @@ final class AISettingsUITests: XCTestCase {
     }
 
     // Scoped to the tab bar on purpose: app.buttons["Settings"] also matches the tab item, so an
-    // unscoped tap cannot tell a tab from a toolbar gear. See SettingsTabUITests.
+    // unscoped tap cannot tell a tab from a toolbar gear. See SettingsTabUITests. Then into AI,
+    // which is its own screen under the root.
     private func openSettings() {
         let settings = app.tabBars.buttons["Settings"]
         XCTAssertTrue(settings.waitForExistence(timeout: 5))
         settings.tap()
+        let ai = app.buttons["aiSettingsLink"]
+        XCTAssertTrue(ai.waitForExistence(timeout: 5))
+        ai.tap()
     }
 
     private func openKey() {

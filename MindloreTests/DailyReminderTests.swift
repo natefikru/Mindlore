@@ -264,7 +264,7 @@ struct DailyReminderTests {
 
     @Test func theTimePickerRoundTrips() {
         let minutes = 18 * 60 + 5
-        #expect(SettingsView.minutes(of: SettingsView.date(forMinutes: minutes, calendar: utc), calendar: utc) == minutes)
+        #expect(TodaySettingsView.minutes(of: TodaySettingsView.date(forMinutes: minutes, calendar: utc), calendar: utc) == minutes)
     }
 
     // MARK: - Privacy

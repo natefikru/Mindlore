@@ -1,26 +1,10 @@
 import SwiftData
 import SwiftUI
 
-// Settings' "Privacy and data": the lock, the export, and the one delete with no Undo. Deleting
-// the whole journal is the single place a confirmation dialog beats the undo pill, because there is
-// nothing left afterwards to bring back.
-struct PrivacyDataSection: View {
-    @Environment(\.modelContext) private var modelContext
+// General's lock: Face ID (or whatever this phone has) when coming back to the app.
+struct AppLockSection: View {
     @Environment(SettingsStore.self) private var settings
     @Environment(AppLock.self) private var lock
-    @Environment(SyncStatusMonitor.self) private var sync
-    @Environment(EntrySaver.self) private var saver
-    @Environment(GraphServices.self) private var graph
-    @Environment(RecordingSession.self) private var recording
-    @Environment(AskService.self) private var ask
-    @Environment(AppRouter.self) private var router
-
-    @State private var exporting = false
-    @State private var exportFolder: URL?
-    @State private var showingMover = false
-    @State private var exportNote: String?
-    @State private var confirmingDelete = false
-    @State private var deleteNote: String?
 
     private let method = AppLock.methodName
 
@@ -48,7 +32,37 @@ struct PrivacyDataSection: View {
             Toggle("Require \(method)", isOn: lockToggle)
                 .disabled(!AppLock.isAvailable && !settings.appLockEnabled)
                 .accessibilityIdentifier("appLockToggle")
+        } header: {
+            Text("Lock")
+        } footer: {
+            Text(!AppLock.isAvailable && !settings.appLockEnabled
+                 ? "Set a passcode in the Settings app to lock Mindlore."
+                 : "Mindlore locks when you leave it and asks for \(method) when you come back.")
+        }
+    }
+}
 
+// General's data tools: the export, and the one delete with no Undo. Deleting the whole journal is
+// the single place a confirmation dialog beats the undo pill, because there is nothing left
+// afterwards to bring back.
+struct JournalDataSection: View {
+    @Environment(\.modelContext) private var modelContext
+    @Environment(SyncStatusMonitor.self) private var sync
+    @Environment(EntrySaver.self) private var saver
+    @Environment(GraphServices.self) private var graph
+    @Environment(RecordingSession.self) private var recording
+    @Environment(AskService.self) private var ask
+    @Environment(AppRouter.self) private var router
+
+    @State private var exporting = false
+    @State private var exportFolder: URL?
+    @State private var showingMover = false
+    @State private var exportNote: String?
+    @State private var confirmingDelete = false
+    @State private var deleteNote: String?
+
+    var body: some View {
+        Section {
             Button {
                 export()
             } label: {
@@ -65,7 +79,7 @@ struct PrivacyDataSection: View {
                 .disabled(recording.status != .idle)
                 .accessibilityIdentifier("deleteAllDataButton")
         } header: {
-            Text("Privacy and data")
+            Text("Your data")
         } footer: {
             Text(footer)
         }
@@ -89,11 +103,6 @@ struct PrivacyDataSection: View {
 
     private var footer: String {
         var parts: [String] = []
-        if !AppLock.isAvailable && !settings.appLockEnabled {
-            parts.append("Set a passcode in the Settings app to lock Mindlore.")
-        } else {
-            parts.append("Mindlore locks when you leave it and asks for \(method) when you come back.")
-        }
         parts.append("An export is a folder with every entry as a Markdown file, a journal.json with everything Mindlore knows about each one, and your recordings and page photos.")
         if let exportNote { parts.append(exportNote) }
         if let deleteNote { parts.append(deleteNote) }

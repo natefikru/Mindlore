@@ -1,8 +1,18 @@
 import SwiftUI
 
-// The AI section of the Settings root, plus the two screens it opens. AI used to be a door into a
-// subsystem; it is a section like any other now, and the only things behind it are the key and what
-// AI actually does with it.
+// Settings' AI screen and the two screens it opens. AI used to be a door into a subsystem; the only
+// things behind it now are the switch, the key, and what AI actually does with it.
+struct AISettingsView: View {
+    var body: some View {
+        Form {
+            AISettingsSection()
+        }
+        .paperBackground()
+        .navigationTitle("AI")
+        .navigationBarTitleDisplayMode(.inline)
+    }
+}
+
 struct AISettingsSection: View {
     @Environment(SettingsStore.self) private var settings
     @Environment(ProviderAccountStore.self) private var accounts
