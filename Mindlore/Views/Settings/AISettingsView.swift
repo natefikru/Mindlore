@@ -6,6 +6,7 @@ struct AISettingsView: View {
     var body: some View {
         Form {
             AISettingsSection()
+            RedoInsightsSection()
         }
         .paperBackground()
         .navigationTitle("AI")

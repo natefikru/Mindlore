@@ -174,6 +174,9 @@ final class InsightsHarness {
 
     var context: ModelContext { container.mainContext }
 
+    // `.disabled` keeps the log off; set a file log before makeCoordinator() to read what a run writes.
+    var diagnostics: DiagnosticsLog = .disabled
+
     init() throws {
         container = try ModelContainerFactory.make(.inMemory)
         coordinator = makeCoordinator()
@@ -197,7 +200,7 @@ final class InsightsHarness {
             vocabulary: { [unowned self] context, sections in
                 self.useGraph ? self.graph.vocabulary(in: context, sections: sections) : self.vocabulary
             },
-            diagnostics: .disabled,
+            diagnostics: diagnostics,
             calendar: { var calendar = Calendar(identifier: .gregorian); calendar.timeZone = TimeZone(identifier: "UTC")!; return calendar }()
         )
     }

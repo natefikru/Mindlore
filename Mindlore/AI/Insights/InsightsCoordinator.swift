@@ -10,6 +10,15 @@ final class InsightsCoordinator {
     private(set) var running: Set<UUID> = []
     // Set by an offline failure so a queue of entries doesn't fire one doomed request each.
     private(set) var pausedForOffline = false
+    // Redo insights on every entry (owner, 2026-09-23): how far the run has got, nil when none is
+    // running. Lives only as long as the app: the entries' own pending flags are the queue, so a run
+    // cut short by a kill still finishes at the next launch, just without the count on screen.
+    private(set) var redo: RedoProgress?
+
+    struct RedoProgress: Equatable {
+        var total: Int
+        var done: Int
+    }
 
     @ObservationIgnored private let resolve: () -> Result<Generator, AIJobFailure>
     @ObservationIgnored private let sections: () -> InsightSections
@@ -28,6 +37,7 @@ final class InsightsCoordinator {
     @ObservationIgnored private let calendar: Calendar
     @ObservationIgnored private var failedThisSession: Set<UUID> = []
     @ObservationIgnored private var manualRuns: Set<UUID> = []
+    @ObservationIgnored private var redoIDs: Set<UUID> = []
     @ObservationIgnored private var isProcessing = false
     @ObservationIgnored private var needsAnotherPass = false
 
@@ -86,7 +96,17 @@ final class InsightsCoordinator {
                 // entry's text is final by the user's choice. Cleanup still waits for the entry to close.
                 guard manual || !failedThisSession.contains(entry.id) else { continue }
                 guard manual || (AIJobPolicy.canRunAutomatically(.insights, entry) && !pausedForOffline) else { continue }
-                await generate(entry.persistentModelID, context: context)
+                let redoing = redoIDs.contains(entry.id)
+                // A redo is hundreds of manual runs; offline, each would fail at once, so they wait
+                // for the network like automatic work does.
+                if redoing && pausedForOffline { continue }
+                let id = entry.persistentModelID
+                await generate(id, context: context)
+                // Done when it finished, failed for good, or had nothing to ask; only an offline
+                // failure keeps it for when the network is back.
+                if redoing, !(pausedForOffline && Self.fetch(id, in: context)?.insightsPending == true) {
+                    finishRedo(entry.id)
+                }
             }
         } while needsAnotherPass
     }
@@ -114,6 +134,49 @@ final class InsightsCoordinator {
         await processQueue(context: context)
     }
 
+    // Every entry Run AI would accept, queued oldest first and run one at a time through the same
+    // queue. Each gets the reset Run AI gives one entry. Moods the user picked by hand survive,
+    // because redoing a whole journal must not quietly undo every correction in it.
+    func redoAll(context: ModelContext) async {
+        guard redo == nil else { return }
+        let descriptor = FetchDescriptor<Entry>(sortBy: [SortDescriptor(\.entryDate)])
+        let entries = ((try? context.fetch(descriptor)) ?? []).filter(Self.canRunAI)
+        guard !entries.isEmpty else { return }
+        for entry in entries {
+            entry.automaticAIPassUsed = true
+            AIJobPolicy.manualReset(.insights, entry)
+            failedThisSession.remove(entry.id)
+            manualRuns.insert(entry.id)
+            redoIDs.insert(entry.id)
+        }
+        redo = RedoProgress(total: entries.count, done: 0)
+        try? save(context, Set(entries.map(\.persistentModelID)))
+        diagnostics.record("insights.redoAll", ["count": .int(entries.count)])
+        await processQueue(context: context)
+    }
+
+    // Stop takes back what hasn't started. The entry being analyzed finishes.
+    func stopRedo(context: ModelContext) {
+        guard let progress = redo else { return }
+        let waiting = redoIDs.subtracting(running)
+        var changed: Set<PersistentIdentifier> = []
+        for entry in ((try? context.fetch(FetchDescriptor<Entry>(predicate: #Predicate { $0.insightsPending }))) ?? []) where waiting.contains(entry.id) {
+            entry.insightsPending = false
+            manualRuns.remove(entry.id)
+            changed.insert(entry.persistentModelID)
+        }
+        try? save(context, changed)
+        redoIDs.subtract(waiting)
+        diagnostics.record("insights.redoStopped", ["done": .int(progress.done), "total": .int(progress.total)])
+        if redoIDs.isEmpty { redo = nil }
+    }
+
+    private func finishRedo(_ id: UUID) {
+        guard redoIDs.remove(id) != nil else { return }
+        redo?.done += 1
+        if redoIDs.isEmpty { redo = nil }
+    }
+
     // Work that stopped because the phone was offline picks up as soon as the network is back,
     // without waiting for the next launch. Stored failures still gate what may run.
     func networkBecameAvailable(context: ModelContext) async {
@@ -126,7 +189,9 @@ final class InsightsCoordinator {
     private func generate(_ id: PersistentIdentifier, context: ModelContext) async {
         guard let entry = Self.fetch(id, in: context), entry.insightsPending else { return }
         let entryID = entry.id
-        let trigger = manualRuns.remove(entryID) != nil ? "runAI" : "automatic"
+        let redoing = redoIDs.contains(entryID)
+        let trigger = redoing ? "redoAll" : (manualRuns.remove(entryID) != nil ? "runAI" : "automatic")
+        if redoing { manualRuns.remove(entryID) }
         guard Self.canRunAI(on: entry) else {
             // Text went away or back into review since the flag was set; nothing to analyze.
             AIJobPolicy.recordSuccess(.insights, entry)
@@ -238,7 +303,9 @@ final class InsightsCoordinator {
         insights.modelUsed = generator.label
         insights.sourceTextHash = analyzedHash
         insights.summary = result.summary
-        insights.setMoods(primary: result.primaryMood, secondary: result.secondaryMoods, editedByUser: false)
+        if !(redoing && insights.moodsEditedByUser) {
+            insights.setMoods(primary: result.primaryMood, secondary: result.secondaryMoods, editedByUser: false)
+        }
         insights.areas = result.areas
         insights.tags = result.tags
         insights.mentions = result.mentions
