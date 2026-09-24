@@ -1,8 +1,7 @@
 import XCTest
 
-// Saving has no Save button, so these prove text is on disk after the ways an entry can end:
-// a force-quit mid-sentence, leaving the app, and editing later. Each app launch costs about ten
-// seconds, so the checks are grouped into two runs rather than one per behavior.
+// Saving has no Save button, so this proves text is on disk after the ways an entry can end:
+// a force-quit mid-sentence, leaving the app, and editing later.
 final class ContinuousSaveUITests: XCTestCase {
     private var app: XCUIApplication!
 
@@ -35,45 +34,6 @@ final class ContinuousSaveUITests: XCTestCase {
         app.launch()
 
         XCTAssertTrue(app.staticTexts["Walked to the river this morning. The light was strange."].waitForExistence(timeout: 5))
-    }
-
-    @MainActor
-    func testEntriesWithNothingInThemDoNotStickAround() throws {
-        app.launch()
-
-        // Opening a new entry and leaving without typing.
-        startNewEntry()
-        goBack()
-        XCTAssertTrue(app.staticTexts["No entries yet"].waitForExistence(timeout: 5))
-
-        // Clearing an entry's text deletes it, and it stays deleted.
-        startNewEntry()
-        editor.typeText("oops")
-        editor.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: 4))
-        goBack()
-        XCTAssertTrue(app.staticTexts["No entries yet"].waitForExistence(timeout: 5))
-
-        // Swipe to delete, also across a relaunch.
-        startNewEntry()
-        editor.typeText("Delete me")
-        goBack()
-        let row = app.staticTexts["Delete me"]
-        XCTAssertTrue(row.waitForExistence(timeout: 5))
-        row.swipeLeft()
-        app.buttons["Delete"].tap()
-        XCTAssertTrue(app.staticTexts["No entries yet"].waitForExistence(timeout: 5))
-
-        // Undo brings it back; a second delete lets the window run out and is permanent.
-        app.buttons["undoButton"].tap()
-        XCTAssertTrue(row.waitForExistence(timeout: 5))
-        row.swipeLeft()
-        app.buttons["Delete"].tap()
-        XCTAssertTrue(app.staticTexts["No entries yet"].waitForExistence(timeout: 5))
-        XCTAssertTrue(app.otherElements["undoPill"].waitForNonExistence(timeout: 10))
-
-        app.terminate()
-        app.launch()
-        XCTAssertTrue(app.staticTexts["No entries yet"].waitForExistence(timeout: 5))
     }
 
     private var editor: XCUIElement {

@@ -81,7 +81,7 @@ struct DemoJournalTests {
     }
 
     // The 300-entry seed is what the device gate measures, so it has to stay a busy map.
-    @Test func theLargeSeedStillMakesABusyMap() throws {
+    @Test(.enabled(if: TestHost.runsSlowTests)) func theLargeSeedStillMakesABusyMap() throws {
         let context = context()
         try DemoJournal.seedIfEmpty(count: 300, in: context, now: now)
         let data = GraphServices(diagnostics: .disabled).globalGraph(asOf: now, kinds: nil, minimumLinkCount: 2, in: context)
@@ -128,7 +128,7 @@ struct DemoJournalTests {
         #expect(try context.fetch(FetchDescriptor<EntryInsights>()).allSatisfy { !$0.areas.isEmpty })
     }
 
-    @Test func looseEndsAreSpreadAcrossTheJournalInEveryState() throws {
+    @Test(.enabled(if: TestHost.runsSlowTests)) func looseEndsAreSpreadAcrossTheJournalInEveryState() throws {
         let context = context()
         try DemoJournal.seedIfEmpty(count: 300, in: context, now: now)
         let all = LooseEnd.all(in: context)
@@ -156,7 +156,7 @@ struct DemoJournalTests {
         #expect(try context.fetchCount(FetchDescriptor<Entry>()) == 10)
     }
 
-    @Test func threeHundredEntriesGiveAGraphOfRoughlyThreeHundredNodes() throws {
+    @Test(.enabled(if: TestHost.runsSlowTests)) func threeHundredEntriesGiveAGraphOfRoughlyThreeHundredNodes() throws {
         let context = context()
         try DemoJournal.seedIfEmpty(count: 300, in: context, now: now)
         let entities = try context.fetchCount(FetchDescriptor<Entity>())

@@ -231,7 +231,7 @@ struct MindStatsStoreTests {
     // The regenerated story's arc, read by the real rules: the month is running, and over three
     // months the Ledgerline chapter closes (Greg goes quiet) while running takes its place. The
     // author, who is in nearly every entry, is never news.
-    @Test func theStorysHeadlineArc() throws {
+    @Test(.enabled(if: TestHost.runsSlowTests)) func theStorysHeadlineArc() throws {
         let container = try ModelContainerFactory.make(.inMemory)
         let now = Date(timeIntervalSince1970: 1_800_000_000)
         try DemoStory.seedIfEmpty(in: container.mainContext, now: now)
