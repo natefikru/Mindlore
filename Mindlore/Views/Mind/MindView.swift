@@ -103,10 +103,7 @@ struct MindView: View {
             .onDisappear { endReplay(finished: false) }
             .toolbar(.hidden, for: .navigationBar)
             .navigationDestination(for: EntityRoute.self) { EntityView(route: $0) }
-            // On the map, inside the stack, where the drawer's copy of this sheet always worked.
-            // Attached to the NavigationStack itself, it showed no question in the UI test that
-            // renames a name on its page (whose Edit and Rename are sheets), comes back, and taps
-            // Tidy up, while the same steps through the drawer's sheet passed.
+            // Tidy up's questions, presented from the map inside the stack.
             .sheet(isPresented: $tidyingUp, onDismiss: refreshReview) {
                 TidyUpView(skipped: $skipped, hidden: tidyHidden, open: { router.mindPath.append(EntityRoute(id: $0)) })
             }
