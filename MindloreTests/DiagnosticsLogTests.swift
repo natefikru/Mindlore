@@ -496,6 +496,12 @@ struct AskDiagnosticsPrivacyTests {
         )
         let stopping = Task { await stoppingAsk.send("Stop \(sentinel)?", in: context) }
         await stopped.waitForDeltas(1)
+        // The delta being sent is not the delta being shown: AskService reads the stream in a task
+        // of its own, and stop() does nothing until the answer is on screen. On a runner the stop
+        // landed first and the answer finished unstopped. Bounded, sleeping rather than yielding.
+        for _ in 0..<500 where !stoppingAsk.canStop {
+            try? await Task.sleep(for: .milliseconds(10))
+        }
         stoppingAsk.stop()
         stopped.release()
         await stopping.value

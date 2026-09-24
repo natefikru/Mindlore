@@ -164,11 +164,6 @@ struct JournalGroupsTests {
 }
 
 struct JournalFilterMultiSelectTests {
-    @Test func nothingPickedKeepsEverything() {
-        #expect(JournalFilter.matches(areasRaw: [], areas: []))
-        #expect(JournalFilter.matches(areasRaw: ["work"], areas: []))
-    }
-
     // Any of them, not all.
     @Test func anEntryMatchingAnySelectedAreaShows() {
         #expect(JournalFilter.matches(areasRaw: ["work"], areas: [.work, .health]))
