@@ -49,6 +49,18 @@ final class SettingsStore {
         static let reflectDismissed = "reflectDismissed"
         static let appLockEnabled = "appLockEnabled"
         static let welcomeSeen = "welcomeSeen"
+
+        // What follows the journal to the user's other phones (owner, 2026-09-25): the journal's
+        // own shape. Everything about this phone (appearance, the reminder, the lock, AI and its
+        // accounts, record on open, dismissals, internal state) stays on it.
+        static let mirrored: Set<String> = [
+            lifeAreaNames, hiddenLifeAreas, lifePriorities, lifePrioritiesAsked, userName,
+            journalVoice, journalFont,
+            insightSummary, insightMoods, insightLifeAreas, insightTags, insightMentions,
+            insightLooseEnds, insightCleanedText, customInsightPrompts,
+            autoApplyCleanedText, suggestEntryDates, autoApplySuggestedEntryDate, insightsTrigger,
+            keepAudioAfterTranscription, resurfacingEnabled,
+        ]
     }
 
     @ObservationIgnored private let store: any KeyValueStore
@@ -56,6 +68,8 @@ final class SettingsStore {
     @ObservationIgnored private let onDeviceTitlesAvailable: () -> Bool
     @ObservationIgnored private let onDeviceSpeechAvailable: () -> Bool
     @ObservationIgnored private let now: () -> Date
+    // Set while another phone's values are copied in, so they aren't written straight back.
+    @ObservationIgnored private var reloading = false
 
     var keepAudioAfterTranscription: Bool {
         didSet { write(keepAudioAfterTranscription, Key.keepAudioAfterTranscription, logged: .bool(keepAudioAfterTranscription)) }
@@ -445,7 +459,49 @@ final class SettingsStore {
         }
     }
 
+    // Another phone changed some of the journal's settings and the store already holds them. A
+    // fresh store over the same values reads them with init's own defaults, and each mirrored
+    // property is copied across only where it differs.
+    func reloadMirrored() {
+        let fresh = SettingsStore(store: store, diagnostics: diagnostics, onDeviceTitlesAvailable: onDeviceTitlesAvailable, onDeviceSpeechAvailable: onDeviceSpeechAvailable, now: now)
+        reloading = true
+        defer { reloading = false }
+        for copy in Self.mirroredCopies.values { copy(fresh, self) }
+    }
+
+    // One per mirrored key; a test holds the two lists equal.
+    static let mirroredCopies: [String: (SettingsStore, SettingsStore) -> Void] = [
+        Key.lifeAreaNames: copy(\.lifeAreaNames),
+        Key.hiddenLifeAreas: copy(\.hiddenLifeAreas),
+        Key.lifePriorities: copy(\.lifePriorities),
+        Key.lifePrioritiesAsked: copy(\.lifePrioritiesAsked),
+        Key.userName: copy(\.userName),
+        Key.journalVoice: copy(\.journalVoice),
+        Key.journalFont: copy(\.journalFont),
+        Key.insightSummary: copy(\.insightSummary),
+        Key.insightMoods: copy(\.insightMoods),
+        Key.insightLifeAreas: copy(\.insightLifeAreas),
+        Key.insightTags: copy(\.insightTags),
+        Key.insightMentions: copy(\.insightMentions),
+        Key.insightLooseEnds: copy(\.insightLooseEnds),
+        Key.insightCleanedText: copy(\.insightCleanedText),
+        Key.customInsightPrompts: copy(\.customInsightPrompts),
+        Key.autoApplyCleanedText: copy(\.autoApplyCleanedText),
+        Key.suggestEntryDates: copy(\.suggestEntryDates),
+        Key.autoApplySuggestedEntryDate: copy(\.autoApplySuggestedEntryDate),
+        Key.insightsTrigger: copy(\.insightsTrigger),
+        Key.keepAudioAfterTranscription: copy(\.keepAudioAfterTranscription),
+        Key.resurfacingEnabled: copy(\.resurfacingEnabled),
+    ]
+
+    private static func copy<Value: Equatable>(_ property: ReferenceWritableKeyPath<SettingsStore, Value>) -> (SettingsStore, SettingsStore) -> Void {
+        { from, to in
+            if to[keyPath: property] != from[keyPath: property] { to[keyPath: property] = from[keyPath: property] }
+        }
+    }
+
     private func write(_ value: Any?, _ key: String, logged: DiagnosticValue? = nil) {
+        guard !reloading else { return }
         store.set(value, forKey: key)
         var fields: [String: DiagnosticValue] = ["key": .string(key)]
         fields["value"] = logged
@@ -453,6 +509,7 @@ final class SettingsStore {
     }
 
     private func writeJSON<T: Encodable>(_ value: T, _ key: String) {
+        guard !reloading else { return }
         store.set(try? JSONEncoder().encode(value), forKey: key)
         diagnostics.record("settings.changed", ["key": .string(key)])
     }

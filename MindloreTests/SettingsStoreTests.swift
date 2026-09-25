@@ -269,3 +269,71 @@ struct SettingsStoreTests {
         #expect(try file.events().compactMap { $0["key"] as? String } == ["customInsightPrompts", "providerAccounts"])
     }
 }
+
+@MainActor
+struct SettingsMirroringTests {
+    final class CountingStore: KeyValueStore {
+        var values: [String: Any] = [:]
+        var writes = 0
+        func object(forKey key: String) -> Any? { values[key] }
+        func set(_ value: Any?, forKey key: String) {
+            values[key] = value
+            writes += 1
+        }
+    }
+
+    @Test func everyMirroredKeyIsReloaded() {
+        #expect(Set(SettingsStore.mirroredCopies.keys) == SettingsStore.Key.mirrored)
+    }
+
+    @Test func nothingAboutThisPhoneIsMirrored() {
+        let perPhone: [String] = [
+            SettingsStore.Key.aiEnabled, SettingsStore.Key.aiEnabledAt, SettingsStore.Key.providerAccounts,
+            SettingsStore.Key.speechAccountID, SettingsStore.Key.textAccountID, SettingsStore.Key.pageAccountID,
+            SettingsStore.Key.titleGenerator, SettingsStore.Key.insightsGenerator, SettingsStore.Key.askGenerator,
+            SettingsStore.Key.appearance, SettingsStore.Key.recordOnOpen, SettingsStore.Key.reminderEnabled,
+            SettingsStore.Key.appLockEnabled, SettingsStore.Key.welcomeSeen, SettingsStore.Key.todayDismissed,
+        ]
+        #expect(SettingsStore.Key.mirrored.isDisjoint(with: perPhone))
+    }
+
+    @Test func aChangeFromAnotherPhoneShowsWithoutBeingWrittenBack() throws {
+        let store = CountingStore()
+        let settings = SettingsStore(store: store)
+
+        store.values[SettingsStore.Key.lifeAreaNames] = try JSONEncoder().encode(["work": "Studio"])
+        store.values[SettingsStore.Key.journalFont] = JournalFont.rounded.rawValue
+        store.values[SettingsStore.Key.insightMoods] = false
+        store.values[SettingsStore.Key.appearance] = AppearancePreference.dark.rawValue
+        settings.reloadMirrored()
+
+        #expect(settings.name(of: .work) == "Studio")
+        #expect(settings.journalFont == .rounded)
+        #expect(settings.insightMoods == false)
+        // Appearance is this phone's own; a value arriving in the store is not picked up here.
+        #expect(settings.appearance == .system)
+        #expect(store.writes == 0)
+    }
+
+    @Test func aRemovedKeyGoesBackToTheDefault() {
+        let store = FakeKeyValueStore()
+        let settings = SettingsStore(store: store)
+        settings.setUserName("Teo")
+
+        store.values[SettingsStore.Key.userName] = nil
+        settings.reloadMirrored()
+
+        #expect(settings.userName == "")
+    }
+
+    @Test func writesAfterAReloadStillGoOut() {
+        let store = CountingStore()
+        let settings = SettingsStore(store: store)
+        settings.reloadMirrored()
+
+        settings.insightTags = false
+
+        #expect(store.values[SettingsStore.Key.insightTags] as? Bool == false)
+        #expect(store.writes == 1)
+    }
+}
