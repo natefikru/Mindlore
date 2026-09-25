@@ -11,6 +11,7 @@ struct SettingsView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(EntrySaver.self) private var saver
     @Environment(GraphServices.self) private var graph
+    @Environment(JournalHost.self) private var host
     @Environment(\.dismiss) private var dismiss
     @State private var entries = 0
 
@@ -46,6 +47,13 @@ struct SettingsView: View {
             .task(id: JournalTotals.Fingerprint(saver: saver.revision, graph: graph.revision, stamped: JournalSaves.revision)) {
                 entries = JournalTotals.entryCount(in: modelContext)
             }
+        }
+        // The sync switch takes effect here, once nothing is left on screen that the reopened
+        // journal would pull out from under the user.
+        .onDisappear {
+            guard host.hasPendingSwitch else { return }
+            saver.flush()
+            Task { await host.applyPendingSwitch() }
         }
     }
 

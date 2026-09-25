@@ -21,6 +21,7 @@ final class SyncStatusMonitor {
     private(set) var status: SyncStatus
 
     private let mirrors: Bool
+    private let switchedOff: Bool
     private let storeFailed: Bool
     private let accountStatus: @Sendable () async throws -> CKAccountStatus
     private let userRecordName: @Sendable () async throws -> String?
@@ -36,6 +37,7 @@ final class SyncStatusMonitor {
 
     init(
         mirrors: Bool,
+        switchedOff: Bool = false,
         storeFailed: Bool = false,
         containerID: String? = AppConfig.cloudKitContainerID,
         accountStatus: (@Sendable () async throws -> CKAccountStatus)? = nil,
@@ -43,6 +45,7 @@ final class SyncStatusMonitor {
         diagnostics: DiagnosticsLog = .shared
     ) {
         self.mirrors = mirrors
+        self.switchedOff = switchedOff
         self.storeFailed = storeFailed
         self.diagnostics = diagnostics
         // Only a store that mirrors ever asks CloudKit anything; a test run or a demo journal never does.
@@ -54,7 +57,7 @@ final class SyncStatusMonitor {
             guard let containerID else { return nil }
             return try await CKContainer(identifier: containerID).userRecordID().recordName
         }
-        status = SyncStatus.derive(mirrors: mirrors, storeFailed: storeFailed, account: nil, inFlight: false, lastSuccess: nil, lastProblem: nil)
+        status = SyncStatus.derive(mirrors: mirrors, switchedOff: switchedOff, storeFailed: storeFailed, account: nil, inFlight: false, lastSuccess: nil, lastProblem: nil)
     }
 
     // Idempotent; the root view calls it from a task.
@@ -125,6 +128,7 @@ final class SyncStatusMonitor {
     private func update() {
         let next = SyncStatus.derive(
             mirrors: mirrors,
+            switchedOff: switchedOff,
             storeFailed: storeFailed,
             account: account,
             inFlight: !inFlight.isEmpty,

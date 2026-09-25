@@ -51,6 +51,8 @@ nonisolated enum SyncProblem: Equatable, Sendable {
 nonisolated enum SyncStatus: Equatable, Sendable {
     // This store never mirrors: a test run, a demo journal, or a build with no container.
     case notSynced
+    // The user turned sync off on this iPhone; the journal opened without CloudKit.
+    case off
     // The mirrored store failed to open, so the journal opened on this iPhone alone.
     case storeFailed
     case checking
@@ -61,12 +63,14 @@ nonisolated enum SyncStatus: Equatable, Sendable {
 
     static func derive(
         mirrors: Bool,
+        switchedOff: Bool = false,
         storeFailed: Bool,
         account: SyncAccount?,
         inFlight: Bool,
         lastSuccess: Date?,
         lastProblem: SyncProblem?
     ) -> SyncStatus {
+        if switchedOff { return .off }
         if storeFailed { return .storeFailed }
         guard mirrors else { return .notSynced }
         guard let account else { return .checking }
@@ -81,7 +85,7 @@ nonisolated enum SyncStatus: Equatable, Sendable {
     // The short value on the row.
     var summary: String {
         switch self {
-        case .notSynced, .storeFailed, .deviceOnly: "Off"
+        case .notSynced, .off, .storeFailed, .deviceOnly: "Off"
         case .checking: "Checking…"
         case .syncing: "Syncing…"
         case .upToDate: "On"
@@ -96,6 +100,8 @@ nonisolated enum SyncStatus: Equatable, Sendable {
         switch self {
         case .notSynced:
             "This journal stays on this iPhone."
+        case .off:
+            "Sync is off on this iPhone. Your journal stays here, and changes from your other devices wait until you turn it back on."
         case .storeFailed:
             "Mindlore couldn't start iCloud sync, so your journal is on this iPhone only for now. It tries again the next time Mindlore opens."
         case .checking:
@@ -123,7 +129,7 @@ nonisolated enum SyncStatus: Equatable, Sendable {
     // Nothing in flight: what the store holds is what it will hold until the next change.
     var isSettled: Bool {
         switch self {
-        case .upToDate, .deviceOnly, .paused, .storeFailed: true
+        case .upToDate, .deviceOnly, .paused, .storeFailed, .off: true
         case .notSynced, .checking, .syncing: false
         }
     }
@@ -131,6 +137,7 @@ nonisolated enum SyncStatus: Equatable, Sendable {
     var diagnosticName: String {
         switch self {
         case .notSynced: "notSynced"
+        case .off: "off"
         case .storeFailed: "storeFailed"
         case .checking: "checking"
         case .deviceOnly: "deviceOnly"
@@ -147,7 +154,7 @@ nonisolated enum SyncStatus: Equatable, Sendable {
     var reachesICloud: Bool {
         switch self {
         case .syncing, .upToDate, .paused: true
-        case .notSynced, .storeFailed, .checking, .deviceOnly: false
+        case .notSynced, .off, .storeFailed, .checking, .deviceOnly: false
         }
     }
 }

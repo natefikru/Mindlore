@@ -21,6 +21,16 @@ struct SyncStatusTests {
         #expect(derive(mirrors: false, account: .available, inFlight: true) == .notSynced)
     }
 
+    @Test func aJournalSwitchedOffSaysSoAndIsSettled() {
+        let off = SyncStatus.derive(mirrors: false, switchedOff: true, storeFailed: false, account: nil, inFlight: false, lastSuccess: nil, lastProblem: nil)
+        #expect(off == .off)
+        #expect(off.summary == "Off")
+        #expect(off.isSettled)
+        #expect(!off.reachesICloud)
+        #expect(off.explanation.contains("turn it back on"))
+        #expect(WelcomeSyncLine.line(status: .off, entries: 0) == nil)
+    }
+
     @Test func aFailedStoreWinsOverEverything() {
         #expect(derive(storeFailed: true, inFlight: true) == .storeFailed)
     }

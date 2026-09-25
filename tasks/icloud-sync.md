@@ -1,7 +1,7 @@
 # iCloud sync
 
-Branch: `feature/paid-team`, from `main` at `ead7a53`. Status: revision 2 (a sub-agent review folded in),
-awaiting the owner's approval. Nothing below is built.
+Branch: `feature/paid-team`, from `main` at `ead7a53`. Status: phases 1 to 6 built; phase 7 and the
+two-device smoke steps remain (see Progress).
 
 The v1 plan designed sync in 2026-09 when the journal held one model (`Entry`) and deferred it to a
 Phase 6 behind the paid program (`tasks/archive/v1-capture-storage.md`, "Phase 6"). The program is
@@ -241,7 +241,9 @@ The owner said "continue" to the three recommendations:
       `EntryDuplicates` keeps the most recent of two entries sharing one. No Review list: Restore
       and Not now.
 - [x] Phases 3 and 4 (2026-09-25, PR #68): `LocalOrigin` and `SyncDuplicates`, as planned below.
-- [ ] Phases 2b, 5, 7, and the two-device smoke steps.
+- [x] Phases 5 and 2b (2026-09-25): `MirroredKeyValueStore` and the sync switch through
+      `JournalHost`, as planned below.
+- [ ] Phase 7 and the two-device smoke steps.
 
 ## Phases 3 and 4, as planned (2026-09-25)
 
@@ -324,3 +326,77 @@ against an empty store, so an entry that arrives still waiting for a job gets it
 manual button; seeding after the first import instead would hand a second phone the first one's
 pending jobs, which is what this phase exists to stop (review, 2026-09-25). Phases 2b, 5, 7; any Life row other than feedback (its other kinds replace by kind already);
 pruning ids of deleted entries from the set (harmless); `LooseEnd` (rule 4 covers it).
+
+## Phases 5 and 2b, as planned (2026-09-25)
+
+Branch `feature/sync-switch-settings` from `main` at `fdee8e1`. No model change, so no CloudKit
+schema deploy. Owner's answers: the switch takes effect right away, it stops settings mirroring
+too, and the mirrored list is the journal's shape (below).
+
+### Phase 5: settings mirroring
+
+- `Mindlore/Sync/MirroredKeyValueStore.swift`: a `KeyValueStore` over the local `UserDefaults` and
+  a `CloudKeyValues` protocol (`NSUbiquitousKeyValueStore` in the app, a fake in tests). Reads are
+  always local. A write goes local, and to the cloud too when the key is mirrored and the switch is
+  on. `start()` reconciles once: a key the cloud has wins locally; a key only this phone has is
+  pushed up; a key neither has stays missing, so a fresh phone never pushes its defaults over the
+  real ones. Incoming changes (`didChangeExternallyNotification`): a server change copies the
+  cloud's value down, a removal included (renaming an area back to its default name removes the
+  key); an initial sync or account change copies what the cloud has and pushes what it lacks, so a
+  new account never resets this phone to defaults. Quota violations are logged.
+- **Mirrored** (`SettingsStore.Key.mirrored`): `lifeAreaNames`, `hiddenLifeAreas`,
+  `lifePriorities`, `lifePrioritiesAsked`, `userName`, `journalVoice`, `journalFont`, the seven
+  insight section toggles, `customInsightPrompts`, `autoApplyCleanedText`, `suggestEntryDates`,
+  `autoApplySuggestedEntryDate`, `insightsTrigger`, `keepAudioAfterTranscription`,
+  `resurfacingEnabled`. **Per phone**: appearance, record on open, the reminder, app lock, AI on and
+  its date, keys, accounts, providers, models, fallback, the welcome and dismissals, automation
+  start, the switch.
+- `SettingsStore.reloadMirrored()` re-reads those keys after a change arrives, by building a fresh
+  store over the same `KeyValueStore` and copying each mirrored property, so defaults live only in
+  `init`. Writes are suppressed while it copies (no echo back up, no `settings.changed`). A test
+  requires the copy table's keys to equal `Key.mirrored`.
+- Only the journal's own settings mirror: `.standard` defaults with `location == .default`. UI
+  test suites, the demo suite, and unit tests never touch iCloud.
+- Diagnostics: `settings.mirrored` (reason, key count), `settings.quotaExceeded`. Key names are
+  ours, never user text.
+
+### Phase 2b: the switch
+
+- `SyncSwitch` (`Mindlore/Sync/`): "Sync with iCloud", on by default, one `UserDefaults` key, never
+  mirrored, read only for the journal's own store.
+- `JournalHost` (`Mindlore/Persistence/`, `@Observable`, held by `MindloreApp` as state) takes over
+  opening the store from `MindloreApp.init`: container, `SyncStatusMonitor`, `JournalRecovery`, the
+  registrations and launch repairs, and a generation number the root view is keyed on.
+- `EntryBackups`, `LocalOrigin`, and `JournalRecovery` follow "is the journal" rather than "mirrors
+  now". Otherwise turning sync off would make every synced entry local and run another phone's
+  pending jobs here, and the safety copy would stop exactly while a sign-in change could still purge
+  on the way back.
+- Flipping the switch saves the choice at once and applies it when the Settings sheet closes, so
+  the sheet isn't torn down under the tap; a choice not applied before a kill is honoured at next
+  launch. Turning off asks first ("Your journal stays on this iPhone..."); turning on doesn't. The
+  toggle is disabled while a recording runs. The footer says "Turns off when you close Settings"
+  while one waits.
+- Applying: flush the saver, cancel `ReflectSummaryStore`'s pending refresh, replace the root with
+  a short "Turning iCloud sync off..." screen so every view, task, and coordinator goes, wait (up
+  to five seconds) for the old container to be released, then open the new one and rebuild. Two
+  containers on one file never overlap. `sync.switched` logs the direction and whether the old
+  container was released in time.
+- `SyncStatus.off` (the user turned it off): "Off", "Sync is off on this iPhone. Your journal stays
+  here, and changes from your other devices wait until you turn it back on." Settled, never
+  reaches iCloud. The mirrored settings store follows the switch too.
+
+### Tests
+
+`MirroredKeyValueStoreTests` (writes by key and switch, reconcile, each incoming reason, a removal),
+`SettingsStoreTests` (reload copies every mirrored key, writes nothing, the table matches the list),
+`SyncStatusTests` (`.off`), `JournalHostTests` (the switch picks the container shape through an
+injected opener, the generation moves, the old container is released, a pending choice applies,
+LocalOrigin and backups stay registered with sync off). Nothing about the switch shows in a UI test:
+the simulator's journal is a `.file` store, which has no switch.
+
+### Phone steps
+
+Added to the smoke list: 7 (a renamed area arrives on the other phone, the key doesn't) and 8
+(switch off on B, B keeps its journal and stops receiving; on again, it catches up) already cover
+both; plus: switch off and on with a recording running is refused, and `sync.switched` reports the
+old container released.

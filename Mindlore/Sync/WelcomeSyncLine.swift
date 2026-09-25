@@ -20,7 +20,7 @@ nonisolated struct WelcomeSyncLine: Equatable, Sendable {
             )
         }
         switch status {
-        case .notSynced:
+        case .notSynced, .off:
             return nil
         case .checking, .syncing:
             return WelcomeSyncLine(

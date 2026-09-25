@@ -12,11 +12,9 @@ import UserNotifications
 
 @main
 struct MindloreApp: App {
-    private let container: Result<ModelContainer, any Error>
+    @State private var host: JournalHost
     @State private var settings: SettingsStore
     @State private var accounts: ProviderAccountStore
-    @State private var sync: SyncStatusMonitor
-    @State private var recovery: JournalRecovery
 
     init() {
         let diagnostics = DiagnosticsLog.shared
@@ -60,6 +58,18 @@ struct MindloreApp: App {
         let demoDefaults: UserDefaults? = nil
         #endif
         let defaults = testStoreName.flatMap { UserDefaults(suiteName: "uitest-\($0)") } ?? demoDefaults ?? .standard
+        let location = StoreLocation.resolve(
+            arguments: ProcessInfo.processInfo.arguments,
+            environment: ProcessInfo.processInfo.environment
+        )
+        // The user's own journal: the one store that syncs, and the one whose settings follow it
+        // to their other phones. Tests and demo journals never touch iCloud.
+        let isJournal = location == .default && AppConfig.cloudKitContainerID != nil
+        let settingsMirror: MirroredKeyValueStore? = isJournal && defaults === UserDefaults.standard
+            ? MirroredKeyValueStore(local: defaults, cloud: NSUbiquitousKeyValueStore.default, keys: SettingsStore.Key.mirrored, isEnabled: SyncSwitch.isOn(in: defaults))
+            : nil
+        // Before the settings are read, so what the other phones already chose is what they read.
+        settingsMirror?.start()
         // A real key handed to a UI test run stays in memory so it never touches the Keychain; test
         // runs with the stub's key use a Keychain service named for the run, so saving a key and
         // finding it after a relaunch still works.
@@ -72,11 +82,12 @@ struct MindloreApp: App {
         }
         let http: any HTTPClient = uiTesting && arguments.contains(UITestingHTTPClient.launchArgument) ? UITestingHTTPClient() : URLSessionHTTPClient()
         let settingsStore = SettingsStore(
-            store: defaults,
+            store: settingsMirror ?? defaults,
             onDeviceTitlesAvailable: { !uiTesting && FoundationModelsAvailability.isAvailable },
             onDeviceSpeechAvailable: { !uiTesting && SpeechTranscriber.isAvailable }
         )
         settingsStore.recordAutomationStartIfNeeded()
+        settingsMirror?.onChange = { [weak settingsStore] _ in settingsStore?.reloadMirrored() }
         let accountStore = ProviderAccountStore(settings: settingsStore, secrets: secrets, http: http)
         // UI tests that need AI start with it on and the stub's key saved, instead of typing it each time.
         // A real key passed by the test runner (MINDLORE_OPENAI_KEY) runs against OpenAI; otherwise the stub's key.
@@ -95,111 +106,111 @@ struct MindloreApp: App {
         #if DEBUG
         // Before the journal's own store opens, so the two CloudKit containers never overlap.
         CloudKitSchemaInitializer.runIfRequested(arguments: arguments, containerID: AppConfig.cloudKitContainerID, diagnostics: diagnostics)
-        #endif
-        let location = StoreLocation.resolve(
-            arguments: ProcessInfo.processInfo.arguments,
-            environment: ProcessInfo.processInfo.environment
-        )
-        #if DEBUG
         if let demo, case .file(let url) = location,
            arguments.contains(demo == .story ? DemoJournal.resetStoryArgument : DemoJournal.resetGeneratedArgument) {
             DemoJournal.removeStore(at: url)
         }
         #endif
-        // A journal that can't open its iCloud store still opens, on this iPhone alone, rather than
-        // leaving the app on an error screen; Settings says so and the next launch tries again.
-        let mirrors = location == .default && AppConfig.cloudKitContainerID != nil
-        // The safety copy exists only for the journal that syncs, and hears about a sync reset
-        // from before the store opens.
+        // The safety copy exists only for the journal that can sync, and hears about a sync reset
+        // from before the store opens. It stays on with the switch off: a sign-in change can still
+        // purge the store when sync comes back on.
         let backups = EntryBackups(folder: EntryBackups.standardFolder)
-        let journalRecovery = JournalRecovery(backups: backups, enabled: mirrors)
-        var syncFailed = false
-        var opened = Result { try ModelContainerFactory.make(location) }
-        if mirrors, case .failure(let error) = opened {
-            // Only a store that opens without CloudKit makes this a sync failure. One that fails
-            // both ways failed for another reason (a migration, most likely), and the original
-            // error is the one worth reading, so it is what store.openFailed reports.
-            if case .success(let local) = Result(catching: { try ModelContainerFactory.make(location, cloudKitContainerID: nil) }) {
-                diagnostics.record("sync.storeFailed", ["error": .errorCode(error)])
-                syncFailed = true
-                opened = .success(local)
+        _host = State(initialValue: JournalHost(
+            isJournal: isJournal,
+            recovery: JournalRecovery(backups: backups, enabled: isJournal),
+            settingsMirror: settingsMirror,
+            openStore: { cloudKit in
+                try ModelContainerFactory.make(location, cloudKitContainerID: cloudKit ? AppConfig.cloudKitContainerID : nil)
+            },
+            prepare: { opened in
+                #if DEBUG
+                Self.prepare(opened, isJournal: isJournal, backups: backups, demo: demo, diagnostics: diagnostics)
+                #else
+                Self.prepare(opened, isJournal: isJournal, backups: backups, diagnostics: diagnostics)
+                #endif
+            }
+        ))
+    }
+
+    #if DEBUG
+    private static func prepare(_ opened: ModelContainer, isJournal: Bool, backups: EntryBackups, demo: DemoJournal.Request?, diagnostics: DiagnosticsLog) {
+        if let demo {
+            do {
+                try DemoJournal.seedIfEmpty(demo, in: opened.mainContext)
+            } catch {
+                diagnostics.record("demo.seedFailed", ["error": .errorCode(error)])
             }
         }
-        container = opened
-        let monitor = SyncStatusMonitor(mirrors: mirrors, storeFailed: syncFailed)
-        monitor.onAccountChecked = { [journalRecovery] name in journalRecovery.accountSeen(recordName: name) }
-        _sync = State(initialValue: monitor)
-        _recovery = State(initialValue: journalRecovery)
-        switch container {
-        case .success(let opened):
-            #if DEBUG
-            if let demo {
-                do {
-                    try DemoJournal.seedIfEmpty(demo, in: opened.mainContext)
-                } catch {
-                    diagnostics.record("demo.seedFailed", ["error": .errorCode(error)])
-                }
+        prepare(opened, isJournal: isJournal, backups: backups, diagnostics: diagnostics)
+    }
+    #endif
+
+    // The launch repairs and registrations, on every container the host opens.
+    private static func prepare(_ opened: ModelContainer, isJournal: Bool, backups: EntryBackups, diagnostics: DiagnosticsLog) {
+        do {
+            let repaired = try EntryDateRepair.run(in: opened.mainContext)
+            if repaired > 0 {
+                diagnostics.record("store.entryDatesRepaired", ["count": .int(repaired)])
             }
-            #endif
+        } catch {
+            diagnostics.record("store.entryDateRepairFailed", ["error": .errorCode(error)])
+        }
+        // By "is the journal", not "syncs now": with the switch off, entries from another phone
+        // must still wait for it, and the safety copy still has a job.
+        if isJournal {
+            EntryBackups.register(backups, for: opened)
+            let origin = LocalOrigin()
+            LocalOrigin.register(origin, for: opened)
             do {
-                let repaired = try EntryDateRepair.run(in: opened.mainContext)
-                if repaired > 0 {
-                    diagnostics.record("store.entryDatesRepaired", ["count": .int(repaired)])
-                }
+                try origin.seedIfNeeded(from: opened.mainContext)
             } catch {
-                diagnostics.record("store.entryDateRepairFailed", ["error": .errorCode(error)])
-            }
-            if mirrors {
-                EntryBackups.register(backups, for: opened)
-                let origin = LocalOrigin()
-                LocalOrigin.register(origin, for: opened)
-                do {
-                    try origin.seedIfNeeded(from: opened.mainContext)
-                } catch {
-                    diagnostics.record("sync.originSeedFailed", ["error": .errorCode(error)])
-                }
-                do {
-                    let filled = try backups.fillIn(from: opened.mainContext)
-                    if filled > 0 { diagnostics.record("backup.filledIn", ["count": .int(filled)]) }
-                } catch {
-                    diagnostics.record("backup.fillInFailed", ["error": .errorCode(error)])
-                }
+                diagnostics.record("sync.originSeedFailed", ["error": .errorCode(error)])
             }
             do {
-                let repaired = try EntityLinkRepair.run(in: opened.mainContext)
-                if repaired > 0 {
-                    diagnostics.record("store.linksRepaired", ["count": .int(repaired)])
-                }
+                let filled = try backups.fillIn(from: opened.mainContext)
+                if filled > 0 { diagnostics.record("backup.filledIn", ["count": .int(filled)]) }
             } catch {
-                diagnostics.record("store.linkRepairFailed", ["error": .errorCode(error)])
+                diagnostics.record("backup.fillInFailed", ["error": .errorCode(error)])
             }
-        case .failure(let error):
-            diagnostics.record("store.openFailed", ["error": .errorCode(error)])
+        }
+        do {
+            let repaired = try EntityLinkRepair.run(in: opened.mainContext)
+            if repaired > 0 {
+                diagnostics.record("store.linksRepaired", ["count": .int(repaired)])
+            }
+        } catch {
+            diagnostics.record("store.linkRepairFailed", ["error": .errorCode(error)])
         }
     }
 
     var body: some Scene {
         WindowGroup {
-            switch container {
-            case .success(let container):
-                RootView(container: container, settings: settings, accounts: accounts)
-                    .modelContainer(container)
-                    .environment(settings)
-                    .environment(accounts)
-                    .environment(sync)
-                    .environment(recovery)
-                    .task { sync.start() }
-                    // On the windows themselves, not `.preferredColorScheme`: that modifier stamps its
-                    // scheme on every sheet it presents and never clears it when the choice goes back
-                    // to System, so an open Settings sheet stayed dark (owner, 2026-09-24).
-                    .onChange(of: settings.appearance, initial: true) { _, preference in
-                        AppearancePreference.apply(preference)
-                    }
-                    .onReceive(NotificationCenter.default.publisher(for: UIScene.didActivateNotification)) { _ in
-                        AppearancePreference.apply(settings.appearance)
-                    }
-            case .failure(let error):
-                StoreErrorView(error: error)
+            Group {
+                switch host.phase {
+                case .open(let journal):
+                    RootView(container: journal.container, settings: settings, accounts: accounts)
+                        .modelContainer(journal.container)
+                        .environment(journal.sync)
+                        .environment(host.recovery)
+                        .environment(host)
+                        .task { journal.sync.start() }
+                        .id(journal.generation)
+                case .switching(let on):
+                    SyncSwitchingView(turningOn: on)
+                case .failed(let error):
+                    StoreErrorView(error: error)
+                }
+            }
+            .environment(settings)
+            .environment(accounts)
+            // On the windows themselves, not `.preferredColorScheme`: that modifier stamps its
+            // scheme on every sheet it presents and never clears it when the choice goes back
+            // to System, so an open Settings sheet stayed dark (owner, 2026-09-24).
+            .onChange(of: settings.appearance, initial: true) { _, preference in
+                AppearancePreference.apply(preference)
+            }
+            .onReceive(NotificationCenter.default.publisher(for: UIScene.didActivateNotification)) { _ in
+                AppearancePreference.apply(settings.appearance)
             }
         }
     }

@@ -134,6 +134,12 @@ enum ReflectSummaryStore {
     private(set) static var pendingRefresh: Task<Void, Never>?
     static let refreshQuiet: Duration = .seconds(45)
 
+    // The journal is closing (the sync switch): a refresh must not hold on to its context.
+    static func cancelPendingRefresh() {
+        pendingRefresh?.cancel()
+        pendingRefresh = nil
+    }
+
     static func scheduleCurrentWeekRefresh(
         resolve: @escaping () -> Result<AskProvider, AIJobFailure>,
         voice: @escaping () -> PromptVoice,
