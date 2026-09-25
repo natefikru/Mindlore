@@ -182,6 +182,12 @@ final class AppRouter {
         tab = picked
     }
 
+    // The app leaving the foreground puts the fan away, so a call, the app switcher, or a
+    // notification never brings the user back to a half circle over the tab.
+    func sceneLeftActive() {
+        showingNewEntryFan = false
+    }
+
     // Replaces Journal's path rather than appending, so a finished recording never lands on top of
     // another open entry. With `returningTo`, closing the entry goes back to that tab.
     func showEntry(_ id: UUID, forReading: Bool = false, returningTo: AppTab? = nil) {

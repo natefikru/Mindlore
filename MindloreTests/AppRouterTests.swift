@@ -229,6 +229,16 @@ struct AppRouterMindTests {
         }
     }
 
+    @Test func leavingTheForegroundClosesTheFanAndLeavesTheTab() {
+        let router = AppRouter(opened: { _ in }, closed: { _ in })
+        router.select(.mind)
+        router.select(.newEntry)
+        #expect(router.showingNewEntryFan)
+        router.sceneLeftActive()
+        #expect(!router.showingNewEntryFan)
+        #expect(router.tab == .mind)
+    }
+
     @Test func showNewPagesSwitchesToJournalLeavesItsPathAndWaitsForCovers() {
         let router = AppRouter(opened: { _ in }, closed: { _ in })
         let open = UUID()

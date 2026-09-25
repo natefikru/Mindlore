@@ -47,6 +47,29 @@ final class ReflectUITests: XCTestCase {
     // true under the Simulator), that's real inference time, not an instant failure.
     private static let generationTimeout: TimeInterval = 60
 
+    // The tab's three sides, each reached through the segmented control and back to the first.
+    // The demo journal is big enough for a reading, so the tab opens on Life.
+    func testTheSegmentedControlReachesEachSide() {
+        let app = launch(reset: true)
+        let tab = app.tabBars.buttons["Reflect"]
+        XCTAssertTrue(tab.waitForExistence(timeout: 20))
+        tab.tap()
+        let any = app.descendants(matching: .any)
+        XCTAssertTrue(any["lifeView"].waitForExistence(timeout: 20), "opens on Life")
+
+        app.buttons["Loose ends"].firstMatch.tap()
+        XCTAssertTrue(any["reflectLooseEnds"].waitForExistence(timeout: 10))
+        XCTAssertFalse(any["lifeView"].exists)
+
+        app.buttons["Recaps"].firstMatch.tap()
+        XCTAssertTrue(any["reflectView"].waitForExistence(timeout: 10))
+        XCTAssertFalse(any["reflectLooseEnds"].exists)
+
+        app.buttons["Life"].firstMatch.tap()
+        XCTAssertTrue(any["lifeView"].waitForExistence(timeout: 10))
+        XCTAssertFalse(any["reflectView"].exists)
+    }
+
     func testADismissalOutlivesARelaunch() throws {
         var app = launch(reset: true)
         openReflect(app)

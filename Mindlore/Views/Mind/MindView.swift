@@ -111,6 +111,12 @@ struct MindView: View {
             .sheet(isPresented: $tidyingUp, onDismiss: refreshReview) {
                 TidyUpView(skipped: $skipped, hidden: tidyHidden, open: { router.mindPath.append(EntityRoute(id: $0)) })
             }
+            // A jump to another tab (Siri, a notification, a Life link) takes Mind's sheets with
+            // it, or they stay up over whatever tab it lands on.
+            .onChange(of: router.dismissPresentationsToken) {
+                showingAISettings = false
+                tidyingUp = false
+            }
         }
         .environment(\.entityRouteReplacer, EntityRouteReplacer { loser, winner in
             router.replaceInMind(loser, with: winner)

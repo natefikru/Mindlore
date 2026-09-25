@@ -10,7 +10,7 @@ continuously; the owner is asked only before the merge.
 - [x] Phase 4: words (AI phrasing, quotes, area paragraphs, monthly portrait, feedback)
 - [x] Phase 5: experiments that become loose ends
 - [x] Phase 6: self-talk patterns
-- [ ] Phase 7: review, docs, UI tests, a look in light and dark
+- [x] Phase 7: review, docs, UI tests, a look in light and dark
 
 ## Phase 0 (owner, 2026-09-24)
 
@@ -260,6 +260,17 @@ The original sketch of these phases follows.
    the weeks it was done.
 6. **Self-talk patterns.** A per-entry insights field for thinking patterns (all-or-nothing,
    catastrophizing), cloud only, surfaced as a card. Needs Redo insights over the journal.
+
+## Phase 7, as built (2026-09-25)
+
+A read-only review of #65 found three bugs, each fixed with a test: the fan stayed open when the
+app left the foreground (`AppRouter.sceneLeftActive`); Mind's AI settings and Tidy up sheets
+ignored the jump token, so a Siri jump left them over the new tab; and Life's What changed never
+reported an area the previous window had not mentioned. Checked and left: an area paragraph is
+rewritten only when its entries changed and it is a week old; a portrait's `concern` holds for its
+own month only, so early in a new month, before that month's portrait, suggestions can show again.
+`ReflectUITests` now switches through all three sides. A look at every screen on the story journal
+in light and dark found nothing to fix.
 
 ## Life's rules (hold for every later PR)
 
