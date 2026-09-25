@@ -80,8 +80,10 @@ final class GraphUITests: XCTestCase {
     // until it's scrolled into view.
     private func scrollToElement(_ element: XCUIElement, in container: XCUIElement, maxSwipes: Int = 6) {
         var swipes = 0
-        // Hittable, not just present: a Form row can exist under the tab bar.
-        while !(element.exists && element.isHittable) && swipes < maxSwipes {
+        // Clear of the tab bar, not just hittable: the + draws a touch area a little taller than
+        // the bar, so a row whose middle sits just above the bar still opened the new-entry fan.
+        let barTop = app.tabBars.firstMatch.frame.minY
+        while !(element.exists && element.isHittable && element.frame.maxY < barTop) && swipes < maxSwipes {
             container.swipeUp()
             swipes += 1
         }
