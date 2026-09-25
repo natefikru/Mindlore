@@ -76,11 +76,7 @@ final class JournalRecovery {
         if entryCount == 0, !backups.storedIDs().isEmpty {
             markPending("emptyStore")
         }
-        let settled: Bool = switch status {
-        case .upToDate, .deviceOnly, .paused, .storeFailed: true
-        case .notSynced, .checking, .syncing: false
-        }
-        guard settled else { return }
+        guard status.isSettled else { return }
         if let merged = try? EntryDuplicates.merge(in: context), merged > 0 {
             diagnostics.record("recovery.duplicatesMerged", ["count": .int(merged)])
         }

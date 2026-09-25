@@ -244,15 +244,17 @@ struct GraphEditor {
         case refused
     }
 
+    // `byUser` is false only for `SyncDuplicates`, merging two copies of one name that two phones
+    // made: nobody chose it, so neither entity is claimed and nothing hidden comes back into view.
     @discardableResult
-    func merge(_ loser: Entity, into target: Entity, in context: ModelContext) -> MergeOutcome {
+    func merge(_ loser: Entity, into target: Entity, in context: ModelContext, byUser: Bool = true) -> MergeOutcome {
         // Merging into a loser means merging into whatever it stands for now.
         let winner = root(of: target, in: context)
         guard winner.id != loser.id, !loser.isMerged else { return .refused }
         guard root(of: winner, in: context).id != loser.id else { return .refused }
         register(winner, in: context)
         // The user chose it, so it is no longer something they want out of sight.
-        winner.hidden = false
+        if byUser { winner.hidden = false }
 
         // By id, not through the relationship: mid-batch a relationship can read nil, and a
         // predicate that reaches through one is worse.
@@ -297,15 +299,17 @@ struct GraphEditor {
         // Their names move with them, so the loser does not keep answering to a name it is
         // no longer the owner of once it is unmerged.
         loser.aliases.removeAll { inherited.contains($0) }
-        claim(winner)
-        claim(loser)
+        if byUser {
+            claim(winner)
+            claim(loser)
+        }
         // Made real before counting, so the next merge sees where these links ended up.
         save(context, touchedBy: moved)
 
         indexer.recount(in: context)
         save(context, touchedBy: moved)
         diagnostics.record("graph.merged", [
-            "id": .id(winner.id), "loser": .id(loser.id), "links": .int(moved.count), "aliases": .int(contributed.count),
+            "id": .id(winner.id), "loser": .id(loser.id), "links": .int(moved.count), "aliases": .int(contributed.count), "byUser": .bool(byUser),
         ])
         return .merged
     }

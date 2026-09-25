@@ -119,9 +119,23 @@ final class AskMessage {
         failureRaw.map(AIJobFailure.init(raw:))
     }
 
+    // By index, then id: a conversation continued on two phones while apart hands out the same
+    // index twice, and both phones must show one order. `AskService` renumbers on the next answer.
     static func all(forConversation conversationID: UUID, in context: ModelContext) -> [AskMessage] {
         let wanted: UUID? = conversationID
         let descriptor = FetchDescriptor<AskMessage>(predicate: #Predicate { $0.conversationID == wanted })
-        return ((try? context.fetch(descriptor)) ?? []).filter { !$0.isDeleted }.sorted { $0.index < $1.index }
+        return ((try? context.fetch(descriptor)) ?? []).filter { !$0.isDeleted }.sorted { ($0.index, $0.id.uuidString) < ($1.index, $1.id.uuidString) }
+    }
+
+    // Gives messages that share an index their own, in the order `all` reads them. Returns the
+    // next free index.
+    @discardableResult
+    static func renumberIfRepeated(_ ordered: [AskMessage]) -> Int {
+        if Set(ordered.map(\.index)).count != ordered.count {
+            for (position, message) in ordered.enumerated() where message.index != position {
+                message.index = position
+            }
+        }
+        return ordered.map(\.index).max().map { $0 + 1 } ?? 0
     }
 }

@@ -120,6 +120,14 @@ nonisolated enum SyncStatus: Equatable, Sendable {
     }
 
     // One word for diagnostics, never a sentence.
+    // Nothing in flight: what the store holds is what it will hold until the next change.
+    var isSettled: Bool {
+        switch self {
+        case .upToDate, .deviceOnly, .paused, .storeFailed: true
+        case .notSynced, .checking, .syncing: false
+        }
+    }
+
     var diagnosticName: String {
         switch self {
         case .notSynced: "notSynced"

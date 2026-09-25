@@ -240,7 +240,8 @@ The owner said "continue" to the three recommendations:
       tops the journal and the iCloud section has a row; a restore keeps each entry's id, and
       `EntryDuplicates` keeps the most recent of two entries sharing one. No Review list: Restore
       and Not now.
-- [ ] Phases 2b, 3, 4 (entities, links, summaries, insights, messages), 5, 7.
+- [x] Phases 3 and 4 (2026-09-25, PR #68): `LocalOrigin` and `SyncDuplicates`, as planned below.
+- [ ] Phases 2b, 5, 7, and the two-device smoke steps.
 
 ## Phases 3 and 4, as planned (2026-09-25)
 

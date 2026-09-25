@@ -4,6 +4,7 @@ import SwiftData
 struct RootView: View {
     @Environment(\.scenePhase) private var scenePhase
     @State private var saver: EntrySaver
+    @State private var launchSweepDone = false
     @State private var ingestor: RecordingIngestor
     @State private var recording: RecordingSession
     @State private var transcription: TranscriptionCoordinator
@@ -259,6 +260,7 @@ struct RootView: View {
             }
             withAnimation { indexing = nil }
             graph.sweepFinished()
+            launchSweepDone = true
             if LooseEnd.fade(in: context) > 0 {
                 try? context.saveStampingEntries()
             }
@@ -297,6 +299,20 @@ struct RootView: View {
         // Whether to offer the safety copy back: at launch, and each time sync settles.
         .task(id: sync.status.diagnosticName) {
             recovery.check(in: context, status: sync.status)
+        }
+        // What two phones made apart, folded together once what arrived has landed. Not while the
+        // launch sweep is still linking names, which a merge would move underneath it.
+        .task(id: "\(sync.status.diagnosticName)|\(launchSweepDone)") {
+            if recovery.enabled, launchSweepDone, sync.status.isSettled {
+                saver.flush()
+                do {
+                    if try SyncDuplicates.run(in: context, editor: graph.editor, indexer: graph.indexer).total > 0 {
+                        graph.sweepFinished()
+                    }
+                } catch {
+                    DiagnosticsLog.shared.record("sync.duplicatesFailed", ["error": .errorCode(error)])
+                }
+            }
         }
         .onAppear {
             lock.lockAtLaunch()
