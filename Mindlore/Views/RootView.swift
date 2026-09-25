@@ -313,6 +313,7 @@ struct RootView: View {
             lock.sceneChanged(to: phase)
             if phase != .active {
                 saver.flush()
+                router.sceneLeftActive()
                 // Leaving is the moment that matters: if the user wrote today, today's reminder goes.
                 if phase == .background {
                     Task { await rescheduleReminder() }
