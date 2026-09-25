@@ -232,18 +232,20 @@ Settings, the welcome line and the second-device "your journal is here", the exp
 needed before a second device, and phase 7 before moving the phone to TestFlight. Design and
 reasoning: `tasks/icloud-sync.md`.
 
-- [ ] **Phase 3, AI runs where the entry was made.** A device-local `LocalOrigin` set of entry ids
+- [x] **Phase 3, AI runs where the entry was made.** A device-local `LocalOrigin` set of entry ids
       this phone created. Transcription, the launch AI pass, titles, and insights skip an entry not
       in it; the manual buttons work anywhere and add it. A synced entry still waiting for text says
       "Waiting for text from your other device" with Transcribe here. Every entry that exists when
       it lands joins the set once. Without it, two phones each run AI on the same entry: two OpenAI
       bills, duplicate loose ends.
-- [ ] **Phase 4, duplicates two phones make.** Deterministic merges after a remote change and at
+- [x] **Phase 4, duplicates two phones make.** Deterministic merges after a remote change and at
       launch, winner by `createdAt` then `id`: `Entity` with the same key and kind (untouched ones
       through `GraphEditor.merge`, the rest to Mind's "same person?"), `EntityLink` with the same
       entity, entry, and source, `ReflectSummary` by period, `EntryInsights` pointing at one entry,
       and `AskMessage` indexes a conversation continued offline on both. `Entry` by id is done
       (`EntryDuplicates`). Also a test that each launch sweep changes nothing on a second run.
+      Both landed in PR #68 (2026-09-25), unit-tested only; the two-device steps below are what
+      prove them.
 - [ ] **Phase 5, settings that follow the journal.** `NSUbiquitousKeyValueStore` mirroring for an
       allow-list: life area names and hidden areas, your name, how you're written about, the
       journal font, insight section toggles, custom prompts, resurfacing. Never the key, provider

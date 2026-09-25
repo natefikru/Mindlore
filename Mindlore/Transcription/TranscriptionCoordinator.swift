@@ -83,6 +83,8 @@ final class TranscriptionCoordinator {
                 // Entries that already failed this session wait for an explicit retry.
                 guard activity[id] == nil || manual else { continue }
                 guard manual || AIJobPolicy.canRunAutomatically(.text, entry) else { continue }
+                // Only the phone that made an entry runs its jobs by itself (`LocalOrigin`).
+                guard manual || LocalOrigin.isLocal(entry) else { continue }
                 await transcribe(id, context: context)
             }
         } while needsAnotherPass
@@ -91,6 +93,7 @@ final class TranscriptionCoordinator {
     func retry(_ id: PersistentIdentifier, context: ModelContext) async {
         if let entry = Self.fetch(id, in: context) {
             AIJobPolicy.manualReset(.text, entry)
+            LocalOrigin.claim(entry)
             try? save(context)
         }
         activity[id] = nil

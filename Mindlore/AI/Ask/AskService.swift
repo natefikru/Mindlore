@@ -676,7 +676,7 @@ final class AskService {
 
             let saved = AskMessage.all(forConversation: conversationID, in: context)
             let savedIDs = Set(saved.map(\.id))
-            var index = saved.map(\.index).max().map { $0 + 1 } ?? 0
+            var index = AskMessage.renumberIfRepeated(saved)
             for turn in turns where !savedIDs.contains(turn.id) {
                 let message = AskMessage(
                     id: turn.id,

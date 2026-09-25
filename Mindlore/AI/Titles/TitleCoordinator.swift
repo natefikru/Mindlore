@@ -60,6 +60,9 @@ final class TitleCoordinator {
             for entry in (try? context.fetch(descriptor)) ?? [] {
                 guard !failedThisSession.contains(entry.id), !presence.isOpen(entry.id) else { continue }
                 guard AIJobPolicy.canRunAutomatically(.title, entry), !pausedForOffline else { continue }
+                // Only the phone that made an entry runs its jobs by itself (`LocalOrigin`); the
+                // pending flag syncs. Run AI claims the entry, so it passes here.
+                guard LocalOrigin.isLocal(entry) else { continue }
                 await generate(entry.persistentModelID, context: context)
             }
         } while needsAnotherPass
@@ -69,6 +72,7 @@ final class TitleCoordinator {
     func runAI(for entry: Entry, context: ModelContext) async {
         guard !running.contains(entry.id), entry.title.isEmpty || entry.titleWasGenerated else { return }
         AIJobPolicy.manualReset(.title, entry)
+        LocalOrigin.claim(entry)
         failedThisSession.remove(entry.id)
         try? save(context)
         await processQueue(context: context)

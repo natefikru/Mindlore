@@ -104,6 +104,9 @@ final class InsightsCoordinator {
                 // entry's text is final by the user's choice. Cleanup still waits for the entry to close.
                 guard manual || !failedThisSession.contains(entry.id) else { continue }
                 guard manual || (AIJobPolicy.canRunAutomatically(.insights, entry) && !pausedForOffline) else { continue }
+                // Only the phone that made an entry runs its jobs by itself (`LocalOrigin`). The
+                // pending flag syncs, so another phone's entry can arrive already asking.
+                guard manual || LocalOrigin.isLocal(entry) else { continue }
                 let redoing = redoIDs.contains(entry.id)
                 // A redo is hundreds of manual runs; offline, each would fail at once, so they wait
                 // for the network like automatic work does.
@@ -148,6 +151,7 @@ final class InsightsCoordinator {
         // closing the entry afterwards would pay for the same analysis again.
         entry.automaticAIPassUsed = true
         AIJobPolicy.manualReset(.insights, entry)
+        LocalOrigin.claim(entry)
         failedThisSession.remove(entry.id)
         manualRuns.insert(entry.id)
         try? save(context, [entry.persistentModelID])
@@ -166,6 +170,7 @@ final class InsightsCoordinator {
         for entry in entries {
             entry.automaticAIPassUsed = true
             AIJobPolicy.manualReset(.insights, entry)
+            LocalOrigin.claim(entry)
             failedThisSession.remove(entry.id)
             manualRuns.insert(entry.id)
             redoIDs.insert(entry.id)
