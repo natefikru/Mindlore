@@ -319,5 +319,8 @@ entry's links and insights left alone, feedback unioned, Ask order), the twice-r
 Automatic AI that isn't per entry: the week and month recaps (`ReflectSummaryStore`) can be asked
 for on both phones, and the duplicate row is merged afterwards; an entity's bio drafts when its page
 is opened, last writer wins. Both are one request, rare, and settle on their own. A Life experiment
-accepted on both phones offline makes two loose ends. Phases 2b, 5, 7; any Life row other than feedback (its other kinds replace by kind already);
+accepted on both phones offline makes two loose ends. A reinstalled phone (or a new one) seeds
+against an empty store, so an entry that arrives still waiting for a job gets it only from the
+manual button; seeding after the first import instead would hand a second phone the first one's
+pending jobs, which is what this phase exists to stop (review, 2026-09-25). Phases 2b, 5, 7; any Life row other than feedback (its other kinds replace by kind already);
 pruning ids of deleted entries from the set (harmless); `LooseEnd` (rule 4 covers it).
