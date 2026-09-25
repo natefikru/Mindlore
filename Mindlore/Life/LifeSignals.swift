@@ -225,7 +225,7 @@ nonisolated enum LifeSignals {
             headline: headline(areas),
             recurring: window == .month ? [] : recurring(inside, window: window, calendar: calendar),
             quiet: quiet,
-            changes: changes(now: areas, before: previousAreas, skipping: Set(quiet.map(\.area))),
+            changes: changes(now: areas, before: previousAreas, beforeCount: before.count, skipping: Set(quiet.map(\.area))),
             followThrough: follow,
             contrast: contrast(follow),
             openThreads: threads.filter { $0.status == .open }.count,
@@ -329,14 +329,16 @@ nonisolated enum LifeSignals {
             .sorted { $0.shareBefore - $0.shareNow > $1.shareBefore - $1.shareNow }
     }
 
-    static func changes(now: [AreaReading], before: [AreaReading], skipping: Set<LifeArea>) -> [Change] {
+    // An area the previous window never mentioned is a move from nothing, and counts, as long as
+    // there was a previous window to compare with: a journal younger than two windows has none.
+    static func changes(now: [AreaReading], before: [AreaReading], beforeCount: Int, skipping: Set<LifeArea>) -> [Change] {
         let previous = Dictionary(uniqueKeysWithValues: before.map { ($0.area, $0) })
         var result: [Change] = []
         for current in now where !skipping.contains(current.area) {
             let old = previous[current.area]
             let shareBefore = old?.share ?? 0
             let delta = current.share - shareBefore
-            if (old?.entries ?? 0) >= 1, abs(delta) >= changeMinimumShare {
+            if beforeCount > 0, abs(delta) >= changeMinimumShare {
                 result.append(Change(area: current.area, kind: .share(before: shareBefore, now: current.share), magnitude: abs(delta)))
             }
             if let old, let heightNow = current.height, let heightBefore = old.height,

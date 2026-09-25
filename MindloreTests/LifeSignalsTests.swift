@@ -128,10 +128,20 @@ struct LifeSignalsTests {
             LifeSignals.AreaReading(area: .health, entries: 5, share: 0.12, moods: 5, height: -0.2),
             LifeSignals.AreaReading(area: .home, entries: 4, share: 0.08, moods: 0, height: nil),
         ]
-        let changes = LifeSignals.changes(now: now, before: before, skipping: [])
+        let changes = LifeSignals.changes(now: now, before: before, beforeCount: 40, skipping: [])
         #expect(changes.map(\.area) == [.health, .work] || changes.map(\.area) == [.work, .health])
         #expect(changes.first { $0.area == .health }?.kind == .tone(.lighter))
         #expect(!changes.contains { $0.area == .home }, "two points is under the floor")
+    }
+
+    // An area the last window never mentioned went from nothing to a share, which is a move; with
+    // no last window at all there is nothing to move from.
+    @Test func anAreaNewToThisWindowIsAChangeOnlyWhenThereWasALastWindow() {
+        let now = [LifeSignals.AreaReading(area: .health, entries: 8, share: 0.4, moods: 0, height: nil)]
+        let fresh = LifeSignals.changes(now: now, before: [], beforeCount: 20, skipping: [])
+        #expect(fresh.map(\.area) == [.health])
+        #expect(fresh.first?.kind == .share(before: 0, now: 0.4))
+        #expect(LifeSignals.changes(now: now, before: [], beforeCount: 0, skipping: []).isEmpty)
     }
 
     // MARK: - Recurring
