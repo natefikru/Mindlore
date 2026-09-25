@@ -16,7 +16,7 @@ Events never contain entry text. `id` values are entry UUIDs, so one recording c
 
 ### 1. First voice entry, online
 
-Wi-Fi on. Tap Record in the tab bar's accessory, allow the microphone, speak for about 15 seconds, tap Done. Note whether a Speech Recognition permission prompt appears.
+Wi-Fi on. Tap the tab bar's +, then Record, allow the microphone, speak for about 15 seconds, tap Done. Note whether a Speech Recognition permission prompt appears.
 
 Expect, in order:
 - `recorder.started` with a `route` (for example `MicrophoneBuiltIn`)
@@ -81,7 +81,7 @@ Expect:
 
 ### 9. Key setup
 
-Settings tab, turn Use AI on, then OpenAI key: paste the key, Test connection.
+Settings (the gear on Journal), AI, turn Use AI on, then OpenAI key: paste the key, Test connection.
 
 Expect: `ai.keySaved`, then `ai.connectionTested` with `ok=true` and a `models` count. The key itself never appears in the log.
 
@@ -99,7 +99,7 @@ Expect: `ai.error` or `transcription.fallback` with an offline reason, then `tra
 
 ### 12. Bad key
 
-Settings tab, OpenAI key, replace the key with `sk-not-a-real-key`. Record 10 seconds.
+Settings (the gear on Journal), AI, OpenAI key, replace the key with `sk-not-a-real-key`. Record 10 seconds.
 
 Expect: `ai.error` with `error=ai.invalidKey`, `transcription.fallback`, text from Apple. Force-quit and relaunch: no new `ai.request` for that entry, because a permanent failure isn't retried. Put the good key back afterwards.
 
@@ -305,7 +305,7 @@ simulator and its demo seed can't stand in for.
 
 ### 33. Reflect: a real week
 
-Tap the week strip on Today (now a button). Expect the Reflect sheet opens on the current week,
+Tap the week strip on Today (now a button). Expect the Reflect tab opens on Recaps and the current week,
 showing the area-balance chart, the mood-over-time chart across the trailing six weeks, and a
 generated narrative paragraph if Ask's generator isn't off.
 
@@ -332,3 +332,50 @@ Settings, turn Ask's generator to Off. Open Reflect on a period with real entrie
 
 Expect: both charts still render normally, no narrative section appears, and no `reflect.narrated`
 event is logged.
+
+## Reflect tab and Life steps (added for PR #65)
+
+The + fan is drawn over the system tab bar and reads the finger itself, so whether it lines up with
+the bar and never eats a neighbouring tab's tap is a question for a real screen and a real thumb.
+Life reads the owner's own journal, which the demo seed can't stand in for.
+
+### 37. The + fan, tapped and slid
+
+Tap the + in the middle of the tab bar: Write, Record, and Pages pop out on a half
+circle and the tab underneath stays selected. Tap the dimmed backdrop: the fan folds away. Tap +
+then Write: a new entry opens on Journal. Press on + and slide up onto Record, then let go: the
+recorder is up and already recording. Press on + and let go on the + itself: the fan stays open.
+Tap Mind and Chat right beside the +: each switches tab and never opens the fan. With a recording
+running, the fan's Record reads "Recording" and brings the recorder back.
+
+Expect: `newEntry.chosen` with `option=write by=tap`, then `option=record by=slide`, and
+`recorder.started` right after the slide.
+
+### 38. Settings behind the gear
+
+On Journal, tap the gear at the top right: Settings opens as a sheet with its five rows, and Done
+closes it. Mind, Reflect, and Chat have no gear. From an entry's insights sheet, "Open AI settings"
+opens the AI screen on its own, and closing it lands back on the insights sheet.
+
+Expect: no events; this step is about the layout.
+
+### 39. Life on your own journal
+
+Open Reflect. With 3 or more entries that have insights it opens on Life (marked early until 20
+entries span 21 days), otherwise on Recaps. Switch between Month, 3 months, and Year. Tap a
+bubble: the area page shows mood by month, people, recurring tags, open loose ends, and its latest
+entries, and with OpenAI on, a paragraph and up to two quotes. Check a quote against its entry.
+Answer "That's right" or "Not quite" on the portrait.
+
+Expect: `life.rendered` with the window, entry, area, and card counts; `life.areaOpened` with the
+area's raw value; `life.areaWords success=true` with `quotes` at most 2; `life.portrait` once a
+month; `life.feedback`. None carries a tag, a name, a quote, or a note.
+
+### 40. An experiment reaches Today
+
+When Life offers something to try, tap Try it. Expect a loose end due Sunday on Today's cards and
+at the top of Reflect's Loose ends, with no source entry to open. Decline another and it is not
+offered again.
+
+Expect: `life.experiment accepted=true subject=tag` (or `area`), and `accepted=false` for the
+decline.

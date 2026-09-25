@@ -547,10 +547,10 @@ reminder. `ReminderPresenter` shows it over the open app, which iOS otherwise dr
 a static because the centre keeps its delegate weakly. The
 notification centre sits behind `NotificationScheduling`, faked in `DailyReminderTests`.
 
-**Reflect** (`Mindlore/Reflect/`, `Mindlore/Views/Reflect/`). A week or month looked back on: where
-the entries went, how they felt, and one generated paragraph about the stretch. The fourth tab
-(owner, 2026-09-24), with three sides in a segmented control: Life, Recaps, and Loose ends
-(`ReflectPage`). It opens on Life once Life has a reading and on Recaps until then; a jump that names
+**Reflect** (`Mindlore/Reflect/`, `Mindlore/Views/Reflect/`). The tab after the + (owner,
+2026-09-24; it was a sheet off Today's week strip before), with three sides in a segmented control
+in its bar: Life (below), Recaps (weeks and months looked back on, each with one generated
+summary), and Loose ends (`ReflectPage`; `ReflectUITests` switches through all three). It opens on Life once Life has a reading and on Recaps until then; a jump that names
 a side (`AppRouter.showReflect`, which Today's `WeekStrip` calls with Recaps) wins. An entry opened
 from Reflect (a recap's question, a loose end, an area page) comes back to Reflect when it closes,
 through `AppRouter.returnTab`, unless the user picked another tab meanwhile.

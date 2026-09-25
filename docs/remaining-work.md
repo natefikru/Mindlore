@@ -129,10 +129,11 @@ B3, B4 and B8 are still open, and whether they happen at all is the owner's call
 
 Two things parked inside work that's already finished:
 
-- **The toolbar mic and the compose menu** (decision 9: remove the mic "once the accessory is
-  proven", and B2a deferred collapsing the new-entry buttons into a `Menu` to the same moment). The
-  accessory shipped in B1, so this is ready whenever you call it. 11 UI test files tap
-  `newEntryButton` and need updating with it.
+- [x] ~~**The toolbar mic and the compose menu**~~ (decision 9: remove the mic "once the accessory
+  is proven", and B2a deferred collapsing the new-entry buttons into a `Menu` to the same moment).
+  Done by PR #65 in a different shape: the tab bar's + fans out Write, Record, and Photograph pages,
+  and Journal's toolbar kept only the Settings gear. The UI tests go through
+  `MindloreUITests/NewEntryFanHelpers.swift`.
 - **The Sounds row in Settings** arrives with B4. The settings sprint left it out on purpose, since a
   switch that controls nothing shouldn't ship. The Reminder row arrived with B6.
 
@@ -179,7 +180,26 @@ graph maintenance pass (§4.4, refreshing stale bios) is not part of Reflect and
    forgotten when the user leaves. No `BGTaskScheduler`, no nightly cost.
 3. **Who writes the summaries.** Neither a fixed provider nor a new setting: whatever `AskGenerator`
    is already set to (off, on-device, or OpenAI).
-4. **Where it lives.** Today's `WeekStrip`, tapped open as a sheet. No fifth tab.
+4. **Where it lives.** Today's `WeekStrip`, tapped open as a sheet. No fifth tab. Superseded on
+   2026-09-24: Reflect is now a tab (below).
+
+### Reflect tab and Life (PR #65, 2026-09-24)
+
+`tasks/reflect-tab-and-life.md` has the plan and the owner's decisions. The tab bar is Journal,
+Mind, +, Reflect, Chat; the + fans out every way to start an entry; Settings moved behind a gear
+on Journal as a sheet. Reflect has three sides, Life, Recaps, and Loose ends, and opens on Life
+once there is a reading. Life is the one part of the app allowed to suggest something: bubbles by
+area against the author's own baseline, what went quiet and what changed, follow-through, the
+values question, area paragraphs and quotes, a monthly portrait, experiments that become loose
+ends, and thinking patterns. None of it changed the CloudKit schema: Life's words, feedback, and
+experiments are `ReflectSummary` rows under `life.*` kinds.
+
+- [x] Phases 0 to 6 merged in PR #65; phase 7 (review, docs, UI tests, a light and dark look) in
+      the follow-up PR.
+- [ ] Device steps 37 to 40 in `tasks/smoke-test.md`: the fan's press and slide, the gear, Life on
+      your own journal, and an accepted experiment reaching Today.
+- [ ] Give Life's rows fields of their own at the next deliberate schema change, and thinking
+      patterns a field instead of the reserved `customCardsData` id.
 
 ## 4. Later
 
@@ -312,7 +332,7 @@ Real, deferred on purpose, each with why it can wait.
 
 - [ ] **Device check for the 2026-09-23 journal changes.** Built without a Mac: the caret fix in
       `GrowingTextEditor` (type the first two letters of a new entry, then Edit on a long one and
-      type; the letters must land in order), the ready recorder (mic button opens the recorder
+      type; the letters must land in order), the ready recorder (the empty state's Record opens the recorder
       waiting; its button starts; Siri still starts at once), the kind picker under the title, the
       font setting reaching the editor and read mode, and a photographed page dated at its top
       landing on that day with a generated title after Approve.
