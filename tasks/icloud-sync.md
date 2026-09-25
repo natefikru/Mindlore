@@ -241,3 +241,77 @@ The owner said "continue" to the three recommendations:
       `EntryDuplicates` keeps the most recent of two entries sharing one. No Review list: Restore
       and Not now.
 - [ ] Phases 2b, 3, 4 (entities, links, summaries, insights, messages), 5, 7.
+
+## Phases 3 and 4, as planned (2026-09-25)
+
+Branch `feature/sync-origin-merges` from `main` at `5fa5b82`. No model change, so no CloudKit
+schema deploy.
+
+### Phase 3: `LocalOrigin`
+
+- `Mindlore/Sync/LocalOrigin.swift`: a set of entry ids in `UserDefaults` (through
+  `KeyValueStore`), registered to the journal's container the way `EntryBackups` is
+  (`register(_:for:)`, `of(_ context:)`), and only when the store mirrors. A context with none
+  registered (tests, demo and story journals, UI tests) treats every entry as local, so nothing
+  outside the synced journal changes behaviour.
+- Claiming: `saveStampingEntries` and `EntrySaver.save` add every `Entry` in
+  `insertedModelsArray` before saving. That is every entry made on this phone (typed, recorded,
+  photographed, a Chat note, an import, a restore), and never one CloudKit imported, since those
+  arrive through the mirroring's own context. An entry inserted but not yet saved also reads as
+  local.
+- Seeding: at registration, the first time only (`localOrigin.seeded`), every entry already in the
+  store is claimed, so the phone that had the journal keeps running its jobs.
+- Gating, beside the existing `AIJobPolicy.canRunAutomatically` checks, with the existing `manual`
+  escape: `TranscriptionCoordinator.processQueue`, `PageTranscriptionCoordinator.processQueue`,
+  `InsightsCoordinator.processQueue`, and `AIPassTrigger.fire` and `requestTitle` (which is where
+  `titlePending` gets set automatically, so `TitleCoordinator` needs no gate). A skipped entry keeps
+  its unspent pass.
+- Manual paths claim the entry: `TranscriptionCoordinator.retry`,
+  `PageTranscriptionCoordinator.transcribePages`, `InsightsCoordinator.runAI` and `redoAll`,
+  `TitleCoordinator.runAI`.
+- Editor: a voice entry awaiting text that isn't local and has no activity or failure says "Waiting
+  for text from your other device" with Transcribe here (`retry`); a confirmed photo entry the same
+  with `transcribePages`.
+- Diagnostics: `sync.originSeeded` (count), `ai.skippedNotLocal` is not logged per entry (it would
+  fire every queue pass); the coordinators' existing events stay as they are.
+
+### Phase 4: `SyncDuplicates`
+
+`Mindlore/Sync/SyncDuplicates.swift`, one `run(in:editor:)` that returns counts per kind and saves
+once. Run next to `recovery.check` in `RootView`'s `.task(id: sync.status.diagnosticName)` when the
+store mirrors and sync has settled, which is at launch and after each import finishes. No new
+`NSPersistentStoreRemoteChange` observer: the status already follows the container's events.
+
+- **Entity**: same `key` and `kindRaw`, neither merged, both untouched (`confirmedByUser`,
+  `bioEditedByUser`, `kindEditedByUser`, `hidden`, `resurfacingMuted` false, `notSameAs` empty).
+  Winner is the earliest `createdAt`, then the smaller `id` string. Merged through
+  `GraphEditor.merge(_:into:in:byUser: false)`: a new parameter so a sync merge neither claims the
+  winner nor unhides it. Touched duplicates are left to Mind's "same person?", which scores an exact
+  key match 1.0 already.
+- **EntityLink**: same `entityID`, `entryID`, `sourceRaw`, extras deleted. Links have no id, so two
+  phones can't agree on which row to keep when rows are identical; only the phone the entry is local
+  to deletes, which is one phone in the normal case. Kept: the row with the most `unsureAmong`, then
+  the first by surface.
+- **EntryInsights**: rows grouped by `entry?.id`; the newest `generatedAt` stays, the rest go.
+  Origin phone only, for the same reason.
+- **ReflectSummary**: same `periodKindRaw` and `periodStart`; newest `generatedAt`, then the larger
+  `id` string, stays. Life's feedback row (one row of verdicts) is unioned instead, the later verdict
+  on a line winning.
+- **AskMessage**: `AskMessage.all(forConversation:)` orders by `index` then `id`, so a conversation
+  continued on two phones loses nothing; `AskService.finish` renumbers `0..<n` in that order when it
+  finds a repeated index before appending.
+- **Twice-run sweeps**: a test runs `EntryDateRepair`, `GraphIndexer.sweep`, `LooseEnd.fade`,
+  `EntityLinkRepair`, `EntryDuplicates.merge`, and `SyncDuplicates.run` over a seeded store, then
+  again, and requires the second pass to leave `JournalRecords` byte-identical.
+
+### Tests
+
+`LocalOriginTests` (claim on save, seeding once, unregistered context is local, each coordinator
+skips a non-local entry and runs it after the manual path, which claims it; the pass stays unspent),
+`SyncDuplicatesTests` (each kind with a fixed winner, touched entities left alone, a non-local
+entry's links and insights left alone, feedback unioned, Ask order), the twice-run test.
+
+### Not in scope
+
+Phases 2b, 5, 7; any Life row other than feedback (its other kinds replace by kind already);
+pruning ids of deleted entries from the set (harmless); `LooseEnd` (rule 4 covers it).
