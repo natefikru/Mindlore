@@ -79,6 +79,8 @@ final class PageTranscriptionCoordinator {
                 let manual = manualRuns.contains(entry.id)
                 guard activity[entry.id] == nil || manual else { continue }
                 guard manual || (AIJobPolicy.canRunAutomatically(.text, entry) && !pausedForOffline) else { continue }
+                // Only the phone that made an entry runs its jobs by itself (`LocalOrigin`).
+                guard manual || LocalOrigin.isLocal(entry) else { continue }
                 await transcribe(entry.persistentModelID, context: context)
             }
         } while needsAnotherPass
@@ -90,6 +92,7 @@ final class PageTranscriptionCoordinator {
         // Only an empty entry takes the result directly; otherwise typed text would be overwritten.
         guard entry.awaitingText || entry.text.isEmpty else { return }
         AIJobPolicy.manualReset(.text, entry)
+        LocalOrigin.claim(entry)
         entry.pageRequestCount = 0
         entry.awaitingText = true
         try? save(context)

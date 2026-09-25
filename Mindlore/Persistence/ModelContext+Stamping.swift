@@ -33,8 +33,10 @@ extension ModelContext {
         // Read before the save, which clears them.
         let touchedJournal = touchesJournal
         let backups = EntryBackups.pending(in: self)
+        let made = LocalOrigin.inserted(in: self)
         try save()
         EntryBackups.of(self)?.apply(backups)
+        LocalOrigin.claimInserted(made, in: self)
         if touchedJournal { JournalSaves.recordSave() }
     }
 

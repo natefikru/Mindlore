@@ -285,15 +285,17 @@ store mirrors and sync has settled, which is at launch and after each import fin
 - **Entity**: same `key` and `kindRaw`, neither merged, both untouched (`confirmedByUser`,
   `bioEditedByUser`, `kindEditedByUser`, `hidden`, `resurfacingMuted` false, `notSameAs` empty).
   Winner is the earliest `createdAt`, then the smaller `id` string. Merged through
-  `GraphEditor.merge(_:into:in:byUser: false)`: a new parameter so a sync merge neither claims the
-  winner nor unhides it. Touched duplicates are left to Mind's "same person?", which scores an exact
+  `GraphEditor.merge(_:into:in:byUser: false)`: a new parameter so a sync merge claims neither
+  entity and unhides nothing, or the winner would stop qualifying when a third copy arrives. Touched duplicates are left to Mind's "same person?", which scores an exact
   key match 1.0 already.
 - **EntityLink**: same `entityID`, `entryID`, `sourceRaw`, extras deleted. Links have no id, so two
   phones can't agree on which row to keep when rows are identical; only the phone the entry is local
   to deletes, which is one phone in the normal case. Kept: the row with the most `unsureAmong`, then
   the first by surface.
 - **EntryInsights**: rows grouped by `entry?.id`; the newest `generatedAt` stays, the rest go.
-  Origin phone only, for the same reason.
+  Origin phone only, for the same reason. The model has no id of its own; the relationship is
+  read only after everything is saved (the unreliable case in `tasks/lessons.md` is mid-batch), and
+  a row whose entry reads nil is left alone.
 - **ReflectSummary**: same `periodKindRaw` and `periodStart`; newest `generatedAt`, then the larger
   `id` string, stays. Life's feedback row (one row of verdicts) is unioned instead, the later verdict
   on a line winning.
@@ -313,5 +315,8 @@ entry's links and insights left alone, feedback unioned, Ask order), the twice-r
 
 ### Not in scope
 
-Phases 2b, 5, 7; any Life row other than feedback (its other kinds replace by kind already);
+Automatic AI that isn't per entry: the week and month recaps (`ReflectSummaryStore`) can be asked
+for on both phones, and the duplicate row is merged afterwards; an entity's bio drafts when its page
+is opened, last writer wins. Both are one request, rare, and settle on their own. A Life experiment
+accepted on both phones offline makes two loose ends. Phases 2b, 5, 7; any Life row other than feedback (its other kinds replace by kind already);
 pruning ids of deleted entries from the set (harmless); `LooseEnd` (rule 4 covers it).

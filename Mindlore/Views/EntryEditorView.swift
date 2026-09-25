@@ -446,6 +446,10 @@ struct EntryEditorView: View {
                 case nil:
                     if let failure = AIJobPolicy.failure(.text, entry) {
                         retryRow(message: failure.userMessage, entry: entry)
+                    } else if !LocalOrigin.isLocal(entry) {
+                        otherDeviceRow(canRunHere: AIServices.pagesUsable(settings: settings, accounts: accounts)) {
+                            Task { await pageTranscription.transcribePages(for: entry, context: modelContext) }
+                        }
                     } else if !AIServices.pagesUsable(settings: settings, accounts: accounts) {
                         Label("Turn on AI in Settings to transcribe these pages, or type the text yourself.", systemImage: "sparkles")
                             .foregroundStyle(.secondary)
@@ -743,6 +747,23 @@ struct EntryEditorView: View {
                         Task { await transcription.retry(entry.persistentModelID, context: modelContext) }
                     }
                 }
+            } else if !LocalOrigin.isLocal(entry) {
+                otherDeviceRow(canRunHere: true) {
+                    Task { await transcription.retry(entry.persistentModelID, context: modelContext) }
+                }
+            }
+        }
+    }
+
+    // A synced entry whose text the phone that made it will write. This phone can take it over.
+    private func otherDeviceRow(canRunHere: Bool, transcribe: @escaping () -> Void) -> some View {
+        HStack {
+            Label("Waiting for text from your other device", systemImage: "arrow.triangle.2.circlepath")
+                .foregroundStyle(.secondary)
+            Spacer()
+            if canRunHere {
+                Button("Transcribe here", action: transcribe)
+                    .accessibilityIdentifier("transcribeHereButton")
             }
         }
     }

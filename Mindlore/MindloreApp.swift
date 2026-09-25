@@ -151,6 +151,13 @@ struct MindloreApp: App {
             }
             if mirrors {
                 EntryBackups.register(backups, for: opened)
+                let origin = LocalOrigin()
+                LocalOrigin.register(origin, for: opened)
+                do {
+                    try origin.seedIfNeeded(from: opened.mainContext)
+                } catch {
+                    diagnostics.record("sync.originSeedFailed", ["error": .errorCode(error)])
+                }
                 do {
                     let filled = try backups.fillIn(from: opened.mainContext)
                     if filled > 0 { diagnostics.record("backup.filledIn", ["count": .int(filled)]) }

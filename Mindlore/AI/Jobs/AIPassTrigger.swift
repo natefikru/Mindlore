@@ -60,6 +60,8 @@ final class AIPassTrigger {
     @discardableResult
     func fire(for entry: Entry, at moment: Moment) -> Bool {
         guard Self.isEligible(entry, automationStartedAt: settings.automationStartedAt) else { return false }
+        // Another phone's entry keeps its pass: that phone runs it (`LocalOrigin`).
+        guard LocalOrigin.isLocal(entry) else { return false }
         entry.automaticAIPassUsed = true
         let title = titleUsable() && (entry.title.isEmpty || entry.titleWasGenerated)
         let insights = insightsUsable()
@@ -77,7 +79,8 @@ final class AIPassTrigger {
     @discardableResult
     func requestTitle(for entry: Entry) -> Bool {
         guard titleUsable(), entry.title.isEmpty || entry.titleWasGenerated,
-              !entry.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, !entry.titlePending else { return false }
+              !entry.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, !entry.titlePending,
+              LocalOrigin.isLocal(entry) else { return false }
         entry.titlePending = true
         diagnostics.record("title.requested", ["id": .id(entry.id), "moment": "approved"])
         return true

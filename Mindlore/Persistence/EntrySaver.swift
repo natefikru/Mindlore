@@ -61,9 +61,11 @@ final class EntrySaver {
             "deleted": .int(context.deletedModelsArray.count),
         ]
         let backups = EntryBackups.pending(in: context)
+        let made = LocalOrigin.inserted(in: context)
         do {
             try save(context)
             EntryBackups.of(context)?.apply(backups)
+            LocalOrigin.claimInserted(made, in: context)
             lastError = nil
             revision += 1
             diagnostics.record("save.completed", counts)
