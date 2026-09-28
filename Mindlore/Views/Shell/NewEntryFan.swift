@@ -112,7 +112,7 @@ struct NewEntryFan: View {
         // reading as a flat disc laid over it.
         Image(systemName: "plus")
             .font(.system(size: 22, weight: .semibold))
-            .foregroundStyle(.white)
+            .foregroundStyle(Palette.paper)
             .rotationEffect(.degrees(isOpen ? 45 : 0))
             .frame(width: 54, height: 54)
             .glassEffect(.regular.tint(Palette.ember), in: Circle())

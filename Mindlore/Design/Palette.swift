@@ -1,14 +1,17 @@
 import SwiftUI
 
 // Every colour the app owns. The values live in Assets.xcassets with a light and a dark variant each,
-// so nothing here names a number. Each light variant is tuned for Paper (deeper and more saturated),
-// each dark one for the dark page (lighter, so it still reads without glowing).
+// so nothing here names a number. Each light variant reads at 4.5:1 or better as caption text on
+// Paper, Card, and its own chip wash (HIG minimum, 2026-09-28); each dark one is lighter, for the
+// dark page. Every set also has a high-contrast pair at 7:1 for Increase Contrast.
 enum Palette {
     // The warm page behind everything, and the opaque surface a card sits on.
     static let paper = Color(.paper)
     static let card = Color(.card)
     // The user's own words.
     static let ink = Color(.ink)
+    // Deep enough in light mode that Paper-coloured text and glyphs read on it at 4.5:1 or more,
+    // and light in dark mode, so what sits on it takes Paper there too (dark on light), never white.
     static let ember = Color.accentColor
     static let hairline = Color.primary.opacity(0.08)
 }

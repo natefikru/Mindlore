@@ -123,7 +123,7 @@ struct LifePrioritiesPicker: View {
                             if let rank {
                                 Text("\(rank + 1)")
                                     .font(.subheadline.weight(.bold).monospacedDigit())
-                                    .foregroundStyle(.white)
+                                    .foregroundStyle(Palette.paper)
                                     .frame(width: 24, height: 24)
                                     .background(Palette.ember, in: Circle())
                             }

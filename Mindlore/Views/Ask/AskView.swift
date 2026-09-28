@@ -357,7 +357,7 @@ struct AskView: View {
                         .font(.caption.weight(.bold))
                         .frame(width: 34, height: 34)
                         .background(Palette.ember, in: Circle())
-                        .foregroundStyle(.white)
+                        .foregroundStyle(Palette.paper)
                         .accessibilityIdentifier("askStop")
                 } else {
                     Button("Ask", systemImage: "arrow.up") { send() }
@@ -365,7 +365,7 @@ struct AskView: View {
                         .font(.subheadline.weight(.bold))
                         .frame(width: 34, height: 34)
                         .background(canSend ? Palette.ember : Color(.tertiaryLabel), in: Circle())
-                        .foregroundStyle(.white)
+                        .foregroundStyle(Palette.paper)
                         .symbolEffect(.bounce, value: sends)
                         .disabled(!canSend)
                         .accessibilityIdentifier("askSend")
