@@ -8,6 +8,7 @@ final class SettingsStore {
         static let aiEnabled = "aiEnabled"
         static let aiEnabledAt = "aiEnabledAt"
         static let automationStartedAt = "automationStartedAt"
+        static let reviewRequestedVersion = "reviewRequestedVersion"
         static let providerAccounts = "providerAccounts"
         static let speechEngine = "speechEngine"
         static let speechAccountID = "speechAccountID"
@@ -85,6 +86,8 @@ final class SettingsStore {
 
     private(set) var aiEnabledAt: Date?
     private(set) var automationStartedAt: Date?
+    // The app version the rating prompt was last asked for; never asked twice for one version.
+    private(set) var reviewRequestedVersion: String?
 
     // Account names and URLs aren't logged, only that the list changed.
     var providerAccounts: [ProviderAccount] {
@@ -379,6 +382,7 @@ final class SettingsStore {
         aiEnabled = bool(Key.aiEnabled, false)
         aiEnabledAt = store.object(forKey: Key.aiEnabledAt) as? Date
         automationStartedAt = store.object(forKey: Key.automationStartedAt) as? Date
+        reviewRequestedVersion = string(Key.reviewRequestedVersion)
         providerAccounts = json(Key.providerAccounts, [])
         storedSpeechEngine = string(Key.speechEngine).flatMap(SpeechEngine.init(rawValue:))
         speechAccountID = uuid(Key.speechAccountID)
@@ -426,6 +430,11 @@ final class SettingsStore {
         let started = now()
         automationStartedAt = started
         store.set(started, forKey: Key.automationStartedAt)
+    }
+
+    func recordReviewRequest(version: String) {
+        reviewRequestedVersion = version
+        store.set(version, forKey: Key.reviewRequestedVersion)
     }
 
     func account(for capability: AICapability) -> ProviderAccount? {

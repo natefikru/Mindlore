@@ -15,7 +15,7 @@ Chat's note editing added `ask.noteEdited` (149), in the Ask row.
 Reflect's Life side added `life.rendered`, `life.areaOpened`, `life.areaWords`, `life.portrait`,
 `life.feedback`, and `life.experiment` (155), driven in the table with the sentinel as entry
 text, a tag, an area's own name, the model's answer, and the author's note; and the + fan added
-`newEntry.chosen` (156: two literals), under view events.
+`newEntry.chosen` (156: two literals), under view events. The rating prompt added `review.requested` (157: the moment, one of two literals, and nothing else), written by `ReviewPrompter` and driven by `ReviewPrompterTests`.
 Those two tests assert that the event was written as well as that the sentinel wasn't, which is
 what the instrumented run below establishes for the rest.
 

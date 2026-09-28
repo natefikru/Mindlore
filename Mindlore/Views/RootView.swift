@@ -1,3 +1,4 @@
+import StoreKit
 import SwiftUI
 import SwiftData
 
@@ -24,7 +25,9 @@ struct RootView: View {
     @State private var intents = IntentRequests.shared
     @State private var reminder = DailyReminder()
     @State private var lock: AppLock
+    @State private var reviews: ReviewPrompter
     @Environment(SettingsStore.self) private var settings
+    @Environment(\.requestReview) private var requestReview
     @Environment(JournalRecovery.self) private var recovery
     @Environment(SyncStatusMonitor.self) private var sync
     @Environment(ProviderAccountStore.self) private var accounts
@@ -101,6 +104,12 @@ struct RootView: View {
             aiPass: aiPass,
             keepAudio: { settings.keepAudioAfterTranscription }
         )
+        let reviews = ReviewPrompter(settings: settings)
+        _reviews = State(initialValue: reviews)
+        lifecycle.onEntryFinished = {
+            let finished = (try? context.fetchCount(FetchDescriptor<Entry>(predicate: #Predicate { !$0.isDraft }))) ?? 0
+            reviews.moment(.entryFinished, finishedEntries: finished)
+        }
         let appRouter = AppRouter(opened: lifecycle.opened, closed: lifecycle.closed, closedForDeletion: lifecycle.closedForDeletion)
         _router = State(initialValue: appRouter)
         // The index is rebuilt when any of the three counters moves: the saver for the editor's own
@@ -219,6 +228,7 @@ struct RootView: View {
         .environment(recording)
         .environment(reminder)
         .environment(lock)
+        .environment(reviews)
         // The address book, injected like every other boundary: nothing asks for permission
         // until the user taps a row on a person's page.
         .environment(\.contactDirectory, contacts)
@@ -237,6 +247,19 @@ struct RootView: View {
         .overlay {
             if let indexing {
                 GraphIndexingOverlay(progress: indexing)
+            }
+        }
+        .onAppear {
+            // Only for the real journal: a debug build shows the prompt every time, which would
+            // land over a UI test's taps or a demo journal being looked at.
+            let info = ProcessInfo.processInfo
+            guard StoreLocation.resolve(arguments: info.arguments, environment: info.environment) == .default else { return }
+            // A beat after the moment, so it never arrives on top of the editor sliding away.
+            reviews.request = { [requestReview] in
+                Task {
+                    try? await Task.sleep(for: .seconds(1))
+                    requestReview()
+                }
             }
         }
         .task {

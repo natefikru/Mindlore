@@ -10,6 +10,8 @@ final class EditorLifecycle {
     private let aiPass: AIPassTrigger
     private let keepAudio: () -> Bool
     private let diagnostics: DiagnosticsLog
+    // An entry that closed finished, not deleted and not a draft. The rating prompt listens.
+    var onEntryFinished: (() -> Void)?
 
     init(
         context: ModelContext,
@@ -56,8 +58,11 @@ final class EditorLifecycle {
             if !deleted && firesAIPass {
                 aiPass.fire(for: entry, at: .editorClosed)
             }
+            saver.flush()
+            if !deleted && firesAIPass && !entry.isDraft { onEntryFinished?() }
+        } else {
+            saver.flush()
         }
-        saver.flush()
         if firesAIPass { aiPass.onFlagged?() }
     }
 

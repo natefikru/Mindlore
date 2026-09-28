@@ -161,4 +161,5 @@ struct ReflectView: View {
         .environment(graph)
         .environment(ProviderAccountStore(settings: settings))
         .environment(AppRouter(opened: { _ in }, closed: { _ in }))
+        .environment(ReviewPrompter(settings: settings, diagnostics: .disabled))
 }
