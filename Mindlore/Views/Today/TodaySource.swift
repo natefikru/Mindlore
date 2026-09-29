@@ -135,6 +135,11 @@ enum TodaySource {
                 return entity.hidden || entity.resurfacingMuted
             }
             guard !concealed else { return nil }
+            var seen = Set<UUID>()
+            let people = end.entityIDs.map(directory.root(of:)).compactMap { id -> String? in
+                guard seen.insert(id).inserted, let entity = directory.entity(id), entity.kind == .person else { return nil }
+                return entity.name
+            }
             return LooseEndFacts(
                 id: end.id,
                 text: end.text,
@@ -144,7 +149,8 @@ enum TodaySource {
                 lastMentionedAt: end.lastMentionedAt,
                 dueDate: end.dueDate,
                 resolvedByEntryID: end.resolvedByEntryID,
-                reopenedAt: end.reopenedAt
+                reopenedAt: end.reopenedAt,
+                people: people
             )
         }
     }

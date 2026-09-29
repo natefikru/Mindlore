@@ -44,4 +44,17 @@ final class TodayUITests: XCTestCase {
         XCTAssertTrue(app.otherElements["todayHeader"].waitForExistence(timeout: 20))
         XCTAssertFalse(app.otherElements[identifier].exists, "still dismissed after a relaunch")
     }
+
+    // A loose end's card opens Reflect's Loose ends, not the entry that raised it (owner, 2026-09-28).
+    func testALooseEndCardOpensLooseEnds() throws {
+        let app = launch(reset: true)
+        XCTAssertTrue(app.otherElements["todayHeader"].waitForExistence(timeout: 20))
+
+        // The row leads with the loose end that most needs attention.
+        let thread = app.otherElements.matching(NSPredicate(format: "identifier IN %@", ["todayCard-stillOpen", "todayCard-dueToday"])).element(boundBy: 0)
+        XCTAssertTrue(thread.waitForExistence(timeout: 5), "the demo journal has an open loose end")
+        thread.buttons["todayCardOpen"].tap()
+
+        XCTAssertTrue(app.descendants(matching: .any)["reflectLooseEnds"].waitForExistence(timeout: 5), "lands on Reflect's Loose ends")
+    }
 }
