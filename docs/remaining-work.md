@@ -253,13 +253,15 @@ reasoning: `tasks/icloud-sync.md`.
 - [ ] **Phase 2b, a sync switch.** Device-local, on by default. Mirroring can't be toggled on a live
       container, so `MindloreApp` has to hold the container as state and rebuild `RootView` under it;
       "takes effect next launch" is the fallback if that fights the coordinators.
-- [ ] **Phase 7, before TestFlight on the phone.** Register every record type in Development (a
-      DEBUG-only `initializeCloudKitSchema` pass over the SwiftData model; a type with no records yet,
-      such as a page, is otherwise missing), then CloudKit Console, Deploy Schema Changes to
-      Production. Redo the deploy before any build that adds a model or property. The App Store
-      profile already carries iCloud. Then install TestFlight over the dev build: same bundle ID, so
-      the journal on the phone stays, and the TestFlight build uploads it to Production. Export a
-      backup first.
+- [x] **Phase 7, schema deployed.** Checked 2026-09-29 with `cktool export-schema` against both
+      environments: Development and Production are byte-identical (355 lines, same record types),
+      so the 2026-09-23 deploy already covers everything built since, none of which added a stored
+      property (Reflect, Life, and feedback all deliberately rode existing `ReflectSummary` rows).
+      Redo the check, and the deploy if it now differs, before any build that adds a model or
+      property: DEBUG `initializeCloudKitSchema` pass, `cktool export-schema` on both, then Console
+      Deploy Schema Changes if they differ. Still open: install TestFlight over the dev build (same
+      bundle ID, so the journal on the phone stays and the TestFlight build uploads it to
+      Production) and export a backup first.
 - [ ] **Smoke on two devices** (the v1 gates, `tasks/icloud-sync.md`): an entry and an edit cross
       both ways; a recording is transcribed only where it was made; a device with no iCloud account
       works fully and says so, then uploads after sign-in; airplane mode, three entries, sign out,
