@@ -14,7 +14,9 @@ struct ChipStyle: ViewModifier {
             .font(.caption.weight(.medium))
             .padding(.horizontal, 10)
             .padding(.vertical, 5)
-            .foregroundStyle(selected ? AnyShapeStyle(.white) : AnyShapeStyle(tint ?? .primary))
+            // A selected chip's word is the page colour on the full tint: near white in light mode,
+            // near black in dark, where the tints are light and white on them read at about 2:1.
+            .foregroundStyle(selected ? AnyShapeStyle(Palette.paper) : AnyShapeStyle(tint ?? .primary))
             .background(fill, in: Capsule())
     }
 

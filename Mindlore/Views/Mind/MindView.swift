@@ -546,7 +546,7 @@ private struct TidyUpBadge: View {
         Text(count > 99 ? "99+" : "\(count)")
             .font(.caption2.weight(.bold))
             .monospacedDigit()
-            .foregroundStyle(.white)
+            .foregroundStyle(Palette.paper)
             .padding(.horizontal, 5)
             .frame(minWidth: 18, minHeight: 18)
             .background(Palette.ember, in: Capsule())
