@@ -52,11 +52,15 @@ struct AskTurnView: View {
     @State private var refs: [UUID: AskEntryRefs.Ref] = [:]
     @State private var showsAllCitations = false
     @State private var pulse = false
+    @State private var verdict: AnswerFeedback.Verdict?
 
     var body: some View {
         content
             .task(id: referencedIDs) {
                 refs = AskEntryRefs.refs(referencedIDs, in: modelContext)
+            }
+            .task(id: turn.id) {
+                verdict = AnswerFeedback.verdict(on: turn.id.uuidString, surface: .ask, in: modelContext)
             }
     }
 
@@ -222,6 +226,9 @@ struct AskTurnView: View {
                     .font(.caption2)
                     .foregroundStyle(.secondary)
             }
+            if !turn.isStreaming, turn.failureRaw == nil, !turn.text.isEmpty {
+                feedbackButtons
+            }
             if !turn.sentEntryIDs.isEmpty {
                 // An icon, not a sentence. The receipt still exists, one tap away, without a line
                 // of bookkeeping under every answer.
@@ -243,6 +250,30 @@ struct AskTurnView: View {
                     .accessibilityIdentifier("askRetry")
             }
         }
+    }
+
+    // Voluntary and quiet, the way Life's "That's right"/"Not quite" sits under a portrait line.
+    // Stored and counted only; nothing here changes what the model is told.
+    private var feedbackButtons: some View {
+        HStack(spacing: 10) {
+            Button {
+                verdict = AnswerFeedback.toggle(.up, on: turn.id.uuidString, surface: .ask, in: modelContext)
+            } label: {
+                Image(systemName: verdict == .up ? "hand.thumbsup.fill" : "hand.thumbsup")
+            }
+            .accessibilityLabel("This was right")
+            .accessibilityIdentifier("askThumbsUp")
+            Button {
+                verdict = AnswerFeedback.toggle(.down, on: turn.id.uuidString, surface: .ask, in: modelContext)
+            } label: {
+                Image(systemName: verdict == .down ? "hand.thumbsdown.fill" : "hand.thumbsdown")
+            }
+            .accessibilityLabel("This was wrong")
+            .accessibilityIdentifier("askThumbsDown")
+        }
+        .font(.caption)
+        .foregroundStyle(.tertiary)
+        .sensoryFeedback(Haptics.selected, trigger: verdict)
     }
 
     private var providerName: String {
