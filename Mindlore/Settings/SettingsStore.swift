@@ -49,7 +49,7 @@ final class SettingsStore {
         static let todayDismissed = "todayDismissed"
         static let reflectDismissed = "reflectDismissed"
         static let appLockEnabled = "appLockEnabled"
-        static let welcomeSeen = "welcomeSeen"
+        static let hasOnboarded = "hasOnboarded"
     }
 
     @ObservationIgnored private let store: any KeyValueStore
@@ -62,10 +62,10 @@ final class SettingsStore {
         didSet { write(keepAudioAfterTranscription, Key.keepAudioAfterTranscription, logged: .bool(keepAudioAfterTranscription)) }
     }
 
-    // Internal state, never a control: the first-run screen has been shown (or skipped because the
-    // journal already had entries).
-    var welcomeSeen: Bool {
-        didSet { write(welcomeSeen, Key.welcomeSeen) }
+    // Internal state, never a control: onboarding has been shown (or skipped because the journal
+    // already had entries).
+    var hasOnboarded: Bool {
+        didSet { write(hasOnboarded, Key.hasOnboarded) }
     }
 
     // Face ID or the passcode whenever the app comes back from the background. Off by default.
@@ -378,7 +378,7 @@ final class SettingsStore {
 
         keepAudioAfterTranscription = bool(Key.keepAudioAfterTranscription, true)
         appLockEnabled = bool(Key.appLockEnabled, false)
-        welcomeSeen = bool(Key.welcomeSeen, false)
+        hasOnboarded = bool(Key.hasOnboarded, false)
         aiEnabled = bool(Key.aiEnabled, false)
         aiEnabledAt = store.object(forKey: Key.aiEnabledAt) as? Date
         automationStartedAt = store.object(forKey: Key.automationStartedAt) as? Date

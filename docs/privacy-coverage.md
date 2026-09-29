@@ -20,6 +20,10 @@ text, a tag, an area's own name, the model's answer, and the author's note; and 
 whose content is a clock and a paused flag only. Phase 3's polish added `ask.feedback` and
 `insights.feedback` (162), the verdict and the surface only, driven by
 `AnswerFeedbackDiagnosticsPrivacyTests`, added to the table.
+Onboarding (B3) added `onboarding.recordDemo` (a fixed outcome literal: tried, denied, abandoned,
+or skipped) and `onboarding.finished` (a bool) (164), both fired from the view with no unit-test
+seam, in the "no unit-test seam" list below; neither ever holds anything the user typed or said,
+since the demo recording is discarded and never transcribed.
 Those two tests assert that the event was written as well as that the sentinel wasn't, which is
 what the instrumented run below establishes for the rest.
 
@@ -79,7 +83,7 @@ for fields derived from user data at runtime. These events have none.
 `live.dropped` (a literal, or the Swift type name of the framework error), `live.finished`,
 `live.assets`, `transcription.assets`, `transcription.authorization`.
 
-**Runs in a SwiftUI view or at app launch**, with no unit-test seam: `ai.consent` (a bool), `backup.writeFailed`, `backup.filledIn`, `backup.fillInFailed`, `recovery.pending` (a literal reason), `recovery.pruned`, `recovery.restored`, `recovery.failed`, and `recovery.duplicatesMerged` (counts and error codes; `SafetyCopyTests` drives most of them), `sync.storeFailed` (an error code), `sync.originSeeded` and `sync.originSeedFailed` (a count or an error code; `LocalOriginTests` drives the first), `sync.duplicatesMerged` and `sync.duplicatesFailed` (four counts or an error code; `SyncDuplicatesTests` drives the first, and `graph.merged` gains a `byUser` bool there), `sync.schemaInitialized` (Debug only, behind a launch flag: a bool, a duration, a literal reason, or an error code), `sync.status` and `sync.event` (a status name, an event kind, a bool, a duration, and a CloudKit error code; `SyncStatusMonitorTests` drives them, but they carry nothing a sentinel could reach), `app.launch` (`run` is the
+**Runs in a SwiftUI view or at app launch**, with no unit-test seam: `ai.consent` (a bool), `onboarding.recordDemo` (a fixed outcome literal) and `onboarding.finished` (a bool), `backup.writeFailed`, `backup.filledIn`, `backup.fillInFailed`, `recovery.pending` (a literal reason), `recovery.pruned`, `recovery.restored`, `recovery.failed`, and `recovery.duplicatesMerged` (counts and error codes; `SafetyCopyTests` drives most of them), `sync.storeFailed` (an error code), `sync.originSeeded` and `sync.originSeedFailed` (a count or an error code; `LocalOriginTests` drives the first), `sync.duplicatesMerged` and `sync.duplicatesFailed` (four counts or an error code; `SyncDuplicatesTests` drives the first, and `graph.merged` gains a `byUser` bool there), `sync.schemaInitialized` (Debug only, behind a launch flag: a bool, a duration, a literal reason, or an error code), `sync.status` and `sync.event` (a status name, an event kind, a bool, a duration, and a CloudKit error code; `SyncStatusMonitorTests` drives them, but they carry nothing a sentinel could reach), `app.launch` (`run` is the
 developer's `-diagnosticsRun` argument), `app.scenePhase`, `recovery.moved` (UUID file names),
 `store.openFailed`, `store.entryDatesRepaired`, `store.entryDateRepairFailed`, `store.linksRepaired`, `store.linkRepairFailed`, `editor.closed`,
 `entry.created`, `entry.finished`, `entry.deleted` (source is an enum),

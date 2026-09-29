@@ -321,8 +321,12 @@ B0 must not turn into a refactor of every view.
 open it tomorrow. If the phase stopped here, the brief would be answered.
 
 ### B3: First run and permissions (S)
-- [ ] `Views/Onboarding/`, `hasOnboarded` in `SettingsStore`, skipped under `-uiTesting`.
-- Device: the permission prompts and the ten-second recording.
+- [x] `Views/Onboarding/OnboardingView.swift`, `hasOnboarded` in `SettingsStore`, skipped under
+      `-uiTesting` unless `-showOnboarding`. Three pages: the old `WelcomeView` content folded in
+      as page one, a real ten-second demo recording (always discarded, never an entry) that primes
+      the microphone and speech permissions on page two, and the daily reminder priming
+      notifications on page three. Pages two and three are skippable.
+- [ ] Device: the permission prompts, the ten-second recording (step 44 in `tasks/smoke-test.md`).
 
 ### B4: Recording screen and motion pass (M)
 - [ ] Carry transition, waveform ribbon, serif live transcript, symbol effects on the accessory,

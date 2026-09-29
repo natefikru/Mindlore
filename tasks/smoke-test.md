@@ -408,3 +408,18 @@ cold launch and from the background.
 
 Expect: `intent.invoked` with the matching kind.
 
+## Onboarding (B3, added for the launch-readiness PR)
+
+Delete the app first: onboarding only shows on a genuinely empty journal.
+
+### 44. First run
+
+Install and launch. Expect page one (identity and privacy), then Try it on page two: the system
+microphone prompt appears, tapping it again after a few seconds stops the demo, and Continue moves
+on. Page three's Remind me shows the system notification prompt; allow it and check Settings' Today
+and reminders shows a scheduled reminder. Force-quit and relaunch: onboarding never shows again, and
+starting a real recording asks for no further permission.
+
+Expect: `onboarding.recordDemo` (`tried`), `onboarding.finished` (`remindersEnabled=true`),
+`reminder.permission`, `reminder.scheduled`.
+
