@@ -38,6 +38,8 @@ struct MindloreApp: App {
         // Before any recording can start: an activity left by a recording the app was killed during
         // shows a clock for nothing.
         RecordingLiveActivity.endOrphans()
+        // The Record control's intent runs here, possibly before any scene exists.
+        RecordingControl.start = { IntentRequests.shared.request(.record) }
 
         // UI tests get their own settings and Keychain per named store, and run against whatever model
         // the simulator's host offers, so on-device titles stay off to keep them deterministic.

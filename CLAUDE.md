@@ -533,7 +533,7 @@ Written Entry, and Ask Your Journal are App Intents in the app target, with Siri
 New Entry, Ask; declared in `Info.plist`, handled by `QuickActions.swift`'s app and scene delegates),
 `mindlore://record|new|ask` links (`IntentAction(url:)`, taken in `RootView.onOpenURL`), and the
 `MindloreWidgets` extension. The extension holds the Record control (Control Center, the Lock
-Screen, the Action button), whose intent runs in the extension and opens `mindlore://record`, and
+Screen, the Action button), whose `RecordFromControlIntent` (in `Shared/`, compiled into both targets, `openAppWhenRun`) runs in the app and calls `RecordingControl.start`, set in `MindloreApp.init` (a link opened from the extension did nothing on the phone), and
 the recording Live Activity: `RecordingLiveActivity` (app) starts it when a recording captures,
 updates it only when the recorder pauses or resumes (a running clock counts on its own), ends it
 the moment the recording stops, and `MindloreApp.init` ends any left by a killed recording. It shows
