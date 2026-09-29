@@ -26,6 +26,7 @@ struct RootView: View {
     @State private var reminder = DailyReminder()
     @State private var lock: AppLock
     @State private var reviews: ReviewPrompter
+    @State private var liveActivity = RecordingLiveActivity()
     @Environment(SettingsStore.self) private var settings
     @Environment(\.requestReview) private var requestReview
     @Environment(JournalRecovery.self) private var recovery
@@ -130,7 +131,7 @@ struct RootView: View {
         let ingestor = RecordingIngestor()
         _ingestor = State(initialValue: ingestor)
         let fakeRecorder = UITestingRecorder.isEnabled
-        _recording = State(initialValue: RecordingSession(
+        let session = RecordingSession(
             context: context,
             ingestor: ingestor,
             makeRecorder: { fakeRecorder ? UITestingRecorder() as any AudioRecording : AudioRecorder() },
@@ -151,7 +152,10 @@ struct RootView: View {
             },
             // The fake recorder under UI tests needs neither, and a system prompt would block them.
             askPermissions: { if !fakeRecorder { await RecordingPermissions.askIfNeeded(speechEngine: settings.speechEngine) } }
-        ))
+        )
+        _recording = State(initialValue: session)
+        // The Live Activity's Stop button runs in this process and saves the recording as Done would.
+        RecordingControl.stop = { await session.finish() }
 
         _lock = State(initialValue: AppLock(isEnabled: { settings.appLockEnabled }))
         _presence = State(initialValue: presence)
@@ -375,6 +379,21 @@ struct RootView: View {
         }
         // Taken on appear as well as on change: an intent that launched the app left its request
         // before this view was built.
+        // mindlore://record, from the Record control in Control Center and on the Lock Screen, taken
+        // the way Siri's request is.
+        .onOpenURL { url in
+            guard let action = IntentAction(url: url) else { return }
+            intents.request(action)
+        }
+        // The Lock Screen's recording card follows the recorder, told only when its state changes.
+        .onChange(of: LiveActivityKey(isRecording: recording.isRecording, state: recording.recorder?.state), initial: true) {
+            liveActivity.update(RecordingLiveActivity.content(
+                isRecording: recording.isRecording,
+                recorderState: recording.recorder?.state,
+                elapsed: recording.recorder?.elapsed ?? 0,
+                now: .now
+            ))
+        }
         .onChange(of: intents.token, initial: true) {
             guard let action = intents.take() else { return }
             IntentHandler.handle(action, recording: recording, router: router)
@@ -429,4 +448,10 @@ extension RootView {
         settings.welcomeSeen = true
         withAnimation(Motion.resolve(Motion.settle, reduceMotion: false)) { showingWelcome = false }
     }
+}
+
+// What the Live Activity depends on: whether a recording is capturing, and whether it is paused.
+private struct LiveActivityKey: Equatable {
+    let isRecording: Bool
+    let state: AudioRecorder.State?
 }

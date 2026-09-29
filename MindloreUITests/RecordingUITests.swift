@@ -26,6 +26,35 @@ final class RecordingUITests: XCTestCase {
         XCTAssertTrue(app.buttons["recordingAccessory"].waitForExistence(timeout: 5))
     }
 
+    // The Record control in Control Center opens mindlore://record, which starts a recording the way
+    // Siri's Start Recording does. Leaving the app shows it as a Live Activity; the attachment is
+    // where its look is checked, since the Dynamic Island isn't in the app's element tree.
+    @MainActor
+    func testTheRecordLinkStartsARecordingThatShowsOutsideTheApp() throws {
+        app.launch()
+        XCTAssertTrue(app.tabBars.firstMatch.waitForExistence(timeout: 10))
+
+        XCUIDevice.shared.system.open(URL(string: "mindlore://record")!)
+        let finish = app.buttons["finishRecordingButton"]
+        // Some runs deliver the link straight away, others ask first.
+        if !finish.waitForExistence(timeout: 3) {
+            XCUIApplication(bundleIdentifier: "com.apple.springboard").buttons["Open"].tap()
+        }
+        XCTAssertTrue(finish.waitForExistence(timeout: 10), "the link opened a recording")
+
+        XCUIDevice.shared.press(.home)
+        sleep(2)
+        let shot = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+        shot.name = "live-activity"
+        shot.lifetime = .keepAlways
+        add(shot)
+
+        app.activate()
+        XCTAssertTrue(finish.waitForExistence(timeout: 10), "still recording after leaving the app")
+        finish.tap()
+        XCTAssertTrue(app.descendants(matching: .any)["keepCard"].waitForExistence(timeout: 10))
+    }
+
     @MainActor
     func testRecordMinimizeSwitchTabsAndFinishFromTheAccessory() throws {
         startAndMinimize()

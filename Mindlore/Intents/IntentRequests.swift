@@ -9,6 +9,19 @@ nonisolated enum IntentAction: Equatable, Sendable {
     // own: asking costs a request, so the user sends it.
     case ask(String?)
 
+    // A mindlore:// link: the Record control in Control Center and on the Lock Screen opens
+    // mindlore://record. Anything else is not an action, so a stray link opens the app and nothing
+    // more.
+    init?(url: URL) {
+        guard url.scheme == "mindlore" else { return nil }
+        switch url.host() {
+        case "record": self = .record
+        case "new": self = .newEntry
+        case "ask": self = .ask(nil)
+        default: return nil
+        }
+    }
+
     // For diagnostics: which action, never what the question said.
     var kind: String {
         switch self {
