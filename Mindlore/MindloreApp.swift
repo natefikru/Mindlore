@@ -12,6 +12,8 @@ import UserNotifications
 
 @main
 struct MindloreApp: App {
+    // Only for Home Screen quick actions, which SwiftUI has no modifier for.
+    @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     private let container: Result<ModelContainer, any Error>
     @State private var settings: SettingsStore
     @State private var accounts: ProviderAccountStore
@@ -33,6 +35,9 @@ struct MindloreApp: App {
         // Before launch finishes, as the notification centre asks, so a reminder that fires while the
         // app is open still shows.
         UNUserNotificationCenter.current().delegate = ReminderPresenter.shared
+        // Before any recording can start: an activity left by a recording the app was killed during
+        // shows a clock for nothing.
+        RecordingLiveActivity.endOrphans()
 
         // UI tests get their own settings and Keychain per named store, and run against whatever model
         // the simulator's host offers, so on-device titles stay off to keep them deterministic.

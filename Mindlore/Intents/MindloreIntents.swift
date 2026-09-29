@@ -1,8 +1,8 @@
 import AppIntents
 
-// What Siri, Shortcuts, Spotlight, and the Action button can ask of the app. In the app target, not
-// an extension: every one of them opens the app, which is where the recorder, the editor, and Ask
-// already live, and an extension would need an App Group the Personal Team can't sign.
+// What Siri, Shortcuts, Spotlight, and the Action button can ask of the app. In the app target:
+// every one of them opens the app, which is where the recorder, the editor, and Ask already live.
+// The widget extension's Record control reaches the same request through mindlore://record.
 //
 // Each intent only leaves a request; RootView carries it out once it exists (IntentRequests).
 

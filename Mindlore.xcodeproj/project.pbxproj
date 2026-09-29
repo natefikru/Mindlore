@@ -6,6 +6,10 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		D6DBDC741F131BD9DCD842E1 /* MindloreWidgets.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 7A163DEC831A9103C21E7082 /* MindloreWidgets.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+/* End PBXBuildFile section */
+
 /* Begin PBXContainerItemProxy section */
 		1D7CCC6130599E06005B6BD3 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
@@ -21,12 +25,34 @@
 			remoteGlobalIDString = 1D7CCC5030599E04005B6BD3;
 			remoteInfo = Mindlore;
 		};
+		C1982F777966D06F7E993BEF /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 1D7CCC4930599E04005B6BD3 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = D4E0DBE0DF41BEF4E57ED3B1;
+			remoteInfo = MindloreWidgets;
+		};
 /* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		8B2E0BAC8EFDEA46C95CD323 /* Embed Foundation Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				D6DBDC741F131BD9DCD842E1 /* MindloreWidgets.appex in Embed Foundation Extensions */,
+			);
+			name = "Embed Foundation Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
 		1D7CCC5130599E04005B6BD3 /* Mindlore.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Mindlore.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		1D7CCC6030599E06005B6BD3 /* MindloreTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = MindloreTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		1D7CCC6A30599E06005B6BD3 /* MindloreUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = MindloreUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		7A163DEC831A9103C21E7082 /* MindloreWidgets.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = MindloreWidgets.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -36,6 +62,13 @@
 				Info.plist,
 			);
 			target = 1D7CCC5030599E04005B6BD3 /* Mindlore */;
+		};
+		BBEE531852EF7E06396960F5 /* Exceptions for "MindloreWidgets" folder in "MindloreWidgets" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = D4E0DBE0DF41BEF4E57ED3B1 /* MindloreWidgets */;
 		};
 /* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
@@ -56,6 +89,19 @@
 		1D7CCC6D30599E06005B6BD3 /* MindloreUITests */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			path = MindloreUITests;
+			sourceTree = "<group>";
+		};
+		3786B8190D2F322F1F9BE0B6 /* Shared */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = Shared;
+			sourceTree = "<group>";
+		};
+		DAB68C5179227BAF7D4CB9D0 /* MindloreWidgets */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				BBEE531852EF7E06396960F5 /* Exceptions for "MindloreWidgets" folder in "MindloreWidgets" target */,
+			);
+			path = MindloreWidgets;
 			sourceTree = "<group>";
 		};
 /* End PBXFileSystemSynchronizedRootGroup section */
@@ -82,9 +128,23 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		29F8911D7D2A898EC0BFD9FD /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
+		1515E2F92850BCD0988F6A9B /* iOS */ = {
+			isa = PBXGroup;
+			children = (
+			);
+			name = iOS;
+			sourceTree = "<group>";
+		};
 		1D7CCC4830599E04005B6BD3 = {
 			isa = PBXGroup;
 			children = (
@@ -92,6 +152,9 @@
 				1D7CCC6330599E06005B6BD3 /* MindloreTests */,
 				1D7CCC6D30599E06005B6BD3 /* MindloreUITests */,
 				1D7CCC5230599E04005B6BD3 /* Products */,
+				CD18A870EB455E614454FFC6 /* Frameworks */,
+				DAB68C5179227BAF7D4CB9D0 /* MindloreWidgets */,
+				3786B8190D2F322F1F9BE0B6 /* Shared */,
 			);
 			sourceTree = "<group>";
 		};
@@ -101,8 +164,17 @@
 				1D7CCC5130599E04005B6BD3 /* Mindlore.app */,
 				1D7CCC6030599E06005B6BD3 /* MindloreTests.xctest */,
 				1D7CCC6A30599E06005B6BD3 /* MindloreUITests.xctest */,
+				7A163DEC831A9103C21E7082 /* MindloreWidgets.appex */,
 			);
 			name = Products;
+			sourceTree = "<group>";
+		};
+		CD18A870EB455E614454FFC6 /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+				1515E2F92850BCD0988F6A9B /* iOS */,
+			);
+			name = Frameworks;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -115,17 +187,18 @@
 				1D7CCC4D30599E04005B6BD3 /* Sources */,
 				1D7CCC4E30599E04005B6BD3 /* Frameworks */,
 				1D7CCC4F30599E04005B6BD3 /* Resources */,
+				8B2E0BAC8EFDEA46C95CD323 /* Embed Foundation Extensions */,
 			);
 			buildRules = (
 			);
 			dependencies = (
+				5072B45FF5DA4B494B864CAA /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
 				1D7CCC5330599E04005B6BD3 /* Mindlore */,
+				3786B8190D2F322F1F9BE0B6 /* Shared */,
 			);
 			name = Mindlore;
-			packageProductDependencies = (
-			);
 			productName = Mindlore;
 			productReference = 1D7CCC5130599E04005B6BD3 /* Mindlore.app */;
 			productType = "com.apple.product-type.application";
@@ -147,8 +220,6 @@
 				1D7CCC6330599E06005B6BD3 /* MindloreTests */,
 			);
 			name = MindloreTests;
-			packageProductDependencies = (
-			);
 			productName = MindloreTests;
 			productReference = 1D7CCC6030599E06005B6BD3 /* MindloreTests.xctest */;
 			productType = "com.apple.product-type.bundle.unit-test";
@@ -170,11 +241,30 @@
 				1D7CCC6D30599E06005B6BD3 /* MindloreUITests */,
 			);
 			name = MindloreUITests;
-			packageProductDependencies = (
-			);
 			productName = MindloreUITests;
 			productReference = 1D7CCC6A30599E06005B6BD3 /* MindloreUITests.xctest */;
 			productType = "com.apple.product-type.bundle.ui-testing";
+		};
+		D4E0DBE0DF41BEF4E57ED3B1 /* MindloreWidgets */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 72FE88BF8A03598A30F7A7B4 /* Build configuration list for PBXNativeTarget "MindloreWidgets" */;
+			buildPhases = (
+				EA2304F9A91C52DC891A7A12 /* Sources */,
+				29F8911D7D2A898EC0BFD9FD /* Frameworks */,
+				635F2AA90A0EC6C71EF40303 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				3786B8190D2F322F1F9BE0B6 /* Shared */,
+				DAB68C5179227BAF7D4CB9D0 /* MindloreWidgets */,
+			);
+			name = MindloreWidgets;
+			productName = MindloreWidgets;
+			productReference = 7A163DEC831A9103C21E7082 /* MindloreWidgets.appex */;
+			productType = "com.apple.product-type.app-extension";
 		};
 /* End PBXNativeTarget section */
 
@@ -216,6 +306,7 @@
 				1D7CCC5030599E04005B6BD3 /* Mindlore */,
 				1D7CCC5F30599E06005B6BD3 /* MindloreTests */,
 				1D7CCC6930599E06005B6BD3 /* MindloreUITests */,
+				D4E0DBE0DF41BEF4E57ED3B1 /* MindloreWidgets */,
 			);
 		};
 /* End PBXProject section */
@@ -236,6 +327,13 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 		1D7CCC6830599E06005B6BD3 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		635F2AA90A0EC6C71EF40303 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -266,6 +364,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		EA2304F9A91C52DC891A7A12 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
@@ -278,6 +383,12 @@
 			isa = PBXTargetDependency;
 			target = 1D7CCC5030599E04005B6BD3 /* Mindlore */;
 			targetProxy = 1D7CCC6B30599E06005B6BD3 /* PBXContainerItemProxy */;
+		};
+		5072B45FF5DA4B494B864CAA /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			name = MindloreWidgets;
+			target = D4E0DBE0DF41BEF4E57ED3B1 /* MindloreWidgets */;
+			targetProxy = C1982F777966D06F7E993BEF /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
 
@@ -420,6 +531,7 @@
 				INFOPLIST_KEY_NSFaceIDUsageDescription = "Mindlore uses Face ID to keep your journal locked when you ask it to.";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Mindlore records your voice so you can journal by speaking.";
 				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "Mindlore turns your recordings into text.";
+				INFOPLIST_KEY_NSSupportsLiveActivities = YES;
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -431,6 +543,7 @@
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.natefikru.mindlore;
 				PRODUCT_NAME = "$(TARGET_NAME)";
+				PROVISIONING_PROFILE_SPECIFIER = "$(MINDLORE_APP_PROFILE)";
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
 				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
@@ -458,6 +571,7 @@
 				INFOPLIST_KEY_NSFaceIDUsageDescription = "Mindlore uses Face ID to keep your journal locked when you ask it to.";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Mindlore records your voice so you can journal by speaking.";
 				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "Mindlore turns your recordings into text.";
+				INFOPLIST_KEY_NSSupportsLiveActivities = YES;
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -469,6 +583,7 @@
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.natefikru.mindlore;
 				PRODUCT_NAME = "$(TARGET_NAME)";
+				PROVISIONING_PROFILE_SPECIFIER = "$(MINDLORE_APP_PROFILE)";
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
 				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
@@ -563,6 +678,77 @@
 			};
 			name = Release;
 		};
+		5A8A6176B5798AAD36B9A3B8 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = Ember;
+				CLANG_ENABLE_OBJC_WEAK = NO;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 7DZBU56KUA;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = MindloreWidgets/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = Mindlore;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				IPHONEOS_DEPLOYMENT_TARGET = 26.5;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.natefikru.mindlore.widgets;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				PROVISIONING_PROFILE_SPECIFIER = "$(MINDLORE_WIDGETS_PROFILE)";
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 1;
+				VALIDATE_PRODUCT = YES;
+			};
+			name = Release;
+		};
+		C14E97155092039062E8A729 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = Ember;
+				CLANG_ENABLE_OBJC_WEAK = NO;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 7DZBU56KUA;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = MindloreWidgets/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = Mindlore;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				IPHONEOS_DEPLOYMENT_TARGET = 26.5;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.natefikru.mindlore.widgets;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				PROVISIONING_PROFILE_SPECIFIER = "$(MINDLORE_WIDGETS_PROFILE)";
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Debug;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -598,6 +784,15 @@
 			buildConfigurations = (
 				1D7CCC7B30599E06005B6BD3 /* Debug */,
 				1D7CCC7C30599E06005B6BD3 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		72FE88BF8A03598A30F7A7B4 /* Build configuration list for PBXNativeTarget "MindloreWidgets" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				5A8A6176B5798AAD36B9A3B8 /* Release */,
+				C14E97155092039062E8A729 /* Debug */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
