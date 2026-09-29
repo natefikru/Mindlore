@@ -197,6 +197,31 @@ struct TodayTests {
         #expect(today().cards.contains { $0.kind == .stillOpen })
     }
 
+    // The card's subheading: who the loose end is about, through merges, once each, people only.
+    @Test func aLooseEndCarriesItsPeopleForTheSubheading() throws {
+        let winner = try entity("Maya Okonkwo")
+        let loser = try entity("Maya")
+        loser.mergedIntoID = winner.id
+        let tom = try entity("Tom")
+        let cafe = Entity(name: "Blue Door Cafe", key: "blue door cafe", kind: .place)
+        context.insert(cafe)
+        try context.save()
+        try entry("an entry", on: now)
+        try looseEnd("meet Maya and Tom at the cafe", opened: date(2026, 1, 4), about: [loser.id, tom.id, winner.id, cafe.id])
+
+        let thread = try #require(today().cards.compactMap(\.thread).first)
+        #expect(thread.people == ["Maya Okonkwo", "Tom"])
+        #expect(TodayCopy.people(.stillOpen(thread), locale: Locale(identifier: "en_US")) == "Maya Okonkwo and Tom")
+    }
+
+    @Test func aLooseEndAboutNoOneHasNoSubheading() throws {
+        try entry("an entry", on: now)
+        try looseEnd("book the dentist", opened: date(2026, 1, 4))
+
+        let thread = try #require(today().cards.compactMap(\.thread).first)
+        #expect(TodayCopy.people(.stillOpen(thread)) == nil)
+    }
+
     @Test func aFadedThreadIsNotStillOpen() throws {
         try entry("an entry", on: now)
         let end = try looseEnd("book the dentist", opened: date(2026, 1, 4))

@@ -55,7 +55,8 @@ struct EntryListView: View {
                         mute: muteFromToday,
                         act: actOnThread,
                         openEntry: { router.showEntry($0, forReading: true) },
-                        openReflect: { router.showReflect(.recaps) }
+                        openReflect: { router.showReflect(.recaps) },
+                        openLooseEnds: { router.showReflect(.looseEnds) }
                     )
                         .listRowInsets(EdgeInsets())
                         .listRowBackground(Color.clear)

@@ -15,6 +15,7 @@ struct TodayHeader: View {
     var act: (TodayThreadAction, LooseEndFacts) -> Void = { _, _ in }
     var openEntry: (UUID) -> Void = { _ in }
     var openReflect: () -> Void = {}
+    var openLooseEnds: () -> Void = {}
     @State private var position: String?
 
     var body: some View {
@@ -56,7 +57,8 @@ struct TodayHeader: View {
                                 if action != .writeAbout { advance(past: card) }
                                 act(action, end)
                             },
-                            open: entryID(of: card).map { id in { openEntry(id) } }
+                            open: opener(for: card),
+                            openHint: card.thread == nil ? "Opens the entry" : "Opens your loose ends"
                         )
                         .frame(maxHeight: .infinity, alignment: .top)
                         .containerRelativeFrame(.horizontal)
@@ -100,10 +102,12 @@ struct TodayHeader: View {
         position = today.cards.indices.contains(next) ? today.cards[next].id : nil
     }
 
-    private func entryID(of card: TodayCard) -> UUID? {
+    // A day card opens its entry. A loose end opens Reflect's Loose ends, where it sits among the
+    // rest (owner, 2026-09-28); its Write about it button is what reaches the entry.
+    private func opener(for card: TodayCard) -> (() -> Void)? {
         switch card {
-        case .onThisDay(let entry, _), .latestSummary(let entry): entry.id
-        case .closed(let end), .dueToday(let end), .stillOpen(let end): end.sourceEntryID
+        case .onThisDay(let entry, _), .latestSummary(let entry): { openEntry(entry.id) }
+        case .closed, .dueToday, .stillOpen: openLooseEnds
         case .beenAWhile: nil
         }
     }
@@ -115,6 +119,7 @@ struct TodayCardView: View {
     let mute: (EntityFacts) -> Void
     var act: (TodayThreadAction) -> Void = { _ in }
     var open: (() -> Void)?
+    var openHint = "Opens the entry"
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -137,11 +142,12 @@ struct TodayCardView: View {
                         .accessibilityIdentifier("todayDismiss-\(card.kind.rawValue)")
                 }
             }
-            // A button, not a tap gesture, so VoiceOver can open the entry too.
+            // A button, not a tap gesture, so VoiceOver can open it too.
             if let open {
                 Button(action: open) { content.contentShape(Rectangle()) }
                     .buttonStyle(.plain)
-                    .accessibilityHint("Opens the entry")
+                    .accessibilityHint(openHint)
+                    .accessibilityIdentifier("todayCardOpen")
             } else {
                 content
             }
@@ -164,11 +170,18 @@ struct TodayCardView: View {
         .accessibilityIdentifier("todayCard-\(card.kind.rawValue)")
     }
 
-    // The user's own words, in the user's own face, then when it was and, for a thread, when it
-    // fades.
+    // For a thread, who it is about; then the user's own words, in the user's own face, then when
+    // it was and, for a thread, when it fades.
     @ViewBuilder
     private var content: some View {
         VStack(alignment: .leading, spacing: 6) {
+            if let people = TodayCopy.people(card) {
+                Text(people)
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(EntityKind.person.color)
+                    .lineLimit(1)
+                    .accessibilityIdentifier("todayPeople")
+            }
             let body = TodayCopy.body(card)
             if !body.isEmpty {
                 Text(body)
