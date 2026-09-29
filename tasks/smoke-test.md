@@ -379,3 +379,32 @@ offered again.
 
 Expect: `life.experiment accepted=true subject=tag` (or `area`), and `accepted=false` for the
 decline.
+
+## Outside the app (added for the widget extension)
+
+### 41. The Record control
+
+Add Mindlore's Record control to Control Center (and, if you like, the Lock Screen or the Action
+button). Press it with the app closed, then again with it open on another tab. Expect the recorder
+to open and start capturing both times, and a second press during a recording to bring the recorder
+back rather than start another.
+
+Expect: `intent.invoked kind=record` each time, then `recording.started`.
+
+### 42. The recording Live Activity
+
+Start a recording and lock the phone. Expect a Lock Screen card with "Recording", a running clock,
+and a Stop button, and no words. Unlock, go Home: the Dynamic Island shows the dot and the clock.
+Pause from the accessory: the clock freezes and says Paused. Tap Stop on the Lock Screen: the
+recording saves and becomes an entry, and the card is gone at once. Then start another and
+force-quit the app: relaunching must leave no card behind.
+
+Expect: `liveActivity.started`, `liveActivity.ended` after Stop, and the recording ingested.
+
+### 43. Quick actions
+
+Long-press the Mindlore icon. Expect Record, New Entry, and Ask, each doing what it says, from a
+cold launch and from the background.
+
+Expect: `intent.invoked` with the matching kind.
+

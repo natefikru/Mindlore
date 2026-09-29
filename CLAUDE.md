@@ -528,8 +528,21 @@ new id. A loose end with any hidden or muted subject never becomes a card. The h
 composer reads, never on a count.
 
 **Intents and the reminder** (`Mindlore/Intents/`, `Mindlore/Reminders/`). Start Recording, New
-Written Entry, and Ask Your Journal are App Intents in the app target (no extension, no entitlement,
-nothing the Personal Team can't sign), with Siri phrases in `MindloreShortcuts`. An intent can run on
+Written Entry, and Ask Your Journal are App Intents in the app target, with Siri phrases in
+`MindloreShortcuts`. Three more doors lead to the same requests: Home Screen quick actions (Record,
+New Entry, Ask; declared in `Info.plist`, handled by `QuickActions.swift`'s app and scene delegates),
+`mindlore://record|new|ask` links (`IntentAction(url:)`, taken in `RootView.onOpenURL`), and the
+`MindloreWidgets` extension. The extension holds the Record control (Control Center, the Lock
+Screen, the Action button), whose intent runs in the extension and opens `mindlore://record`, and
+the recording Live Activity: `RecordingLiveActivity` (app) starts it when a recording captures,
+updates it only when the recorder pauses or resumes (a running clock counts on its own), ends it
+the moment the recording stops, and `MindloreApp.init` ends any left by a killed recording. It shows
+time and state only, never words. `Shared/` is compiled into both targets and holds only
+`RecordingActivityAttributes` and `StopRecordingIntent`, a `LiveActivityIntent` that runs in the
+app's process and calls the hook `RootView` sets (`RecordingControl.stop`, which is `finish()`).
+The extension reads no journal data, so it has no App Group. The release runner signs each target
+with its own profile: `PROVISIONING_PROFILE_SPECIFIER` is `$(MINDLORE_APP_PROFILE)` on the app and
+`$(MINDLORE_WIDGETS_PROFILE)` on the extension, empty locally, where signing stays automatic. An intent can run on
 a cold launch before `RootView` exists, so it only leaves a request in `IntentRequests.shared`, a
 free-standing singleton; `RootView` takes it with `.onChange(of:initial: true)`, which covers a cold
 launch and a warm one alike, exactly once. `IntentHandler` carries it out through the calls the
