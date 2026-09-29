@@ -78,6 +78,7 @@ jobs:
             echo "KEYCHAIN=$RUNNER_TEMP/release.keychain-db"
             echo "ASC_KEY_PATH=$RUNNER_TEMP/AuthKey.p8"
             echo "PROFILE_PATH=$RUNNER_TEMP/appstore.mobileprovision"
+            echo "WIDGETS_PROFILE_PATH=$RUNNER_TEMP/widgets.mobileprovision"
           } >> "$GITHUB_ENV"
 
       - name: Select Xcode ${{ env.XCODE_VERSION }}
@@ -99,23 +100,34 @@ jobs:
           security list-keychains -d user -s "$KEYCHAIN" login.keychain-db
           rm -f "$p12"
 
-      - name: Install the App Store provisioning profile
+      # One profile per target: the app's, and the widget extension's (Record control, Live Activity).
+      - name: Install the App Store provisioning profiles
         env:
           PROFILE_BASE64: ${{ secrets.APPSTORE_PROFILE_BASE64 }}
+          WIDGETS_PROFILE_BASE64: ${{ secrets.APPSTORE_WIDGETS_PROFILE_BASE64 }}
         run: |
+          install_profile() {
+            local path="$1" variable="$2"
+            security cms -D -i "$path" > "$RUNNER_TEMP/profile.plist"
+            uuid="$(/usr/libexec/PlistBuddy -c 'Print :UUID' "$RUNNER_TEMP/profile.plist")"
+            name="$(/usr/libexec/PlistBuddy -c 'Print :Name' "$RUNNER_TEMP/profile.plist")"
+            expires="$(/usr/libexec/PlistBuddy -c 'Print :ExpirationDate' "$RUNNER_TEMP/profile.plist")"
+            echo "Profile \"$name\" ($uuid), expires $expires"
+            for dir in "$HOME/Library/Developer/Xcode/UserData/Provisioning Profiles" \
+                       "$HOME/Library/MobileDevice/Provisioning Profiles"; do
+              mkdir -p "$dir"
+              cp "$path" "$dir/$uuid.mobileprovision"
+            done
+            echo "$variable=$name" >> "$GITHUB_ENV"
+          }
           echo "$PROFILE_BASE64" | base64 --decode > "$PROFILE_PATH"
-          security cms -D -i "$PROFILE_PATH" > "$RUNNER_TEMP/profile.plist"
-          uuid="$(/usr/libexec/PlistBuddy -c 'Print :UUID' "$RUNNER_TEMP/profile.plist")"
-          name="$(/usr/libexec/PlistBuddy -c 'Print :Name' "$RUNNER_TEMP/profile.plist")"
-          expires="$(/usr/libexec/PlistBuddy -c 'Print :ExpirationDate' "$RUNNER_TEMP/profile.plist")"
-          echo "Profile \"$name\" ($uuid), expires $expires"
-          # Xcode 16 and later read profiles from here; the older folder is kept for good measure.
-          for dir in "$HOME/Library/Developer/Xcode/UserData/Provisioning Profiles" \
-                     "$HOME/Library/MobileDevice/Provisioning Profiles"; do
-            mkdir -p "$dir"
-            cp "$PROFILE_PATH" "$dir/$uuid.mobileprovision"
-          done
-          echo "PROFILE_NAME=$name" >> "$GITHUB_ENV"
+          install_profile "$PROFILE_PATH" PROFILE_NAME
+          if [ -z "$WIDGETS_PROFILE_BASE64" ]; then
+            echo "::error::APPSTORE_WIDGETS_PROFILE_BASE64 is not set; run scripts/release/make-widgets-profile.sh"
+            exit 1
+          fi
+          echo "$WIDGETS_PROFILE_BASE64" | base64 --decode > "$WIDGETS_PROFILE_PATH"
+          install_profile "$WIDGETS_PROFILE_PATH" WIDGETS_PROFILE_NAME
 
       - name: Install the App Store Connect API key
         env:
@@ -138,7 +150,8 @@ jobs:
             DEVELOPMENT_TEAM="$TEAM_ID" \
             CODE_SIGN_STYLE=Manual \
             CODE_SIGN_IDENTITY="Apple Distribution" \
-            PROVISIONING_PROFILE_SPECIFIER="$PROFILE_NAME" \
+            MINDLORE_APP_PROFILE="$PROFILE_NAME" \
+            MINDLORE_WIDGETS_PROFILE="$WIDGETS_PROFILE_NAME" \
             CURRENT_PROJECT_VERSION="${{ github.run_number }}.${{ github.run_attempt }}" \
             | xcbeautify --renderer github-actions
 
@@ -161,6 +174,7 @@ jobs:
             <key>provisioningProfiles</key>
             <dict>
               <key>com.natefikru.mindlore</key><string>$PROFILE_NAME</string>
+              <key>com.natefikru.mindlore.widgets</key><string>$WIDGETS_PROFILE_NAME</string>
             </dict>
             <key>uploadSymbols</key><true/>
             <key>manageAppVersionAndBuildNumber</key><false/>
@@ -182,4 +196,4 @@ jobs:
         if: always()
         run: |
           security delete-keychain "$KEYCHAIN" || true
-          rm -f "$ASC_KEY_PATH" "$PROFILE_PATH"
+          rm -f "$ASC_KEY_PATH" "$PROFILE_PATH" "$WIDGETS_PROFILE_PATH"
