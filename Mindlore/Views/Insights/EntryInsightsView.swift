@@ -30,6 +30,7 @@ struct EntryInsightsView: View {
     @State private var showingAISettings = false
     @State private var repointing: Repointing?
     @State private var startedOnOpen = false
+    @State private var insightsVerdict: AnswerFeedback.Verdict?
 
     private struct Repointing: Identifiable {
         let mention: MentionRef
@@ -124,6 +125,9 @@ struct EntryInsightsView: View {
                 chips = graph.chipIndex(for: entry.id, in: modelContext)
                 added = graph.addedNames(for: entry, in: modelContext)
             }
+            .task(id: entry.id) {
+                insightsVerdict = AnswerFeedback.verdict(on: entry.id.uuidString, surface: .insights, in: modelContext)
+            }
             .sheet(isPresented: $showingAISettings) {
                 AISettingsSheet()
             }
@@ -202,9 +206,37 @@ struct EntryInsightsView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
+            if insights != nil, state == .current || state == .stale || state == .empty {
+                feedbackButtons
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .card()
+    }
+
+    // Voluntary and quiet, the way Life's "That's right"/"Not quite" sits under a portrait line.
+    // Stored and counted only; nothing here changes what a later insights run is asked.
+    private var feedbackButtons: some View {
+        HStack(spacing: 10) {
+            Button {
+                insightsVerdict = AnswerFeedback.toggle(.up, on: entry.id.uuidString, surface: .insights, in: modelContext)
+            } label: {
+                Image(systemName: insightsVerdict == .up ? "hand.thumbsup.fill" : "hand.thumbsup")
+            }
+            .accessibilityLabel("These insights were right")
+            .accessibilityIdentifier("insightsThumbsUp")
+            Button {
+                insightsVerdict = AnswerFeedback.toggle(.down, on: entry.id.uuidString, surface: .insights, in: modelContext)
+            } label: {
+                Image(systemName: insightsVerdict == .down ? "hand.thumbsdown.fill" : "hand.thumbsdown")
+            }
+            .accessibilityLabel("These insights were wrong")
+            .accessibilityIdentifier("insightsThumbsDown")
+        }
+        .font(.subheadline)
+        .foregroundStyle(.secondary)
+        .buttonStyle(.plain)
+        .sensoryFeedback(Haptics.selected, trigger: insightsVerdict)
     }
 
     @ViewBuilder

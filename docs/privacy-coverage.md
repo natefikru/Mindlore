@@ -17,7 +17,9 @@ Reflect's Life side added `life.rendered`, `life.areaOpened`, `life.areaWords`, 
 text, a tag, an area's own name, the model's answer, and the author's note; and the + fan added
 `newEntry.chosen` (156: two literals), under view events. The rating prompt added `review.requested` (157: the moment, one of two literals, and nothing else), written by `ReviewPrompter` and driven by `ReviewPrompterTests`. The widget extension added `liveActivity.started`, `liveActivity.ended` (no fields), and
 `liveActivity.failed` (an ActivityKit error description) (160), written by `RecordingLiveActivity`,
-whose content is a clock and a paused flag only.
+whose content is a clock and a paused flag only. Phase 3's polish added `ask.feedback` and
+`insights.feedback` (162), the verdict and the surface only, driven by
+`AnswerFeedbackDiagnosticsPrivacyTests`, added to the table.
 Those two tests assert that the event was written as well as that the sentinel wasn't, which is
 what the instrumented run below establishes for the rest.
 
@@ -32,7 +34,7 @@ The instrumentation was reverted and never committed.
 To redo it: add a one-line append to `record`, run the tests below one at a time with
 `test-without-building`, and diff the union against the event list.
 
-## Covered: 86 events, driven by a sentinel test
+## Covered: 88 events, driven by a sentinel test
 
 | Test | Events it drives |
 |---|---|
@@ -55,6 +57,7 @@ To redo it: add a one-line append to `record`, run the tests below one at a time
 | `RedoInsightsTests/theLogCarriesCountsOnly` | `insights.redoAll`, `insights.redoStopped` (entry text is the sentinel) |
 | `LifeDiagnosticsPrivacyTests/lifeNeverLogsEntryTextTagsNamesAnswersOrNotes` | `life.rendered`, `life.areaOpened`, `life.areaWords`, `life.portrait`, `life.feedback`, `life.experiment` |
 | `DailyReminderTests/thePresenterShowsOnlyTheReminder` | `reminder.presented` (fired from the system's delegate callback, which no test can drive; the event carries one fixed bool, and the test covers the filter that decides it) |
+| `AnswerFeedbackDiagnosticsPrivacyTests/theLogCarriesTheVerdictAndTheSurfaceOnly` | `ask.feedback`, `insights.feedback` |
 
 Of the 32 events added since `main`, 30 are in this table. The other two are `demo.seeded` and
 `demo.seedFailed`, covered below.
