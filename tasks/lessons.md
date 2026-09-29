@@ -315,3 +315,7 @@ Rules:
 - Before the first edit, list the decisions the request leaves open and ask the ones that change
   what gets built. A decision that would touch the SwiftData model always gets asked, because it
   means a CloudKit schema deploy.
+
+## 2026-09-28: one PR per small change starves CI
+
+Four small PRs in an hour each took a full build and unit run, and stacked ones collided on shared files. Batch related work into one branch and one PR, with one commit per logical change.
