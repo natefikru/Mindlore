@@ -497,9 +497,12 @@ struct AskDiagnosticsPrivacyTests {
         let stopping = Task { await stoppingAsk.send("Stop \(sentinel)?", in: context) }
         await stopped.waitForDeltas(1)
         // The delta being sent is not the delta being shown: AskService reads the stream in a task
-        // of its own, and stop() does nothing until the answer is on screen. On a runner the stop
-        // landed first and the answer finished unstopped. Bounded, sleeping rather than yielding.
-        for _ in 0..<500 where !stoppingAsk.canStop {
+        // of its own. Wait until the partial answer is on screen, not merely until Stop is enabled
+        // (canStop is true from the moment the turn exists): stopping before the reader has taken
+        // the first delta lets the fake run on to .finished once released, and a whole answer
+        // counts as answered, not stopped. That failed on runners twice. Bounded, sleeping rather
+        // than yielding.
+        for _ in 0..<500 where stoppingAsk.turns.last?.text.contains(sentinel) != true {
             try? await Task.sleep(for: .milliseconds(10))
         }
         stoppingAsk.stop()
