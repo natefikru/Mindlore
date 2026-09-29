@@ -34,7 +34,26 @@ struct StopRecordingIntent: LiveActivityIntent {
     }
 }
 
+// The Record control's action. Compiled into both targets, as Apple asks of a control that opens
+// its app: with `openAppWhenRun` the system launches Mindlore and performs it there, where the hook
+// is set before any scene exists (MindloreApp.init), so a cold launch takes the same path as Siri's
+// Start Recording. A link opened from the extension instead (mindlore://record) did nothing on the
+// phone.
+struct RecordFromControlIntent: AppIntent {
+    static let title: LocalizedStringResource = "Record in Mindlore"
+    static let description = IntentDescription("Opens Mindlore and starts a voice entry.")
+    static let openAppWhenRun = true
+    static let isDiscoverable = false
+
+    @MainActor
+    func perform() async throws -> some IntentResult {
+        RecordingControl.start?()
+        return .result()
+    }
+}
+
 @MainActor
 enum RecordingControl {
     static var stop: (() async -> Void)?
+    static var start: (() -> Void)?
 }

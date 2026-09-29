@@ -319,3 +319,11 @@ Rules:
 ## 2026-09-28: one PR per small change starves CI
 
 Four small PRs in an hour each took a full build and unit run, and stacked ones collided on shared files. Batch related work into one branch and one PR, with one commit per logical change.
+
+## 2026-09-28: a control that opens the app
+
+A ControlWidgetButton whose intent lives only in the widget extension and returns OpenURLIntent(mindlore://record) did nothing on the phone (twenty presses, no launch in the diagnostics log), though the same link worked from a UI test. Apple's pattern works: an intent compiled into both targets with openAppWhenRun, performed in the app. Check a control on the device, not only the simulator.
+
+## 2026-09-28: iCloud Drive conflict copies break the build
+
+The repo lives in ~/Documents, which iCloud Drive syncs. Switching branches while new files were being created left "Name 2.swift" copies of eleven files, and the synchronized groups compiled both ("ambiguous use of init()"). Before a confusing build error, run: find . -name "* 2.*" -not -path "./.git/*". Compare each copy to its original before deleting.
