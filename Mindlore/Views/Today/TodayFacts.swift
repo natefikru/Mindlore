@@ -40,6 +40,8 @@ nonisolated struct LooseEndFacts: Equatable, Sendable, Identifiable {
     let resolvedByEntryID: UUID?
     // Set while it is open because the user reopened it (`LooseEnd.reopenedAt`).
     let reopenedAt: Date?
+    // The people it is about, resolved through merges, in the order the loose end names them.
+    let people: [String]
 
     init(
         id: UUID,
@@ -50,7 +52,8 @@ nonisolated struct LooseEndFacts: Equatable, Sendable, Identifiable {
         lastMentionedAt: Date? = nil,
         dueDate: Date? = nil,
         resolvedByEntryID: UUID? = nil,
-        reopenedAt: Date? = nil
+        reopenedAt: Date? = nil,
+        people: [String] = []
     ) {
         self.id = id
         self.text = text
@@ -61,6 +64,7 @@ nonisolated struct LooseEndFacts: Equatable, Sendable, Identifiable {
         self.dueDate = dueDate
         self.resolvedByEntryID = resolvedByEntryID
         self.reopenedAt = reopenedAt
+        self.people = people
     }
 
     // When it fades if nothing touches it first, by the same rule the sweep applies.

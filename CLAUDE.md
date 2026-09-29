@@ -520,7 +520,7 @@ day, the latest entry's summary), then every other open loose end in the order t
 Nothing backs two cards. A day card's X is day-scoped (`TodayDismissal` in `SettingsStore`,
 thrown away when the day changes). A thread card has no X and no swipe-dismiss (the horizontal
 swipe is paging): it stays until Done (resolved), Let it go (dismissed), or it fades, and it shows
-the fade date from `LooseEndFading`, the one rule the fade sweep also reads. Reflect's Loose ends
+the fade date from `LooseEndFading`, the one rule the fade sweep also reads. Tapping a thread card opens Reflect's Loose ends, never the entry that raised it (owner, 2026-09-28; Write about it is what reaches the entry), and the people it is about (`LooseEndFacts.people`, resolved through merges, persons only) sit above its words as a subheading. Reflect's Loose ends
 tab lists every loose end, open or closed; Today shows only open ones. `Entity.resurfacingMuted` is the per-name mute; it is in `GraphIndexer.recount`'s
 keep-list beside `hidden`, or a muted name that loses its last link is pruned and returns under a
 new id. A loose end with any hidden or muted subject never becomes a card. The header refreshes on

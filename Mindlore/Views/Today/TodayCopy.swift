@@ -40,6 +40,12 @@ nonisolated enum TodayCopy {
         }
     }
 
+    // A loose end's people, as a subheading: "Maya", "Maya and Greg", "Maya, Greg, and Sam".
+    static func people(_ card: TodayCard, locale: Locale = .current) -> String? {
+        guard let people = card.thread?.people, !people.isEmpty else { return nil }
+        return people.formatted(.list(type: .and).locale(locale))
+    }
+
     static func detail(_ card: TodayCard, calendar: Calendar = .current, locale: Locale = .current) -> String? {
         switch card {
         case .closed(let end):
