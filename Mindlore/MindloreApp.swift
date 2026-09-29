@@ -12,6 +12,8 @@ import UserNotifications
 
 @main
 struct MindloreApp: App {
+    // Only for Home Screen quick actions, which SwiftUI has no modifier for.
+    @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     private let container: Result<ModelContainer, any Error>
     @State private var settings: SettingsStore
     @State private var accounts: ProviderAccountStore

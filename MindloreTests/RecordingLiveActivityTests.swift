@@ -37,3 +37,23 @@ struct IntentURLTests {
         #expect(IntentAction(url: try #require(URL(string: "https://record"))) == nil)
     }
 }
+
+struct QuickActionTests {
+    @Test func eachQuickActionIsTheRequestItsTitleSays() {
+        #expect(QuickAction.action(forType: "com.natefikru.mindlore.record") == .record)
+        #expect(QuickAction.action(forType: "com.natefikru.mindlore.new") == .newEntry)
+        #expect(QuickAction.action(forType: "com.natefikru.mindlore.ask") == .ask(nil))
+        #expect(QuickAction.action(forType: "com.example.other") == nil)
+    }
+
+    // Every type the Info.plist declares is one the app understands.
+    @Test func everyDeclaredQuickActionIsHandled() throws {
+        let items = try #require(Bundle.main.object(forInfoDictionaryKey: "UIApplicationShortcutItems") as? [[String: Any]])
+        #expect(items.count == 3)
+        for item in items {
+            let type = try #require(item["UIApplicationShortcutItemType"] as? String)
+            #expect(QuickAction.action(forType: type) != nil, "\(type)")
+        }
+    }
+}
+
