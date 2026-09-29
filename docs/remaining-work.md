@@ -112,7 +112,7 @@ last, after deciding the real journal can go, or run against `-seedDemoJournal 3
 
 | | What | Size | Needs the phone for |
 |---|---|---|---|
-| [ ] B3 | First run and permissions: three skippable screens, `hasOnboarded` | S | The permission prompts, the ten-second recording |
+| [x] B3 | First run and permissions: three skippable screens, `hasOnboarded` | S | The permission prompts, the ten-second recording (step 44, unrun) |
 | [ ] B4 | Recording screen and motion: Carry, waveform ribbon, serif live transcript, read-mode strip | M | Nearly all of it |
 | [x] B5 | Insights sheet and entity surfaces restyled as cards | M | Nothing; screenshot-tested. Densest identifiers in the app |
 | [x] B6 | App Intents (Shortcuts, Siri, Action button) and the daily reminder | S to M | The Action button, Siri, delivery |
@@ -360,8 +360,10 @@ Real, deferred on purpose, each with why it can wait.
   guard, not a measurement.
 - A force-quit inside the document camera loses that scan: VisionKit only hands pages back on Save.
 - An upload running when the app is backgrounded may be suspended; it retries later.
-- The in-app privacy wording and the `PrivacyInfo.xcprivacy` data collection declarations need their
-  own review before any build goes to anyone else.
+- [x] The in-app privacy wording and the `PrivacyInfo.xcprivacy` data collection declarations were
+      reviewed 2026-09-29: `docs/privacy-review.md`. No false claim found, the manifest is correct
+      as it stands, and the doc gives the answers for App Store Connect's own App Privacy
+      questionnaire, which still has to be filled in by hand at submission (outside the repo).
 
 ## What this replaced
 

@@ -33,8 +33,8 @@ struct RootView: View {
     @Environment(SyncStatusMonitor.self) private var sync
     @Environment(ProviderAccountStore.self) private var accounts
     @State private var confirmingDiscard = false
-    @State private var showingWelcome = false
-    // The welcome screen's Add a key.
+    @State private var showingOnboarding = false
+    // Onboarding's Add a key.
     @State private var showingAISettings = false
     private let context: ModelContext
 
@@ -312,13 +312,20 @@ struct RootView: View {
             refreshThisWeek()
         }
         .overlay {
-            if showingWelcome {
-                WelcomeView(
-                    onStart: { closeWelcome() },
+            if showingOnboarding {
+                OnboardingView(
+                    onFinish: { completeOnboarding() },
                     onAddKey: {
-                        closeWelcome()
+                        completeOnboarding()
                         showingAISettings = true
-                    }
+                    },
+                    makeRecorder: { UITestingRecorder.isEnabled ? UITestingRecorder() as any AudioRecording : AudioRecorder() },
+                    // The fake recorder under UI tests needs no real permission, and a system
+                    // prompt would block them, same rule as the recording session's own ask.
+                    askRecordingPermissions: {
+                        if !UITestingRecorder.isEnabled { await RecordingPermissions.askIfNeeded(speechEngine: settings.speechEngine) }
+                    },
+                    reminder: reminder
                 )
                 .transition(.opacity)
             }
@@ -343,10 +350,10 @@ struct RootView: View {
         }
         .onAppear {
             lock.lockAtLaunch()
-            showingWelcome = Self.showsWelcome(seen: settings.welcomeSeen, arguments: ProcessInfo.processInfo.arguments, entries: (try? context.fetchCount(FetchDescriptor<Entry>())) ?? 0)
+            showingOnboarding = Self.showsOnboarding(seen: settings.hasOnboarded, arguments: ProcessInfo.processInfo.arguments, entries: (try? context.fetchCount(FetchDescriptor<Entry>())) ?? 0)
             // A journal that already has entries never needs it, so it's marked seen rather than
             // asked about again on every launch.
-            if !showingWelcome { settings.welcomeSeen = true }
+            if !showingOnboarding { settings.hasOnboarded = true }
         }
         // Every edit, a recording's text arriving, and a title landing move the running week, so its
         // summary is rewritten in the background once things go quiet.
@@ -437,16 +444,16 @@ struct RootView: View {
 }
 
 extension RootView {
-    // Only a new install sees the welcome: not a journal with entries in it, and never a UI test
-    // unless it asks with -showWelcome.
-    static func showsWelcome(seen: Bool, arguments: [String], entries: Int) -> Bool {
-        if arguments.contains("-showWelcome") { return true }
+    // Only a new install sees onboarding: not a journal with entries in it, and never a UI test
+    // unless it asks with -showOnboarding.
+    static func showsOnboarding(seen: Bool, arguments: [String], entries: Int) -> Bool {
+        if arguments.contains("-showOnboarding") { return true }
         return !seen && entries == 0 && !arguments.contains(StoreLocation.uiTestingArgument)
     }
 
-    fileprivate func closeWelcome() {
-        settings.welcomeSeen = true
-        withAnimation(Motion.resolve(Motion.settle, reduceMotion: false)) { showingWelcome = false }
+    fileprivate func completeOnboarding() {
+        settings.hasOnboarded = true
+        withAnimation(Motion.resolve(Motion.settle, reduceMotion: false)) { showingOnboarding = false }
     }
 }
 

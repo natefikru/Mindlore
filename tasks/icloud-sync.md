@@ -136,7 +136,7 @@ it or picks a provider (`speechEngine`, `speechAccountID`, `pageAccountID`, `tex
 `titleGenerator`, `insightsGenerator`, `askGenerator`, `askGeneratorChosenByUser`), since an
 account id without its key on the other phone is worse than no setting, `aiEnabled`/`aiEnabledAt`
 (whether this phone sends anything to OpenAI is the phone's decision), `appLockEnabled`, the
-reminder, `todayDismissed`, `welcomeSeen`, the sync switch itself.
+reminder, `todayDismissed`, `hasOnboarded`, the sync switch itself.
 
 ### 7. Safety copy and recovery
 

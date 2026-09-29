@@ -280,12 +280,12 @@ struct TrustDiagnosticsPrivacyTests {
     }
 }
 
-struct WelcomeRuleTests {
-    @Test func onlyANewInstallSeesTheWelcome() {
-        #expect(RootView.showsWelcome(seen: false, arguments: [], entries: 0))
-        #expect(!RootView.showsWelcome(seen: true, arguments: [], entries: 0), "once is enough")
-        #expect(!RootView.showsWelcome(seen: false, arguments: [], entries: 3), "an existing journal skips it")
-        #expect(!RootView.showsWelcome(seen: false, arguments: ["-uiTesting"], entries: 0), "UI tests don't see it")
-        #expect(RootView.showsWelcome(seen: true, arguments: ["-uiTesting", "-showWelcome"], entries: 5), "unless they ask")
+struct OnboardingRuleTests {
+    @Test func onlyANewInstallSeesOnboarding() {
+        #expect(RootView.showsOnboarding(seen: false, arguments: [], entries: 0))
+        #expect(!RootView.showsOnboarding(seen: true, arguments: [], entries: 0), "once is enough")
+        #expect(!RootView.showsOnboarding(seen: false, arguments: [], entries: 3), "an existing journal skips it")
+        #expect(!RootView.showsOnboarding(seen: false, arguments: ["-uiTesting"], entries: 0), "UI tests don't see it")
+        #expect(RootView.showsOnboarding(seen: true, arguments: ["-uiTesting", "-showOnboarding"], entries: 5), "unless they ask")
     }
 }
