@@ -16,6 +16,7 @@ struct LifeView: View {
     @Environment(SettingsStore.self) private var settings
     @Environment(EntrySaver.self) private var saver
     @Environment(GraphServices.self) private var graph
+    @Environment(ReviewPrompter.self) private var reviews
 
     @Binding var window: MindWindow
     let openArea: (LifeAreaRoute) -> Void
@@ -233,6 +234,7 @@ struct LifeView: View {
         hasPortrait = LifeWords.portraitForThisMonth(in: modelContext) != nil
         recompute(animated: false)
         LifeDiagnostics.rendered(reading: reading, progress: progress, started: started)
+        if let reading, !reading.isEarly { reviews.moment(.lifeReading) }
     }
 
     private func recompute(animated: Bool) {
