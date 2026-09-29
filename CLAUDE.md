@@ -245,6 +245,13 @@ after the system prompt and the answer headroom come out.
   so the fade never lands on the search panel's last row and catches its tap. Dragging the
   conversation or tapping empty space dismisses the keyboard (it covers the tab bar); not on the
   search results, which only show while the field is focused and would vanish mid-scroll.
+- **A quiet thumbs up/down on an answer** (`AnswerFeedback` in `Mindlore/Reflect/AnswerFeedback.swift`,
+  owner 2026-09-29), in the footer beside the provider name and "What was sent". Tapping the same one again clears it,
+  the other replaces it. Stored and counted only, never read into a prompt: like Life's own
+  feedback, it rides `ReflectSummary` rows under a free-string `periodKindRaw`
+  (`ask.feedback`, keyed by the answer's own id, which is the turn's `AskMessage` id, so it
+  survives a reopened conversation), no CloudKit schema change. An entry's insights sheet carries
+  the same control under `insights.feedback`, keyed by the entry id.
 - **Diagnostics** (`ask.indexed`, `ask.retrieved`, `ask.answered`, `ask.stopped`, `ask.failed`) carry counts,
   durations, bools, and rounded scores, `ask.answered` including `streamed` and
   `firstChunkMilliseconds`, which is the number streaming exists to move. Never a term, a tag, a
